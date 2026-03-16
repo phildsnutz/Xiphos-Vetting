@@ -403,8 +403,27 @@ def register_auth_routes(app):
 
     @app.route("/api/auth/login", methods=["POST"])
     def auth_login():
-        """Authenticate and receive a bearer token."""
+        """Authenticate and receive a bearer token. Rate limited: 5 per 5 min per IP."""
+        # Rate limit: import here to avoid circular imports at module level
+        from hardening import rate_limit as _rl, validate_auth_input as _vai
+
+        # Inline rate check (5 attempts per 5 minutes per IP)
+        from hardening import _limiter
+        client_ip = request.remote_addr or "unknown"
+        if not _limiter.is_allowed(f"login:{client_ip}", 5, 300):
+            log_audit("login_rate_limited", detail=f"Rate limited login from {client_ip}")
+            return jsonify({
+                "error": "Too many login attempts. Try again in 5 minutes.",
+                "retry_after_seconds": 300,
+            }), 429
+
         body = request.get_json(silent=True) or {}
+
+        # Validate input
+        valid, err = _vai(body)
+        if not valid:
+            return jsonify({"error": err}), 400
+
         email = body.get("email", "")
         password = body.get("password", "")
 
@@ -475,14 +494,15 @@ def register_auth_routes(app):
             return jsonify({"error": "Setup already complete. Users exist."}), 400
 
         body = request.get_json(silent=True) or {}
+
+        from hardening import validate_auth_input as _vai
+        valid, err = _vai(body, is_setup=True)
+        if not valid:
+            return jsonify({"error": err}), 400
+
         email = body.get("email", "")
         password = body.get("password", "")
         name = body.get("name", "Admin")
-
-        if not email or not password:
-            return jsonify({"error": "Email and password required"}), 400
-        if len(password) < 8:
-            return jsonify({"error": "Password must be at least 8 characters"}), 400
 
         try:
             user = create_user(email, password, name, role="admin")

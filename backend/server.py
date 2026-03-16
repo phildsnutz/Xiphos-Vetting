@@ -45,7 +45,6 @@ import argparse
 from datetime import datetime
 
 from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS
 
 from scoring import (
     score_vendor, VendorInput, OwnershipProfile, DataQuality, ExecProfile
@@ -54,6 +53,10 @@ from ofac import screen_name, get_active_db, invalidate_cache
 import db
 from auth import (
     init_auth_db, register_auth_routes, require_auth, log_audit, AUTH_ENABLED
+)
+from hardening import (
+    rate_limit, validate_vendor_input, validate_auth_input,
+    configure_cors, add_security_headers,
 )
 
 # Optional: sanctions sync engine (may fail if dependencies missing)
@@ -98,7 +101,8 @@ except ImportError:
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 app = Flask(__name__, static_folder=None)
-CORS(app)
+configure_cors(app)
+add_security_headers(app)
 
 # Register auth routes immediately (available regardless of main() startup)
 register_auth_routes(app)
@@ -286,6 +290,11 @@ def api_create_case():
     for field in required:
         if field not in body:
             return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    # Input validation
+    valid, err = validate_vendor_input(body)
+    if not valid:
+        return jsonify({"error": err}), 400
 
     vendor_id = body.get("id", f"c-{uuid.uuid4().hex[:8]}")
     v = {
@@ -696,6 +705,11 @@ def api_screen_vendor():
     vendor_name = body.get("name", "")
     if not vendor_name:
         return jsonify({"error": "Missing 'name' field"}), 400
+
+    # Input validation
+    valid, err = validate_vendor_input({"name": vendor_name})
+    if not valid:
+        return jsonify({"error": err}), 400
 
     result = screen_name(vendor_name)
     result_dict = {

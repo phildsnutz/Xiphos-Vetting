@@ -2,15 +2,41 @@
  * Xiphos API client.
  * Base URL defaults to window origin (same-origin deployment)
  * or can be overridden via VITE_API_URL env var.
+ *
+ * Automatically injects bearer token from session storage when available.
  */
+
+import { getToken, clearSession } from "./auth";
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
+/** Callback set by AuthProvider to handle 401s (auto-logout) */
+let onAuthError: (() => void) | null = null;
+export function setAuthErrorHandler(handler: () => void): void {
+  onAuthError = handler;
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${BASE}${url}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers,
   });
+
+  if (res.status === 401) {
+    clearSession();
+    onAuthError?.();
+    throw new Error("Session expired. Please log in again.");
+  }
+
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`API ${res.status}: ${body}`);
@@ -110,92 +136,28 @@ export async function generateDossier(caseId: string): Promise<DossierResult> {
 
 /* ---- OSINT Enrichment ---- */
 
-export interface EnrichmentFinding {
-  source: string;
-  category: string;
-  title: string;
-  detail: string;
-  severity: "critical" | "high" | "medium" | "low" | "info";
-  confidence: number;
-  url: string;
-}
-
-export interface ConnectorStatus {
-  has_data: boolean;
-  findings_count: number;
-  elapsed_ms: number;
-  error: string;
-}
-
 export interface EnrichmentReport {
-  vendor_name: string;
-  country: string;
-  enriched_at: string;
-  total_elapsed_ms: number;
   overall_risk: string;
-  summary: {
-    findings_total: number;
-    critical: number;
-    high: number;
-    medium: number;
-    connectors_run: number;
-    connectors_with_data: number;
-    errors: number;
-  };
+  summary: string;
   identifiers: Record<string, string>;
-  findings: EnrichmentFinding[];
-  relationships: Array<Record<string, unknown>>;
-  risk_signals: Array<Record<string, unknown>>;
-  connector_status: Record<string, ConnectorStatus>;
-  errors: string[];
-  _cached?: boolean;
-}
-
-export async function enrichVendor(
-  name: string,
-  country = "",
-  force = false,
-): Promise<EnrichmentReport> {
-  return json<EnrichmentReport>("/api/enrich", {
-    method: "POST",
-    body: JSON.stringify({ name, country, force }),
-  });
-}
-
-export async function enrichCase(caseId: string): Promise<EnrichmentReport> {
-  return json<EnrichmentReport>(`/api/cases/${caseId}/enrich`, {
-    method: "POST",
-  });
+  findings: Array<{
+    source: string;
+    title: string;
+    detail: string;
+    severity: string;
+  }>;
+  connector_results: Record<string, unknown>;
+  total_elapsed_ms: number;
 }
 
 export async function enrichAndScore(caseId: string): Promise<{
-  enrichment: EnrichmentReport;
-  score: ScoreResult;
-  augmentation: Record<string, unknown>;
+  enrichment: { overall_risk: string; summary: string; identifiers: Record<string, string>; total_elapsed_ms: number };
+  augmentation: { changes: string[]; extra_risk_signals: string[]; verified_identifiers: string[] };
+  scoring: ScoreResult;
 }> {
-  return json(`/api/cases/${caseId}/enrich-and-score`, {
-    method: "POST",
-  });
+  return json(`/api/cases/${caseId}/enrich-and-score`, { method: "POST" });
 }
 
-export async function fetchEnrichment(caseId: string): Promise<EnrichmentReport | null> {
-  try {
-    return await json<EnrichmentReport>(`/api/cases/${caseId}/enrichment`);
-  } catch {
-    return null;
-  }
-}
-
-/* ---- Health ---- */
-
-export interface HealthStatus {
-  status: string;
-  version: string;
-  osint_enabled: boolean;
-  osint_connectors: string[];
-  osint_cache: { total_entries: number; fresh_entries: number; total_cache_hits: number };
-}
-
-export async function fetchHealth(): Promise<HealthStatus> {
-  return json<HealthStatus>("/api/health");
+export async function fetchEnrichment(caseId: string): Promise<EnrichmentReport> {
+  return json<EnrichmentReport>(`/api/cases/${caseId}/enrichment`);
 }

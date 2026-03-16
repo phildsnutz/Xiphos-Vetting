@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap } from "lucide-react";
+import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User } from "lucide-react";
 import { T } from "@/lib/tokens";
 import { CASES, ALERTS } from "@/lib/data";
 import { DashboardScreen } from "@/components/xiphos/dashboard-screen";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { ScreenVendor } from "@/components/xiphos/screen-vendor";
-import { rescore, generateDossier as apiDossier, fetchCases } from "@/lib/api";
+import { LoginScreen } from "@/components/xiphos/login-screen";
+import { rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
+import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel } from "@/lib/auth";
+import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, Alert } from "@/lib/types";
 import type { TierKey } from "@/lib/tokens";
 
@@ -65,7 +68,6 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
     sc: score.composite_score,
     conf: mc,
     cal,
-    // Extract country from contributions description if available
     ...(() => {
       const geoCt = cal.ct.find((c) => c.n === "Geography");
       const ccMatch = geoCt?.d?.match(/\(([A-Z]{2})\)/);
@@ -77,6 +79,12 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
 type Tab = "dashboard" | "screen";
 
 export default function App() {
+  // Auth state
+  const [authRequired, setAuthRequired] = useState<boolean | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(getUser());
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // App state
   const [cases, setCases] = useState<VettingCase[]>(CASES);
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
   const [selected, setSelected] = useState<VettingCase | null>(null);
@@ -84,45 +92,100 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(CASES.length > 0 ? "dashboard" : "screen");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
 
-  // Check API and load cases if available
+  // Handle 401 from any API call (auto-logout)
   useEffect(() => {
-    try {
-      if (window.location.protocol === "file:") { setApiAvailable(false); return; }
-      fetch("/api/health")
-        .then((r) => {
-          if (r.ok) {
-            setApiAvailable(true);
-            // Load existing cases from backend
-            fetchCases(200).then((apiCases) => {
-              const converted = apiCases
-                .map((ac) => apiCaseToVetting(ac as unknown as Parameters<typeof apiCaseToVetting>[0]))
-                .filter((c): c is VettingCase => c !== null);
-              if (converted.length > 0) {
-                setCases(converted);
-                setTab("dashboard");
-                // Derive alerts from loaded cases
-                const loadedAlerts: Alert[] = [];
-                for (const c of converted) {
-                  if (!c.cal) continue;
-                  for (const stop of c.cal.stops) {
-                    loadedAlerts.push({ id: loadedAlerts.length + 1, entity: c.name, sev: "critical", title: stop.t });
-                  }
-                  for (const flag of c.cal.flags) {
-                    loadedAlerts.push({ id: loadedAlerts.length + 1, entity: c.name, sev: flag.c > 0.7 ? "high" : "medium", title: flag.t });
-                  }
-                }
-                setAlerts(loadedAlerts.slice(0, 15));
-              }
-            }).catch(() => {});
-          } else {
-            setApiAvailable(false);
-          }
-        })
-        .catch(() => setApiAvailable(false));
-    } catch { setApiAvailable(false); }
+    setAuthErrorHandler(() => {
+      setUser(null);
+      setAuthRequired(true);
+    });
   }, []);
 
-  const handleRescore = useCallback(async (caseId: string) => {
+  // Check if auth is required on mount
+  useEffect(() => {
+    if (window.location.protocol === "file:") {
+      setAuthRequired(false);
+      setApiAvailable(false);
+      return;
+    }
+
+    checkAuthEnabled().then((enabled) => {
+      setAuthRequired(enabled);
+      if (!enabled) {
+        // Dev mode: skip login, load data
+        setApiAvailable(true);
+        loadCases();
+      } else if (getToken()) {
+        // Have a stored token: validate it and load
+        setApiAvailable(true);
+        loadCases();
+      }
+    });
+  }, []);
+
+  function loadCases() {
+    fetchCases(200)
+      .then((apiCases) => {
+        const converted = apiCases
+          .map((ac) => apiCaseToVetting(ac as unknown as Parameters<typeof apiCaseToVetting>[0]))
+          .filter((c): c is VettingCase => c !== null);
+        if (converted.length > 0) {
+          setCases(converted);
+          setTab("dashboard");
+          const loadedAlerts: Alert[] = [];
+          for (const c of converted) {
+            if (!c.cal) continue;
+            for (const stop of c.cal.stops) {
+              loadedAlerts.push({ id: loadedAlerts.length + 1, entity: c.name, sev: "critical", title: stop.t });
+            }
+            for (const flag of c.cal.flags) {
+              loadedAlerts.push({ id: loadedAlerts.length + 1, entity: c.name, sev: flag.c > 0.7 ? "high" : "medium", title: flag.t });
+            }
+          }
+          setAlerts(loadedAlerts.slice(0, 15));
+        }
+      })
+      .catch(() => {
+        // Token might be expired
+        if (authRequired) {
+          clearSession();
+          setUser(null);
+        }
+      });
+  }
+
+  function handleLogin(u: AuthUser) {
+    setUser(u);
+    setApiAvailable(true);
+    loadCases();
+  }
+
+  function handleLogout() {
+    clearSession();
+    setUser(null);
+    setShowUserMenu(false);
+    setCases(CASES);
+    setAlerts(ALERTS);
+    setSelected(null);
+  }
+
+  // If auth is required and no user, show login
+  if (authRequired === null) {
+    // Still checking
+    return (
+      <div className="h-screen flex items-center justify-center" style={{ background: T.bg }}>
+        <div className="flex flex-col items-center gap-3">
+          <Shield size={24} color={T.accent} className="animate-pulse" />
+          <span style={{ fontSize: 11, color: T.muted }}>Connecting to Xiphos...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (authRequired && !user) {
+    return <LoginScreen onLogin={handleLogin} needsSetup={false} />;
+  }
+
+  const handleRescore = async (caseId: string) => {
     const result = await rescore(caseId);
     const cal = mapCalibration(result.calibrated as unknown as Record<string, unknown>);
     const rl = cal.tier === "clear" ? "low" as const : cal.tier === "hard_stop" ? "critical" as const : "elevated" as const;
@@ -137,9 +200,9 @@ export default function App() {
       const history = [...(prev.history ?? []), snapshot];
       return { ...prev, sc: result.composite_score, cal, rl, history };
     });
-  }, []);
+  };
 
-  const handleDossier = useCallback(async (caseId: string) => {
+  const handleDossier = async (caseId: string) => {
     const c = cases.find((x) => x.id === caseId);
     if (!c) return;
     if (apiAvailable) {
@@ -149,12 +212,10 @@ export default function App() {
       } catch { /* fall through */ }
     }
     openDossier(c);
-  }, [cases, apiAvailable]);
+  };
 
-  // Add a newly screened vendor to the portfolio
-  const handleAddCase = useCallback((c: VettingCase) => {
+  const handleAddCase = (c: VettingCase) => {
     setCases((prev) => [c, ...prev]);
-    // Generate alerts from the new case
     if (c.cal) {
       const newAlerts: Alert[] = [];
       if (c.cal.stops.length > 0) {
@@ -173,13 +234,18 @@ export default function App() {
       }
     }
     setTab("dashboard");
-  }, []);
+  };
 
   const filtered = cases.filter(
     (c) =>
       c.name.toLowerCase().includes(query.toLowerCase()) ||
       c.cc.toLowerCase().includes(query.toLowerCase()),
   );
+
+  // User initials for avatar
+  const initials = user
+    ? (user.name || user.email).split(/\s+/).map((w) => w[0]).join("").toUpperCase().slice(0, 2)
+    : "TG";
 
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ background: T.bg, color: T.text }}>
@@ -249,11 +315,91 @@ export default function App() {
               />
             </div>
           )}
-          <div
-            className="flex items-center justify-center rounded-full font-bold"
-            style={{ width: 28, height: 28, fontSize: 10, background: T.accent + "22", color: T.accent }}
-          >
-            TG
+
+          {/* User menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center gap-1.5 rounded cursor-pointer"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: "2px 4px",
+              }}
+            >
+              <div
+                className="flex items-center justify-center rounded-full font-bold"
+                style={{ width: 28, height: 28, fontSize: 10, background: T.accent + "22", color: T.accent }}
+              >
+                {initials}
+              </div>
+              {user && (
+                <span className="font-mono hidden sm:inline" style={{ fontSize: 9, color: T.muted }}>
+                  {user.role.toUpperCase()}
+                </span>
+              )}
+            </button>
+
+            {showUserMenu && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowUserMenu(false)}
+                />
+                {/* Dropdown */}
+                <div
+                  className="absolute right-0 top-full mt-1 rounded-lg z-50 overflow-hidden"
+                  style={{
+                    width: 220,
+                    background: T.surface,
+                    border: `1px solid ${T.border}`,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                  }}
+                >
+                  {user && (
+                    <div className="p-3" style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <User size={12} color={T.accent} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>
+                          {user.name || user.email}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, color: T.muted }}>{user.email}</div>
+                      <div
+                        className="inline-block rounded mt-1.5 font-mono"
+                        style={{
+                          fontSize: 9,
+                          padding: "2px 6px",
+                          background: T.accent + "18",
+                          color: T.accent,
+                        }}
+                      >
+                        {roleLabel(user.role)}
+                      </div>
+                    </div>
+                  )}
+                  {authRequired && (
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+                      style={{
+                        fontSize: 12,
+                        color: T.red,
+                        background: "transparent",
+                        border: "none",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <LogOut size={12} />
+                      Sign Out
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -281,7 +427,8 @@ export default function App() {
         className="text-center shrink-0"
         style={{ padding: "6px 0", fontSize: 9, color: T.muted, borderTop: `1px solid ${T.border}` }}
       >
-        XIPHOS &mdash; CONFIDENTIAL &mdash; Dual-Engine v2.0 &mdash; {cases.length} vendors in portfolio
+        XIPHOS &mdash; CONFIDENTIAL &mdash; v2.6 &mdash; {cases.length} vendors in portfolio
+        {user && <> &mdash; {user.email}</>}
       </footer>
     </div>
   );
