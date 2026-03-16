@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User } from "lucide-react";
+import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings } from "lucide-react";
 import { T } from "@/lib/tokens";
 import { CASES, ALERTS } from "@/lib/data";
 import { DashboardScreen } from "@/components/xiphos/dashboard-screen";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { ScreenVendor } from "@/components/xiphos/screen-vendor";
 import { LoginScreen } from "@/components/xiphos/login-screen";
+import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
-import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel } from "@/lib/auth";
+import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, Alert } from "@/lib/types";
 import type { TierKey } from "@/lib/tokens";
@@ -76,7 +77,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   };
 }
 
-type Tab = "dashboard" | "screen";
+type Tab = "dashboard" | "screen" | "admin";
 
 export default function App() {
   // Auth state
@@ -287,6 +288,20 @@ export default function App() {
                 <Zap size={12} />
                 Screen Vendor
               </button>
+              {hasPermission(user, "auditor") && (
+                <button
+                  onClick={() => setTab("admin")}
+                  className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                  style={{
+                    fontSize: 11,
+                    background: tab === "admin" ? T.accent + "22" : "transparent",
+                    color: tab === "admin" ? T.accent : T.muted,
+                  }}
+                >
+                  <Settings size={12} />
+                  Admin
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -416,6 +431,8 @@ export default function App() {
             />
           ) : tab === "screen" ? (
             <ScreenVendor onAddCase={handleAddCase} />
+          ) : tab === "admin" && user ? (
+            <AdminPanel currentUser={user} />
           ) : (
             <DashboardScreen cases={filtered} alerts={alerts} onSelect={setSelected} />
           )}

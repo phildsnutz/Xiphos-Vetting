@@ -161,3 +161,48 @@ export async function enrichAndScore(caseId: string): Promise<{
 export async function fetchEnrichment(caseId: string): Promise<EnrichmentReport> {
   return json<EnrichmentReport>(`/api/cases/${caseId}/enrichment`);
 }
+
+/* ---- User Management (admin only) ---- */
+
+export interface ApiUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  created_at: string;
+}
+
+export async function fetchUsers(): Promise<ApiUser[]> {
+  return json<ApiUser[]>("/api/auth/users");
+}
+
+export async function createUser(
+  email: string,
+  password: string,
+  name: string,
+  role: string,
+): Promise<ApiUser> {
+  return json<ApiUser>("/api/auth/users", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name, role }),
+  });
+}
+
+/* ---- Audit Log (auditor+) ---- */
+
+export interface AuditEntry {
+  id: number;
+  timestamp: string;
+  user_id: string;
+  user_email: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  detail: string;
+  ip_address: string;
+  outcome: string;
+}
+
+export async function fetchAuditLog(limit = 100): Promise<AuditEntry[]> {
+  return json<AuditEntry[]>(`/api/audit?limit=${limit}`);
+}
