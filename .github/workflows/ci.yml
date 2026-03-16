@@ -120,17 +120,28 @@ jobs:
           docker run -d --name xiphos-ci \
             -e XIPHOS_DB_PATH=/data/xiphos.db \
             -e XIPHOS_AUTH_ENABLED=false \
+            -e XIPHOS_SKIP_SYNC=true \
             -p 8080:8080 \
             xiphos:ci
 
-          # Wait for startup
-          sleep 10
+          # Wait for container with retry loop (up to 60 seconds)
+          echo "Waiting for Xiphos to start..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed on attempt $i"
+              break
+            fi
+            echo "  Attempt $i: status=$STATUS, retrying..."
+            sleep 2
+          done
 
-          # Health check
+          # Final health check
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health)
-          echo "Health check: $STATUS"
+          echo "Final health check: $STATUS"
 
           if [ "$STATUS" != "200" ]; then
+            echo "=== Container logs ==="
             docker logs xiphos-ci
             exit 1
           fi
@@ -140,8 +151,10 @@ jobs:
           echo "Frontend: $STATUS"
 
           if [ "$STATUS" != "200" ]; then
+            echo "=== Container logs ==="
+            docker logs xiphos-ci
             exit 1
           fi
 
-          echo "Docker smoke tests passed"
+          echo "All Docker smoke tests passed"
           docker stop xiphos-ci

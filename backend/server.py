@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Xiphos v2.6 API Server
+Xiphos v2.7.1 API Server
 
 Flask backend with SQLite persistence, JWT authentication, RBAC, and
 full audit logging. All scoring runs through the Python Bayesian engine.
@@ -237,7 +237,7 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "version": "2.6.0",
+        "version": "2.7.1",
         "auth_enabled": AUTH_ENABLED,
         "engine": "bayesian-beta",
         "persistence": "sqlite",
@@ -829,7 +829,7 @@ def _load_demo_data():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Xiphos v2.0 API Server")
+    parser = argparse.ArgumentParser(description="Xiphos v2.7.1 API Server")
     parser.add_argument("--port", type=int, default=8080, help="Server port (default: 8080)")
     parser.add_argument("--host", default="0.0.0.0", help="Server host")
     parser.add_argument("--reset-db", action="store_true", help="Delete and recreate the database")
@@ -883,7 +883,7 @@ def main():
 
     stats = db.get_stats()
     print(f"\n{'='*50}")
-    print(f"  XIPHOS v2.6 -- Intelligence-Grade Vendor Assurance")
+    print(f"  XIPHOS v2.7.1 -- Intelligence-Grade Vendor Assurance")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
     print(f"  http://{args.host}:{args.port}")
