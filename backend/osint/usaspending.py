@@ -33,7 +33,11 @@ def _post(url: str, payload: dict) -> dict | None:
     })
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
+            content_type = resp.headers.get("Content-Type", "")
+            raw = resp.read()
+            if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
+                return None
+            return json.loads(raw)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
         return None
 

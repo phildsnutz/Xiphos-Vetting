@@ -48,7 +48,11 @@ def _get(url: str, retries: int = 2) -> dict | None:
         })
         try:
             with urllib.request.urlopen(req, timeout=12) as resp:
-                return json.loads(resp.read())
+                content_type = resp.headers.get("Content-Type", "")
+                raw = resp.read()
+                if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
+                    return None
+                return json.loads(raw)
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < retries:
                 time.sleep(2 * (attempt + 1))
