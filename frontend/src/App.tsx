@@ -7,6 +7,7 @@ import { ScreenVendor } from "@/components/xiphos/screen-vendor";
 import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { BatchImport } from "@/components/xiphos/batch-import";
+import { ProfileCompare } from "@/components/xiphos/profile-compare";
 import { rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
@@ -78,7 +79,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   };
 }
 
-type Tab = "dashboard" | "screen" | "admin" | "batch";
+type Tab = "dashboard" | "screen" | "compare" | "admin" | "batch";
 
 export default function App() {
   // Auth state
@@ -279,18 +280,32 @@ export default function App() {
                 Dashboard
               </button>
               {hasPermission(user, "analyst") && (
-                <button
-                  onClick={() => setTab("screen")}
-                  className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
-                  style={{
-                    fontSize: FS.sm,
-                    background: tab === "screen" ? T.accent + "22" : "transparent",
-                    color: tab === "screen" ? T.accent : T.muted,
-                  }}
-                >
-                  <Zap size={12} />
-                  Screen Vendor
-                </button>
+                <>
+                  <button
+                    onClick={() => setTab("screen")}
+                    className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                    style={{
+                      fontSize: FS.sm,
+                      background: tab === "screen" ? T.accent + "22" : "transparent",
+                      color: tab === "screen" ? T.accent : T.muted,
+                    }}
+                  >
+                    <Zap size={12} />
+                    Screen Vendor
+                  </button>
+                  <button
+                    onClick={() => setTab("compare")}
+                    className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                    style={{
+                      fontSize: FS.sm,
+                      background: tab === "compare" ? T.accent + "22" : "transparent",
+                      color: tab === "compare" ? T.accent : T.muted,
+                    }}
+                  >
+                    <Zap size={12} />
+                    Compare
+                  </button>
+                </>
               )}
               {hasPermission(user, "admin") && (
                 <>
@@ -449,6 +464,8 @@ export default function App() {
             />
           ) : tab === "screen" ? (
             <ScreenVendor onAddCase={handleAddCase} />
+          ) : tab === "compare" ? (
+            <ProfileCompare />
           ) : tab === "batch" ? (
             <BatchImport />
           ) : tab === "admin" && user ? (

@@ -447,6 +447,58 @@ export async function getDecisions(
   return json(`/api/cases/${vendorId}/decisions?limit=${limit}`);
 }
 
+/* ---- Profile Comparison ---- */
+
+export interface ComparisonContribution {
+  factor: string;
+  raw_score: number;
+  confidence: number;
+  signed_contribution: number;
+  description: string;
+}
+
+export interface ComparisonDecision {
+  trigger: string;
+  explanation: string;
+  confidence: number;
+}
+
+export interface ProfileComparison {
+  profile_id: string;
+  profile_name: string;
+  tier: string;
+  posterior: number;
+  hard_stops: ComparisonDecision[];
+  soft_flags: ComparisonDecision[];
+  contributions: ComparisonContribution[];
+  error?: string;
+}
+
+export interface CompareResult {
+  entity: {
+    name: string;
+    country: string;
+  };
+  comparisons: ProfileComparison[];
+}
+
+export async function compareProfiles(
+  name: string,
+  country: string,
+  profileIds: string[],
+  programs: Record<string, string> = {},
+): Promise<CompareResult> {
+  return json<CompareResult>("/api/compare", {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      country,
+      profiles: profileIds,
+      programs,
+    }),
+  });
+}
+
 /* ---- Batch Import ---- */
 
 export interface BatchUploadResponse {

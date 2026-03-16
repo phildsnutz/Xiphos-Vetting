@@ -412,6 +412,167 @@ def api_create_case():
     }), 201
 
 
+@app.route("/api/compare", methods=["POST"])
+@require_auth("cases:read")
+def api_compare_profiles():
+    """
+    Compare how the same entity scores under different compliance profiles.
+
+    Request body:
+    {
+        "name": "Vendor Name",
+        "country": "CN",
+        "profiles": ["defense_acquisition", "itar_trade_compliance", ...],
+        "programs": {
+            "defense_acquisition": "weapons_system",
+            "itar_trade_compliance": "cat_xi_electronics",
+            ...
+        }
+    }
+
+    Returns comparison results across all requested profiles.
+    """
+    body = request.get_json(silent=True) or {}
+
+    # Validate required fields
+    required = ["name", "country"]
+    for field in required:
+        if field not in body:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    vendor_name = body["name"].strip()
+    vendor_country = body["country"].strip()
+    requested_profiles = body.get("profiles", [])
+    programs_map = body.get("programs", {})
+
+    if not vendor_name:
+        return jsonify({"error": "Vendor name cannot be empty"}), 400
+
+    if not requested_profiles:
+        return jsonify({"error": "At least one profile must be specified"}), 400
+
+    # Validate all requested profiles exist
+    for profile_id in requested_profiles:
+        if not validate_profile_id(profile_id):
+            return jsonify({"error": f"Invalid profile: {profile_id}"}), 400
+
+    # Create temporary scores for each profile
+    comparisons = []
+
+    for profile_id in requested_profiles:
+        try:
+            # Get the program type for this profile (default to first available)
+            program = programs_map.get(profile_id)
+            if not program:
+                profile = get_profile(profile_id)
+                if profile and profile.program_types:
+                    program = profile.program_types[0]["id"]
+                else:
+                    program = "standard_industrial"
+
+            # Build vendor input with minimal defaults
+            vendor_input = {
+                "name": vendor_name,
+                "country": vendor_country,
+                "ownership": body.get("ownership", {
+                    "publicly_traded": False,
+                    "state_owned": False,
+                    "beneficial_owner_known": True,
+                    "ownership_pct_resolved": 0.85,
+                    "shell_layers": 0,
+                    "pep_connection": False,
+                }),
+                "data_quality": body.get("data_quality", {
+                    "has_lei": True,
+                    "has_cage": False,
+                    "has_duns": True,
+                    "has_tax_id": True,
+                    "has_audited_financials": True,
+                    "years_of_records": 10,
+                }),
+                "exec": body.get("exec", {
+                    "known_execs": 5,
+                    "adverse_media": 0,
+                    "pep_execs": 0,
+                    "litigation_history": 0,
+                }),
+                "program": program,
+                "profile": profile_id,
+            }
+
+            # Score under this profile (without persisting)
+            vendor_obj = _build_vendor_input(vendor_input)
+            result = score_vendor(vendor_obj, profile_id=profile_id)
+            score_dict = _score_to_api_dict(result)
+
+            # Extract key data for comparison
+            cal_data = score_dict["calibrated"]
+
+            comparison = {
+                "profile_id": profile_id,
+                "profile_name": get_profile(profile_id).name,
+                "tier": cal_data["calibrated_tier"],
+                "posterior": round(cal_data["calibrated_probability"], 4),
+                "hard_stops": [
+                    {
+                        "trigger": h["trigger"],
+                        "explanation": h["explanation"],
+                        "confidence": round(h["confidence"], 3),
+                    }
+                    for h in cal_data.get("hard_stop_decisions", [])
+                ],
+                "soft_flags": [
+                    {
+                        "trigger": f["trigger"],
+                        "explanation": f["explanation"],
+                        "confidence": round(f["confidence"], 3),
+                    }
+                    for f in cal_data.get("soft_flags", [])
+                ],
+                "contributions": [
+                    {
+                        "factor": c["factor"],
+                        "raw_score": round(c["raw_score"], 3),
+                        "confidence": round(c["confidence"], 3),
+                        "signed_contribution": round(c["signed_contribution"], 4),
+                        "description": c["description"],
+                    }
+                    for c in sorted(
+                        cal_data.get("contributions", []),
+                        key=lambda x: abs(x["signed_contribution"]),
+                        reverse=True
+                    )[:3]  # Top 3 contributions
+                ],
+            }
+            comparisons.append(comparison)
+
+        except Exception as e:
+            # If scoring fails for one profile, include error but continue
+            comparison = {
+                "profile_id": profile_id,
+                "profile_name": get_profile(profile_id).name,
+                "error": str(e),
+                "tier": "unknown",
+                "posterior": 0,
+                "hard_stops": [],
+                "soft_flags": [],
+                "contributions": [],
+            }
+            comparisons.append(comparison)
+
+    # Log the comparison
+    log_audit("compare_profiles", "vendor", vendor_name,
+              detail=f"Compared across {len(comparisons)} profiles: {', '.join(requested_profiles)}")
+
+    return jsonify({
+        "entity": {
+            "name": vendor_name,
+            "country": vendor_country,
+        },
+        "comparisons": comparisons,
+    }), 200
+
+
 @app.route("/api/cases/<case_id>/score", methods=["POST"])
 @require_auth("cases:score")
 def api_rescore_case(case_id):
