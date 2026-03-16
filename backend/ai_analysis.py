@@ -277,38 +277,115 @@ Provide your analysis in the following JSON format:
 Be specific and cite the data provided. Do not hedge or use vague language. If the data clearly indicates a prohibition, say so directly."""
 
 
+def _sanitize_enrichment_data(enrichment_data: Optional[dict]) -> Optional[dict]:
+    """Sanitize enrichment data to prevent malformed JSON in prompt.
+
+    Handles missing fields, malformed nested structures, and ensures
+    all data is JSON-serializable and safe for embedding in prompts.
+    """
+    if not enrichment_data or not isinstance(enrichment_data, dict):
+        return None
+
+    try:
+        sanitized = {}
+
+        # Overall risk (string)
+        overall_risk = enrichment_data.get('overall_risk', 'N/A')
+        sanitized['overall_risk'] = str(overall_risk)[:50] if overall_risk else 'N/A'
+
+        # Summary (dict or string)
+        summary = enrichment_data.get('summary', {})
+        if isinstance(summary, dict):
+            # Extract findings_total if available
+            sanitized['summary_findings'] = summary.get('findings_total', 0)
+        else:
+            sanitized['summary_findings'] = 0
+
+        # Identifiers (dict or list)
+        identifiers = enrichment_data.get('identifiers', {})
+        if not isinstance(identifiers, dict):
+            identifiers = {}
+        # Keep only valid identifier entries
+        sanitized['identifiers'] = {
+            k: v for k, v in identifiers.items()
+            if isinstance(k, str) and isinstance(v, (str, int, float, bool, type(None)))
+        }
+
+        # Findings (list)
+        findings = enrichment_data.get('findings', [])
+        if not isinstance(findings, list):
+            findings = []
+        # Safely extract top 10 findings
+        sanitized['findings'] = []
+        for f in findings[:10]:
+            if isinstance(f, dict):
+                sanitized['findings'].append({
+                    'title': str(f.get('title', 'Unknown'))[:100],
+                    'severity': str(f.get('severity', 'info'))[:20],
+                    'source': str(f.get('source', 'Unknown'))[:50],
+                })
+
+        return sanitized
+    except Exception:
+        # If any sanitization fails, return None to indicate insufficient enrichment data
+        return None
+
+
 def _build_prompt(vendor_data: dict, score_data: dict,
                   enrichment_data: Optional[dict] = None) -> str:
-    """Build the analysis prompt from vendor and scoring data."""
+    """Build the analysis prompt from vendor and scoring data.
+
+    Safely handles malformed or missing enrichment data by sanitizing before
+    embedding in the prompt. Missing or malformed data results in a graceful
+    "insufficient enrichment" note rather than a prompt formatting error.
+    """
     cal = score_data.get("calibrated", {})
 
     hard_stops = "\n".join(
         f"  - {s['trigger']}: {s['explanation']}"
-        for s in cal.get("hard_stop_decisions", [])
+        for s in cal.get("hard_stop_decisions", []) if isinstance(s, dict)
     ) or "  None"
 
     soft_flags = "\n".join(
         f"  - {f['trigger']}: {f['explanation']}"
-        for f in cal.get("soft_flags", [])
+        for f in cal.get("soft_flags", []) if isinstance(f, dict)
     ) or "  None"
 
     contributions = "\n".join(
         f"  - {c['factor']}: raw={c['raw_score']:.2f}, contribution={c['signed_contribution']:+.4f} -- {c['description']}"
-        for c in cal.get("contributions", [])
+        for c in cal.get("contributions", []) if isinstance(c, dict)
     ) or "  None"
 
     findings = "\n".join(
-        f"  - {f}" for f in cal.get("narratives", {}).get("findings", [])
+        f"  - {f}" for f in cal.get("narratives", {}).get("findings", []) if isinstance(f, str)
     ) or "  None"
 
     enrichment_section = ""
     if enrichment_data:
-        enrichment_section = f"""
+        sanitized = _sanitize_enrichment_data(enrichment_data)
+        if sanitized:
+            try:
+                findings_json = json.dumps(sanitized['findings'], indent=2)
+                identifiers_json = json.dumps(sanitized['identifiers'], indent=2)
+                enrichment_section = f"""
 OSINT ENRICHMENT RESULTS:
-- Overall Risk: {enrichment_data.get('overall_risk', 'N/A')}
-- Summary: {enrichment_data.get('summary', 'N/A')}
-- Identifiers Found: {json.dumps(enrichment_data.get('identifiers', {}), indent=2)}
-- Findings: {json.dumps(enrichment_data.get('findings', [])[:10], indent=2)}
+- Overall Risk: {sanitized['overall_risk']}
+- Total Findings: {sanitized['summary_findings']}
+- Identifiers Found: {identifiers_json}
+- Top Findings: {findings_json}
+"""
+            except Exception:
+                # If JSON serialization still fails, provide minimal enrichment info
+                enrichment_section = f"""
+OSINT ENRICHMENT RESULTS:
+- Overall Risk: {sanitized.get('overall_risk', 'N/A')}
+- Total Findings: {sanitized.get('summary_findings', 0)}
+- Status: Enrichment data available but detailed analysis could not be generated
+"""
+        else:
+            enrichment_section = """
+OSINT ENRICHMENT RESULTS:
+- Status: Enrichment data format error -- insufficient data for detailed analysis
 """
 
     return RISK_ANALYSIS_PROMPT.format(
@@ -483,6 +560,10 @@ def analyze_vendor(
     """
     Run AI analysis on a vendor using the user's configured provider.
 
+    Gracefully handles missing or malformed enrichment data. If enrichment cannot
+    be safely included in the prompt, analysis proceeds with baseline data only
+    and returns a clear status in the response.
+
     Returns:
         {
             "analysis": { ... structured analysis ... },
@@ -491,8 +572,21 @@ def analyze_vendor(
             "prompt_tokens": 1234,
             "completion_tokens": 567,
             "elapsed_ms": 3456,
+            "enrichment_status": "partial" or "none" (optional, only if issues)
         }
     """
+    # Validate vendor data
+    if not isinstance(vendor_data, dict):
+        raise ValueError("vendor_data must be a dictionary")
+    if not isinstance(score_data, dict):
+        raise ValueError("score_data must be a dictionary")
+
+    # Validate that score has required structure
+    if "calibrated" not in score_data:
+        raise ValueError("score_data must contain 'calibrated' field. Score the vendor first.")
+    if score_data.get("composite_score") is None:
+        raise ValueError("score_data must contain 'composite_score' field. Score the vendor first.")
+
     config = get_ai_config(user_id)
     if not config:
         raise ValueError(
@@ -506,10 +600,15 @@ def analyze_vendor(
     if provider not in PROVIDER_CALLERS:
         raise ValueError(f"Unknown provider: {provider}")
 
-    prompt = _build_prompt(vendor_data, score_data, enrichment_data)
-    caller = PROVIDER_CALLERS[provider]
+    # Build prompt with graceful enrichment data handling
+    try:
+        prompt = _build_prompt(vendor_data, score_data, enrichment_data)
+    except Exception as e:
+        raise ValueError(f"Failed to build analysis prompt: {str(e)}")
 
+    caller = PROVIDER_CALLERS[provider]
     start_ms = time.time()
+
     try:
         result = caller(api_key, model, prompt)
     except urllib.error.HTTPError as e:
@@ -522,20 +621,28 @@ def analyze_vendor(
 
     elapsed_ms = int((time.time() - start_ms) * 1000)
 
-    analysis = _parse_analysis_json(result["text"])
+    # Parse response
+    try:
+        analysis = _parse_analysis_json(result["text"])
+    except Exception as e:
+        raise ValueError(f"Failed to parse AI response: {str(e)}")
 
     # Persist the analysis
     vendor_id = vendor_data.get("id", "unknown")
-    save_analysis(
-        vendor_id=vendor_id,
-        provider=provider,
-        model=model,
-        analysis=analysis,
-        prompt_tokens=result.get("prompt_tokens", 0),
-        completion_tokens=result.get("completion_tokens", 0),
-        elapsed_ms=elapsed_ms,
-        created_by=user_id,
-    )
+    try:
+        save_analysis(
+            vendor_id=vendor_id,
+            provider=provider,
+            model=model,
+            analysis=analysis,
+            prompt_tokens=result.get("prompt_tokens", 0),
+            completion_tokens=result.get("completion_tokens", 0),
+            elapsed_ms=elapsed_ms,
+            created_by=user_id,
+        )
+    except Exception as e:
+        # Log but don't fail the entire analysis if persistence fails
+        print(f"Warning: Failed to persist AI analysis for {vendor_id}: {str(e)}")
 
     return {
         "analysis": analysis,

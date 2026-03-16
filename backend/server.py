@@ -48,6 +48,12 @@ AI Analysis Endpoints:
 Decision Workflow Endpoints:
   POST /api/cases/:id/decision           Submit approval/rejection/escalation decision
   GET  /api/cases/:id/decisions          Get decision history for vendor
+
+Batch Import Endpoints:
+  POST /api/batch/upload                 Upload CSV of vendors for batch screening
+  GET  /api/batch                        List batches for current user (admin: all)
+  GET  /api/batch/:id                    Get batch details and results
+  GET  /api/batch/:id/report             Download CSV summary report
 """
 
 import os
@@ -55,6 +61,9 @@ import sys
 import json
 import uuid
 import argparse
+import csv
+import threading
+import io
 from datetime import datetime
 
 from flask import Flask, request, jsonify, send_file, g
@@ -865,7 +874,13 @@ def api_ai_config_org_default():
 @app.route("/api/cases/<case_id>/analyze", methods=["POST"])
 @require_auth("cases:score")
 def api_analyze_case(case_id):
-    """Run AI analysis on a vendor case using the user's configured provider."""
+    """Run AI analysis on a vendor case using the user's configured provider.
+
+    Gracefully handles missing or malformed enrichment data. Returns 200 with
+    a valid analysis even if enrichment data cannot be fully processed.
+    Returns 400 only for config/auth/validation issues.
+    Returns 500 only for unexpected system errors.
+    """
     if not HAS_AI:
         return jsonify({"error": "AI analysis module not available"}), 501
 
@@ -877,15 +892,30 @@ def api_analyze_case(case_id):
     if not score:
         return jsonify({"error": "No score found. Score the vendor first."}), 400
 
-    # Get enrichment data if available
+    # Get enrichment data if available - failure here should not block analysis
     enrichment = None
+    enrichment_status = "available"
     try:
         enrichment = db.get_latest_enrichment(case_id)
-    except Exception:
-        pass
+        if not enrichment:
+            enrichment_status = "none"
+    except Exception as e:
+        enrichment_status = f"error: {str(e)[:50]}"
+        enrichment = None
 
     user_id = g.user.get("sub", "dev")
-    vendor_data = {**v.get("vendor_input", {}), "id": case_id, "name": v["name"], "country": v["country"]}
+    vendor_data = {
+        **v.get("vendor_input", {}),
+        "id": case_id,
+        "name": v["name"],
+        "country": v["country"]
+    }
+
+    # Validate vendor_data has required fields
+    if "name" not in vendor_data or not vendor_data["name"]:
+        return jsonify({"error": "Vendor name is required for analysis"}), 400
+    if "country" not in vendor_data or not vendor_data["country"]:
+        return jsonify({"error": "Vendor country is required for analysis"}), 400
 
     try:
         result = ai_analyze_vendor(
@@ -895,18 +925,36 @@ def api_analyze_case(case_id):
             enrichment_data=enrichment,
         )
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        # Configuration or validation errors -> 400
+        error_msg = str(e)
+        return jsonify({
+            "error": error_msg,
+            "error_type": "configuration_error",
+        }), 400
     except Exception as e:
-        return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
+        # Unexpected errors -> 500, but include enrichment status for debugging
+        error_msg = str(e)
+        return jsonify({
+            "error": f"AI analysis failed: {error_msg}",
+            "error_type": "unexpected_error",
+            "enrichment_status": enrichment_status,
+        }), 500
 
-    log_audit("ai_analysis_run", "case", case_id,
-              detail=f"AI analysis via {result['provider']}/{result['model']} ({result['elapsed_ms']}ms)")
-
-    return jsonify({
+    # Success - include enrichment status for transparency
+    response = {
         "case_id": case_id,
         "vendor_name": v["name"],
         **result,
-    })
+    }
+
+    # Add enrichment status only if there were issues
+    if enrichment_status != "available":
+        response["enrichment_status"] = enrichment_status
+
+    log_audit("ai_analysis_run", "case", case_id,
+              detail=f"AI analysis via {result['provider']}/{result['model']} ({result['elapsed_ms']}ms, enrichment: {enrichment_status})")
+
+    return jsonify(response)
 
 
 @app.route("/api/cases/<case_id>/analysis")
@@ -1054,6 +1102,291 @@ def api_sanctions_sync():
         ],
         "status": sanctions_sync.get_sync_status(),
     })
+
+
+# ---- Batch Import ----
+
+def _validate_csv_row(row: dict, row_num: int) -> tuple[bool, str]:
+    """Validate a CSV row. Returns (is_valid, error_message)."""
+    if not row.get("name", "").strip():
+        return False, f"Row {row_num}: name is required"
+    if not row.get("country", "").strip():
+        return False, f"Row {row_num}: country is required"
+    # Validate country code format (2 letters)
+    country = row.get("country", "").strip().upper()
+    if len(country) != 2 or not country.isalpha():
+        return False, f"Row {row_num}: invalid country code '{country}' (must be 2 letters)"
+    return True, ""
+
+
+def _process_batch_background(batch_id: str, items: list[dict]) -> None:
+    """Background thread function to process a batch of vendors."""
+    try:
+        for idx, item in enumerate(items):
+            vendor_name = item["name"].strip()
+            country = item["country"].strip().upper()
+            program = item.get("program", "standard_industrial").strip() or "standard_industrial"
+
+            item_row_id = None
+            try:
+                # Create batch item record
+                item_row_id = db.add_batch_item(batch_id, vendor_name, country, status="processing")
+
+                # Build vendor input with defaults (conservative scoring)
+                vendor_input = {
+                    "name": vendor_name,
+                    "country": country,
+                    "ownership": {
+                        "publicly_traded": False,
+                        "state_owned": False,
+                        "beneficial_owner_known": False,
+                        "ownership_pct_resolved": 0.0,
+                        "shell_layers": 0,
+                        "pep_connection": False,
+                    },
+                    "data_quality": {
+                        "has_lei": False,
+                        "has_cage": False,
+                        "has_duns": False,
+                        "has_tax_id": False,
+                        "has_audited_financials": False,
+                        "years_of_records": 0,
+                    },
+                    "exec": {
+                        "known_execs": 0,
+                        "adverse_media": 0,
+                        "pep_execs": 0,
+                        "litigation_history": 0,
+                    },
+                    "program": program,
+                }
+
+                # Create case and score
+                case_id = f"batch-{batch_id[:8]}-{uuid.uuid4().hex[:8]}"
+                score_dict = _score_and_persist(case_id, vendor_input)
+
+                # Get tier and posterior
+                calibrated = score_dict.get("calibrated", {})
+                tier = calibrated.get("calibrated_tier", "unknown")
+                posterior = calibrated.get("calibrated_probability", 0.0)
+
+                # Count findings (hard stops + soft flags)
+                findings_count = len(calibrated.get("hard_stop_decisions", [])) + len(
+                    calibrated.get("soft_flags", [])
+                )
+
+                # Update batch item with results
+                if item_row_id:
+                    db.update_batch_item(
+                        item_row_id,
+                        case_id=case_id,
+                        tier=tier,
+                        posterior=posterior,
+                        findings_count=findings_count,
+                        status="completed",
+                    )
+
+            except Exception as e:
+                # Mark this item as failed but continue processing others
+                error_msg = str(e)[:200]
+                if item_row_id:
+                    db.update_batch_item(item_row_id, status="failed", error=error_msg)
+                print(f"Batch {batch_id}: Error processing {vendor_name}: {error_msg}")
+
+            # Update batch progress
+            processed_count = idx + 1
+            db.update_batch_progress(batch_id, processed_count, "processing")
+
+        # Mark batch as completed
+        db.complete_batch(batch_id)
+        print(f"Batch {batch_id}: Completed ({len(items)} vendors processed)")
+
+    except Exception as e:
+        print(f"Batch {batch_id}: Fatal error: {e}")
+        db.fail_batch(batch_id)
+
+
+@app.route("/api/batch/upload", methods=["POST"])
+@require_auth("batch:create")
+def api_batch_upload():
+    """Upload CSV of vendors for batch screening."""
+    # Get user info for audit
+    user_id = g.get("user_id", "system")
+    user_email = g.get("user_email", "")
+
+    # Check for file upload
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+
+    if not file.filename.lower().endswith(".csv"):
+        return jsonify({"error": "File must be a CSV"}), 400
+
+    # Read and parse CSV
+    try:
+        stream = io.TextIOWrapper(file.stream, encoding="utf-8")
+        reader = csv.DictReader(stream)
+        if reader.fieldnames is None:
+            return jsonify({"error": "CSV file is empty"}), 400
+
+        rows = list(reader)
+        if not rows:
+            return jsonify({"error": "CSV has no data rows"}), 400
+
+        # Validate all rows
+        for i, row in enumerate(rows, start=2):  # start=2 because row 1 is header
+            is_valid, err = _validate_csv_row(row, i)
+            if not is_valid:
+                return jsonify({"error": err}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 400
+
+    # Create batch record
+    batch_id = f"batch-{uuid.uuid4().hex[:12]}"
+    db.create_batch(batch_id, user_id, user_email, file.filename, len(rows))
+
+    # Pre-create batch items
+    items = []
+    for row in rows:
+        item_dict = {
+            "name": row.get("name", "").strip(),
+            "country": row.get("country", "").strip().upper(),
+            "program": row.get("program", "standard_industrial").strip(),
+        }
+        items.append(item_dict)
+        db.add_batch_item(batch_id, item_dict["name"], item_dict["country"])
+
+    # Spawn background thread to process batch
+    thread = threading.Thread(target=_process_batch_background, args=(batch_id, items), daemon=True)
+    thread.start()
+
+    log_audit("batch_uploaded", "batch", batch_id,
+              detail=f"Batch upload: {file.filename} ({len(rows)} vendors)")
+
+    return jsonify({
+        "batch_id": batch_id,
+        "filename": file.filename,
+        "total_vendors": len(rows),
+        "status": "pending",
+        "created_at": datetime.now().isoformat(),
+    }), 201
+
+
+@app.route("/api/batch")
+@require_auth("batch:read")
+def api_list_batches():
+    """List batches for current user (admin sees all)."""
+    user_id = g.get("user_id", "system")
+    user_role = g.get("user_role", "")
+
+    # Admin and analyst can see all batches; others see only theirs
+    if user_role in ("admin", "analyst"):
+        batches = db.get_batches(uploaded_by=None)
+    else:
+        batches = db.get_batches(uploaded_by=user_id)
+
+    # Calculate completion percentage for each batch
+    result = []
+    for batch in batches:
+        completion_pct = 0
+        if batch["total_vendors"] > 0:
+            completion_pct = int((batch["processed"] / batch["total_vendors"]) * 100)
+        result.append({
+            **batch,
+            "completion_pct": completion_pct,
+        })
+
+    return jsonify({"batches": result})
+
+
+@app.route("/api/batch/<batch_id>")
+@require_auth("batch:read")
+def api_get_batch(batch_id):
+    """Get batch details including all items and summary stats."""
+    batch = db.get_batch(batch_id)
+    if not batch:
+        return jsonify({"error": "Batch not found"}), 404
+
+    items = batch.get("items", [])
+
+    # Calculate summary stats
+    tier_dist = {}
+    total_findings = 0
+    completed_count = 0
+
+    for item in items:
+        if item.get("status") == "completed" and item.get("tier"):
+            completed_count += 1
+            tier_dist[item["tier"]] = tier_dist.get(item["tier"], 0) + 1
+            total_findings += item.get("findings_count", 0)
+
+    completion_pct = 0
+    if batch["total_vendors"] > 0:
+        completion_pct = int((batch["processed"] / batch["total_vendors"]) * 100)
+
+    return jsonify({
+        "batch_id": batch_id,
+        "filename": batch["filename"],
+        "uploaded_by": batch["uploaded_by"],
+        "uploaded_by_email": batch["uploaded_by_email"],
+        "status": batch["status"],
+        "total_vendors": batch["total_vendors"],
+        "processed": batch["processed"],
+        "completion_pct": completion_pct,
+        "created_at": batch["created_at"],
+        "completed_at": batch.get("completed_at"),
+        "items": items,
+        "summary": {
+            "completed": completed_count,
+            "tier_distribution": tier_dist,
+            "total_findings": total_findings,
+            "avg_posterior": (
+                sum(i.get("posterior", 0) for i in items if i.get("posterior")) / completed_count
+                if completed_count > 0
+                else 0
+            ),
+        },
+    })
+
+
+@app.route("/api/batch/<batch_id>/report")
+@require_auth("batch:read")
+def api_batch_report(batch_id):
+    """Generate and download CSV summary report."""
+    batch = db.get_batch(batch_id)
+    if not batch:
+        return jsonify({"error": "Batch not found"}), 404
+
+    items = batch.get("items", [])
+
+    # Build CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Vendor Name", "Country", "Case ID", "Status", "Tier", "Posterior", "Findings"])
+
+    for item in items:
+        writer.writerow([
+            item.get("vendor_name", ""),
+            item.get("country", ""),
+            item.get("case_id", ""),
+            item.get("status", ""),
+            item.get("tier", ""),
+            f"{item.get('posterior', 0):.4f}" if item.get("posterior") else "",
+            item.get("findings_count", 0),
+        ])
+
+    # Return as downloadable file
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"batch-{batch_id}-report.csv",
+    )
 
 
 # ---- Main ----

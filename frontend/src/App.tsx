@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings } from "lucide-react";
+import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings, Upload } from "lucide-react";
 import { T, FS } from "@/lib/tokens";
 import { DashboardScreen } from "@/components/xiphos/dashboard-screen";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { ScreenVendor } from "@/components/xiphos/screen-vendor";
 import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
+import { BatchImport } from "@/components/xiphos/batch-import";
 import { rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
@@ -76,7 +77,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   };
 }
 
-type Tab = "dashboard" | "screen" | "admin";
+type Tab = "dashboard" | "screen" | "admin" | "batch";
 
 export default function App() {
   // Auth state
@@ -291,18 +292,32 @@ export default function App() {
                 </button>
               )}
               {hasPermission(user, "admin") && (
-                <button
-                  onClick={() => setTab("admin")}
-                  className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
-                  style={{
-                    fontSize: FS.sm,
-                    background: tab === "admin" ? T.accent + "22" : "transparent",
-                    color: tab === "admin" ? T.accent : T.muted,
-                  }}
-                >
-                  <Settings size={12} />
-                  Admin
-                </button>
+                <>
+                  <button
+                    onClick={() => setTab("batch")}
+                    className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                    style={{
+                      fontSize: FS.sm,
+                      background: tab === "batch" ? T.accent + "22" : "transparent",
+                      color: tab === "batch" ? T.accent : T.muted,
+                    }}
+                  >
+                    <Upload size={12} />
+                    Batch Import
+                  </button>
+                  <button
+                    onClick={() => setTab("admin")}
+                    className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                    style={{
+                      fontSize: FS.sm,
+                      background: tab === "admin" ? T.accent + "22" : "transparent",
+                      color: tab === "admin" ? T.accent : T.muted,
+                    }}
+                  >
+                    <Settings size={12} />
+                    Admin
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -433,6 +448,8 @@ export default function App() {
             />
           ) : tab === "screen" ? (
             <ScreenVendor onAddCase={handleAddCase} />
+          ) : tab === "batch" ? (
+            <BatchImport />
           ) : tab === "admin" && user ? (
             <AdminPanel currentUser={user} />
           ) : (

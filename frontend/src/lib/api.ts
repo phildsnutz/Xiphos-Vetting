@@ -421,3 +421,121 @@ export async function getDecisions(
 ): Promise<{ vendor_id: string; decisions: Decision[]; latest_decision: Decision | null }> {
   return json(`/api/cases/${vendorId}/decisions?limit=${limit}`);
 }
+
+/* ---- Batch Import ---- */
+
+export interface BatchUploadResponse {
+  batch_id: string;
+  filename: string;
+  total_vendors: number;
+  status: string;
+  created_at: string;
+}
+
+export interface BatchItem {
+  id: number;
+  batch_id: string;
+  vendor_name: string;
+  country: string;
+  case_id: string | null;
+  tier: string | null;
+  posterior: number | null;
+  findings_count: number | null;
+  status: string;
+  error: string | null;
+  created_at: string;
+}
+
+export interface BatchSummary {
+  completed: number;
+  tier_distribution: Record<string, number>;
+  total_findings: number;
+  avg_posterior: number;
+}
+
+export interface BatchDetail {
+  batch_id: string;
+  filename: string;
+  uploaded_by: string;
+  uploaded_by_email: string;
+  status: string;
+  total_vendors: number;
+  processed: number;
+  completion_pct: number;
+  created_at: string;
+  completed_at: string | null;
+  items: BatchItem[];
+  summary: BatchSummary;
+}
+
+export interface BatchMetadata {
+  id: string;
+  filename: string;
+  uploaded_by: string;
+  uploaded_by_email: string;
+  status: string;
+  total_vendors: number;
+  processed: number;
+  completion_pct: number;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export async function uploadBatchCSV(file: File): Promise<BatchUploadResponse> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${BASE}/api/batch/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    clearSession();
+    onAuthError?.();
+    throw new Error("Session expired. Please log in again.");
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function listBatches(): Promise<BatchMetadata[]> {
+  const data = await json<{ batches: BatchMetadata[] }>("/api/batch");
+  return data.batches;
+}
+
+export async function getBatchDetail(batchId: string): Promise<BatchDetail> {
+  return json<BatchDetail>(`/api/batch/${batchId}`);
+}
+
+export async function downloadBatchReport(batchId: string): Promise<void> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${BASE}/api/batch/${batchId}/report`, { headers });
+  if (!res.ok) throw new Error(`Failed to download report: ${res.status}`);
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `batch-${batchId}-report.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}

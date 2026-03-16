@@ -144,6 +144,37 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_decisions_vendor ON decisions(vendor_id);
             CREATE INDEX IF NOT EXISTS idx_decisions_created ON decisions(created_at);
+
+            CREATE TABLE IF NOT EXISTS batches (
+                id TEXT PRIMARY KEY,
+                uploaded_by TEXT NOT NULL,
+                uploaded_by_email TEXT,
+                filename TEXT NOT NULL,
+                total_vendors INTEGER NOT NULL,
+                processed INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                completed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS batch_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id TEXT NOT NULL REFERENCES batches(id),
+                vendor_name TEXT NOT NULL,
+                country TEXT NOT NULL,
+                case_id TEXT,
+                tier TEXT,
+                posterior REAL,
+                findings_count INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_batch_uploaded_by ON batches(uploaded_by);
+            CREATE INDEX IF NOT EXISTS idx_batch_status ON batches(status);
+            CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id);
+            CREATE INDEX IF NOT EXISTS idx_batch_items_status ON batch_items(status);
         """)
 
 
@@ -459,3 +490,141 @@ def get_latest_decision(vendor_id: str) -> dict | None:
             ORDER BY created_at DESC LIMIT 1
         """, (vendor_id,)).fetchone()
         return dict(row) if row else None
+
+
+# ---- Batch import ----
+
+def create_batch(batch_id: str, uploaded_by: str, uploaded_by_email: str,
+                 filename: str, total_vendors: int) -> str:
+    """Create a new batch record. Returns the batch ID."""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO batches (id, uploaded_by, uploaded_by_email, filename, total_vendors, status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
+        """, (batch_id, uploaded_by, uploaded_by_email, filename, total_vendors))
+    return batch_id
+
+
+def update_batch_progress(batch_id: str, processed: int, status: str) -> bool:
+    """Update batch progress. Returns True if successful."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            UPDATE batches SET processed = ?, status = ?
+            WHERE id = ?
+        """, (processed, status, batch_id))
+        return cursor.rowcount > 0
+
+
+def complete_batch(batch_id: str) -> bool:
+    """Mark batch as completed. Returns True if successful."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            UPDATE batches SET status = 'completed', completed_at = datetime('now')
+            WHERE id = ?
+        """, (batch_id,))
+        return cursor.rowcount > 0
+
+
+def fail_batch(batch_id: str) -> bool:
+    """Mark batch as failed. Returns True if successful."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            UPDATE batches SET status = 'failed', completed_at = datetime('now')
+            WHERE id = ?
+        """, (batch_id,))
+        return cursor.rowcount > 0
+
+
+def add_batch_item(batch_id: str, vendor_name: str, country: str,
+                   case_id: str | None = None, tier: str | None = None,
+                   posterior: float | None = None, findings_count: int | None = None,
+                   status: str = "pending", error: str | None = None) -> int:
+    """Add an item to a batch. Returns the row ID."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            INSERT INTO batch_items
+                (batch_id, vendor_name, country, case_id, tier, posterior, findings_count, status, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (batch_id, vendor_name, country, case_id, tier, posterior, findings_count, status, error))
+        return cursor.lastrowid
+
+
+def update_batch_item(batch_item_id: int, case_id: str | None = None, tier: str | None = None,
+                      posterior: float | None = None, findings_count: int | None = None,
+                      status: str | None = None, error: str | None = None) -> bool:
+    """Update a batch item. Returns True if successful."""
+    updates = []
+    params = []
+    if case_id is not None:
+        updates.append("case_id = ?")
+        params.append(case_id)
+    if tier is not None:
+        updates.append("tier = ?")
+        params.append(tier)
+    if posterior is not None:
+        updates.append("posterior = ?")
+        params.append(posterior)
+    if findings_count is not None:
+        updates.append("findings_count = ?")
+        params.append(findings_count)
+    if status is not None:
+        updates.append("status = ?")
+        params.append(status)
+    if error is not None:
+        updates.append("error = ?")
+        params.append(error)
+
+    if not updates:
+        return False
+
+    params.append(batch_item_id)
+    with get_conn() as conn:
+        cursor = conn.execute(f"""
+            UPDATE batch_items SET {', '.join(updates)}
+            WHERE id = ?
+        """, params)
+        return cursor.rowcount > 0
+
+
+def get_batches(uploaded_by: str | None = None, limit: int = 100) -> list[dict]:
+    """Get batches, optionally filtered by uploaded_by. Returns most recent first."""
+    with get_conn() as conn:
+        if uploaded_by:
+            rows = conn.execute("""
+                SELECT * FROM batches WHERE uploaded_by = ?
+                ORDER BY created_at DESC LIMIT ?
+            """, (uploaded_by, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM batches
+                ORDER BY created_at DESC LIMIT ?
+            """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_batch(batch_id: str) -> dict | None:
+    """Get a single batch with all its items."""
+    with get_conn() as conn:
+        batch_row = conn.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
+        if not batch_row:
+            return None
+
+        items_rows = conn.execute("""
+            SELECT * FROM batch_items WHERE batch_id = ?
+            ORDER BY created_at ASC
+        """, (batch_id,)).fetchall()
+
+        return {
+            **dict(batch_row),
+            "items": [dict(r) for r in items_rows],
+        }
+
+
+def get_batch_items(batch_id: str, limit: int = 1000) -> list[dict]:
+    """Get all items in a batch."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM batch_items WHERE batch_id = ?
+            ORDER BY created_at ASC LIMIT ?
+        """, (batch_id, limit)).fetchall()
+        return [dict(r) for r in rows]
