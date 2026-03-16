@@ -111,6 +111,9 @@ echo ""
 echo "============================================================"
 echo "  DEPLOYMENT COMPLETE"
 echo "  Dashboard: http://$DROPLET_IP:$DOCKER_PORT"
+if $SSH_CMD "systemctl is-active caddy" > /dev/null 2>&1; then
+  echo "  HTTPS:     https://${DROPLET_IP}.sslip.io"
+fi
 echo "============================================================"
 echo ""
 echo "  Quick test:"
