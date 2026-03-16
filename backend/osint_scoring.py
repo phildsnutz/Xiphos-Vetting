@@ -317,6 +317,51 @@ def augment_from_enrichment(
         changes.append(f"UK Company Number verified: {identifiers['uk_company_number']}")
 
     # -------------------------------------------------------------------
+    # 5. FARA (Foreign Agents Registration Act) signals (v2.5)
+    # -------------------------------------------------------------------
+
+    # FARA registrant match (vendor is registered as foreign agent)
+    for sig in risk_signals:
+        if sig.get("signal") == "fara_registrant":
+            sev = sig.get("severity", "high")
+            scoring_impact = "sanctions_raw_override" if sev == "critical" else "hard_stop_candidate"
+            extra_signals.append({
+                "signal": "fara_foreign_agent",
+                "severity": sev,
+                "source": "fara",
+                "detail": sig["detail"],
+                "scoring_impact": scoring_impact,
+            })
+            # FARA registration implies foreign government connection
+            if not own.state_owned and sev in ("critical", "high"):
+                own.state_owned = True
+                changes.append(f"State-owned flag: FARA registration indicates foreign government principal")
+            if not own.pep_connection:
+                own.pep_connection = True
+                changes.append("PEP connection inferred from FARA foreign agent registration")
+
+    # FARA foreign principal match (vendor IS the foreign government/entity)
+    for sig in risk_signals:
+        if sig.get("signal") == "fara_foreign_principal":
+            sev = sig.get("severity", "high")
+            extra_signals.append({
+                "signal": "fara_is_foreign_principal",
+                "severity": sev,
+                "source": "fara",
+                "detail": sig["detail"],
+                "scoring_impact": "sanctions_raw_override" if sev == "critical" else "hard_stop_candidate",
+            })
+            # Entity IS a foreign principal
+            own.state_owned = True
+            changes.append("Entity identified as FARA foreign principal (foreign government/entity)")
+
+    # FARA registrant ID as identifier
+    if identifiers.get("fara_registrant_id"):
+        changes.append(f"FARA Registrant ID: {identifiers['fara_registrant_id']}")
+    if identifiers.get("fara_principal_id"):
+        changes.append(f"FARA Foreign Principal ID: {identifiers['fara_principal_id']}")
+
+    # -------------------------------------------------------------------
     # Build augmented VendorInput
     # -------------------------------------------------------------------
     augmented = VendorInput(

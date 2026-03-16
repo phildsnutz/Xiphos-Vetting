@@ -36,6 +36,7 @@ from . import epa_echo
 from . import uk_companies_house
 from . import osha_safety
 from . import un_sanctions
+from . import fara
 
 # Ordered by priority: sanctions/exclusions first, then identity, then context
 CONNECTORS = [
@@ -47,6 +48,9 @@ CONNECTORS = [
     # --- International Debarment ---
     ("worldbank_debarred", worldbank_debarred),      # World Bank/IDB/ADB/AfDB/EBRD debarments
     ("icij_offshore", icij_offshore),                # Panama/Paradise/Pandora Papers
+
+    # --- Foreign Influence & Agent Registration ---
+    ("fara", fara),                                  # DOJ FARA foreign agent registrations
 
     # --- Adverse Media ---
     ("gdelt_media", gdelt_media),                    # Adverse media via GDELT
@@ -104,7 +108,7 @@ def enrich_vendor(
     results: list[EnrichmentResult] = []
 
     if parallel and len(active) > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(active)) as executor:
             futures = {}
             for name, mod in active:
                 f = executor.submit(mod.enrich, vendor_name, country, **ids)

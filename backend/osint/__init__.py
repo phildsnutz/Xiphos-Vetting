@@ -1,5 +1,5 @@
 """
-Xiphos OSINT Connector Framework  (v2.4 -- 16 connectors)
+Xiphos OSINT Connector Framework  (v2.5 -- 17 connectors)
 
 Modular connectors for ingesting, normalizing, and enriching vendor data
 from publicly available intelligence sources. Each connector follows the
@@ -30,6 +30,9 @@ Connector categories aligned to the Xiphos scoring rubric:
   REGULATORY COMPLIANCE
     - epa_echo.py           (EPA environmental violations, penalties)
     - osha_safety.py        (OSHA workplace safety violations)
+
+  FOREIGN INFLUENCE & AGENT REGISTRATION
+    - fara.py               (DOJ FARA foreign agent registrations)
 
   ADVERSE MEDIA & LITIGATION
     - gdelt_media.py        (Adverse media via GDELT Project)

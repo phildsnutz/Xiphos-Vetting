@@ -1,0 +1,88 @@
+import { T, probColor } from "@/lib/tokens";
+import { TierBadge, RiskBadge } from "./badges";
+import { XCircle, AlertTriangle } from "lucide-react";
+import type { VettingCase } from "@/lib/types";
+
+interface CaseRowProps {
+  c: VettingCase;
+  onClick: () => void;
+}
+
+export function CaseRow({ c, onClick }: CaseRowProps) {
+  return (
+    <div
+      className="rounded-lg cursor-pointer transition-colors"
+      style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "10px 12px" }}
+      onClick={onClick}
+      onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
+      onMouseLeave={(e) => (e.currentTarget.style.background = T.surface)}
+    >
+      <div className="flex items-center gap-3">
+        {/* Country chip */}
+        <div
+          className="flex items-center justify-center shrink-0 rounded font-bold"
+          style={{
+            width: 34, height: 34, fontSize: 10,
+            background: T.raised, color: T.dim,
+            border: `1px solid ${T.border}`,
+          }}
+        >
+          {c.cc}
+        </div>
+
+        {/* Name + date */}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="font-semibold truncate" style={{ fontSize: 13, color: T.text }}>
+            {c.name}
+          </div>
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{c.date}</div>
+        </div>
+
+        {/* Score / tier */}
+        <div className="shrink-0 flex items-center gap-2">
+          {c.cal ? (
+            <>
+              <span className="font-mono font-bold" style={{ fontSize: 15, color: probColor(c.cal.p) }}>
+                {Math.round(c.cal.p * 100)}%
+              </span>
+              <TierBadge tier={c.cal.tier} />
+            </>
+          ) : (
+            <>
+              <span className="font-mono" style={{ fontSize: 12, color: T.muted }}>
+                {c.sc}/100
+              </span>
+              <RiskBadge level={c.rl} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Hard stop inline */}
+      {c.cal?.stops && c.cal.stops.length > 0 && (
+        <div
+          className="flex items-center gap-1.5 mt-2 rounded"
+          style={{ padding: "5px 10px", background: T.dRedBg, border: `1px solid ${T.dRed}33` }}
+        >
+          <XCircle size={12} color={T.dRed} className="shrink-0" />
+          <span className="font-semibold truncate" style={{ fontSize: 11, color: T.dRed }}>
+            {c.cal.stops[0].t}
+          </span>
+        </div>
+      )}
+
+      {/* Flags inline */}
+      {c.cal?.flags && c.cal.flags.length > 0 && !(c.cal?.stops?.length) && (
+        <div
+          className="flex items-center gap-1.5 mt-2 rounded"
+          style={{ padding: "5px 10px", background: T.amberBg, border: `1px solid ${T.amber}33` }}
+        >
+          <AlertTriangle size={12} color={T.amber} className="shrink-0" />
+          <span className="font-semibold" style={{ fontSize: 11, color: T.amber }}>
+            {c.cal.flags.length} flag{c.cal.flags.length > 1 ? "s" : ""}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -55,6 +55,7 @@ except ImportError:
 try:
     from osint.enrichment import enrich_vendor
     from osint_scoring import augment_from_enrichment
+    from osint_cache import get_enricher
     HAS_OSINT = True
 except ImportError:
     HAS_OSINT = False
@@ -82,7 +83,7 @@ except ImportError:
     HAS_DOSSIER = False
 
 # Static folder for serving the bundled frontend
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 app = Flask(__name__, static_folder=None)
 CORS(app)
@@ -206,15 +207,24 @@ def health():
         from osint.enrichment import CONNECTORS
         osint_connectors = [name for name, _ in CONNECTORS]
 
+    # Cache stats
+    cache_stats = {}
+    if HAS_OSINT:
+        try:
+            cache_stats = get_enricher().get_stats()
+        except Exception:
+            pass
+
     return jsonify({
         "status": "ok",
-        "version": "2.4.0",
+        "version": "2.5.0",
         "engine": "bayesian-beta",
         "persistence": "sqlite",
         "sanctions_db": db_label,
         "sanctions_sync": sanctions_status,
         "osint_enabled": HAS_OSINT,
         "osint_connectors": osint_connectors,
+        "osint_cache": cache_stats,
         "stats": stats,
     })
 
@@ -533,9 +543,14 @@ def api_enrich_standalone():
     country = body.get("country", "")
     connectors = body.get("connectors", None)
 
-    report = enrich_vendor(
+    force = body.get("force", False)
+
+    # Use cached enrichment (bypasses cache if force=True)
+    enricher = get_enricher()
+    report = enricher.enrich(
         vendor_name=vendor_name,
         country=country,
+        force=force,
         connectors=connectors,
     )
     return jsonify(report)
