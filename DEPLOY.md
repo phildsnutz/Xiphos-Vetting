@@ -1,143 +1,187 @@
-# Xiphos v2.0 Deployment Guide
+# Xiphos v2.6 Deployment Guide
 
-## Pre-Deployment Testing (Local)
+## What's New in v2.6
 
-### 1. Run the test suite
+- **JWT Authentication + RBAC**: Four roles (admin, analyst, auditor, reviewer) with permission-gated endpoints
+- **Audit Logging**: Every authenticated action is logged with who/what/when/where/outcome
+- **17 OSINT Connectors**: Including FARA foreign agent registration
+- **Tightened ICIJ Matching**: Dual-layer verification eliminates false positives
+- **One-time Admin Bootstrap**: `POST /api/auth/setup` creates the first admin user
+
+
+## Pre-Deployment Checklist
+
+### 1. Generate a JWT secret key
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+Save this value. You will set it as `XIPHOS_SECRET_KEY` in your environment.
+
+### 2. Run the test suite
 ```bash
 cd /path/to/Xiphos
 python tests/test_engine_parity.py
 ```
-All 24 tests should pass. This verifies scoring parity, OFAC matching, database operations, and tier boundaries.
+All 24 tests should pass.
 
-### 2. Run the backend locally
+### 3. Run the backend locally
 ```bash
 cd backend
 pip install flask flask-cors
 python server.py --port 8080
 ```
-Then open `http://localhost:8080` -- the server will serve the bundled dashboard and API from a single port.
+Open `http://localhost:8080` to verify the dashboard loads.
 
-### 3. Test the API manually
+### 4. Test the auth flow
 ```bash
-# Health check
+# Health check (works without auth)
 curl http://localhost:8080/api/health
 
-# List vendors
-curl http://localhost:8080/api/cases
-
-# Screen a name
-curl -X POST http://localhost:8080/api/screen \
+# Bootstrap admin user (only works once, when no users exist)
+curl -X POST http://localhost:8080/api/auth/setup \
   -H "Content-Type: application/json" \
-  -d '{"name": "Rosoboronexport"}'
+  -d '{"email": "admin@yourorg.com", "password": "YourSecurePassword!", "name": "Admin"}'
 
-# Re-score
-curl -X POST http://localhost:8080/api/cases/c-4de48c49/score \
+# Login and get token
+curl -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"email": "admin@yourorg.com", "password": "YourSecurePassword!"}'
+# Save the "token" value from the response
+
+# Use the token on protected endpoints
+curl http://localhost:8080/api/cases \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
-### 4. Verify persistence
-Stop the server (Ctrl+C), restart it, and confirm vendors and alerts are still there via `/api/health`.
 
-
-## Deployment Options (2-3 Person Demo)
+## Deployment Options
 
 ### Option A: Railway (Recommended for Quick Demo)
 
-Railway is the fastest path. Free tier supports small teams. No Docker knowledge needed.
-
-1. Push your project to a GitHub repo
+1. Push your project to GitHub
 2. Go to [railway.app](https://railway.app), connect the repo
 3. Railway auto-detects the Dockerfile
-4. Set environment variable: `XIPHOS_DB_PATH=/data/xiphos.db`
+4. Set environment variables:
+   ```
+   XIPHOS_DB_PATH=/data/xiphos.db
+   XIPHOS_AUTH_ENABLED=true
+   XIPHOS_SECRET_KEY=<your-generated-secret>
+   ```
 5. Add a persistent volume mounted at `/data`
-6. Deploy -- you get a public URL like `xiphos-production.up.railway.app`
-7. Share the URL with your 2-3 testers
+6. Deploy
 
-**Cost**: Free tier or ~$5/month for the Hobby plan.
+**Cost**: Free tier or ~$5/month for Hobby plan.
 
 
-### Option B: DigitalOcean Droplet (Best for VPS Control)
+### Option B: DigitalOcean Droplet
 
-Good if you want full control and SSH access.
-
-1. Create a $6/month droplet (Ubuntu 22.04, 1GB RAM is plenty)
-2. SSH in and install Docker:
+1. Create a $6/month droplet (Ubuntu 22.04, 1GB RAM)
+2. SSH in, install Docker:
    ```bash
    curl -fsSL https://get.docker.com | sh
    ```
-3. Clone your repo:
+3. Clone and deploy:
    ```bash
-   git clone https://github.com/youruser/xiphos.git
-   cd xiphos
-   ```
-4. Build and run:
-   ```bash
+   git clone https://github.com/phildsnutz/Xiphos-Vetting.git
+   cd Xiphos-Vetting
+   export XIPHOS_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
    docker compose up -d
    ```
-5. (Optional) Point a domain at the droplet IP and add Caddy for HTTPS:
+4. Add HTTPS with Caddy:
    ```bash
    apt install caddy
-   # Caddyfile:
+   # /etc/caddy/Caddyfile:
    # xiphos.yourdomain.com {
    #     reverse_proxy localhost:8080
    # }
+   systemctl restart caddy
    ```
 
-**Cost**: $6/month. Domain + SSL via Caddy is free (Let's Encrypt).
+**Cost**: $6/month. SSL via Let's Encrypt is free.
 
 
-### Option C: Fly.io (Good Middle Ground)
-
-Fly.io gives you Docker deployment with a generous free tier and persistent volumes.
-
-1. Install flyctl: `curl -L https://fly.io/install.sh | sh`
-2. From the Xiphos directory:
-   ```bash
-   fly launch          # creates fly.toml, picks a region
-   fly volumes create xiphos_data --size 1
-   fly deploy
-   ```
-3. Set the DB path:
-   ```bash
-   fly secrets set XIPHOS_DB_PATH=/data/xiphos.db
-   ```
-
-**Cost**: Free tier covers this easily.
-
-
-## My Recommendation
-
-For your situation -- 2-3 people demoing, testing, and offering feedback -- **Railway** is the move. Here's why:
-
-- Zero ops overhead. You push to GitHub, it deploys automatically
-- Built-in persistent storage for the SQLite database
-- Preview deployments on every PR, so testers can compare versions
-- Free or $5/month, scales up trivially if you need it later
-- Public URL you can share immediately with your test group
-
-The DigitalOcean path is better if you want to eventually run multiple services (say, adding a real OFAC feed updater or a background screening scheduler), since you own the box and can install whatever you need.
-
-Fly.io splits the difference -- Docker-native, persistent volumes, but more ops than Railway.
-
-
-## Demo Feedback Collection
-
-For your 2-3 testers, I'd suggest:
-
-1. **Shared feedback doc**: Create a simple Google Sheet with columns: Feature, Issue/Suggestion, Severity, Tester
-2. **Test scenarios to assign**: Give each tester a different angle:
-   - Tester A: Try to "break" the screening form. Weird names, edge cases, empty fields
-   - Tester B: Walk through 3-4 vendor dossiers end-to-end. Do the scores make sense?
-   - Tester C: Focus on UX. What's confusing? What's missing? Where did you get stuck?
-3. **Time-box it**: 45-60 minutes of focused testing, then a 30-minute debrief call
-
-
-## Running Tests Before Each Deploy
+### Option C: Fly.io
 
 ```bash
-# From project root
-python tests/test_engine_parity.py && echo "READY TO DEPLOY" || echo "FIX TESTS FIRST"
+fly launch
+fly volumes create xiphos_data --size 1
+fly secrets set XIPHOS_DB_PATH=/data/xiphos.db \
+               XIPHOS_AUTH_ENABLED=true \
+               XIPHOS_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+fly deploy
 ```
 
-If any test fails, do NOT deploy. The test suite covers scoring parity, OFAC matching, database integrity, and tier boundaries.
+**Cost**: Free tier covers this.
+
+
+## First Boot: Admin Setup
+
+After deploying, the very first thing to do is create the admin user:
+
+```bash
+curl -X POST https://your-xiphos-url/api/auth/setup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@yourorg.com",
+    "password": "MinimumEightChars!",
+    "name": "Your Name"
+  }'
+```
+
+This endpoint only works once (when zero users exist). It creates the admin and returns a token you can use immediately.
+
+Then create analyst/reviewer accounts:
+```bash
+TOKEN="<admin-token-from-setup>"
+
+curl -X POST https://your-xiphos-url/api/auth/users \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "email": "analyst@yourorg.com",
+    "password": "AnalystPass123!",
+    "name": "Jane Analyst",
+    "role": "analyst"
+  }'
+```
+
+
+## Role Reference
+
+| Role     | Level | Can Do                                          |
+|----------|-------|-------------------------------------------------|
+| admin    | 100   | Everything: user management, system config, all ops |
+| analyst  | 50    | Score vendors, run enrichments, generate dossiers  |
+| auditor  | 30    | Read-only access to everything including audit logs |
+| reviewer | 20    | Read-only access to cases, scores, and reports     |
+
+
+## Environment Variables
+
+| Variable                    | Required | Default                              | Description                        |
+|-----------------------------|----------|--------------------------------------|------------------------------------|
+| `XIPHOS_DB_PATH`           | No       | `./xiphos.db`                        | Main SQLite database path          |
+| `XIPHOS_KG_DB_PATH`        | No       | `./xiphos_kg.db`                     | Knowledge graph database           |
+| `XIPHOS_SANCTIONS_DB`      | No       | `./sanctions.db`                     | Local sanctions database           |
+| `XIPHOS_AUTH_ENABLED`      | No       | `false`                              | Set `true` to enforce JWT auth     |
+| `XIPHOS_SECRET_KEY`        | **Yes*** | dev default                          | JWT signing key (generate fresh!)  |
+| `XIPHOS_TOKEN_EXPIRY_HOURS`| No       | `8`                                  | Bearer token lifetime              |
+| `XIPHOS_SAM_API_KEY`       | No       |                                      | SAM.gov API key                    |
+| `XIPHOS_OPENSANCTIONS_KEY` | No       |                                      | OpenSanctions API key              |
+| `XIPHOS_COMPANIES_HOUSE_KEY`| No      |                                      | UK Companies House API key         |
+| `XIPHOS_OPENCORP_KEY`      | No       |                                      | OpenCorporates API key             |
+| `XIPHOS_COURTLISTENER_TOKEN`| No      |                                      | CourtListener API token            |
+
+*Required in production when `XIPHOS_AUTH_ENABLED=true`.
+
+
+## Production Hardening Notes
+
+For a live environment beyond demo/pilot:
+
+1. **HTTPS is mandatory**. Use Caddy, nginx, or your cloud provider's load balancer with TLS termination.
+2. **Rotate `XIPHOS_SECRET_KEY`** periodically. Token revocation requires key rotation since there is no token blacklist.
+3. **Back up `/data` volume** regularly. SQLite databases are the single source of truth.
+4. **Rate limiting**: Add nginx/Caddy rate limiting on `/api/auth/login` to prevent brute force.
+5. **CORS lockdown**: Currently `CORS(app)` allows all origins. For production, restrict to your domain.
+6. **Consider PostgreSQL** if you expect > 10 concurrent users or > 10,000 vendors. SQLite WAL mode handles moderate load well, but it has a single-writer constraint.

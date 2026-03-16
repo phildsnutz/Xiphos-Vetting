@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """
-Xiphos v2.3 API Server
+Xiphos v2.6 API Server
 
-Flask backend with SQLite persistence. All scoring runs through the
-Python Bayesian engine (direct port of scoring.ts). 11-source OSINT
-enrichment, entity resolution, continuous monitoring, and dossier generation.
+Flask backend with SQLite persistence, JWT authentication, RBAC, and
+full audit logging. All scoring runs through the Python Bayesian engine.
+17-source OSINT enrichment, entity resolution, continuous monitoring,
+and dossier generation.
 
-Endpoints:
+Auth Endpoints:
+  POST /api/auth/login                   Authenticate and get bearer token
+  GET  /api/auth/me                      Current user info
+  GET  /api/auth/users                   List users (admin only)
+  POST /api/auth/users                   Create user (admin only)
+  POST /api/auth/setup                   One-time admin bootstrap
+  GET  /api/audit                        Query audit log (auditor+)
+
+Core Endpoints:
   GET  /api/health                       Health check + stats
   GET  /api/cases?limit=N                List vendor cases (with latest scores)
   GET  /api/cases/:id                    Get single case with full score
@@ -43,6 +52,9 @@ from scoring import (
 )
 from ofac import screen_name, get_active_db, invalidate_cache
 import db
+from auth import (
+    init_auth_db, register_auth_routes, require_auth, log_audit, AUTH_ENABLED
+)
 
 # Optional: sanctions sync engine (may fail if dependencies missing)
 try:
@@ -87,6 +99,9 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 app = Flask(__name__, static_folder=None)
 CORS(app)
+
+# Register auth routes immediately (available regardless of main() startup)
+register_auth_routes(app)
 
 
 @app.route("/")
@@ -190,6 +205,7 @@ def _seed_if_empty():
 # ---- Routes ----
 
 @app.route("/api/health")
+@require_auth("health:read")
 def health():
     stats = db.get_stats()
     _, db_label = get_active_db()
@@ -217,7 +233,8 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "version": "2.5.0",
+        "version": "2.6.0",
+        "auth_enabled": AUTH_ENABLED,
         "engine": "bayesian-beta",
         "persistence": "sqlite",
         "sanctions_db": db_label,
@@ -230,6 +247,7 @@ def health():
 
 
 @app.route("/api/cases")
+@require_auth("cases:read")
 def api_list_cases():
     limit = request.args.get("limit", 100, type=int)
     vendors = db.list_vendors(limit)
@@ -247,6 +265,7 @@ def api_list_cases():
 
 
 @app.route("/api/cases/<case_id>")
+@require_auth("cases:read")
 def api_get_case(case_id):
     v = db.get_vendor(case_id)
     if not v:
@@ -260,6 +279,7 @@ def api_get_case(case_id):
 
 
 @app.route("/api/cases", methods=["POST"])
+@require_auth("cases:create")
 def api_create_case():
     body = request.get_json(silent=True) or {}
     required = ["name", "country"]
@@ -278,6 +298,8 @@ def api_create_case():
         "program": body.get("program", "standard_industrial"),
     }
     score_dict = _score_and_persist(vendor_id, v)
+    log_audit("case_created", "case", vendor_id,
+              detail=f"Created case for {body['name']} ({body['country']})")
     return jsonify({
         "case_id": vendor_id,
         "composite_score": score_dict["composite_score"],
@@ -287,6 +309,7 @@ def api_create_case():
 
 
 @app.route("/api/cases/<case_id>/score", methods=["POST"])
+@require_auth("cases:score")
 def api_rescore_case(case_id):
     v = db.get_vendor(case_id)
     if not v:
@@ -307,6 +330,7 @@ def api_rescore_case(case_id):
 
 
 @app.route("/api/cases/<case_id>/score/history")
+@require_auth("cases:read")
 def api_score_history(case_id):
     v = db.get_vendor(case_id)
     if not v:
@@ -317,6 +341,7 @@ def api_score_history(case_id):
 
 
 @app.route("/api/cases/<case_id>/dossier", methods=["POST"])
+@require_auth("cases:dossier")
 def api_generate_dossier(case_id):
     """Generate a full HTML intelligence dossier for a vendor."""
     if not HAS_DOSSIER:
@@ -334,6 +359,9 @@ def api_generate_dossier(case_id):
     filepath = os.path.join(dossier_dir, filename)
     with open(filepath, "w") as f:
         f.write(html)
+
+    log_audit("dossier_generated", "case", case_id,
+              detail=f"Dossier generated for {v['name']}")
 
     body = request.get_json(silent=True) or {}
     if body.get("format") == "html":
@@ -360,6 +388,7 @@ def api_serve_dossier(filename):
 # ---- Monitoring ----
 
 @app.route("/api/cases/<case_id>/monitor", methods=["POST"])
+@require_auth("monitor:run")
 def api_monitor_vendor(case_id):
     """Run a monitoring check on a specific vendor."""
     if not HAS_MONITOR:
@@ -385,6 +414,7 @@ def api_monitor_vendor(case_id):
 
 
 @app.route("/api/monitor/run", methods=["POST"])
+@require_auth("monitor:run")
 def api_monitor_all():
     """Run monitoring sweep on all vendors."""
     if not HAS_MONITOR:
@@ -411,6 +441,7 @@ def api_monitor_all():
 
 
 @app.route("/api/monitor/changes")
+@require_auth("monitor:read")
 def api_monitor_changes():
     """Get recent risk changes from monitoring."""
     limit = request.args.get("limit", 20, type=int)
@@ -424,6 +455,7 @@ def api_monitor_changes():
 # ---- Entity Resolution / Knowledge Graph ----
 
 @app.route("/api/cases/<case_id>/graph")
+@require_auth("graph:read")
 def api_get_entity_graph(case_id):
     """Get the entity resolution graph for a vendor."""
     if not HAS_KG:
@@ -447,6 +479,7 @@ def api_get_entity_graph(case_id):
 
 
 @app.route("/api/graph/shared/<case_id_a>/<case_id_b>")
+@require_auth("graph:read")
 def api_find_shared_connections(case_id_a, case_id_b):
     """Find hidden connections between two vendors."""
     if not HAS_KG:
@@ -462,6 +495,7 @@ def api_find_shared_connections(case_id_a, case_id_b):
 
 
 @app.route("/api/alerts")
+@require_auth("alerts:read")
 def api_list_alerts():
     limit = request.args.get("limit", 50, type=int)
     unresolved = request.args.get("unresolved", "false").lower() == "true"
@@ -470,10 +504,13 @@ def api_list_alerts():
 
 
 @app.route("/api/alerts/<int:alert_id>/resolve", methods=["POST"])
+@require_auth("alerts:resolve")
 def api_resolve_alert(alert_id):
     body = request.get_json(silent=True) or {}
     resolved_by = body.get("resolved_by", "analyst")
     if db.resolve_alert(alert_id, resolved_by):
+        log_audit("alert_resolved", "alert", str(alert_id),
+                  detail=f"Alert {alert_id} resolved by {resolved_by}")
         return jsonify({"status": "resolved", "alert_id": alert_id})
     return jsonify({"error": "Alert not found or already resolved"}), 404
 
@@ -481,6 +518,7 @@ def api_resolve_alert(alert_id):
 # ---- OSINT Enrichment ----
 
 @app.route("/api/cases/<case_id>/enrich", methods=["POST"])
+@require_auth("cases:enrich")
 def api_enrich_case(case_id):
     """Run OSINT enrichment against a vendor case. Stores results in DB."""
     if not HAS_OSINT:
@@ -514,10 +552,13 @@ def api_enrich_case(case_id):
                 finding.get("detail", ""),
             )
 
+    log_audit("enrichment_run", "case", case_id,
+              detail=f"OSINT enrichment on {v['name']}: {report.get('overall_risk', 'unknown')} risk")
     return jsonify(report)
 
 
 @app.route("/api/cases/<case_id>/enrichment")
+@require_auth("enrich:read")
 def api_get_enrichment(case_id):
     """Get the latest OSINT enrichment report for a vendor case."""
     v = db.get_vendor(case_id)
@@ -530,6 +571,7 @@ def api_get_enrichment(case_id):
 
 
 @app.route("/api/enrich", methods=["POST"])
+@require_auth("enrich:run")
 def api_enrich_standalone():
     """Run OSINT enrichment without a case. Body: {"name": "...", "country": "US"}."""
     if not HAS_OSINT:
@@ -557,6 +599,7 @@ def api_enrich_standalone():
 
 
 @app.route("/api/cases/<case_id>/enrich-and-score", methods=["POST"])
+@require_auth("cases:enrich")
 def api_enrich_and_score(case_id):
     """Run OSINT enrichment, augment scoring inputs, and re-score. Full pipeline."""
     if not HAS_OSINT:
@@ -647,6 +690,7 @@ def api_enrich_and_score(case_id):
 
 
 @app.route("/api/screen", methods=["POST"])
+@require_auth("screen:run")
 def api_screen_vendor():
     body = request.get_json(silent=True) or {}
     vendor_name = body.get("name", "")
@@ -677,11 +721,13 @@ def api_screen_vendor():
 
     # Log the screening
     db.log_screening(vendor_name, result_dict)
-
+    log_audit("screening_run", "vendor", vendor_name,
+              detail=f"OFAC screen: {'MATCH' if result.matched else 'CLEAR'}")
     return jsonify(result_dict)
 
 
 @app.route("/api/screenings")
+@require_auth("screen:read")
 def api_screening_history():
     limit = request.args.get("limit", 50, type=int)
     history = db.get_screening_history(limit)
@@ -691,6 +737,7 @@ def api_screening_history():
 # ---- Sanctions sync ----
 
 @app.route("/api/sanctions/status")
+@require_auth("cases:read")
 def api_sanctions_status():
     """Get current sanctions database status."""
     if not HAS_SYNC:
@@ -704,6 +751,7 @@ def api_sanctions_status():
 
 
 @app.route("/api/sanctions/sources")
+@require_auth("cases:read")
 def api_sanctions_sources():
     """List available sanctions sources."""
     if not HAS_SYNC:
@@ -715,6 +763,7 @@ def api_sanctions_sources():
 
 
 @app.route("/api/sanctions/sync", methods=["POST"])
+@require_auth("system:config")
 def api_sanctions_sync():
     """Trigger a sanctions sync. Body: {"sources": ["ofac","uk"]} or omit for all."""
     if not HAS_SYNC:
@@ -784,6 +833,7 @@ def main():
 
     print("Initializing database...")
     db.init_db()
+    init_auth_db()
     _seed_if_empty()
 
     if args.demo:
@@ -815,10 +865,11 @@ def main():
 
     print(f"  Monitoring: {'enabled' if HAS_MONITOR else 'not available'}")
     print(f"  Dossier gen: {'enabled' if HAS_DOSSIER else 'not available'}")
+    print(f"  Auth/RBAC: {'ENFORCED' if AUTH_ENABLED else 'DEV MODE (all requests = admin)'}")
 
     stats = db.get_stats()
     print(f"\n{'='*50}")
-    print(f"  XIPHOS v2.3 -- Intelligence-Grade Vendor Assurance")
+    print(f"  XIPHOS v2.6 -- Intelligence-Grade Vendor Assurance")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
     print(f"  http://{args.host}:{args.port}")

@@ -9,23 +9,33 @@ Queries the ICIJ Offshore Leaks API for exposure in:
   - Offshore Leaks
 
 API: https://offshoreleaks.icij.org/api/v1/reconcile
-No authentication required. Score >= 40 is treated as a match.
+No authentication required.
 
-Each match can have types: Officer, Entity, Intermediary, Address
+Matching strategy (v2.5):
+  - Query the main reconciliation endpoint only (no redundant sub-endpoints)
+  - Apply server-side score threshold >= 60
+  - Apply secondary Xiphos-side name verification via token overlap
+  - Require >= 50% token overlap between query and matched name
+  - This eliminates false positives like "BAE Systems" matching "SCITECH SYSTEMS"
 """
 
 import json
+import re
 import time
 import urllib.request
 import urllib.error
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 
 BASE = "https://offshoreleaks.icij.org/api/v1"
-USER_AGENT = "Xiphos-Vetting/2.1"
+USER_AGENT = "Xiphos-Vetting/2.5"
 
-# Mapping of investigation names to sources
+# Server-side score threshold (ICIJ's internal fuzzy score)
+MIN_ICIJ_SCORE = 60
+
+# Xiphos-side minimum name similarity (token overlap / Dice coefficient)
+MIN_NAME_SIMILARITY = 0.50
+
 INVESTIGATION_SOURCES = {
     "Panama Papers": "panama_papers",
     "Paradise Papers": "paradise_papers",
@@ -33,6 +43,35 @@ INVESTIGATION_SOURCES = {
     "Bahamas Leaks": "bahamas_leaks",
     "Offshore Leaks": "offshore_leaks",
 }
+
+
+def _normalize(name: str) -> str:
+    """Strip legal suffixes and punctuation for comparison."""
+    name = name.lower().strip()
+    name = re.sub(
+        r'\b(inc|llc|ltd|plc|corp|co|sa|gmbh|ag|nv|bv|pllc|lp|'
+        r'group|holdings|international|global|enterprises|corporation)\b\.?',
+        '', name,
+    )
+    name = re.sub(r'[^\w\s]', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def _name_similarity(query: str, candidate: str) -> float:
+    """
+    Dice coefficient on normalized token sets.
+    Returns 0.0-1.0 indicating how much the names actually overlap.
+    """
+    q = set(_normalize(query).split())
+    c = set(_normalize(candidate).split())
+    if not q or not c:
+        return 0.0
+    # Exact match after normalization
+    if q == c:
+        return 1.0
+    overlap = q & c
+    return 2 * len(overlap) / (len(q) + len(c))
 
 
 def _post(url: str, data: dict) -> dict | None:
@@ -50,130 +89,144 @@ def _post(url: str, data: dict) -> dict | None:
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+    except (urllib.error.URLError, urllib.error.HTTPError,
+            TimeoutError, json.JSONDecodeError):
         return None
 
 
-def _parse_investigation_source(description: str) -> str | None:
+def _parse_investigation(description: str) -> str:
     """Extract investigation source from description."""
     for inv_name, source_key in INVESTIGATION_SOURCES.items():
         if inv_name in description:
             return source_key
-    return None
-
-
-def _query_reconcile(name: str, endpoint: str = "reconcile") -> list[dict]:
-    """Query the reconciliation API."""
-    payload = {"queries": {"q0": {"query": name}}}
-    url = f"{BASE}/{endpoint}"
-    data = _post(url, payload)
-    if not data:
-        return []
-
-    # Response format: {"q0": {"result": [...]}}
-    results = data.get("q0", {}).get("result", [])
-    return results
+    return "unknown_investigation"
 
 
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
-    """Query ICIJ Offshore Leaks for vendor exposure."""
+    """
+    Query ICIJ Offshore Leaks for vendor exposure.
+
+    Uses a single reconciliation query with dual-layer filtering:
+    1. ICIJ server-side score >= 60
+    2. Xiphos-side token overlap >= 50%
+
+    This eliminates false positives from generic partial-word matches
+    while still catching legitimate offshore entity connections.
+    """
     t0 = time.time()
     result = EnrichmentResult(source="icij_offshore", vendor_name=vendor_name)
 
     try:
-        # Query main reconcile endpoint
-        matches = _query_reconcile(vendor_name)
+        # Single query to main reconciliation endpoint
+        payload = {"queries": {"q0": {"query": vendor_name}}}
+        url = f"{BASE}/reconcile"
+        data = _post(url, payload)
 
-        # Also try individual investigation endpoints for higher precision
-        panama_matches = _query_reconcile(vendor_name, "reconcile/panama-papers")
-        pandora_matches = _query_reconcile(vendor_name, "reconcile/pandora-papers")
+        raw_matches = []
+        if data:
+            raw_matches = data.get("q0", {}).get("result", [])
 
-        # Combine and deduplicate by ID
-        all_matches = matches + panama_matches + pandora_matches
-        seen_ids = set()
-        unique_matches = []
+        # Dual-layer filtering
+        verified_matches = []
+        for match in raw_matches:
+            icij_score = match.get("score", 0)
+            match_name = match.get("name", "")
 
-        for match in all_matches:
-            match_id = match.get("id", "")
-            if match_id not in seen_ids:
-                seen_ids.add(match_id)
-                unique_matches.append(match)
+            # Layer 1: ICIJ server score
+            if icij_score < MIN_ICIJ_SCORE:
+                continue
 
-        if not unique_matches:
+            # Layer 2: Xiphos name verification
+            name_sim = _name_similarity(vendor_name, match_name)
+            if name_sim < MIN_NAME_SIMILARITY:
+                continue
+
+            verified_matches.append({
+                **match,
+                "_xiphos_name_sim": name_sim,
+                "_xiphos_combined_score": (icij_score / 100.0) * 0.6 + name_sim * 0.4,
+            })
+
+        # Sort by combined score descending
+        verified_matches.sort(key=lambda m: m["_xiphos_combined_score"], reverse=True)
+
+        if not verified_matches:
             result.findings.append(Finding(
                 source="icij_offshore",
                 category="offshore_exposure",
                 title="No ICIJ matches found",
-                detail=f"'{vendor_name}' not found in ICIJ Offshore Leaks databases "
-                       f"(Panama Papers, Paradise Papers, Pandora Papers, Bahamas Leaks, Offshore Leaks).",
+                detail=(
+                    f"'{vendor_name}' not found in ICIJ Offshore Leaks databases "
+                    f"(Panama Papers, Paradise Papers, Pandora Papers, Bahamas Leaks, "
+                    f"Offshore Leaks). Searched with dual-layer verification."
+                ),
                 severity="info",
-                confidence=0.8,
+                confidence=0.85,
             ))
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        # Process matches
-        for match in unique_matches:
+        # Process verified matches (cap at 10 to keep findings manageable)
+        for match in verified_matches[:10]:
             match_id = match.get("id", "")
             name = match.get("name", "")
             description = match.get("description", "")
-            score = match.get("score", 0)
+            icij_score = match.get("score", 0)
+            name_sim = match["_xiphos_name_sim"]
+            combined = match["_xiphos_combined_score"]
             match_types = match.get("types", [])
 
-            # Only report if score >= 40
-            if score < 40:
-                continue
-
-            # Determine severity based on score and type
-            if score >= 80:
+            # Severity based on combined score
+            if combined >= 0.85:
                 severity = "critical"
-            elif score >= 60:
+            elif combined >= 0.70:
                 severity = "high"
             else:
                 severity = "medium"
 
-            # Parse investigation source from description
-            source = _parse_investigation_source(description)
-            source_str = source or "unknown_investigation"
+            investigation = _parse_investigation(description)
 
-            # Determine type string for detail (types are dicts with name/id)
             types_str = ", ".join(
                 t.get("name", str(t)) if isinstance(t, dict) else str(t)
                 for t in match_types
             ) if match_types else "Unknown"
 
-            finding_title = f"ICIJ match: {name} (Score: {score})"
-            finding_detail = (
-                f"ICIJ ID: {match_id}\n"
-                f"Match Score: {score}/100\n"
-                f"Entity Types: {types_str}\n"
-                f"Investigation: {source_str}\n"
-                f"Description: {description}"
-            )
-
             result.findings.append(Finding(
                 source="icij_offshore",
                 category="offshore_exposure",
-                title=finding_title,
-                detail=finding_detail,
+                title=f"ICIJ: {name} ({investigation.replace('_', ' ').title()})",
+                detail=(
+                    f"Entity: {name}\n"
+                    f"ICIJ Score: {icij_score}/100\n"
+                    f"Name Match: {name_sim:.0%}\n"
+                    f"Combined Score: {combined:.0%}\n"
+                    f"Types: {types_str}\n"
+                    f"Investigation: {investigation.replace('_', ' ').title()}\n"
+                    f"Description: {description}"
+                ),
                 severity=severity,
-                confidence=score / 100.0,
-                url=f"https://offshoreleaks.icij.org/search?q={match_id}",
+                confidence=combined,
+                url=f"https://offshoreleaks.icij.org/search?q={name.replace(' ', '+')}",
                 raw_data={
                     "id": match_id,
-                    "score": score,
+                    "icij_score": icij_score,
+                    "name_similarity": round(name_sim, 3),
+                    "combined_score": round(combined, 3),
                     "types": match_types,
-                    "investigation": source_str,
+                    "investigation": investigation,
                 },
             ))
 
             result.risk_signals.append({
                 "signal": "offshore_entity_match",
                 "severity": severity,
-                "detail": f"Entity '{name}' matched in ICIJ {source_str.replace('_', ' ').title()} "
-                         f"with confidence score {score}/100",
+                "detail": (
+                    f"'{name}' matched in ICIJ {investigation.replace('_', ' ').title()} "
+                    f"(combined score {combined:.0%})"
+                ),
                 "match_id": match_id,
-                "score": score,
+                "icij_score": icij_score,
+                "name_similarity": round(name_sim, 3),
             })
 
     except Exception as e:

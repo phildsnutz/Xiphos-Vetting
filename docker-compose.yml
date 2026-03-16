@@ -9,6 +9,13 @@ services:
       - xiphos-data:/data
     environment:
       - XIPHOS_DB_PATH=/data/xiphos.db
+      - XIPHOS_KG_DB_PATH=/data/xiphos_kg.db
+      - XIPHOS_SANCTIONS_DB=/data/sanctions.db
+      - XIPHOS_AUTH_ENABLED=true
+      # IMPORTANT: Generate a real secret before deploying:
+      #   python -c "import secrets; print(secrets.token_hex(32))"
+      - XIPHOS_SECRET_KEY=${XIPHOS_SECRET_KEY:-CHANGE-ME-IN-PRODUCTION}
+      - XIPHOS_TOKEN_EXPIRY_HOURS=8
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
