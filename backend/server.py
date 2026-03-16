@@ -1094,6 +1094,7 @@ def api_enrich_and_score(case_id):
             "summary": report["summary"],
             "identifiers": report["identifiers"],
             "total_elapsed_ms": report["total_elapsed_ms"],
+            "connector_status": report.get("connector_status", {}),
         },
         "augmentation": {
             "changes": augmentation.changes,
