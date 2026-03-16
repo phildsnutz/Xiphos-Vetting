@@ -141,3 +141,42 @@ The core thesis: ONE platform with configurable "compliance profiles" that swap 
    - Scheduled re-screening (weekly/monthly cadence)
    - Alert reports on risk profile changes
    - Delta analysis (what changed since last screen)
+
+---
+
+## CRITICAL MANDATE: LIVE DATA ONLY (No Simulated/Notional Feeds)
+
+**Effective immediately, ALL OSINT connectors must use live API integrations. No hardcoded lists, no simulated responses, no fallback dummy data.** If a live API is unavailable, the connector should return an explicit "API unavailable" error rather than fake results.
+
+### Priority Connectors to Convert to Live:
+
+**Tier 1 (Must-have for commercial viability):**
+1. OFAC SDN - Download CSV/XML from https://sanctionslist.ofac.treas.gov/ (already partially live via sanctions_sync)
+2. SAM.gov Entity Registration - Live API at https://api.sam.gov/entity-information/v3/entities (requires API key from sam.gov)
+3. BIS Consolidated Screening List - Live API at https://api.trade.gov/consolidated_screening_list/v1/search (free, no key needed)
+4. OpenSanctions - Live API at https://api.opensanctions.org/ (free tier available)
+5. SEC EDGAR - Live API at https://efts.sec.gov/LATEST/search-index (free, rate-limited)
+6. GLEIF LEI - Live API at https://api.gleif.org/api/v1/lei-records (free, open)
+
+**Tier 2 (High value, moderate effort):**
+7. World Bank Debarred Firms - CSV download from https://www.worldbank.org/en/projects-operations/procurement/debarred-firms
+8. UN Sanctions - XML feed from https://scsanctions.un.org/resources/xml/en/consolidated.xml
+9. USAspending.gov - Live API at https://api.usaspending.gov/ (free, open)
+10. OpenCorporates - API at https://api.opencorporates.com/ (freemium, paid for bulk)
+11. UK Companies House - API at https://api.company-information.service.gov.uk/ (free with key)
+12. GDELT Media - API at https://api.gdeltproject.org/ (free, open)
+
+**Tier 3 (Nice-to-have, complex integration):**
+13. FDA Debarment - Scrape from https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/compliance-actions-and-activities/debarment-list-drug-product-applications
+14. FAPIIS - Requires .gov credentials (may need partnership/FedRAMP)
+15. FARA - DOJ FARA database at https://efile.fara.gov/ords/fara/f?p=API:REGISTRATIONS
+16. CourtListener/RECAP - API at https://www.courtlistener.com/api/rest/v4/ (free with key)
+
+### Path to Rating 9:
+- Convert Tier 1 connectors to live APIs (this alone transforms the product)
+- Add polished PDF dossier export
+- Multi-tenant architecture (PostgreSQL migration)
+- Webhook/email notifications for monitoring alerts
+- Audit dashboard for DCAA compliance
+- Onboarding wizard ("Screen your first vendor in 60 seconds")
+- SOC 2 compliance posture
