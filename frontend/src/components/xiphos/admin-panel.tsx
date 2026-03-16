@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Users, Plus, Shield, Clock, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { Users, Plus, Shield, Clock, ChevronDown, ChevronUp, AlertTriangle, Brain } from "lucide-react";
 import { T } from "@/lib/tokens";
 import { fetchUsers, createUser, fetchAuditLog } from "@/lib/api";
 import type { ApiUser, AuditEntry } from "@/lib/api";
 import { roleLabel } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
+import { AISettings } from "./ai-settings";
 
 interface AdminPanelProps {
   currentUser: AuthUser;
@@ -18,7 +19,7 @@ const ROLE_COLORS: Record<string, { color: string; bg: string }> = {
 };
 
 export function AdminPanel({ currentUser }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<"users" | "audit">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "audit" | "ai">("users");
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +119,19 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
           >
             <Clock size={12} />
             Audit Log
+          </button>
+          <button
+            onClick={() => setActiveTab("ai")}
+            className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
+            style={{
+              fontSize: 11,
+              border: "none",
+              background: activeTab === "ai" ? T.accent + "22" : "transparent",
+              color: activeTab === "ai" ? T.accent : T.muted,
+            }}
+          >
+            <Brain size={12} />
+            AI Settings
           </button>
         </div>
       </div>
@@ -357,6 +371,13 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
           <div style={{ fontSize: 10, color: T.muted }}>
             {users.length} user{users.length !== 1 ? "s" : ""} registered
           </div>
+        </div>
+      )}
+
+      {/* AI Settings tab */}
+      {activeTab === "ai" && (
+        <div className="flex-1">
+          <AISettings currentUser={currentUser} />
         </div>
       )}
 

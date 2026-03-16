@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { T } from "@/lib/tokens";
-import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar } from "lucide-react";
+import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar, Brain } from "lucide-react";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
 import { ContribBar } from "./charts";
 import { EnrichmentPanel } from "./enrichment-panel";
+import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { enrichAndScore, fetchEnrichment } from "@/lib/api";
 import type { EnrichmentReport } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot } from "@/lib/types";
@@ -121,6 +122,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState<EnrichmentReport | null>(null);
   const [showEnrichment, setShowEnrichment] = useState(false);
+  const [showAI, setShowAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Try to load existing enrichment on mount
@@ -239,6 +241,20 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
                   {showEnrichment ? "Hide Intel" : `Intel (${enrichment.summary.findings_total})`}
                 </button>
               )}
+              {/* AI Analysis toggle */}
+              <button
+                onClick={() => setShowAI(!showAI)}
+                className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+                style={{
+                  padding: "6px 12px", fontSize: 12,
+                  background: showAI ? T.accent + "22" : "#8b5cf622",
+                  color: showAI ? T.accent : "#8b5cf6",
+                  borderColor: showAI ? T.accent + "44" : "#8b5cf644",
+                }}
+              >
+                <Brain size={12} />
+                {showAI ? "Hide AI" : "AI Analysis"}
+              </button>
               {/* Dossier */}
               <button
                 onClick={handleDossier}
@@ -335,6 +351,13 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
         {showEnrichment && enrichment && (
           <div className="mt-3">
             <EnrichmentPanel report={enrichment} />
+          </div>
+        )}
+
+        {/* AI Analysis Panel */}
+        {showAI && (
+          <div className="mt-3">
+            <AIAnalysisPanel caseId={c.id} vendorName={c.name} />
           </div>
         )}
 

@@ -188,6 +188,78 @@ export async function createUser(
   });
 }
 
+/* ---- AI Analysis ---- */
+
+export interface AIProvider {
+  name: string;
+  display_name: string;
+  models: string[];
+  default_model: string;
+}
+
+export interface AIConfig {
+  configured: boolean;
+  provider?: string;
+  model?: string;
+  api_key_hint?: string;
+}
+
+export interface AIAnalysis {
+  case_id: string;
+  vendor_name: string;
+  analysis: {
+    executive_summary: string;
+    risk_narrative: string;
+    critical_concerns: string[];
+    mitigating_factors: string[];
+    recommended_actions: string[];
+    regulatory_exposure: string;
+    confidence_assessment: string;
+    verdict: string;
+  };
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  elapsed_ms: number;
+  created_at?: string;
+}
+
+export async function fetchAIProviders(): Promise<AIProvider[]> {
+  const data = await json<{ providers: AIProvider[] }>("/api/ai/providers");
+  return data.providers;
+}
+
+export async function fetchAIConfig(): Promise<AIConfig> {
+  return json<AIConfig>("/api/ai/config");
+}
+
+export async function saveAIConfig(provider: string, model: string, apiKey: string): Promise<{ status: string }> {
+  return json("/api/ai/config", {
+    method: "POST",
+    body: JSON.stringify({ provider, model, api_key: apiKey }),
+  });
+}
+
+export async function deleteAIConfig(): Promise<{ status: string }> {
+  return json("/api/ai/config", { method: "DELETE" });
+}
+
+export async function saveOrgAIConfig(provider: string, model: string, apiKey: string): Promise<{ status: string }> {
+  return json("/api/ai/config/org-default", {
+    method: "POST",
+    body: JSON.stringify({ provider, model, api_key: apiKey }),
+  });
+}
+
+export async function runAIAnalysis(caseId: string): Promise<AIAnalysis> {
+  return json<AIAnalysis>(`/api/cases/${caseId}/analyze`, { method: "POST" });
+}
+
+export async function fetchAIAnalysis(caseId: string): Promise<AIAnalysis> {
+  return json<AIAnalysis>(`/api/cases/${caseId}/analysis`);
+}
+
 /* ---- Audit Log (auditor+) ---- */
 
 export interface AuditEntry {

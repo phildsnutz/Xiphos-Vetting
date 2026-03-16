@@ -79,6 +79,10 @@ PERMISSIONS = {
     "enrich:run":          50,   # analyst+
     "enrich:read":         20,   # reviewer+
 
+    # AI Analysis
+    "ai:config":           50,   # analyst+
+    "ai:analyze":          50,   # analyst+
+
     # Health
     "health:read":         0,    # anyone (even unauthenticated)
 

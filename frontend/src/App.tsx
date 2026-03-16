@@ -444,7 +444,7 @@ export default function App() {
         className="text-center shrink-0"
         style={{ padding: "6px 0", fontSize: 9, color: T.muted, borderTop: `1px solid ${T.border}` }}
       >
-        XIPHOS &mdash; CONFIDENTIAL &mdash; v2.6 &mdash; {cases.length} vendors in portfolio
+        XIPHOS &mdash; CONFIDENTIAL &mdash; v2.8 &mdash; {cases.length} vendors in portfolio
         {user && <> &mdash; {user.email}</>}
       </footer>
     </div>

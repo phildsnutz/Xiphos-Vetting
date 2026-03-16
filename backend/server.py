@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Xiphos v2.7.1 API Server
+Xiphos v2.8 API Server
 
 Flask backend with SQLite persistence, JWT authentication, RBAC, and
 full audit logging. All scoring runs through the Python Bayesian engine.
@@ -35,6 +35,15 @@ Core Endpoints:
   POST /api/monitor/run                  Run monitoring sweep on all vendors
   GET  /api/monitor/changes              Get recent risk changes
   GET  /api/graph/shared/:id_a/:id_b     Find hidden connections between vendors
+
+AI Analysis Endpoints:
+  GET  /api/ai/providers                 List available AI providers + models
+  GET  /api/ai/config                    Get current user's AI config
+  POST /api/ai/config                    Set user's AI provider/key/model
+  DELETE /api/ai/config                  Remove user's AI config
+  POST /api/ai/config/org-default        Set org-wide default AI config (admin)
+  POST /api/cases/:id/analyze            Run AI analysis on a vendor
+  GET  /api/cases/:id/analysis           Get latest AI analysis for a vendor
 """
 
 import os
@@ -44,7 +53,7 @@ import uuid
 import argparse
 from datetime import datetime
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, g
 
 from scoring import (
     score_vendor, VendorInput, OwnershipProfile, DataQuality, ExecProfile
@@ -96,6 +105,17 @@ try:
     HAS_DOSSIER = True
 except ImportError:
     HAS_DOSSIER = False
+
+# AI Analysis module (multi-provider: Claude, OpenAI, Gemini)
+try:
+    from ai_analysis import (
+        init_ai_tables, analyze_vendor as ai_analyze_vendor,
+        get_available_providers, save_ai_config, get_ai_config,
+        delete_ai_config, get_latest_analysis,
+    )
+    HAS_AI = True
+except ImportError:
+    HAS_AI = False
 
 # Static folder for serving the bundled frontend
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -237,7 +257,7 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "version": "2.7.1",
+        "version": "2.8",
         "auth_enabled": AUTH_ENABLED,
         "engine": "bayesian-beta",
         "persistence": "sqlite",
@@ -246,6 +266,7 @@ def health():
         "osint_enabled": HAS_OSINT,
         "osint_connectors": osint_connectors,
         "osint_cache": cache_stats,
+        "ai_enabled": HAS_AI,
         "stats": stats,
     })
 
@@ -748,6 +769,158 @@ def api_screening_history():
     return jsonify({"screenings": history})
 
 
+# ---- AI Analysis ----
+
+@app.route("/api/ai/providers")
+@require_auth("cases:read")
+def api_ai_providers():
+    """List available AI providers and their models."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+    return jsonify({"providers": get_available_providers()})
+
+
+@app.route("/api/ai/config", methods=["GET"])
+@require_auth("cases:read")
+def api_ai_config_get():
+    """Get the current user's AI provider config (key is masked)."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+    user_id = g.user.get("sub", "dev")
+    config = get_ai_config(user_id)
+    if not config:
+        return jsonify({"configured": False})
+    return jsonify({
+        "configured": True,
+        "provider": config["provider"],
+        "model": config["model"],
+        "api_key_hint": config["api_key"][:8] + "..." if len(config["api_key"]) > 8 else "***",
+    })
+
+
+@app.route("/api/ai/config", methods=["POST"])
+@require_auth("cases:score")
+def api_ai_config_set():
+    """Set the current user's AI provider configuration."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+    body = request.get_json(silent=True) or {}
+    required = ["provider", "model", "api_key"]
+    for field in required:
+        if field not in body:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    user_id = g.user.get("sub", "dev")
+    try:
+        save_ai_config(user_id, body["provider"], body["model"], body["api_key"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    log_audit("ai_config_set", "user", user_id,
+              detail=f"AI config: {body['provider']}/{body['model']}")
+    return jsonify({"status": "saved", "provider": body["provider"], "model": body["model"]})
+
+
+@app.route("/api/ai/config", methods=["DELETE"])
+@require_auth("cases:score")
+def api_ai_config_delete():
+    """Remove the current user's AI provider configuration."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+    user_id = g.user.get("sub", "dev")
+    deleted = delete_ai_config(user_id)
+    if deleted:
+        log_audit("ai_config_deleted", "user", user_id)
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "No config found to delete"}), 404
+
+
+@app.route("/api/ai/config/org-default", methods=["POST"])
+@require_auth("system:config")
+def api_ai_config_org_default():
+    """Set the organization-wide default AI provider config (admin only)."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+    body = request.get_json(silent=True) or {}
+    required = ["provider", "model", "api_key"]
+    for field in required:
+        if field not in body:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    try:
+        save_ai_config("__org_default__", body["provider"], body["model"], body["api_key"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    log_audit("ai_org_default_set", "system", "org",
+              detail=f"Org AI default: {body['provider']}/{body['model']}")
+    return jsonify({"status": "saved", "scope": "organization",
+                    "provider": body["provider"], "model": body["model"]})
+
+
+@app.route("/api/cases/<case_id>/analyze", methods=["POST"])
+@require_auth("cases:score")
+def api_analyze_case(case_id):
+    """Run AI analysis on a vendor case using the user's configured provider."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+
+    v = db.get_vendor(case_id)
+    if not v:
+        return jsonify({"error": "Case not found"}), 404
+
+    score = db.get_latest_score(case_id)
+    if not score:
+        return jsonify({"error": "No score found. Score the vendor first."}), 400
+
+    # Get enrichment data if available
+    enrichment = None
+    try:
+        enrichment = db.get_latest_enrichment(case_id)
+    except Exception:
+        pass
+
+    user_id = g.user.get("sub", "dev")
+    vendor_data = {**v.get("vendor_input", {}), "id": case_id, "name": v["name"], "country": v["country"]}
+
+    try:
+        result = ai_analyze_vendor(
+            user_id=user_id,
+            vendor_data=vendor_data,
+            score_data=score,
+            enrichment_data=enrichment,
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
+
+    log_audit("ai_analysis_run", "case", case_id,
+              detail=f"AI analysis via {result['provider']}/{result['model']} ({result['elapsed_ms']}ms)")
+
+    return jsonify({
+        "case_id": case_id,
+        "vendor_name": v["name"],
+        **result,
+    })
+
+
+@app.route("/api/cases/<case_id>/analysis")
+@require_auth("cases:read")
+def api_get_analysis(case_id):
+    """Get the latest AI analysis for a vendor case."""
+    if not HAS_AI:
+        return jsonify({"error": "AI analysis module not available"}), 501
+    v = db.get_vendor(case_id)
+    if not v:
+        return jsonify({"error": "Case not found"}), 404
+
+    analysis = get_latest_analysis(case_id)
+    if not analysis:
+        return jsonify({"error": "No AI analysis found. Run POST /api/cases/{id}/analyze first."}), 404
+    return jsonify({"case_id": case_id, "vendor_name": v["name"], **analysis})
+
+
 # ---- Sanctions sync ----
 
 @app.route("/api/sanctions/status")
@@ -829,7 +1002,7 @@ def _load_demo_data():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Xiphos v2.7.1 API Server")
+    parser = argparse.ArgumentParser(description="Xiphos v2.8 API Server")
     parser.add_argument("--port", type=int, default=8080, help="Server port (default: 8080)")
     parser.add_argument("--host", default="0.0.0.0", help="Server host")
     parser.add_argument("--reset-db", action="store_true", help="Delete and recreate the database")
@@ -848,6 +1021,9 @@ def main():
     print("Initializing database...")
     db.init_db()
     init_auth_db()
+    if HAS_AI:
+        init_ai_tables()
+        print("  AI analysis: initialized")
     _seed_if_empty()
 
     if args.demo:
@@ -883,7 +1059,7 @@ def main():
 
     stats = db.get_stats()
     print(f"\n{'='*50}")
-    print(f"  XIPHOS v2.7.1 -- Intelligence-Grade Vendor Assurance")
+    print(f"  XIPHOS v2.8 -- Intelligence-Grade Vendor Assurance")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
     print(f"  http://{args.host}:{args.port}")

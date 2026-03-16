@@ -1,8 +1,14 @@
 """
-Xiphos Bayesian Scoring Engine -- Python port.
+Xiphos Bayesian Scoring Engine v2.8
 
-Direct port of scoring.ts. Same math, same thresholds, same outputs.
-Uses Beta-distributed priors with conjugate updates.
+Beta-distributed priors with conjugate updates, composite hard stop
+rules, and integrated sanctions screening.
+
+v2.8 changes:
+  - Composite hard stop rules: country + ownership + program combinations
+  - Sanctions screening wired into scoring pipeline (not just OFAC name match)
+  - Comprehensive sanctioned country list triggers automatic hard stop
+  - Shell company depth > 4 triggers hard stop for weapons/mission-critical
 """
 
 import math
@@ -23,6 +29,14 @@ GEO_RISK: dict[str, float] = {
     "RU": 0.85, "CN": 0.45, "IR": 0.92, "KP": 0.98, "SY": 0.90,
     "CU": 0.70, "AF": 0.65, "SO": 0.60, "SD": 0.75, "YE": 0.55,
 }
+
+# Countries under comprehensive US sanctions (EO-based embargo).
+# Any entity domiciled here is an automatic hard stop for weapons/mission-critical.
+COMPREHENSIVELY_SANCTIONED = {"RU", "IR", "KP", "SY", "CU"}
+
+# Countries with sectoral sanctions or elevated proliferation risk.
+# State-owned + weapons program in these countries triggers hard stop.
+SECTORAL_SANCTIONED = {"CN", "BY", "VE", "MM", "SD", "SO", "AF", "YE"}
 
 def geo_risk(cc: str) -> float:
     return GEO_RISK.get(cc.upper(), 0.30)
@@ -95,10 +109,18 @@ def exec_risk(e: ExecProfile) -> float:
 PROGRAM_MULTIPLIER = {
     "weapons_system": 1.5,
     "mission_critical": 1.35,
+    "nuclear_related": 1.6,
+    "intelligence_community": 1.5,
+    "critical_infrastructure": 1.3,
     "dual_use": 1.20,
     "standard_industrial": 1.0,
     "commercial_off_shelf": 0.85,
     "services": 0.90,
+}
+
+HIGH_SENSITIVITY_PROGRAMS = {
+    "weapons_system", "mission_critical", "nuclear_related",
+    "intelligence_community", "critical_infrastructure",
 }
 
 def program_multiplier(p: str) -> float:
@@ -208,12 +230,134 @@ class ScoringResult:
     rubric_confidence: float
 
 
+# =============================================================================
+# COMPOSITE HARD STOP RULES (v2.8)
+#
+# These rules catch cases the Bayesian model underscores because the model
+# treats each factor semi-independently. These are categorical prohibitions
+# based on regulatory reality, not probability.
+# =============================================================================
+
+def _evaluate_composite_hard_stops(
+    inp: VendorInput,
+    screening: ScreeningResult,
+    geo_raw: float,
+) -> list[dict]:
+    """
+    Evaluate deterministic hard stop rules that fire based on factor
+    combinations. Returns a list of hard stop decisions.
+    """
+    stops = []
+    cc = inp.country.upper()
+    is_sensitive = inp.program in HIGH_SENSITIVITY_PROGRAMS
+
+    # Rule 1: Confirmed sanctions match (>88% fuzzy match)
+    if screening.matched and screening.best_score > 0.88:
+        stops.append({
+            "trigger": f"{screening.matched_entry.list_type} Match: {screening.matched_name}",
+            "explanation": (
+                f"Entity matches {screening.matched_entry.list_type} list under "
+                f"{screening.matched_entry.program} program -- "
+                f"{screening.best_score*100:.0f}% fuzzy match confidence."
+            ),
+            "confidence": round(screening.best_score, 4),
+            "rule": "sanctions_match",
+        })
+
+    # Rule 2: Comprehensively sanctioned country (RU, IR, KP, SY, CU)
+    # Any entity domiciled in these countries is prohibited for sensitive programs.
+    if cc in COMPREHENSIVELY_SANCTIONED and is_sensitive:
+        stops.append({
+            "trigger": f"Comprehensively Sanctioned Jurisdiction ({cc})",
+            "explanation": (
+                f"Entity domiciled in {cc}, which is under comprehensive US sanctions "
+                f"(Executive Order embargo). Prohibited for {inp.program} programs "
+                f"regardless of entity-level screening results."
+            ),
+            "confidence": 0.98,
+            "rule": "sanctioned_country_sensitive",
+        })
+
+    # Rule 3: Comprehensively sanctioned country + state-owned (any program)
+    if cc in COMPREHENSIVELY_SANCTIONED and inp.ownership.state_owned:
+        # Avoid duplicate if rule 2 already fired
+        if not any(s["rule"] == "sanctioned_country_sensitive" for s in stops):
+            stops.append({
+                "trigger": f"State-Owned Entity in Sanctioned Jurisdiction ({cc})",
+                "explanation": (
+                    f"State-owned enterprise in {cc}. Entities owned or controlled by "
+                    f"comprehensively sanctioned governments are prohibited under OFAC regulations."
+                ),
+                "confidence": 0.97,
+                "rule": "sanctioned_state_owned",
+            })
+
+    # Rule 4: Adversary state-owned enterprise in sensitive program
+    if inp.ownership.state_owned and geo_raw > 0.50 and is_sensitive:
+        if not any(s["rule"] in ("sanctioned_country_sensitive", "sanctioned_state_owned") for s in stops):
+            stops.append({
+                "trigger": f"Adversary State-Owned Enterprise ({cc})",
+                "explanation": (
+                    f"State-owned entity in high-risk jurisdiction ({cc}, geo_risk={geo_raw:.2f}) "
+                    f"applied to {inp.program} program. CFIUS and ITAR restrictions likely apply."
+                ),
+                "confidence": 0.90,
+                "rule": "adversary_state_owned",
+            })
+
+    # Rule 5: Sectoral-sanctioned country + state-owned + weapons/nuclear program
+    if cc in SECTORAL_SANCTIONED and inp.ownership.state_owned:
+        if inp.program in ("weapons_system", "nuclear_related"):
+            if not any(s["rule"].startswith("sanctioned") or s["rule"] == "adversary_state_owned" for s in stops):
+                stops.append({
+                    "trigger": f"Sectoral Sanctions Risk ({cc} + State-Owned + {inp.program})",
+                    "explanation": (
+                        f"State-owned entity in {cc} (sectoral sanctions) applied to "
+                        f"{inp.program} program. US sectoral sanctions and entity-specific "
+                        f"designations likely prohibit this procurement."
+                    ),
+                    "confidence": 0.88,
+                    "rule": "sectoral_state_weapons",
+                })
+
+    # Rule 6: Deep shell layering in sensitive program
+    if inp.ownership.shell_layers >= 5 and is_sensitive:
+        stops.append({
+            "trigger": f"Excessive Corporate Layering ({inp.ownership.shell_layers} shell layers)",
+            "explanation": (
+                f"Entity has {inp.ownership.shell_layers} corporate shell layers with "
+                f"only {round(inp.ownership.ownership_pct_resolved*100)}% ownership resolved. "
+                f"This level of opacity is incompatible with {inp.program} program requirements."
+            ),
+            "confidence": 0.85,
+            "rule": "shell_depth",
+        })
+
+    # Rule 7: Zero transparency + high-risk country
+    if (not inp.ownership.beneficial_owner_known
+        and inp.ownership.ownership_pct_resolved < 0.15
+        and geo_raw > 0.60
+        and not inp.ownership.publicly_traded):
+        stops.append({
+            "trigger": f"Opaque Entity in High-Risk Jurisdiction ({cc})",
+            "explanation": (
+                f"Entity in {cc} (geo_risk={geo_raw:.2f}) with no beneficial ownership data "
+                f"and only {round(inp.ownership.ownership_pct_resolved*100)}% ownership resolved. "
+                f"Cannot satisfy DFARS 252.204-7018 beneficial ownership requirements."
+            ),
+            "confidence": 0.87,
+            "rule": "opaque_high_risk",
+        })
+
+    return stops
+
+
 def score_vendor(inp: VendorInput) -> ScoringResult:
     """
-    Score a vendor through the full Bayesian pipeline.
-    Mirrors the TypeScript scoreVendor() exactly.
+    Score a vendor through the full Bayesian pipeline with composite
+    hard stop rules and integrated sanctions screening.
     """
-    # Step 1: Sanctions screening
+    # Step 1: Sanctions screening (integrated into pipeline)
     screening = screen_name(inp.name)
 
     # Step 2: Per-factor raw scores
@@ -245,8 +389,19 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
     lo = beta_quantile(0.025, alpha, beta)
     hi = beta_quantile(0.975, alpha, beta)
 
-    # Step 4: Tier
-    if posterior_mean >= 0.60 or (screening.matched and screening.best_score > 0.90):
+    # Step 4: Composite hard stop rules (v2.8)
+    stops = _evaluate_composite_hard_stops(inp, screening, geo_raw)
+
+    # Step 5: Tier assignment
+    # Hard stops override the Bayesian tier
+    if stops:
+        tier = "hard_stop"
+        # If Bayesian model underscored, boost composite to reflect hard stop
+        if posterior_mean < 0.60:
+            # Don't change the Bayesian math, but ensure the composite score
+            # reflects the hard stop status
+            pass
+    elif posterior_mean >= 0.60:
         tier = "hard_stop"
     elif posterior_mean >= 0.30:
         tier = "elevated"
@@ -255,7 +410,7 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
     else:
         tier = "clear"
 
-    # Step 5: Contributions
+    # Step 6: Contributions
     contributions = []
     confidences = []
 
@@ -314,21 +469,6 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
             "description": desc,
         })
 
-    # Step 6: Hard stops
-    stops = []
-    if screening.matched and screening.best_score > 0.88:
-        stops.append({
-            "trigger": f"{screening.matched_entry.list_type} Match: {screening.matched_name}",
-            "explanation": f"Entity matches {screening.matched_entry.list_type} list under {screening.matched_entry.program} program -- {screening.best_score*100:.0f}% fuzzy match confidence.",
-            "confidence": round(screening.best_score, 4),
-        })
-    if inp.ownership.state_owned and geo_raw > 0.50:
-        stops.append({
-            "trigger": "Adversary State-Owned Enterprise",
-            "explanation": f"State-owned entity in sanctioned/adversarial jurisdiction ({inp.country}).",
-            "confidence": 0.90,
-        })
-
     # Step 7: Soft flags
     flags = []
     if inp.ownership.pep_connection:
@@ -341,11 +481,18 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
         flags.append({"trigger": "Adverse Media", "explanation": f"{inp.exec_profile.adverse_media} adverse media hit(s) detected on executive screening.", "confidence": 0.70})
     if inp.data_quality.years_of_records < 3:
         flags.append({"trigger": "Limited Operating History", "explanation": f"Entity has only {inp.data_quality.years_of_records} year(s) of verifiable records.", "confidence": 0.85})
+    # Sectoral sanctions soft flag (state-owned in sectoral country, non-weapons)
+    cc = inp.country.upper()
+    if cc in SECTORAL_SANCTIONED and inp.ownership.state_owned and inp.program not in ("weapons_system", "nuclear_related"):
+        if not stops:  # Only flag if no hard stop already
+            flags.append({"trigger": f"Sectoral Sanctions Exposure ({cc})", "explanation": f"State-owned entity in {cc} which is subject to US sectoral sanctions. Enhanced due diligence required.", "confidence": 0.75})
 
     # Step 8: Key findings
     finds = []
     if stops:
-        finds.append(f"Hard stop triggered: {stops[0]['trigger']}. This is an absolute compliance barrier.")
+        finds.append(f"HARD STOP: {stops[0]['trigger']}. This is an absolute compliance barrier.")
+        if len(stops) > 1:
+            finds.append(f"{len(stops)} independent hard stop rules triggered.")
     if posterior_mean > 0.50:
         finds.append(f"Bayesian posterior of {posterior_mean*100:.0f}% indicates substantial compliance risk.")
     elif posterior_mean < 0.15:
@@ -376,6 +523,11 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
     cov = sum(confidences) / len(confidences) if confidences else 0
     rubric_weights = [0.30, 0.20, 0.20, 0.15, 0.15]
     rubric_score = min(100, round(sum(f["raw"] * rubric_weights[i] for i, f in enumerate(factors)) * 100 * prog_mult))
+
+    # If hard stop triggered, ensure composite score is at least 85
+    if stops and rubric_score < 85:
+        rubric_score = max(rubric_score, 85 + len(stops) * 5)
+        rubric_score = min(100, rubric_score)
 
     return ScoringResult(
         calibrated_probability=round(posterior_mean, 4),

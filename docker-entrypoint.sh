@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Xiphos v2.7.1 ==="
+echo "=== Xiphos v2.8 ==="
 echo "DB: $XIPHOS_DB_PATH"
 echo "Auth: ${XIPHOS_AUTH_ENABLED:-false}"
 
@@ -13,7 +13,7 @@ fi
 
 # Initialize databases
 cd /app/backend
-python3 -c "import db; db.init_db(); from auth import init_auth_db; init_auth_db(); print('  Databases initialized')"
+python3 -c "import db; db.init_db(); from auth import init_auth_db; init_auth_db(); from ai_analysis import init_ai_tables; init_ai_tables(); print('  Databases initialized')"
 
 # Sanctions sync: skip in CI or when XIPHOS_SKIP_SYNC=true
 SANCTIONS_DB="${XIPHOS_SANCTIONS_DB:-$(dirname "$XIPHOS_DB_PATH")/sanctions.db}"
