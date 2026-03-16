@@ -169,17 +169,19 @@ def _generate_scoring_breakdown(score: dict) -> str:
         return ""
 
     calibrated = score.get("calibrated", {})
-    contributions = calibrated.get("contributions", {})
+    contributions = calibrated.get("contributions", [])
 
     contrib_html = ""
     if contributions:
-        # Sort by absolute value, descending
-        sorted_contrib = sorted(
-            contributions.items(),
-            key=lambda x: abs(x[1]),
-            reverse=True
-        )
-        for factor, value in sorted_contrib[:8]:  # Top 8 factors
+        # contributions is a list of dicts: [{factor, raw_score, confidence, signed_contribution, description}]
+        if isinstance(contributions, list):
+            sorted_contrib = sorted(contributions, key=lambda x: abs(x.get("signed_contribution", 0)), reverse=True)
+            items = [(c.get("factor", "Unknown"), c.get("signed_contribution", 0)) for c in sorted_contrib]
+        else:
+            # Legacy fallback: dict format
+            items = sorted(contributions.items(), key=lambda x: abs(x[1]), reverse=True)
+
+        for factor, value in items[:8]:  # Top 8 factors
             pct = abs(value * 100)
             color = "#dc3545" if value > 0 else "#198754"
             sign = "+" if value > 0 else ""
