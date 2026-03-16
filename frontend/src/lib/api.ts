@@ -54,6 +54,43 @@ export interface ApiCase {
   score: Record<string, unknown> | null;
 }
 
+/** Payload shape for POST /api/cases (snake_case for backend) */
+export interface CreateCasePayload {
+  name: string;
+  country: string;
+  ownership: {
+    publicly_traded: boolean;
+    state_owned: boolean;
+    beneficial_owner_known: boolean;
+    ownership_pct_resolved: number;
+    shell_layers: number;
+    pep_connection: boolean;
+  };
+  data_quality: {
+    has_lei: boolean;
+    has_cage: boolean;
+    has_duns: boolean;
+    has_tax_id: boolean;
+    has_audited_financials: boolean;
+    years_of_records: number;
+  };
+  exec: {
+    known_execs: number;
+    adverse_media: number;
+    pep_execs: number;
+    litigation_history: number;
+  };
+  program: string;
+}
+
+/** Response from POST /api/cases */
+export interface CreateCaseResponse {
+  case_id: string;
+  composite_score: number;
+  is_hard_stop: boolean;
+  calibrated: Record<string, unknown>;
+}
+
 export async function fetchCases(limit = 100): Promise<ApiCase[]> {
   const data = await json<{ cases: ApiCase[] }>(`/api/cases?limit=${limit}`);
   return data.cases;
@@ -61,6 +98,14 @@ export async function fetchCases(limit = 100): Promise<ApiCase[]> {
 
 export async function fetchCase(id: string): Promise<ApiCase> {
   return json<ApiCase>(`/api/cases/${id}`);
+}
+
+/** Create a new vendor case on the backend. Returns score + calibration. */
+export async function createCase(payload: CreateCasePayload): Promise<CreateCaseResponse> {
+  return json<CreateCaseResponse>("/api/cases", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 /* ---- Alerts ---- */
@@ -136,18 +181,39 @@ export async function generateDossier(caseId: string): Promise<DossierResult> {
 
 /* ---- OSINT Enrichment ---- */
 
+export interface EnrichmentFinding {
+  source: string;
+  title: string;
+  detail: string;
+  severity: string;
+  confidence: number;
+  url?: string;
+}
+
+export interface ConnectorStatus {
+  has_data: boolean;
+  findings_count: number;
+  elapsed_ms: number;
+  error?: string;
+}
+
+export interface EnrichmentSummary {
+  findings_total: number;
+  connectors_run: number;
+  connectors_with_data: number;
+  errors: number;
+}
+
 export interface EnrichmentReport {
   overall_risk: string;
-  summary: string;
+  summary: EnrichmentSummary;
   identifiers: Record<string, string>;
-  findings: Array<{
-    source: string;
-    title: string;
-    detail: string;
-    severity: string;
-  }>;
+  findings: EnrichmentFinding[];
   connector_results: Record<string, unknown>;
+  connector_status: Record<string, ConnectorStatus>;
   total_elapsed_ms: number;
+  enriched_at?: string;
+  _cached?: boolean;
 }
 
 export async function enrichAndScore(caseId: string): Promise<{
@@ -160,6 +226,34 @@ export async function enrichAndScore(caseId: string): Promise<{
 
 export async function fetchEnrichment(caseId: string): Promise<EnrichmentReport> {
   return json<EnrichmentReport>(`/api/cases/${caseId}/enrichment`);
+}
+
+/* ---- Backend Sanctions Screening ---- */
+
+export interface ScreeningMatch {
+  name: string;
+  list: string;
+  score: number;
+  matched_on: string;
+  source: string;
+}
+
+export interface ScreeningResult {
+  matched: boolean;
+  best_score: number;
+  matched_name: string;
+  matched_entry: { name: string; list: string; program: string; country: string; source: string } | null;
+  all_matches: ScreeningMatch[];
+  screening_db: string;
+  screening_ms: number;
+}
+
+/** Screen a vendor name against the backend sanctions DB (31K+ entities) */
+export async function screenVendor(name: string): Promise<ScreeningResult> {
+  return json<ScreeningResult>("/api/screen", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
 }
 
 /* ---- User Management (admin only) ---- */

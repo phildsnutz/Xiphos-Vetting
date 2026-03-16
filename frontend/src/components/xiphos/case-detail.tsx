@@ -136,8 +136,10 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
     setEnriching(true);
     setError(null);
     try {
-      const result = await enrichAndScore(c.id);
-      setEnrichment(result.enrichment);
+      // Run enrich-and-score pipeline, then fetch the full enrichment report
+      await enrichAndScore(c.id);
+      const fullReport = await fetchEnrichment(c.id);
+      setEnrichment(fullReport);
       setShowEnrichment(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Enrichment failed");

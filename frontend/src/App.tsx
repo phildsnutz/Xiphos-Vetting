@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings } from "lucide-react";
 import { T } from "@/lib/tokens";
-import { CASES, ALERTS } from "@/lib/data";
 import { DashboardScreen } from "@/components/xiphos/dashboard-screen";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { ScreenVendor } from "@/components/xiphos/screen-vendor";
@@ -85,12 +84,12 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null>(getUser());
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  // App state
-  const [cases, setCases] = useState<VettingCase[]>(CASES);
-  const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
+  // App state -- start empty; cases load from backend after login
+  const [cases, setCases] = useState<VettingCase[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [selected, setSelected] = useState<VettingCase | null>(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>(CASES.length > 0 ? "dashboard" : "screen");
+  const [tab, setTab] = useState<Tab>("screen");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
 
   // Handle 401 from any API call (auto-logout)
@@ -164,9 +163,10 @@ export default function App() {
     clearSession();
     setUser(null);
     setShowUserMenu(false);
-    setCases(CASES);
-    setAlerts(ALERTS);
+    setCases([]);
+    setAlerts([]);
     setSelected(null);
+    setTab("screen");
   }
 
   // If auth is required and no user, show login
@@ -444,7 +444,7 @@ export default function App() {
         className="text-center shrink-0"
         style={{ padding: "6px 0", fontSize: 9, color: T.muted, borderTop: `1px solid ${T.border}` }}
       >
-        XIPHOS &mdash; CONFIDENTIAL &mdash; v2.8 &mdash; {cases.length} vendors in portfolio
+        XIPHOS &mdash; CONFIDENTIAL &mdash; v3.0 &mdash; {cases.length} vendors in portfolio
         {user && <> &mdash; {user.email}</>}
       </footer>
     </div>

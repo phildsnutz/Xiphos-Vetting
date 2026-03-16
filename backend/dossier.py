@@ -518,19 +518,27 @@ def _generate_recommended_actions(score: dict) -> str:
         return ""
 
     calibrated = score.get("calibrated", {})
-    miv = calibrated.get("marginal_information_values", {})
+    miv = calibrated.get("marginal_information_values", [])
 
     if not miv:
         return ""
 
-    # Sort by value, descending
-    sorted_miv = sorted(miv.items(), key=lambda x: abs(x[1]), reverse=True)[:5]
+    # miv is a list of dicts: [{recommendation, expected_info_gain_pp, tier_change_probability}]
+    # Sort by expected info gain, descending
+    if isinstance(miv, list):
+        sorted_miv = sorted(miv, key=lambda x: abs(x.get("expected_info_gain_pp", 0)), reverse=True)[:5]
+    else:
+        # Legacy fallback: dict format
+        sorted_miv = [{"recommendation": k, "expected_info_gain_pp": v} for k, v in
+                      sorted(miv.items(), key=lambda x: abs(x[1]), reverse=True)[:5]]
 
     actions_html = ""
-    for factor, value in sorted_miv:
+    for item in sorted_miv:
+        rec = item.get("recommendation", "Unknown")
+        gain = item.get("expected_info_gain_pp", 0)
         action = (
-            f"Obtain additional information about {factor.replace('_', ' ').lower()} "
-            f"to refine risk assessment (potential impact: {abs(value):.2%})"
+            f"{rec} "
+            f"(potential impact: {abs(gain):.1f} pp)"
         )
         actions_html += f'''
         <li style="margin-bottom: 8px; line-height: 1.6;">

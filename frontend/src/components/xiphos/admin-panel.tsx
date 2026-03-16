@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Users, Plus, Shield, Clock, ChevronDown, ChevronUp, AlertTriangle, Brain } from "lucide-react";
+import { Users, Plus, Shield, Clock, ChevronUp, AlertTriangle, Brain } from "lucide-react";
 import { T } from "@/lib/tokens";
 import { fetchUsers, createUser, fetchAuditLog } from "@/lib/api";
 import type { ApiUser, AuditEntry } from "@/lib/api";

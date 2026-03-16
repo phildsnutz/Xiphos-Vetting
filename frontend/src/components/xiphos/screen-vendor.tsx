@@ -2,22 +2,33 @@
  * Live Vendor Screening Form
  *
  * Type a vendor name + country, tweak risk parameters, hit Screen.
- * The Bayesian engine scores it in real time and produces a full case.
- * This is the feature that proves the engine is real.
+ * Creates a real case on the backend, scores via the Bayesian engine,
+ * and screens against the full 31K+ sanctions database.
+ *
+ * One-click workflow: Screen -> Auto-Enrich -> Auto-Analyze
  */
 
 import { useState } from "react";
 import { T } from "@/lib/tokens";
-import { Search, Shield, ChevronDown, ChevronUp, Zap } from "lucide-react";
-import { scoreVendor, type VendorInput, type ProgramType } from "@/lib/scoring";
-import { screenName } from "@/lib/ofac";
+import { Search, Shield, ChevronDown, ChevronUp, Zap, Loader2, Radar, Brain } from "lucide-react";
+import { createCase, screenVendor, enrichAndScore, runAIAnalysis } from "@/lib/api";
+import type { CreateCasePayload, ScreeningResult as ApiScreeningResult } from "@/lib/api";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
-import type { VettingCase } from "@/lib/types";
+import type { VettingCase, Calibration } from "@/lib/types";
+import type { TierKey } from "@/lib/tokens";
 
 interface ScreenVendorProps {
   onAddCase: (c: VettingCase) => void;
 }
+
+type ProgramType =
+  | "weapons_system"
+  | "mission_critical"
+  | "dual_use"
+  | "standard_industrial"
+  | "commercial_off_shelf"
+  | "services";
 
 const COUNTRIES = [
   "US", "GB", "DE", "FR", "CA", "AU", "JP", "KR", "IL", "SE",
@@ -113,6 +124,46 @@ function SliderField({
   );
 }
 
+/** Convert backend calibration response to our Calibration type */
+function mapBackendCalibration(apiCal: Record<string, unknown>): Calibration {
+  const cal = apiCal as {
+    calibrated_probability: number;
+    calibrated_tier: string;
+    interval: { lower: number; upper: number; coverage: number };
+    contributions: Array<{
+      factor: string; raw_score: number; confidence: number;
+      signed_contribution: number; description: string;
+    }>;
+    hard_stop_decisions: Array<{ trigger: string; explanation: string; confidence: number }>;
+    soft_flags: Array<{ trigger: string; explanation: string; confidence: number }>;
+    narratives: { findings: string[] };
+    marginal_information_values: Array<{
+      recommendation: string; expected_info_gain_pp: number; tier_change_probability: number;
+    }>;
+  };
+
+  const meanConf = cal.contributions.length > 0
+    ? cal.contributions.reduce((s, c) => s + c.confidence, 0) / cal.contributions.length : 0;
+
+  return {
+    p: cal.calibrated_probability,
+    tier: cal.calibrated_tier as TierKey,
+    lo: cal.interval.lower,
+    hi: cal.interval.upper,
+    cov: cal.interval.coverage,
+    mc: meanConf,
+    ct: cal.contributions.map((c) => ({
+      n: c.factor, raw: c.raw_score, c: c.confidence, s: c.signed_contribution, d: c.description,
+    })),
+    stops: cal.hard_stop_decisions.map((h) => ({ t: h.trigger, x: h.explanation, c: h.confidence })),
+    flags: cal.soft_flags.map((f) => ({ t: f.trigger, x: f.explanation, c: f.confidence })),
+    finds: cal.narratives?.findings ?? [],
+    miv: (cal.marginal_information_values ?? []).map((m) => ({
+      t: m.recommendation, i: m.expected_info_gain_pp, tp: m.tier_change_probability,
+    })),
+  };
+}
+
 export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
   const [name, setName] = useState("");
   const [country, setCountry] = useState("US");
@@ -143,55 +194,108 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
 
   // Result
   const [result, setResult] = useState<VettingCase | null>(null);
-  const [screening, setScreening] = useState<ReturnType<typeof screenName> | null>(null);
+  const [screening, setScreening] = useState<ApiScreeningResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleScreen = () => {
+  // Pipeline status
+  const [pipelineStep, setPipelineStep] = useState<string | null>(null);
+  const [autoEnrich, setAutoEnrich] = useState(true);
+  const [autoAnalyze, setAutoAnalyze] = useState(true);
+
+  const handleScreen = async () => {
     if (!name.trim()) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setScreening(null);
+    setPipelineStep("Screening against 31K+ sanctions entities...");
 
-    const input: VendorInput = {
-      name: name.trim(),
-      country,
-      ownership: {
-        publiclyTraded,
-        stateOwned,
-        beneficialOwnerKnown: boKnown,
-        ownershipPctResolved: ownershipPct,
-        shellLayers: shells,
-        pepConnection: pep,
-      },
-      dataQuality: {
-        hasLEI, hasCAGE, hasDUNS, hasTaxId,
-        hasAuditedFinancials: hasAudit,
-        yearsOfRecords: years,
-      },
-      exec: {
-        knownExecs,
-        adverseMedia,
-        pepExecs,
-        litigationHistory: litigation,
-      },
-      program,
-    };
+    try {
+      // Step 1: Backend sanctions screening (31K entities)
+      const scrResult = await screenVendor(name.trim());
+      setScreening(scrResult);
 
-    const sr = scoreVendor(input);
-    const scr = screenName(name.trim());
-    setScreening(scr);
+      // Step 2: Create case on backend with full scoring
+      setPipelineStep("Creating case and running Bayesian scoring...");
+      const payload: CreateCasePayload = {
+        name: name.trim(),
+        country,
+        ownership: {
+          publicly_traded: publiclyTraded,
+          state_owned: stateOwned,
+          beneficial_owner_known: boKnown,
+          ownership_pct_resolved: ownershipPct,
+          shell_layers: shells,
+          pep_connection: pep,
+        },
+        data_quality: {
+          has_lei: hasLEI,
+          has_cage: hasCAGE,
+          has_duns: hasDUNS,
+          has_tax_id: hasTaxId,
+          has_audited_financials: hasAudit,
+          years_of_records: years,
+        },
+        exec: {
+          known_execs: knownExecs,
+          adverse_media: adverseMedia,
+          pep_execs: pepExecs,
+          litigation_history: litigation,
+        },
+        program,
+      };
 
-    const id = `c-${Date.now().toString(36)}`;
-    const c: VettingCase = {
-      id,
-      name: name.trim(),
-      cc: country,
-      date: new Date().toISOString().split("T")[0],
-      rl: sr.calibration.tier === "clear" ? "low" :
-        sr.calibration.tier === "monitor" ? "medium" :
-        sr.calibration.tier === "elevated" ? "elevated" : "critical",
-      sc: sr.rubricScore,
-      conf: sr.rubricConfidence,
-      cal: sr.calibration,
-    };
+      const caseResult = await createCase(payload);
 
-    setResult(c);
+      // Map calibrated result to our Calibration type
+      const cal = mapBackendCalibration(caseResult.calibrated);
+      const mc = cal.ct.length > 0 ? cal.ct.reduce((s, c) => s + c.c, 0) / cal.ct.length : 0;
+
+      const c: VettingCase = {
+        id: caseResult.case_id,
+        name: name.trim(),
+        cc: country,
+        date: new Date().toISOString().split("T")[0],
+        rl: cal.tier === "clear" ? "low" :
+          cal.tier === "monitor" ? "medium" :
+          cal.tier === "elevated" ? "elevated" : "critical",
+        sc: caseResult.composite_score,
+        conf: mc,
+        cal,
+      };
+
+      setResult(c);
+
+      // Step 3: Auto-enrich if enabled (runs OSINT across 17 connectors)
+      if (autoEnrich) {
+        setPipelineStep("Running OSINT enrichment across 17 connectors...");
+        try {
+          await enrichAndScore(caseResult.case_id);
+          setPipelineStep(autoAnalyze ? "Running AI analysis..." : null);
+        } catch {
+          // Enrichment is non-blocking; case is already scored
+          setPipelineStep(null);
+        }
+      }
+
+      // Step 4: Auto-analyze if enabled
+      if (autoAnalyze) {
+        setPipelineStep("Running AI risk analysis...");
+        try {
+          await runAIAnalysis(caseResult.case_id);
+        } catch {
+          // AI analysis is non-blocking
+        }
+      }
+
+      setPipelineStep(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Screening failed. Check API connection.");
+      setPipelineStep(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAdd = () => {
@@ -222,7 +326,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleScreen()}
+              onKeyDown={(e) => e.key === "Enter" && !loading && handleScreen()}
               placeholder="e.g. Rostec Corporation"
               className="w-full rounded outline-none"
               style={{
@@ -246,18 +350,50 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           />
           <button
             onClick={handleScreen}
-            disabled={!name.trim()}
+            disabled={!name.trim() || loading}
             className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-pointer"
             style={{
               padding: "6px 16px", fontSize: 12,
               background: T.accent,
-              opacity: name.trim() ? 1 : 0.4,
+              opacity: name.trim() && !loading ? 1 : 0.4,
               height: 33, marginBottom: 0,
             }}
           >
-            <Zap size={12} />
-            Screen
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+            {loading ? "Running..." : "Screen"}
           </button>
+        </div>
+
+        {/* Automation toggles */}
+        <div className="flex items-center gap-4 mt-3">
+          <label className="flex items-center gap-1.5 cursor-pointer" style={{ fontSize: 10, color: T.dim }}>
+            <div
+              className="rounded-sm flex items-center justify-center"
+              style={{
+                width: 14, height: 14,
+                background: autoEnrich ? T.accent : T.raised,
+                border: `1px solid ${autoEnrich ? T.accent : T.border}`,
+              }}
+              onClick={() => setAutoEnrich(!autoEnrich)}
+            >
+              {autoEnrich && <span style={{ fontSize: 8, color: "white" }}>&#10003;</span>}
+            </div>
+            <Radar size={10} /> Auto-Enrich (OSINT)
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer" style={{ fontSize: 10, color: T.dim }}>
+            <div
+              className="rounded-sm flex items-center justify-center"
+              style={{
+                width: 14, height: 14,
+                background: autoAnalyze ? "#8b5cf6" : T.raised,
+                border: `1px solid ${autoAnalyze ? "#8b5cf6" : T.border}`,
+              }}
+              onClick={() => setAutoAnalyze(!autoAnalyze)}
+            >
+              {autoAnalyze && <span style={{ fontSize: 8, color: "white" }}>&#10003;</span>}
+            </div>
+            <Brain size={10} /> Auto-Analyze (AI)
+          </label>
         </div>
 
         {/* Advanced parameters toggle */}
@@ -358,6 +494,27 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         )}
       </div>
 
+      {/* Pipeline status indicator */}
+      {pipelineStep && (
+        <div
+          className="rounded-lg flex items-center gap-3 p-3"
+          style={{ background: T.accent + "11", border: `1px solid ${T.accent}33` }}
+        >
+          <Loader2 size={14} color={T.accent} className="animate-spin shrink-0" />
+          <span className="font-mono" style={{ fontSize: 11, color: T.accent }}>{pipelineStep}</span>
+        </div>
+      )}
+
+      {/* Error display */}
+      {error && (
+        <div
+          className="rounded-lg p-3"
+          style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${T.red}44` }}
+        >
+          <span style={{ fontSize: 12, color: T.red }}>{error}</span>
+        </div>
+      )}
+
       {/* OFAC Screening Result */}
       {screening && (
         <div
@@ -372,26 +529,31 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           <div className="flex items-center gap-2 mb-2">
             <Search size={12} color={screening.matched ? T.red : T.green} />
             <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: screening.matched ? T.red : T.green }}>
-              OFAC / Sanctions Screening
+              Sanctions Screening
             </span>
+            {screening.screening_db && (
+              <span className="font-mono" style={{ fontSize: 8, color: T.muted }}>
+                {screening.screening_db} | {screening.screening_ms}ms
+              </span>
+            )}
           </div>
           {screening.matched ? (
             <div>
               <div className="font-semibold" style={{ fontSize: 12, color: T.red }}>
                 MATCH FOUND
               </div>
-              {screening.allMatches.map((m, i) => (
+              {screening.all_matches.map((m, i) => (
                 <div key={i} className="mt-2 rounded p-2" style={{ background: "rgba(239,68,68,0.06)" }}>
                   <div className="flex items-center justify-between">
                     <span className="font-medium" style={{ fontSize: 11, color: T.text }}>
-                      {m.matchedOn}
+                      {m.matched_on}
                     </span>
                     <span className="font-mono font-bold" style={{ fontSize: 12, color: T.red }}>
                       {(m.score * 100).toFixed(1)}%
                     </span>
                   </div>
                   <div className="font-mono" style={{ fontSize: 10, color: T.muted }}>
-                    {m.entry.list} | {m.entry.program} | {m.entry.country}
+                    {m.list} | {m.name} | {m.source}
                   </div>
                 </div>
               ))}
@@ -400,9 +562,9 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             <div>
               <div className="font-semibold" style={{ fontSize: 12, color: T.green }}>NO MATCHES</div>
               <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                Screened against OFAC SDN, Entity List, CAATSA, SSI, FSE databases.
-                {screening.bestScore > 0.5 && (
-                  <span> Closest match: "{screening.matchedName}" at {(screening.bestScore * 100).toFixed(0)}% (below threshold).</span>
+                Screened against {screening.screening_db || "OFAC SDN, Entity List, CAATSA, SSI, UK, EU, UN"} databases.
+                {screening.best_score > 0.5 && (
+                  <span> Closest match: "{screening.matched_name}" at {(screening.best_score * 100).toFixed(0)}% (below threshold).</span>
                 )}
               </div>
             </div>

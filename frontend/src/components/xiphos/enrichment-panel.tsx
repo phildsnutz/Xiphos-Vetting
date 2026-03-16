@@ -45,7 +45,7 @@ function connectorLabel(name: string): string {
 /* ---- Finding Card ---- */
 function FindingCard({ f }: { f: EnrichmentFinding }) {
   const [expanded, setExpanded] = useState(false);
-  const sev = SEV[f.severity] ?? SEV.info;
+  const sev = SEV[f.severity as Severity] ?? SEV.info;
 
   return (
     <div
