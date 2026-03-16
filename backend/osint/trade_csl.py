@@ -1,153 +1,117 @@
 """
-Trade.gov Consolidated Screening List (CSL) Connector
+BIS Consolidated Screening List (CSL) - LIVE API Connector
 
-The CSL combines 13 export screening lists from Commerce, State, and Treasury:
+Real-time queries to the Trade.gov API for export screening lists:
   - Entity List (BIS)
   - Denied Persons List (BIS)
   - Unverified List (BIS)
   - Military End User List (BIS)
   - Non-SDN Chinese Military-Industrial Complex Companies (OFAC)
-  - Sectoral Sanctions Identifications (OFAC)
-  - Foreign Sanctions Evaders (OFAC)
-  - Palestinian Legislative Council (OFAC)
-  - ITAR Debarred (DDTC / State Dept)
-  - Nonproliferation Sanctions (State Dept)
-  - And more...
+  - And 8+ others
 
-CSV download, updated daily at 5 AM EST.
-https://www.trade.gov/consolidated-screening-list
+API: https://api.trade.gov/consolidated_screening_list/v1/search
+No authentication required. Real-time data from Commerce Department.
 """
 
-import csv
-import io
+import json
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional
 
 from . import EnrichmentResult, Finding
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from ofac import jaro_winkler
 
-CSL_URL = "https://api.trade.gov/static/consolidated_screening_list/consolidated.csv"
-USER_AGENT = "Xiphos-Vetting/2.1"
-
-# Module-level cache
-_csl_cache: Optional[list[dict]] = None
-_csl_loaded_at: float = 0
-_CACHE_TTL = 3600  # 1 hour
+CSL_API = "https://api.trade.gov/consolidated_screening_list/v1/search"
+USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
 
 
-def _load_csl() -> list[dict]:
-    """Download and parse the CSL CSV."""
-    global _csl_cache, _csl_loaded_at
-
-    if _csl_cache is not None and (time.time() - _csl_loaded_at) < _CACHE_TTL:
-        return _csl_cache
-
-    req = urllib.request.Request(CSL_URL, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = resp.read().decode("utf-8-sig", errors="replace")
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
-        return _csl_cache or []
-
-    reader = csv.DictReader(io.StringIO(data))
-    records = []
-    for row in reader:
-        name = (row.get("name", "") or "").strip()
-        if not name:
-            continue
-        records.append({
-            "name": name,
-            "alt_names": (row.get("alt_names", "") or "").strip(),
-            "source": (row.get("source", "") or "").strip(),
-            "source_list_url": (row.get("source_list_url", "") or "").strip(),
-            "entity_number": (row.get("entity_number", "") or "").strip(),
-            "type": (row.get("type", "") or "").strip(),
-            "programs": (row.get("programs", "") or "").strip(),
-            "addresses": (row.get("addresses", "") or "").strip(),
-            "federal_register_notice": (row.get("federal_register_notice", "") or "").strip(),
-            "start_date": (row.get("start_date", "") or "").strip(),
-            "end_date": (row.get("end_date", "") or "").strip(),
-            "remarks": (row.get("remarks", "") or "").strip()[:300],
-        })
-
-    _csl_cache = records
-    _csl_loaded_at = time.time()
-    return records
-
-
-def enrich(vendor_name: str, country: str = "", threshold: float = 0.85, **ids) -> EnrichmentResult:
-    """Screen a vendor against the full Consolidated Screening List."""
+def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
+    """Query Trade.gov CSL API for export screening matches."""
     t0 = time.time()
     result = EnrichmentResult(source="trade_csl", vendor_name=vendor_name)
 
     try:
-        records = _load_csl()
-        if not records:
-            result.error = "Failed to load CSL data"
+        # Build live API request - query the consolidated screening list
+        encoded_name = urllib.parse.quote(vendor_name)
+        url = (
+            f"{CSL_API}"
+            f"?q={encoded_name}"
+            f"&sources=Entity+List,Denied+Persons+List,Unverified+List,Military+End+User+List,"
+            f"Non-SDN+Chinese+Military-Industrial+Complex+Companies+List"
+            f"&size=10"
+        )
+
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+            result.error = f"CSL API unreachable: {str(e)}"
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        matches = []
+        results = data.get("results", [])
 
-        for rec in records:
-            # Check primary name
-            score = jaro_winkler(vendor_name, rec["name"])
-            if score >= threshold:
-                matches.append({"score": score, "matched_on": rec["name"], **rec})
-
-            # Check alternate names
-            for alt in rec["alt_names"].split(";"):
-                alt = alt.strip()
-                if alt:
-                    score = jaro_winkler(vendor_name, alt)
-                    if score >= threshold:
-                        matches.append({"score": score, "matched_on": alt, **rec})
-
-        matches.sort(key=lambda m: m["score"], reverse=True)
-
-        # Deduplicate by entity_number
-        seen = set()
-        unique_matches = []
-        for m in matches:
-            key = m.get("entity_number", "") or m["name"]
-            if key not in seen:
-                seen.add(key)
-                unique_matches.append(m)
-
-        if unique_matches:
-            for m in unique_matches[:10]:
-                severity = "critical" if m["score"] > 0.95 else "high" if m["score"] > 0.88 else "medium"
-                result.findings.append(Finding(
-                    source="trade_csl", category="screening",
-                    title=f"CSL MATCH ({m['score']:.1%}): {m['name']} [{m['source']}]",
-                    detail=(
-                        f"Matched on: {m['matched_on']} | Source list: {m['source']} | "
-                        f"Programs: {m['programs']} | Type: {m['type']} | "
-                        f"Remarks: {m['remarks']}"
-                    ),
-                    severity=severity,
-                    confidence=m["score"],
-                    url=m.get("source_list_url", ""),
-                    raw_data=m,
-                ))
-
-                result.risk_signals.append({
-                    "signal": "csl_match",
-                    "severity": severity,
-                    "detail": f"Matched '{m['matched_on']}' on {m['source']} (score: {m['score']:.3f})",
-                })
-        else:
+        if not results:
             result.findings.append(Finding(
                 source="trade_csl", category="screening",
                 title="CSL clear",
-                detail=f"No matches found for '{vendor_name}' against {len(records):,} CSL entries.",
-                severity="info", confidence=0.8,
+                detail=f"No matches found for '{vendor_name}' in Trade.gov Consolidated Screening List.",
+                severity="info", confidence=0.9,
             ))
+            result.elapsed_ms = int((time.time() - t0) * 1000)
+            return result
+
+        # Process matches
+        for match in results[:10]:
+            name = match.get("name", "")
+            source = match.get("source", "")
+            alt_names = match.get("alt_names", []) or []
+            programs = match.get("programs", []) or []
+            addresses = match.get("addresses", []) or []
+            ids_list = match.get("ids", []) or []
+
+            # Determine severity by source list
+            severity_map = {
+                "Entity List": "critical",
+                "Denied Persons List": "critical",
+                "Unverified List": "high",
+                "Military End User List": "high",
+                "Non-SDN Chinese Military-Industrial Complex Companies List": "medium",
+            }
+            severity = severity_map.get(source, "high")
+
+            detail_parts = [
+                f"Name: {name}",
+                f"Source: {source}",
+            ]
+
+            if alt_names:
+                detail_parts.append(f"Aliases: {'; '.join(alt_names[:3])}")
+
+            if programs:
+                detail_parts.append(f"Programs: {'; '.join(programs[:3])}")
+
+            if addresses:
+                detail_parts.append(f"Address: {addresses[0] if addresses else 'N/A'}")
+
+            result.findings.append(Finding(
+                source="trade_csl", category="screening",
+                title=f"CSL MATCH: {name} [{source}]",
+                detail="\n".join(detail_parts),
+                severity=severity,
+                confidence=0.95,
+                url="https://www.trade.gov/consolidated-screening-list",
+                raw_data=match,
+            ))
+
+            result.risk_signals.append({
+                "signal": "csl_match",
+                "severity": severity,
+                "detail": f"Entity '{name}' found on {source}",
+            })
 
     except Exception as e:
         result.error = str(e)

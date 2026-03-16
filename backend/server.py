@@ -25,6 +25,7 @@ Core Endpoints:
   POST /api/cases/:id/enrich-and-score   Full pipeline: enrich + augment + rescore
   GET  /api/cases/:id/enrichment         Get latest enrichment report
   POST /api/cases/:id/dossier            Generate dossier (HTML)
+  POST /api/cases/:id/dossier-pdf        Generate and download dossier (PDF)
   POST /api/cases/:id/monitor            Check vendor for risk changes
   GET  /api/cases/:id/graph              Get entity resolution graph
   POST /api/enrich                       Run standalone OSINT enrichment
@@ -128,12 +129,18 @@ try:
 except ImportError:
     HAS_SCHEDULER = False
 
-# Optional: Dossier generator
+# Optional: Dossier generator (HTML and PDF)
 try:
     from dossier import generate_dossier
     HAS_DOSSIER = True
 except ImportError:
     HAS_DOSSIER = False
+
+try:
+    from dossier_pdf import generate_pdf_dossier
+    HAS_PDF_DOSSIER = True
+except ImportError:
+    HAS_PDF_DOSSIER = False
 
 # AI Analysis module (multi-provider: Claude, OpenAI, Gemini)
 try:
@@ -640,9 +647,44 @@ def api_generate_dossier(case_id):
     })
 
 
+@app.route("/api/cases/<case_id>/dossier-pdf", methods=["POST"])
+@require_auth("cases:dossier")
+def api_generate_dossier_pdf(case_id):
+    """Generate a professional PDF dossier for a vendor."""
+    if not HAS_PDF_DOSSIER:
+        return jsonify({"error": "PDF dossier generator not available"}), 501
+    v = db.get_vendor(case_id)
+    if not v:
+        return jsonify({"error": "Case not found"}), 404
+
+    try:
+        pdf_bytes = generate_pdf_dossier(case_id)
+    except Exception as e:
+        return jsonify({"error": f"PDF generation failed: {str(e)}"}), 500
+
+    # Save to dossiers dir for archival
+    dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
+    os.makedirs(dossier_dir, exist_ok=True)
+    filename = f"dossier-{case_id}.pdf"
+    filepath = os.path.join(dossier_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(pdf_bytes)
+
+    log_audit("dossier_pdf_generated", "case", case_id,
+              detail=f"PDF dossier generated for {v['name']}")
+
+    # Return PDF as file download
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"dossier-{v['name']}-{case_id}.pdf"
+    )
+
+
 @app.route("/api/dossiers/<filename>")
 def api_serve_dossier(filename):
-    """Serve a generated dossier HTML file."""
+    """Serve a generated dossier HTML or PDF file."""
     dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
     filepath = os.path.join(dossier_dir, filename)
     if os.path.exists(filepath):

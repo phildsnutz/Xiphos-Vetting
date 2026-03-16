@@ -6,7 +6,8 @@ import { Gauge } from "./gauge";
 import { ContribBar } from "./charts";
 import { EnrichmentPanel } from "./enrichment-panel";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
-import { enrichAndScore, fetchEnrichment } from "@/lib/api";
+import { ActionPanel } from "./action-panel";
+import { enrichAndScore, fetchEnrichment, downloadDossierPDF } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import type { EnrichmentReport } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot } from "@/lib/types";
@@ -166,13 +167,22 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
   };
 
   const handleDossier = async () => {
-    if (!onDossier) return;
     setGenerating(true);
     setError(null);
     try {
-      await onDossier(c.id);
+      // Try PDF dossier first (preferred)
+      await downloadDossierPDF(c.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Dossier generation failed");
+      // Fallback to HTML dossier if PDF fails or API not available
+      if (onDossier) {
+        try {
+          await onDossier(c.id);
+        } catch (e2) {
+          setError(e2 instanceof Error ? e2.message : "Dossier generation failed");
+        }
+      } else {
+        setError(e instanceof Error ? e.message : "Dossier generation failed");
+      }
     } finally {
       setGenerating(false);
     }
@@ -416,6 +426,13 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
         {showAI && (
           <div className="mt-3">
             <AIAnalysisPanel caseId={c.id} vendorName={c.name} />
+          </div>
+        )}
+
+        {/* Action Panel - Guided Next Steps */}
+        {cal && (
+          <div className="mt-3">
+            <ActionPanel case={c} />
           </div>
         )}
 

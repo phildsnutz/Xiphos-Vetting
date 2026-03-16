@@ -26,10 +26,10 @@ from . import EnrichmentResult, Finding
 
 # UN Security Council sanctions XML feed
 CONSOLIDATED_XML = "https://scsanctions.un.org/resources/xml/en/consolidated.xml"
-USER_AGENT = "Xiphos-Vetting/2.1"
-
-# Shorter timeout since XML can be large
+USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
 TIMEOUT = 30
+CACHE_FILE = "/tmp/un_sanctions_consolidated.xml"
+CACHE_TTL = 86400  # 24 hours
 
 
 def _normalize(name: str) -> str:
@@ -69,7 +69,21 @@ def _name_match(query: str, candidate: str, threshold: float = 0.85) -> float:
 
 
 def _fetch_xml() -> ET.Element | None:
-    """Fetch and parse the UN consolidated sanctions XML."""
+    """Fetch and parse the UN consolidated sanctions XML with 24-hour caching."""
+    import os
+
+    # Check cache validity
+    if os.path.exists(CACHE_FILE):
+        cache_age = time.time() - os.path.getmtime(CACHE_FILE)
+        if cache_age < CACHE_TTL:
+            try:
+                with open(CACHE_FILE, 'rb') as f:
+                    content = f.read()
+                    return ET.fromstring(content)
+            except Exception:
+                pass  # Fall through to live fetch
+
+    # LIVE API call: Fetch from UN
     req = urllib.request.Request(CONSOLIDATED_XML, headers={
         "User-Agent": USER_AGENT,
         "Accept": "application/xml",
@@ -77,8 +91,22 @@ def _fetch_xml() -> ET.Element | None:
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             content = resp.read()
+            # Cache the result
+            try:
+                with open(CACHE_FILE, 'wb') as f:
+                    f.write(content)
+            except Exception:
+                pass  # Cache write failed, but continue with data
             return ET.fromstring(content)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ET.ParseError):
+        # Try to fall back to cache if available
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, 'rb') as f:
+                    content = f.read()
+                    return ET.fromstring(content)
+            except Exception:
+                pass
         return None
 
 

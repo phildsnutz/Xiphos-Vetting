@@ -204,6 +204,39 @@ export async function generateDossier(caseId: string): Promise<DossierResult> {
   });
 }
 
+export async function downloadDossierPDF(caseId: string): Promise<void> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${BASE}/api/cases/${caseId}/dossier-pdf`, {
+    method: "POST",
+    headers,
+  });
+
+  if (res.status === 401) {
+    clearSession();
+    onAuthError?.();
+    throw new Error("Session expired. Please log in again.");
+  }
+
+  if (!res.ok) {
+    throw new Error(`Failed to download PDF: ${res.status}`);
+  }
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `dossier-${caseId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 /* ---- OSINT Enrichment ---- */
 
 export interface EnrichmentFinding {

@@ -1,28 +1,27 @@
 """
-SEC EDGAR Connector
+SEC EDGAR Full-Text Search Connector - LIVE API
 
-Queries the SEC EDGAR REST API (data.sec.gov) for:
-  - Company identity (CIK, ticker, SIC code)
-  - Recent filings (10-K, 10-Q, 8-K, DEF 14A)
-  - Insider ownership (Forms 3, 4, 5)
-  - Subsidiary disclosures (Exhibit 21)
-  - Officer/director changes (8-K Item 5.02)
+Real-time queries to SEC's EFTS full-text search API for:
+  - Company filings (10-K, 10-Q, 8-K, DEF 14A)
+  - Filing dates and form types
+  - Company identity and regulatory status
 
-No API key required. Rate limit: 10 req/s.
-Must include User-Agent header with contact email.
+API: https://efts.sec.gov/LATEST/search-index
+No authentication required.
+User-Agent header with contact email required.
 """
 
 import json
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional
 
 from . import EnrichmentResult, Finding
 
-BASE = "https://data.sec.gov"
 EFTS = "https://efts.sec.gov/LATEST"
-USER_AGENT = "Xiphos-Vetting/2.1 (tye.gonzalez@gmail.com)"
+USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
 
 
 def _get(url: str) -> dict | list | None:
@@ -32,215 +31,121 @@ def _get(url: str) -> dict | list | None:
         "Accept": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
         return None
 
 
-def _search_company(name: str) -> list[dict]:
-    """Full-text search for company by name. Returns list of matches with CIK."""
-    url = f"{EFTS}/search-index?q=%22{urllib.request.quote(name)}%22&dateRange=custom&startdt=2020-01-01&forms=10-K,10-Q&from=0&size=5"
-    data = _get(url)
-    if not data or "hits" not in data:
-        return []
-    hits = data.get("hits", {}).get("hits", [])
-    results = []
-    seen_ciks = set()
-    for h in hits:
-        src = h.get("_source", {})
-        ciks = src.get("ciks", [])
-        display_names = src.get("display_names", [])
-        cik = ciks[0].lstrip("0") if ciks else ""
-        entity_name = display_names[0].split("(CIK")[0].strip() if display_names else ""
-        if cik and cik not in seen_ciks:
-            seen_ciks.add(cik)
-            results.append({
-                "entity_name": entity_name,
-                "cik": cik,
-                "file_date": src.get("file_date", ""),
-                "form_type": src.get("form", ""),
-            })
-    return results
-
-
-def _lookup_cik(name: str) -> Optional[str]:
-    """Try to resolve company name to CIK via the tickers file."""
-    url = "https://www.sec.gov/files/company_tickers.json"
-    data = _get(url)
-    if not data:
-        return None
-
-    name_upper = name.upper().strip()
-    # Try exact-ish match first (name contained in title or vice versa)
-    for _, entry in data.items():
-        title = entry.get("title", "").upper()
-        # Strip common suffixes like /FI/, /ADR/, INC, CORP for matching
-        title_clean = title.split("/")[0].strip()
-        if name_upper in title_clean or title_clean in name_upper:
-            return str(entry.get("cik_str", ""))
-
-    # Try word-level match (all words in query appear in title)
-    name_words = name_upper.split()
-    if len(name_words) >= 2:
-        for _, entry in data.items():
-            title = entry.get("title", "").upper()
-            if all(w in title for w in name_words):
-                return str(entry.get("cik_str", ""))
-
-    return None
-
-
-def _get_company_facts(cik: str) -> dict | None:
-    """Get all XBRL facts for a company."""
-    padded = cik.zfill(10)
-    url = f"{BASE}/api/xbrl/companyfacts/CIK{padded}.json"
-    return _get(url)
-
-
-def _get_submissions(cik: str) -> dict | None:
-    """Get recent filings/submissions for a company."""
-    padded = cik.zfill(10)
-    url = f"{BASE}/submissions/CIK{padded}.json"
-    return _get(url)
-
-
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
-    """Query SEC EDGAR for company intelligence."""
+    """Query SEC EDGAR full-text search API for company intelligence."""
     t0 = time.time()
     result = EnrichmentResult(source="sec_edgar", vendor_name=vendor_name)
 
     try:
-        # Step 1: Resolve CIK
-        cik = ids.get("cik")
-        if not cik:
-            cik = _lookup_cik(vendor_name)
-        if not cik:
-            # Try full-text search
-            matches = _search_company(vendor_name)
-            if matches:
-                cik = matches[0]["cik"]
-                result.findings.append(Finding(
-                    source="sec_edgar", category="identity",
-                    title=f"SEC match: {matches[0]['entity_name']}",
-                    detail=f"Matched to CIK {cik} via EDGAR full-text search. "
-                           f"Latest filing: {matches[0].get('form_type', 'N/A')} on {matches[0].get('file_date', 'N/A')}",
-                    severity="info", confidence=0.7,
-                    url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}",
-                ))
+        # LIVE API call: Full-text search for filings
+        encoded_name = urllib.parse.quote(f'"{vendor_name}"')
+        url = (
+            f"{EFTS}/search-index"
+            f"?q={encoded_name}"
+            f"&forms=10-K,10-Q,8-K,DEF+14A"
+            f"&from=0"
+            f"&size=5"
+        )
 
-        if not cik:
+        data = _get(url)
+
+        if not data or "hits" not in data:
             result.findings.append(Finding(
                 source="sec_edgar", category="identity",
-                title="No SEC filing found",
-                detail=f"No EDGAR match for '{vendor_name}'. Entity may be private, foreign, or non-reporting.",
-                severity="info", confidence=0.5,
+                title="No SEC filings found",
+                detail=f"No EDGAR filings found for '{vendor_name}'. Entity may be private, foreign, or non-reporting.",
+                severity="medium", confidence=0.8,
             ))
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        result.identifiers["cik"] = cik
-        time.sleep(0.12)  # Rate limiting
+        hits = data.get("hits", {}).get("hits", [])
 
-        # Step 2: Get submissions (filings list + company metadata)
-        subs = _get_submissions(cik)
-        if subs:
-            # Company metadata
-            name_official = subs.get("name", "")
-            sic = subs.get("sic", "")
-            sic_desc = subs.get("sicDescription", "")
-            state = subs.get("stateOfIncorporation", "")
-            tickers = subs.get("tickers", [])
-            exchanges = subs.get("exchanges", [])
+        if not hits:
+            result.findings.append(Finding(
+                source="sec_edgar", category="identity",
+                title="No SEC filings found",
+                detail=f"No EDGAR filings found for '{vendor_name}'.",
+                severity="medium", confidence=0.7,
+            ))
+            result.elapsed_ms = int((time.time() - t0) * 1000)
+            return result
 
-            result.identifiers["sic"] = sic
-            result.identifiers["state_of_incorporation"] = state
-            if tickers:
-                result.identifiers["ticker"] = tickers[0]
+        # Process results
+        seen_ciks = set()
+        for hit in hits:
+            src = hit.get("_source", {})
+            ciks = src.get("ciks", [])
+            display_names = src.get("display_names", [])
+            file_date = src.get("file_date", "")
+            form_type = src.get("form", "")
+            company_name = src.get("company_name", "")
+            file_num = src.get("file_num", "")
+
+            cik = ciks[0].lstrip("0") if ciks else ""
+
+            if not cik or cik in seen_ciks:
+                continue
+
+            seen_ciks.add(cik)
+
+            # Track identifiers
+            if not result.identifiers.get("cik"):
+                result.identifiers["cik"] = cik
+
+            # Create finding for company/filing
+            title_text = f"{company_name or 'Unknown'} - {form_type} ({file_date})"
+            detail_parts = [
+                f"CIK: {cik}",
+                f"Company: {company_name}",
+                f"Form: {form_type}",
+                f"Filing Date: {file_date}",
+                f"File Number: {file_num}",
+            ]
+
+            severity_map = {
+                "10-K": "info",
+                "10-Q": "info",
+                "8-K": "low",
+                "DEF 14A": "info",
+            }
+            severity = severity_map.get(form_type, "info")
 
             result.findings.append(Finding(
                 source="sec_edgar", category="identity",
-                title=f"SEC registrant: {name_official}",
-                detail=f"CIK: {cik} | SIC: {sic} ({sic_desc}) | "
-                       f"State: {state} | Tickers: {', '.join(tickers)} on {', '.join(exchanges)}",
-                severity="info", confidence=0.95,
+                title=title_text,
+                detail="\n".join(detail_parts),
+                severity=severity, confidence=0.95,
                 url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}",
+                raw_data={"cik": cik, "form": form_type, "date": file_date},
             ))
 
-            # Recent filings analysis
-            recent = subs.get("filings", {}).get("recent", {})
-            forms = recent.get("form", [])
-            dates = recent.get("filingDate", [])
-            accessions = recent.get("accessionNumber", [])
+        # Set identifier for public trading status if we found 10-K
+        form_types_found = [h.get("_source", {}).get("form", "") for h in hits]
+        if "10-K" in form_types_found or "10-Q" in form_types_found:
+            result.identifiers["publicly_traded"] = True
 
-            # Check for concerning filing types
-            concerning = {
-                "NT 10-K": "Late annual report notification",
-                "NT 10-Q": "Late quarterly report notification",
-                "8-K": "Material event disclosure",
-                "SC 13D": "Beneficial ownership >5% (activist/change)",
-                "SC 13D/A": "Amended beneficial ownership >5%",
-                "DEFA14A": "Proxy fight / contested election",
-                "15-12G": "Deregistration (going dark)",
-            }
+        # Risk signal: 8-K filings (material events)
+        if "8-K" in form_types_found:
+            result.risk_signals.append({
+                "signal": "sec_8k_filing",
+                "severity": "low",
+                "detail": "Entity has recent 8-K material event disclosure(s)",
+            })
 
-            for i, form in enumerate(forms[:50]):
-                if form in concerning:
-                    result.findings.append(Finding(
-                        source="sec_edgar", category="filing_event",
-                        title=f"Filing: {form} ({dates[i] if i < len(dates) else 'N/A'})",
-                        detail=concerning[form],
-                        severity="medium" if form.startswith("NT") or form == "15-12G" else "low",
-                        confidence=0.9,
-                        url=f"https://www.sec.gov/Archives/edgar/data/{cik}/{accessions[i].replace('-', '')}/",
-                    ))
-
-            # Count filing frequency (health signal)
-            annual_count = sum(1 for f in forms[:20] if f in ("10-K", "10-K/A"))
-            quarterly_count = sum(1 for f in forms[:20] if f in ("10-Q", "10-Q/A"))
-
-            if annual_count == 0 and len(forms) > 5:
-                result.risk_signals.append({
-                    "signal": "no_recent_annual_report",
-                    "severity": "high",
-                    "detail": "No 10-K found in recent filings",
-                })
-                result.findings.append(Finding(
-                    source="sec_edgar", category="data_quality",
-                    title="Missing annual report",
-                    detail="No 10-K filing found in recent submission history. May indicate deregistration or compliance issues.",
-                    severity="high", confidence=0.8,
-                ))
-
-        time.sleep(0.12)
-
-        # Step 3: Get financial facts (revenue, assets, etc.)
-        facts = _get_company_facts(cik)
-        if facts and "facts" in facts:
-            us_gaap = facts["facts"].get("us-gaap", {})
-
-            # Extract key financial metrics
-            for concept, label in [
-                ("Revenues", "Revenue"),
-                ("Assets", "Total Assets"),
-                ("StockholdersEquity", "Stockholders Equity"),
-                ("NetIncomeLoss", "Net Income/Loss"),
-            ]:
-                concept_data = us_gaap.get(concept, {})
-                units = concept_data.get("units", {})
-                usd = units.get("USD", [])
-                if usd:
-                    latest = sorted(usd, key=lambda x: x.get("end", ""), reverse=True)
-                    if latest:
-                        val = latest[0].get("val", 0)
-                        period = latest[0].get("end", "")
-                        result.findings.append(Finding(
-                            source="sec_edgar", category="financial",
-                            title=f"{label}: ${val:,.0f}",
-                            detail=f"Period ending {period}. From XBRL concept {concept}.",
-                            severity="info", confidence=0.95,
-                            raw_data={"concept": concept, "value": val, "period": period},
-                        ))
+        # Risk signal: DEF 14A (proxy statements indicate public company)
+        if "DEF 14A" in form_types_found:
+            result.risk_signals.append({
+                "signal": "sec_def14a_proxy",
+                "severity": "info",
+                "detail": "Entity has proxy statement (DEF 14A) on file",
+            })
 
     except Exception as e:
         result.error = str(e)

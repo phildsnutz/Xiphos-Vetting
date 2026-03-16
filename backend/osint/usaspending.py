@@ -20,7 +20,7 @@ from typing import Optional
 from . import EnrichmentResult, Finding
 
 BASE = "https://api.usaspending.gov/api/v2"
-USER_AGENT = "Xiphos-Vetting/2.1"
+USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
 
 
 def _post(url: str, payload: dict) -> dict | None:
@@ -117,8 +117,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
         time.sleep(0.3)
 
-        # Step 2: Search for contract awards
-        awards_data = _search_awards(vendor_name, limit=15)
+        # Step 2: LIVE API call - Search for contract awards
+        awards_data = _search_awards(vendor_name, limit=10)
 
         if awards_data and "results" in awards_data:
             awards = awards_data["results"]
@@ -138,12 +138,17 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 if naics:
                     naics_codes.add(str(naics))
 
+            # Set identifier for federal contractor
+            if total_count > 0:
+                result.identifiers["federal_contractor"] = True
+                result.identifiers["total_obligations"] = total_amount
+
             result.findings.append(Finding(
                 source="usaspending", category="contracts",
                 title=f"Federal contracts: {total_count} awards, ${total_amount:,.0f} total",
                 detail=(
-                    f"Found {total_count} contract awards since 2020. "
-                    f"Top agencies: {', '.join(list(agencies)[:5])}. "
+                    f"Found {total_count} contract awards. "
+                    f"Agencies: {', '.join(list(agencies)[:5])}. "
                     f"NAICS codes: {', '.join(list(naics_codes)[:5])}."
                 ),
                 severity="info", confidence=0.9,
@@ -163,29 +168,28 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                         source="usaspending", category="contract_detail",
                         title=f"Award: ${amt:,.0f} -- {award.get('Awarding Agency', 'Unknown')}",
                         detail=(
-                            f"ID: {award.get('Award ID', 'N/A')} | "
-                            f"Type: {award.get('Award Type', 'N/A')} | "
-                            f"Period: {award.get('Start Date', '?')} to {award.get('End Date', '?')} | "
+                            f"ID: {award.get('Award ID', 'N/A')}\n"
+                            f"Type: {award.get('Award Type', 'N/A')}\n"
+                            f"Period: {award.get('Start Date', '?')} to {award.get('End Date', '?')}\n"
                             f"Description: {(award.get('Description', '') or '')[:200]}"
                         ),
                         severity="info", confidence=0.9,
                     ))
 
-            # Risk: no recent federal contracts for a defense vendor
-            if total_count == 0:
+            # Risk signal: significant federal contractor
+            if total_amount >= 1000000:
                 result.risk_signals.append({
-                    "signal": "no_federal_contracts",
-                    "severity": "medium",
-                    "detail": "No federal contract awards found since 2020",
+                    "signal": "significant_federal_contracts",
+                    "severity": "info",
+                    "detail": f"Entity is significant federal contractor (${total_amount:,.0f} total)",
                 })
-
-            # Signal: high concentration in one agency
-            if len(agencies) == 1 and total_count > 3:
-                result.risk_signals.append({
-                    "signal": "single_agency_concentration",
-                    "severity": "low",
-                    "detail": f"All contracts from single agency: {list(agencies)[0]}",
-                })
+        else:
+            result.findings.append(Finding(
+                source="usaspending", category="contracts",
+                title="No federal contracts found",
+                detail=f"No federal contract history found for '{vendor_name}'.",
+                severity="info", confidence=0.8,
+            ))
 
     except Exception as e:
         result.error = str(e)

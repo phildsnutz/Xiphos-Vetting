@@ -1,113 +1,72 @@
 """
-GLEIF LEI Connector
+GLEIF LEI Connector - LIVE API
 
-Queries the Global LEI Foundation API for:
+Real-time queries to the Global LEI Foundation API for:
   - Legal Entity Identifier validation and lookup
   - Direct and ultimate parent relationships
   - Registration status (active, lapsed, retired)
   - Entity legal form and jurisdiction
 
-Free API, no registration required, up to 200 records per request.
-API docs: https://www.gleif.org/en/lei-data/gleif-api
+Free API, no registration required.
+API: https://api.gleif.org/api/v1
 """
 
 import json
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional
 
 from . import EnrichmentResult, Finding
 
 BASE = "https://api.gleif.org/api/v1"
-USER_AGENT = "Xiphos-Vetting/2.1"
+USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
 
 
 def _get(url: str) -> dict | None:
+    """GET request to GLEIF API with proper headers."""
     req = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "application/vnd.api+json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
         return None
 
 
-def _search_lei(name: str) -> list[dict]:
-    """Fuzzy search for LEI records by entity name."""
-    encoded = urllib.request.quote(name)
-    url = f"{BASE}/lei-records?filter[fulltext]={encoded}&page[size]=5"
-    data = _get(url)
-    if not data:
-        return []
-    return data.get("data", [])
-
-
-def _get_relationships(lei: str) -> dict:
-    """Get direct and ultimate parent for a given LEI."""
-    parents = {}
-
-    # Direct parent
-    url = f"{BASE}/lei-records/{lei}/direct-parent"
-    data = _get(url)
-    if data and "data" in data:
-        parent = data["data"]
-        if parent:
-            attrs = parent.get("attributes", {})
-            rel = attrs.get("relationship", {})
-            parents["direct_parent"] = {
-                "lei": parent.get("id", ""),
-                "type": rel.get("type", ""),
-                "status": rel.get("status", ""),
-            }
-
-    # Ultimate parent
-    url = f"{BASE}/lei-records/{lei}/ultimate-parent"
-    data = _get(url)
-    if data and "data" in data:
-        parent = data["data"]
-        if parent:
-            attrs = parent.get("attributes", {})
-            rel = attrs.get("relationship", {})
-            parents["ultimate_parent"] = {
-                "lei": parent.get("id", ""),
-                "type": rel.get("type", ""),
-                "status": rel.get("status", ""),
-            }
-
-    return parents
-
-
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
-    """Query GLEIF for LEI data and ownership chains."""
+    """Query GLEIF API for LEI data and ownership chains."""
     t0 = time.time()
     result = EnrichmentResult(source="gleif_lei", vendor_name=vendor_name)
 
     try:
         lei = ids.get("lei")
 
-        # Step 1: Search for LEI if not provided
+        # Step 1: Search for LEI if not provided - LIVE API call
         if not lei:
-            records = _search_lei(vendor_name)
-            if records:
-                # Use first match
-                rec = records[0]
-                lei = rec.get("id", "")
+            encoded_name = urllib.parse.quote(vendor_name)
+            url = f"{BASE}/lei-records?filter[entity.names]={encoded_name}&page[size]=5"
+
+            records_data = _get(url)
+            if records_data and "data" in records_data:
+                records = records_data.get("data", [])
+                if records:
+                    lei = records[0].get("id", "")
 
         if not lei:
             result.findings.append(Finding(
                 source="gleif_lei", category="identity",
                 title="No LEI found",
-                detail=f"No Legal Entity Identifier found for '{vendor_name}'. "
-                       f"Entity may not have an LEI or name may not match GLEIF records.",
-                severity="info", confidence=0.5,
+                detail=f"No Legal Entity Identifier found for '{vendor_name}' in GLEIF API.",
+                severity="info", confidence=0.7,
             ))
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        # Step 2: Get full LEI record
+        # Step 2: Get full LEI record - LIVE API call
         url = f"{BASE}/lei-records/{lei}"
         record = _get(url)
 
@@ -117,14 +76,13 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             entity = attrs.get("entity", {})
             reg = attrs.get("registration", {})
 
-            legal_name = entity.get("legalName", {}).get("name", "")
+            legal_name = entity.get("legalName", {}).get("name", "") if isinstance(entity.get("legalName"), dict) else str(entity.get("legalName", ""))
             legal_jurisdiction = entity.get("jurisdiction", "")
-            legal_form = entity.get("legalForm", {}).get("id", "")
+            legal_form = entity.get("legalForm", {}).get("id", "") if isinstance(entity.get("legalForm"), dict) else str(entity.get("legalForm", ""))
             status = entity.get("status", "")
             reg_status = reg.get("status", "")
             initial_reg = reg.get("initialRegistrationDate", "")
             next_renewal = reg.get("nextRenewalDate", "")
-            managing_lou = reg.get("managingLou", "")
 
             # Addresses
             legal_addr = entity.get("legalAddress", {})
@@ -135,16 +93,25 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
             result.identifiers["lei"] = lei
             result.identifiers["legal_jurisdiction"] = legal_jurisdiction
+            result.identifiers["legal_name"] = legal_name
+
+            detail_parts = [
+                f"LEI: {lei}",
+                f"Legal Name: {legal_name}",
+                f"Status: {status}",
+                f"Registration Status: {reg_status}",
+                f"Jurisdiction: {legal_jurisdiction}",
+                f"Legal Form: {legal_form}",
+                f"Registered: {initial_reg}",
+                f"Next Renewal: {next_renewal}",
+                f"Legal Address Country: {legal_country}",
+                f"HQ Country: {hq_country}",
+            ]
 
             result.findings.append(Finding(
                 source="gleif_lei", category="identity",
                 title=f"LEI verified: {legal_name}",
-                detail=(
-                    f"LEI: {lei} | Status: {status} | Registration: {reg_status} | "
-                    f"Jurisdiction: {legal_jurisdiction} | Legal form: {legal_form} | "
-                    f"Registered: {initial_reg} | Next renewal: {next_renewal} | "
-                    f"Legal address country: {legal_country} | HQ country: {hq_country}"
-                ),
+                detail="\n".join(detail_parts),
                 severity="info", confidence=0.95,
                 url=f"https://search.gleif.org/#/record/{lei}",
                 raw_data={"lei": lei, "status": status, "reg_status": reg_status,
@@ -156,13 +123,12 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 result.risk_signals.append({
                     "signal": "lei_lapsed",
                     "severity": "medium",
-                    "detail": f"LEI registration has lapsed (not renewed since {next_renewal})",
+                    "detail": f"LEI registration lapsed - not renewed since {next_renewal}",
                 })
                 result.findings.append(Finding(
                     source="gleif_lei", category="data_quality",
                     title="LEI registration lapsed",
-                    detail=f"LEI {lei} has LAPSED registration status. Entity has not renewed. "
-                           f"This may indicate reduced transparency or operational changes.",
+                    detail=f"LEI {lei} registration not renewed. May indicate operational changes.",
                     severity="medium", confidence=0.9,
                 ))
 
@@ -170,52 +136,89 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 result.risk_signals.append({
                     "signal": "lei_entity_inactive",
                     "severity": "high",
-                    "detail": "GLEIF reports entity as INACTIVE",
+                    "detail": "Entity status is INACTIVE in GLEIF records",
                 })
 
-            # Jurisdiction mismatch detection
+            # Jurisdiction mismatch
             if country and legal_country and country.upper() != legal_country.upper():
                 result.risk_signals.append({
                     "signal": "jurisdiction_mismatch",
                     "severity": "low",
-                    "detail": f"Vendor country ({country}) differs from LEI legal jurisdiction ({legal_country})",
+                    "detail": f"Vendor country ({country}) differs from LEI jurisdiction ({legal_country})",
                 })
 
             time.sleep(0.15)
 
-            # Step 3: Get parent relationships
-            parents = _get_relationships(lei)
+            # Step 3: Get parent relationships - LIVE API calls
+            parent_url = f"{BASE}/lei-records/{lei}/direct-parent"
+            parent_data = _get(parent_url)
 
-            for rel_type, info in parents.items():
-                parent_lei = info.get("lei", "")
-                if parent_lei:
-                    # Look up parent name
-                    parent_url = f"{BASE}/lei-records/{parent_lei}"
-                    parent_data = _get(parent_url)
-                    parent_name = ""
-                    parent_country = ""
-                    if parent_data and "data" in parent_data:
-                        p_entity = parent_data["data"].get("attributes", {}).get("entity", {})
-                        parent_name = p_entity.get("legalName", {}).get("name", "")
-                        parent_country = p_entity.get("legalAddress", {}).get("country", "")
+            if parent_data and "data" in parent_data:
+                parent = parent_data["data"]
+                if parent:
+                    parent_lei = parent.get("id", "")
+                    if parent_lei:
+                        # Look up parent details
+                        parent_detail_url = f"{BASE}/lei-records/{parent_lei}"
+                        parent_detail = _get(parent_detail_url)
+                        parent_name = ""
+                        parent_country = ""
 
-                    label = "Direct parent" if rel_type == "direct_parent" else "Ultimate parent"
-                    result.findings.append(Finding(
-                        source="gleif_lei", category="ownership",
-                        title=f"{label}: {parent_name or parent_lei}",
-                        detail=f"LEI: {parent_lei} | Country: {parent_country} | Relationship: {info.get('type', 'N/A')}",
-                        severity="info", confidence=0.9,
-                        url=f"https://search.gleif.org/#/record/{parent_lei}",
-                    ))
+                        if parent_detail and "data" in parent_detail:
+                            p_entity = parent_detail["data"].get("attributes", {}).get("entity", {})
+                            parent_name = p_entity.get("legalName", {}).get("name", "") if isinstance(p_entity.get("legalName"), dict) else str(p_entity.get("legalName", ""))
+                            parent_country = p_entity.get("legalAddress", {}).get("country", "")
 
-                    result.relationships.append({
-                        "type": rel_type,
-                        "parent_lei": parent_lei,
-                        "parent_name": parent_name,
-                        "parent_country": parent_country,
-                    })
+                        result.findings.append(Finding(
+                            source="gleif_lei", category="ownership",
+                            title=f"Direct parent: {parent_name or parent_lei}",
+                            detail=f"LEI: {parent_lei}\nCountry: {parent_country}",
+                            severity="info", confidence=0.9,
+                            url=f"https://search.gleif.org/#/record/{parent_lei}",
+                        ))
 
-                    time.sleep(0.15)
+                        result.relationships.append({
+                            "type": "direct_parent",
+                            "parent_lei": parent_lei,
+                            "parent_name": parent_name,
+                            "parent_country": parent_country,
+                        })
+
+                        time.sleep(0.15)
+
+            # Ultimate parent
+            ultimate_url = f"{BASE}/lei-records/{lei}/ultimate-parent"
+            ultimate_data = _get(ultimate_url)
+
+            if ultimate_data and "data" in ultimate_data:
+                ultimate = ultimate_data["data"]
+                if ultimate:
+                    ultimate_lei = ultimate.get("id", "")
+                    if ultimate_lei and ultimate_lei != parent_lei if 'parent_lei' in locals() else True:
+                        ultimate_detail_url = f"{BASE}/lei-records/{ultimate_lei}"
+                        ultimate_detail = _get(ultimate_detail_url)
+                        ultimate_name = ""
+                        ultimate_country = ""
+
+                        if ultimate_detail and "data" in ultimate_detail:
+                            u_entity = ultimate_detail["data"].get("attributes", {}).get("entity", {})
+                            ultimate_name = u_entity.get("legalName", {}).get("name", "") if isinstance(u_entity.get("legalName"), dict) else str(u_entity.get("legalName", ""))
+                            ultimate_country = u_entity.get("legalAddress", {}).get("country", "")
+
+                        result.findings.append(Finding(
+                            source="gleif_lei", category="ownership",
+                            title=f"Ultimate parent: {ultimate_name or ultimate_lei}",
+                            detail=f"LEI: {ultimate_lei}\nCountry: {ultimate_country}",
+                            severity="info", confidence=0.9,
+                            url=f"https://search.gleif.org/#/record/{ultimate_lei}",
+                        ))
+
+                        result.relationships.append({
+                            "type": "ultimate_parent",
+                            "parent_lei": ultimate_lei,
+                            "parent_name": ultimate_name,
+                            "parent_country": ultimate_country,
+                        })
 
     except Exception as e:
         result.error = str(e)

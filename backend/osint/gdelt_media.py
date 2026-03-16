@@ -1,16 +1,14 @@
 """
-GDELT Adverse Media Connector
+GDELT Global Media Monitoring - LIVE API
 
-Queries the GDELT Project API for adverse media coverage:
-  - News articles containing risk keywords (sanctions, fraud, corruption, etc.)
+Real-time queries to GDELT Project for adverse media coverage:
+  - News articles with risk keywords (sanctions, fraud, corruption, etc.)
   - Tone analysis for sentiment assessment
-  - Cross-domain article aggregation
+  - Global media aggregation across 1000+ sources
 
 API: https://api.gdeltproject.org/api/v2/doc/doc
 No authentication required. Free to use.
-
-Domains with high credibility: reuters, nytimes, washingtonpost
-Returns articles with URL, title, date seen, domain, language, social image
+Timeout: 12 seconds (GDELT can be slow)
 """
 
 import json
@@ -23,7 +21,7 @@ from typing import Optional
 from . import EnrichmentResult, Finding
 
 BASE = "https://api.gdeltproject.org/api/v2/doc"
-USER_AGENT = "Xiphos-Vetting/2.1"
+USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
 
 # Risk search terms to append
 RISK_TERMS = "sanctions OR fraud OR corruption OR indictment OR money laundering OR debarment OR violation"
@@ -49,11 +47,11 @@ def _get(url: str, retries: int = 2) -> dict | None:
             "Accept": "application/json",
         })
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < retries:
-                time.sleep(2 * (attempt + 1))  # Backoff: 2s, 4s
+                time.sleep(2 * (attempt + 1))
                 continue
             return None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
