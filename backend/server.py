@@ -44,6 +44,10 @@ AI Analysis Endpoints:
   POST /api/ai/config/org-default        Set org-wide default AI config (admin)
   POST /api/cases/:id/analyze            Run AI analysis on a vendor
   GET  /api/cases/:id/analysis           Get latest AI analysis for a vendor
+
+Decision Workflow Endpoints:
+  POST /api/cases/:id/decision           Submit approval/rejection/escalation decision
+  GET  /api/cases/:id/decisions          Get decision history for vendor
 """
 
 import os
@@ -919,6 +923,83 @@ def api_get_analysis(case_id):
     if not analysis:
         return jsonify({"error": "No AI analysis found. Run POST /api/cases/{id}/analyze first."}), 404
     return jsonify({"case_id": case_id, "vendor_name": v["name"], **analysis})
+
+
+# ---- Decision Workflow ----
+
+@app.route("/api/cases/<case_id>/decision", methods=["POST"])
+@require_auth("cases:score")
+def api_submit_decision(case_id):
+    """Submit an approval/rejection/escalation decision for a vendor."""
+    v = db.get_vendor(case_id)
+    if not v:
+        return jsonify({"error": "Case not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    decision = body.get("decision", "").lower()
+    if decision not in ("approve", "reject", "escalate"):
+        return jsonify({"error": "Invalid decision. Must be 'approve', 'reject', or 'escalate'"}), 400
+
+    reason = body.get("reason", "")
+
+    # Get current scoring data to capture posterior and tier at time of decision
+    score = db.get_latest_score(case_id)
+    posterior = None
+    tier = None
+    if score:
+        cal = score.get("calibrated", {})
+        posterior = cal.get("calibrated_probability")
+        tier = cal.get("calibrated_tier")
+
+    # Get current user info
+    user_id = g.user.get("sub", "dev")
+    user_email = g.user.get("email", "")
+
+    # Save decision
+    decision_id = db.save_decision(
+        vendor_id=case_id,
+        decision=decision,
+        user_id=user_id,
+        email=user_email,
+        reason=reason if reason else None,
+        posterior=posterior,
+        tier=tier,
+    )
+
+    # Log to audit trail
+    log_audit("decision_made", "case", case_id,
+              detail=f"Decision: {decision.upper()}, Reason: {reason or 'none'}, Posterior: {posterior}, Tier: {tier}")
+
+    return jsonify({
+        "decision_id": decision_id,
+        "vendor_id": case_id,
+        "decision": decision,
+        "decided_by": user_id,
+        "decided_by_email": user_email,
+        "reason": reason if reason else None,
+        "posterior_at_decision": posterior,
+        "tier_at_decision": tier,
+        "created_at": datetime.now().isoformat(),
+    }), 201
+
+
+@app.route("/api/cases/<case_id>/decisions")
+@require_auth("cases:read")
+def api_get_decisions(case_id):
+    """Get decision history for a vendor."""
+    v = db.get_vendor(case_id)
+    if not v:
+        return jsonify({"error": "Case not found"}), 404
+
+    limit = request.args.get("limit", 50, type=int)
+    decisions = db.get_decisions(case_id, limit)
+    latest = db.get_latest_decision(case_id)
+
+    return jsonify({
+        "vendor_id": case_id,
+        "decisions": decisions,
+        "latest_decision": latest,
+    })
 
 
 # ---- Sanctions sync ----

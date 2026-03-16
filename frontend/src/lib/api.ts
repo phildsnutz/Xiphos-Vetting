@@ -372,3 +372,52 @@ export interface AuditEntry {
 export async function fetchAuditLog(limit = 100): Promise<AuditEntry[]> {
   return json<AuditEntry[]>(`/api/audit?limit=${limit}`);
 }
+
+/* ---- Decision Workflow ---- */
+
+export interface Decision {
+  id: number;
+  vendor_id: string;
+  decision: "approve" | "reject" | "escalate";
+  decided_by: string;
+  decided_by_email: string;
+  reason: string | null;
+  posterior_at_decision: number | null;
+  tier_at_decision: string | null;
+  created_at: string;
+}
+
+export interface SubmitDecisionPayload {
+  decision: "approve" | "reject" | "escalate";
+  reason?: string;
+}
+
+export interface SubmitDecisionResponse {
+  decision_id: number;
+  vendor_id: string;
+  decision: string;
+  decided_by: string;
+  decided_by_email: string;
+  reason: string | null;
+  posterior_at_decision: number | null;
+  tier_at_decision: string | null;
+  created_at: string;
+}
+
+export async function submitDecision(
+  vendorId: string,
+  decision: "approve" | "reject" | "escalate",
+  reason?: string,
+): Promise<SubmitDecisionResponse> {
+  return json<SubmitDecisionResponse>(`/api/cases/${vendorId}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ decision, reason }),
+  });
+}
+
+export async function getDecisions(
+  vendorId: string,
+  limit = 50,
+): Promise<{ vendor_id: string; decisions: Decision[]; latest_decision: Decision | null }> {
+  return json(`/api/cases/${vendorId}/decisions?limit=${limit}`);
+}

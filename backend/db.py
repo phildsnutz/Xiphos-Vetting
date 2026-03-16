@@ -128,6 +128,22 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_monitoring_vendor ON monitoring_log(vendor_id);
             CREATE INDEX IF NOT EXISTS idx_monitoring_checked ON monitoring_log(checked_at);
             CREATE INDEX IF NOT EXISTS idx_monitoring_risk_changed ON monitoring_log(risk_changed);
+
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor_id TEXT NOT NULL REFERENCES vendors(id),
+                decision TEXT NOT NULL CHECK(decision IN ('approve', 'reject', 'escalate')),
+                decided_by TEXT,
+                decided_by_email TEXT,
+                reason TEXT,
+                posterior_at_decision REAL,
+                tier_at_decision TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_decisions_vendor ON decisions(vendor_id);
+            CREATE INDEX IF NOT EXISTS idx_decisions_created ON decisions(created_at);
         """)
 
 
@@ -403,3 +419,43 @@ def get_stats() -> dict:
             "screenings": screening_count,
             "tier_distribution": tier_dist,
         }
+
+
+# ---- Decisions ----
+
+def save_decision(vendor_id: str, decision: str, user_id: str | None = None,
+                  email: str | None = None, reason: str | None = None,
+                  posterior: float | None = None, tier: str | None = None) -> int:
+    """Save an approval/rejection/escalation decision. Returns the row ID."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            INSERT INTO decisions
+                (vendor_id, decision, decided_by, decided_by_email, reason,
+                 posterior_at_decision, tier_at_decision)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (vendor_id, decision, user_id, email, reason, posterior, tier))
+        return cursor.lastrowid
+
+
+def get_decisions(vendor_id: str, limit: int = 50) -> list[dict]:
+    """Get all decisions for a vendor, most recent first."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT id, vendor_id, decision, decided_by, decided_by_email, reason,
+                   posterior_at_decision, tier_at_decision, created_at
+            FROM decisions WHERE vendor_id = ?
+            ORDER BY created_at DESC LIMIT ?
+        """, (vendor_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_latest_decision(vendor_id: str) -> dict | None:
+    """Get the most recent decision for a vendor."""
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT id, vendor_id, decision, decided_by, decided_by_email, reason,
+                   posterior_at_decision, tier_at_decision, created_at
+            FROM decisions WHERE vendor_id = ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (vendor_id,)).fetchone()
+        return dict(row) if row else None

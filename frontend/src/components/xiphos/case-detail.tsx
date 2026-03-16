@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
-import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar, Brain } from "lucide-react";
+import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar, Brain, Lock } from "lucide-react";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
 import { ContribBar } from "./charts";
 import { EnrichmentPanel } from "./enrichment-panel";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { enrichAndScore, fetchEnrichment } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import type { EnrichmentReport } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot } from "@/lib/types";
 
@@ -117,6 +118,9 @@ function fmtContrib(s: number): string {
 
 export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps) {
   const cal = c.cal;
+  const user = getUser();
+  const isReviewer = user?.role === "reviewer";
+
   const [rescoring, setRescoring] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [enriching, setEnriching] = useState(false);
@@ -205,6 +209,12 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
           <div className="flex items-center gap-3">
             <span className="font-bold" style={{ fontSize: FS.md, color: T.text }}>{c.name}</span>
             <TierBadge tier={cal.tier} />
+            {isReviewer && (
+              <div className="inline-flex items-center gap-1 rounded px-2 py-1" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+                <Lock size={10} color={T.muted} />
+                <span style={{ fontSize: FS.xs, color: T.muted, fontWeight: 600 }}>READ ONLY</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <span style={{ fontSize: FS.sm, color: T.dim }}>
@@ -241,22 +251,24 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
               </div>
             </div>
             <div className="flex gap-2">
-              {/* OSINT Enrich + Score */}
-              <button
-                onClick={handleEnrich}
-                disabled={enriching}
-                className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
-                style={{
-                  padding: "6px 12px", fontSize: FS.sm,
-                  background: enrichment ? T.raised : "#10b98122",
-                  color: enrichment ? T.dim : "#10b981",
-                  borderColor: enrichment ? T.border : "#10b98144",
-                  opacity: enriching ? 0.5 : 1,
-                }}
-              >
-                {enriching ? <Loader2 size={12} className="animate-spin" /> : <Radar size={12} />}
-                {enriching ? "Enriching 16 sources..." : enrichment ? "Re-Enrich" : "OSINT Enrich"}
-              </button>
+              {/* OSINT Enrich + Score - hidden for reviewer */}
+              {!isReviewer && (
+                <button
+                  onClick={handleEnrich}
+                  disabled={enriching}
+                  className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+                  style={{
+                    padding: "6px 12px", fontSize: FS.sm,
+                    background: enrichment ? T.raised : "#10b98122",
+                    color: enrichment ? T.dim : "#10b981",
+                    borderColor: enrichment ? T.border : "#10b98144",
+                    opacity: enriching ? 0.5 : 1,
+                  }}
+                >
+                  {enriching ? <Loader2 size={12} className="animate-spin" /> : <Radar size={12} />}
+                  {enriching ? "Enriching 16 sources..." : enrichment ? "Re-Enrich" : "OSINT Enrich"}
+                </button>
+              )}
               {/* View enrichment if available */}
               {enrichment && (
                 <button
@@ -273,20 +285,22 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
                   {showEnrichment ? "Hide Intel" : `Intel (${enrichment.summary.findings_total})`}
                 </button>
               )}
-              {/* AI Analysis toggle */}
-              <button
-                onClick={() => setShowAI(!showAI)}
-                className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
-                style={{
-                  padding: "6px 12px", fontSize: FS.sm,
-                  background: showAI ? T.accent + "22" : "#8b5cf622",
-                  color: showAI ? T.accent : "#8b5cf6",
-                  borderColor: showAI ? T.accent + "44" : "#8b5cf644",
-                }}
-              >
-                <Brain size={12} />
-                {showAI ? "Hide AI" : "AI Analysis"}
-              </button>
+              {/* AI Analysis toggle - hidden for reviewer */}
+              {!isReviewer && (
+                <button
+                  onClick={() => setShowAI(!showAI)}
+                  className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+                  style={{
+                    padding: "6px 12px", fontSize: FS.sm,
+                    background: showAI ? T.accent + "22" : "#8b5cf622",
+                    color: showAI ? T.accent : "#8b5cf6",
+                    borderColor: showAI ? T.accent + "44" : "#8b5cf644",
+                  }}
+                >
+                  <Brain size={12} />
+                  {showAI ? "Hide AI" : "AI Analysis"}
+                </button>
+              )}
               {/* Dossier */}
               <button
                 onClick={handleDossier}
@@ -301,28 +315,30 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
                 {generating ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
                 {generating ? "Generating..." : "Dossier"}
               </button>
-              {/* Re-Score: requires API */}
-              {hasApi ? (
-                <button
-                  onClick={handleRescore}
-                  disabled={rescoring}
-                  className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-pointer"
-                  style={{
-                    padding: "6px 12px", fontSize: FS.sm,
-                    background: T.accent,
-                    opacity: rescoring ? 0.5 : 1,
-                  }}
-                >
-                  {rescoring ? <Loader2 size={12} className="animate-spin" /> : <Activity size={12} />}
-                  {rescoring ? "Scoring..." : "Re-Score"}
-                </button>
-              ) : (
-                <button
-                  className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-not-allowed pointer-events-none"
-                  style={{ padding: "6px 12px", fontSize: FS.sm, background: T.accent, opacity: 0.4 }}
-                >
-                  <Activity size={12} /> Re-Score <span style={{ fontSize: FS.xs, color: T.muted }}>(Offline)</span>
-                </button>
+              {/* Re-Score: requires API and not reviewer */}
+              {!isReviewer && (
+                hasApi ? (
+                  <button
+                    onClick={handleRescore}
+                    disabled={rescoring}
+                    className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-pointer"
+                    style={{
+                      padding: "6px 12px", fontSize: FS.sm,
+                      background: T.accent,
+                      opacity: rescoring ? 0.5 : 1,
+                    }}
+                  >
+                    {rescoring ? <Loader2 size={12} className="animate-spin" /> : <Activity size={12} />}
+                    {rescoring ? "Scoring..." : "Re-Score"}
+                  </button>
+                ) : (
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-not-allowed pointer-events-none"
+                    style={{ padding: "6px 12px", fontSize: FS.sm, background: T.accent, opacity: 0.4 }}
+                  >
+                    <Activity size={12} /> Re-Score <span style={{ fontSize: FS.xs, color: T.muted }}>(Offline)</span>
+                  </button>
+                )
               )}
             </div>
           </div>

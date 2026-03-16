@@ -38,10 +38,18 @@ from . import osha_safety
 from . import un_sanctions
 from . import fara
 
+# Priority OSINT connectors
+from . import dod_sam_exclusions
+from . import bis_entity_list
+from . import cfius_risk
+
 # Ordered by priority: sanctions/exclusions first, then identity, then context
 CONNECTORS = [
     # --- Sanctions & Restricted Parties (primary) ---
-    ("trade_csl", trade_csl),                       # Consolidated Screening List (13 US lists)
+    ("dod_sam_exclusions", dod_sam_exclusions),      # DoD EPLS - Excluded Parties List
+    ("bis_entity_list", bis_entity_list),            # Bureau of Industry & Security Entity List
+    ("cfius_risk", cfius_risk),                      # CFIUS risk assessment (foreign investment)
+    ("trade_csl", trade_csl),                        # Consolidated Screening List (13 US lists)
     ("un_sanctions", un_sanctions),                  # UN Security Council direct XML feed
     ("opensanctions_pep", opensanctions_pep),        # PEP screening via OpenSanctions
 

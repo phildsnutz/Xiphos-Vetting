@@ -4,8 +4,8 @@ import {
   Brain, Loader2, RefreshCw, CheckCircle, XCircle,
   AlertTriangle, Shield, Clock, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { runAIAnalysis, fetchAIAnalysis, fetchAIConfig } from "@/lib/api";
-import type { AIAnalysis } from "@/lib/api";
+import { runAIAnalysis, fetchAIAnalysis, fetchAIConfig, submitDecision, getDecisions } from "@/lib/api";
+import type { AIAnalysis, Decision } from "@/lib/api";
 
 interface AIAnalysisPanelProps {
   caseId: string;
@@ -27,8 +27,11 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["summary", "concerns", "actions"])
   );
+  const [latestDecision, setLatestDecision] = useState<Decision | null>(null);
+  const [decidingLoading, setDecidingLoading] = useState(false);
+  const [decidingError, setDecidingError] = useState<string | null>(null);
 
-  // Check if AI is configured and load existing analysis
+  // Check if AI is configured and load existing analysis and decisions
   useEffect(() => {
     fetchAIConfig()
       .then((cfg) => setConfigured(cfg.configured))
@@ -37,6 +40,10 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
     fetchAIAnalysis(caseId)
       .then((a) => setAnalysis(a))
       .catch(() => {}); // No existing analysis, that's fine
+
+    getDecisions(caseId, 1)
+      .then((result) => setLatestDecision(result.latest_decision))
+      .catch(() => {}); // No existing decisions, that's fine
   }, [caseId]);
 
   const toggleSection = (key: string) => {
@@ -58,6 +65,29 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       setError(e instanceof Error ? e.message : "Analysis failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDecision = async (decision: "approve" | "reject" | "escalate") => {
+    setDecidingLoading(true);
+    setDecidingError(null);
+    try {
+      const result = await submitDecision(caseId, decision);
+      setLatestDecision({
+        id: result.decision_id,
+        vendor_id: result.vendor_id,
+        decision: result.decision as "approve" | "reject" | "escalate",
+        decided_by: result.decided_by,
+        decided_by_email: result.decided_by_email,
+        reason: result.reason,
+        posterior_at_decision: result.posterior_at_decision,
+        tier_at_decision: result.tier_at_decision,
+        created_at: result.created_at,
+      });
+    } catch (e) {
+      setDecidingError(e instanceof Error ? e.message : "Decision submission failed");
+    } finally {
+      setDecidingLoading(false);
     }
   };
 
@@ -179,45 +209,88 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           </div>
 
           {/* Decision workflow */}
-          <div
-            className="flex items-center gap-2 p-3 rounded-lg"
-            style={{ background: T.raised, border: `1px solid ${T.border}` }}
-          >
-            <span style={{ fontSize: FS.xs, color: T.muted, fontWeight: 500 }}>DECISION:</span>
-            <button
-              className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
-              style={{
-                padding: "5px 14px", fontSize: FS.sm,
-                background: T.greenBg, color: T.green,
-                border: `1px solid ${T.green}33`,
-              }}
+          {latestDecision ? (
+            <div
+              className="flex items-center gap-2 p-3 rounded-lg"
+              style={{ background: T.greenBg, border: `1px solid ${T.green}33` }}
             >
-              <CheckCircle size={12} /> Approve
-            </button>
-            <button
-              className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
-              style={{
-                padding: "5px 14px", fontSize: FS.sm,
-                background: T.redBg, color: T.red,
-                border: `1px solid ${T.red}33`,
-              }}
+              <CheckCircle size={14} color={T.green} />
+              <div className="flex flex-col gap-0.5" style={{ flex: 1 }}>
+                <span className="font-semibold" style={{ fontSize: FS.sm, color: T.green }}>
+                  Decision Recorded: {latestDecision.decision.toUpperCase()}
+                </span>
+                <span style={{ fontSize: FS.xs, color: T.dim }}>
+                  {new Date(latestDecision.created_at).toLocaleString()} by {latestDecision.decided_by_email || latestDecision.decided_by}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="flex items-center gap-2 p-3 rounded-lg"
+              style={{ background: T.raised, border: `1px solid ${T.border}` }}
             >
-              <XCircle size={12} /> Reject
-            </button>
-            <button
-              className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
-              style={{
-                padding: "5px 14px", fontSize: FS.sm,
-                background: T.amberBg, color: T.amber,
-                border: `1px solid ${T.amber}33`,
-              }}
+              <span style={{ fontSize: FS.xs, color: T.muted, fontWeight: 500 }}>DECISION:</span>
+              <button
+                onClick={() => handleDecision("approve")}
+                disabled={decidingLoading}
+                className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+                style={{
+                  padding: "5px 14px", fontSize: FS.sm,
+                  background: decidingLoading ? T.border : T.greenBg,
+                  color: decidingLoading ? T.muted : T.green,
+                  border: `1px solid ${T.green}33`,
+                  opacity: decidingLoading ? 0.7 : 1,
+                }}
+              >
+                {decidingLoading ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                Approve
+              </button>
+              <button
+                onClick={() => handleDecision("reject")}
+                disabled={decidingLoading}
+                className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+                style={{
+                  padding: "5px 14px", fontSize: FS.sm,
+                  background: decidingLoading ? T.border : T.redBg,
+                  color: decidingLoading ? T.muted : T.red,
+                  border: `1px solid ${T.red}33`,
+                  opacity: decidingLoading ? 0.7 : 1,
+                }}
+              >
+                {decidingLoading ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
+                Reject
+              </button>
+              <button
+                onClick={() => handleDecision("escalate")}
+                disabled={decidingLoading}
+                className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+                style={{
+                  padding: "5px 14px", fontSize: FS.sm,
+                  background: decidingLoading ? T.border : T.amberBg,
+                  color: decidingLoading ? T.muted : T.amber,
+                  border: `1px solid ${T.amber}33`,
+                  opacity: decidingLoading ? 0.7 : 1,
+                }}
+              >
+                {decidingLoading ? <Loader2 size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+                Escalate
+              </button>
+              <span style={{ fontSize: FS.xs, color: T.muted, marginLeft: "auto" }}>
+                Action will be recorded in audit trail
+              </span>
+            </div>
+          )}
+
+          {/* Decision error */}
+          {decidingError && (
+            <div
+              className="flex items-center gap-2 p-3 rounded-lg"
+              style={{ background: T.redBg, border: `1px solid ${T.red}33` }}
             >
-              <AlertTriangle size={12} /> Escalate
-            </button>
-            <span style={{ fontSize: FS.xs, color: T.muted, marginLeft: "auto" }}>
-              Action will be recorded in audit trail
-            </span>
-          </div>
+              <XCircle size={12} color={T.red} className="shrink-0" />
+              <span style={{ fontSize: FS.sm, color: T.red }}>{decidingError}</span>
+            </div>
+          )}
 
           {/* Executive Summary */}
           <Section

@@ -276,19 +276,21 @@ export default function App() {
                 <LayoutDashboard size={12} />
                 Dashboard
               </button>
-              <button
-                onClick={() => setTab("screen")}
-                className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
-                style={{
-                  fontSize: FS.sm,
-                  background: tab === "screen" ? T.accent + "22" : "transparent",
-                  color: tab === "screen" ? T.accent : T.muted,
-                }}
-              >
-                <Zap size={12} />
-                Screen Vendor
-              </button>
-              {hasPermission(user, "auditor") && (
+              {hasPermission(user, "analyst") && (
+                <button
+                  onClick={() => setTab("screen")}
+                  className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                  style={{
+                    fontSize: FS.sm,
+                    background: tab === "screen" ? T.accent + "22" : "transparent",
+                    color: tab === "screen" ? T.accent : T.muted,
+                  }}
+                >
+                  <Zap size={12} />
+                  Screen Vendor
+                </button>
+              )}
+              {hasPermission(user, "admin") && (
                 <button
                   onClick={() => setTab("admin")}
                   className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
@@ -350,7 +352,7 @@ export default function App() {
               </div>
               {user && (
                 <span className="hidden sm:inline" style={{ fontSize: FS.xs, color: T.muted, fontWeight: 600 }}>
-                  {user.role.toUpperCase()}
+                  {roleLabel(user.role).toUpperCase()}
                 </span>
               )}
             </button>
