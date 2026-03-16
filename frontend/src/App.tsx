@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings } from "lucide-react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import { DashboardScreen } from "@/components/xiphos/dashboard-screen";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { ScreenVendor } from "@/components/xiphos/screen-vendor";
@@ -176,7 +176,7 @@ export default function App() {
       <div className="h-screen flex items-center justify-center" style={{ background: T.bg }}>
         <div className="flex flex-col items-center gap-3">
           <Shield size={24} color={T.accent} className="animate-pulse" />
-          <span style={{ fontSize: 11, color: T.muted }}>Connecting to Xiphos...</span>
+          <span style={{ fontSize: FS.xs, color: T.muted }}>Connecting to Xiphos...</span>
         </div>
       </div>
     );
@@ -257,7 +257,7 @@ export default function App() {
       >
         <div className="flex items-center gap-2">
           <Shield size={18} color={T.accent} />
-          <span className="font-mono font-bold" style={{ fontSize: 13, letterSpacing: "0.12em", color: T.text }}>
+          <span className="font-bold" style={{ fontSize: FS.md, letterSpacing: "0.15em", color: T.text }}>
             XIPHOS
           </span>
 
@@ -268,7 +268,7 @@ export default function App() {
                 onClick={() => setTab("dashboard")}
                 className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
                 style={{
-                  fontSize: 11,
+                  fontSize: FS.sm,
                   background: tab === "dashboard" ? T.accent + "22" : "transparent",
                   color: tab === "dashboard" ? T.accent : T.muted,
                 }}
@@ -280,7 +280,7 @@ export default function App() {
                 onClick={() => setTab("screen")}
                 className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
                 style={{
-                  fontSize: 11,
+                  fontSize: FS.sm,
                   background: tab === "screen" ? T.accent + "22" : "transparent",
                   color: tab === "screen" ? T.accent : T.muted,
                 }}
@@ -293,7 +293,7 @@ export default function App() {
                   onClick={() => setTab("admin")}
                   className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
                   style={{
-                    fontSize: 11,
+                    fontSize: FS.sm,
                     background: tab === "admin" ? T.accent + "22" : "transparent",
                     color: tab === "admin" ? T.accent : T.muted,
                   }}
@@ -309,8 +309,8 @@ export default function App() {
           {apiAvailable !== null && (
             <div className="flex items-center gap-1" title={apiAvailable ? "API connected" : "Scoring engine runs client-side"}>
               {apiAvailable ? <Wifi size={12} color={T.green} /> : <WifiOff size={12} color={T.muted} />}
-              <span className="font-mono" style={{ fontSize: 9, color: apiAvailable ? T.green : T.muted }}>
-                {apiAvailable ? "LIVE" : "OFFLINE"}
+              <span style={{ fontSize: FS.xs, fontWeight: 600, color: apiAvailable ? T.green : T.muted }}>
+                {apiAvailable ? "OPERATIONAL" : "OFFLINE"}
               </span>
             </div>
           )}
@@ -324,7 +324,7 @@ export default function App() {
                 className="rounded outline-none"
                 style={{
                   paddingLeft: 28, paddingRight: 10, paddingTop: 5, paddingBottom: 5,
-                  fontSize: 12, width: 200,
+                  fontSize: FS.sm, width: 200,
                   background: T.surface, border: `1px solid ${T.border}`, color: T.text,
                 }}
               />
@@ -344,12 +344,12 @@ export default function App() {
             >
               <div
                 className="flex items-center justify-center rounded-full font-bold"
-                style={{ width: 28, height: 28, fontSize: 10, background: T.accent + "22", color: T.accent }}
+                style={{ width: 28, height: 28, fontSize: FS.xs, background: T.accent + "22", color: T.accent }}
               >
                 {initials}
               </div>
               {user && (
-                <span className="font-mono hidden sm:inline" style={{ fontSize: 9, color: T.muted }}>
+                <span className="hidden sm:inline" style={{ fontSize: FS.xs, color: T.muted, fontWeight: 600 }}>
                   {user.role.toUpperCase()}
                 </span>
               )}
@@ -376,15 +376,15 @@ export default function App() {
                     <div className="p-3" style={{ borderBottom: `1px solid ${T.border}` }}>
                       <div className="flex items-center gap-2 mb-1">
                         <User size={12} color={T.accent} />
-                        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>
+                        <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>
                           {user.name || user.email}
                         </span>
                       </div>
-                      <div style={{ fontSize: 10, color: T.muted }}>{user.email}</div>
+                      <div style={{ fontSize: FS.xs, color: T.muted }}>{user.email}</div>
                       <div
                         className="inline-block rounded mt-1.5 font-mono"
                         style={{
-                          fontSize: 9,
+                          fontSize: FS.xs,
                           padding: "2px 6px",
                           background: T.accent + "18",
                           color: T.accent,
@@ -399,7 +399,7 @@ export default function App() {
                       onClick={handleLogout}
                       className="w-full flex items-center gap-2 px-3 py-2.5 cursor-pointer"
                       style={{
-                        fontSize: 12,
+                        fontSize: FS.sm,
                         color: T.red,
                         background: "transparent",
                         border: "none",
@@ -442,10 +442,13 @@ export default function App() {
       {/* Footer */}
       <footer
         className="text-center shrink-0"
-        style={{ padding: "6px 0", fontSize: 9, color: T.muted, borderTop: `1px solid ${T.border}` }}
+        style={{ padding: "8px 0", fontSize: FS.xs, color: T.muted, borderTop: `1px solid ${T.border}` }}
       >
-        XIPHOS &mdash; CONFIDENTIAL &mdash; v3.0 &mdash; {cases.length} vendors in portfolio
-        {user && <> &mdash; {user.email}</>}
+        <span className="font-bold" style={{ color: T.amber }}>CUI</span>
+        {" // "}XIPHOS v3.1 // {cases.length} vendors in portfolio
+        {user && <> // {user.email}</>}
+        {" // "}
+        <span style={{ color: T.dim }}>System Operational</span>
       </footer>
     </div>
   );

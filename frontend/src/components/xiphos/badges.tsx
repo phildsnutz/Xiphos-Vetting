@@ -1,19 +1,25 @@
-import { T, TIER_META, RISK_META, type TierKey, type RiskKey } from "@/lib/tokens";
+import { T, FS, TIER_META, RISK_META, type TierKey, type RiskKey } from "@/lib/tokens";
+import { ShieldOff } from "lucide-react";
 
 interface BadgeProps {
   color: string;
   bg: string;
   children: React.ReactNode;
+  size?: "sm" | "md" | "lg";
 }
 
-export function XBadge({ color, bg, children }: BadgeProps) {
+export function XBadge({ color, bg, children, size = "sm" }: BadgeProps) {
+  const sizes = {
+    sm: { fontSize: FS.xs, padding: "2px 8px", borderRadius: 4 },
+    md: { fontSize: FS.sm, padding: "3px 10px", borderRadius: 4 },
+    lg: { fontSize: FS.md, padding: "4px 14px", borderRadius: 6 },
+  };
+  const s = sizes[size];
   return (
     <span
-      className="inline-block whitespace-nowrap font-mono font-bold tracking-wider"
+      className="inline-flex items-center whitespace-nowrap font-semibold tracking-wider"
       style={{
-        padding: "2px 6px",
-        borderRadius: 3,
-        fontSize: 10,
+        ...s,
         color,
         background: bg,
         border: `1px solid ${color}33`,
@@ -24,9 +30,35 @@ export function XBadge({ color, bg, children }: BadgeProps) {
   );
 }
 
-export function TierBadge({ tier }: { tier: TierKey }) {
+/** Hard stop gets special treatment: white on deep red, larger, with icon */
+export function TierBadge({ tier, size = "sm" }: { tier: TierKey; size?: "sm" | "md" | "lg" }) {
   const t = TIER_META[tier] || TIER_META.monitor;
-  return <XBadge color={t.color} bg={t.bg}>{t.label}</XBadge>;
+  if (tier === "hard_stop") {
+    const sizes = {
+      sm: { fontSize: FS.sm, padding: "3px 10px", borderRadius: 4, iconSize: 12 },
+      md: { fontSize: FS.base, padding: "4px 12px", borderRadius: 5, iconSize: 14 },
+      lg: { fontSize: FS.md, padding: "6px 16px", borderRadius: 6, iconSize: 16 },
+    };
+    const s = sizes[size];
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 whitespace-nowrap font-bold tracking-wider"
+        style={{
+          fontSize: s.fontSize,
+          padding: s.padding,
+          borderRadius: s.borderRadius,
+          color: "#ffffff",
+          background: T.hardStopBg,
+          border: `2px solid ${T.hardStopBorder}`,
+          boxShadow: "0 0 12px rgba(220,38,38,0.3)",
+        }}
+      >
+        <ShieldOff size={s.iconSize} />
+        HARD STOP
+      </span>
+    );
+  }
+  return <XBadge color={t.color} bg={t.bg} size={size}>{t.label}</XBadge>;
 }
 
 export function RiskBadge({ level }: { level: RiskKey }) {

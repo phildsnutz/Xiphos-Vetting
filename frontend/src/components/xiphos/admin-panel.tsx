@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Users, Plus, Shield, Clock, ChevronUp, AlertTriangle, Brain } from "lucide-react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import { fetchUsers, createUser, fetchAuditLog } from "@/lib/api";
 import type { ApiUser, AuditEntry } from "@/lib/api";
 import { roleLabel } from "@/lib/auth";
@@ -87,7 +87,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Shield size={16} color={T.accent} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>
+          <span style={{ fontSize: FS.md, fontWeight: 600, color: T.text }}>
             System Administration
           </span>
         </div>
@@ -98,7 +98,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             onClick={() => setActiveTab("users")}
             className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
             style={{
-              fontSize: 11,
+              fontSize: FS.xs,
               border: "none",
               background: activeTab === "users" ? T.accent + "22" : "transparent",
               color: activeTab === "users" ? T.accent : T.muted,
@@ -111,7 +111,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             onClick={() => setActiveTab("audit")}
             className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
             style={{
-              fontSize: 11,
+              fontSize: FS.xs,
               border: "none",
               background: activeTab === "audit" ? T.accent + "22" : "transparent",
               color: activeTab === "audit" ? T.accent : T.muted,
@@ -124,7 +124,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             onClick={() => setActiveTab("ai")}
             className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
             style={{
-              fontSize: 11,
+              fontSize: FS.xs,
               border: "none",
               background: activeTab === "ai" ? T.accent + "22" : "transparent",
               color: activeTab === "ai" ? T.accent : T.muted,
@@ -140,14 +140,14 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       {createSuccess && (
         <div
           className="rounded p-3 flex items-center gap-2"
-          style={{ background: T.greenBg, fontSize: 12, color: T.green }}
+          style={{ background: T.greenBg, fontSize: FS.sm, color: T.green }}
         >
           <Shield size={14} />
           {createSuccess}
           <button
             onClick={() => setCreateSuccess(null)}
             className="ml-auto cursor-pointer"
-            style={{ background: "none", border: "none", color: T.green, fontSize: 14 }}
+            style={{ background: "none", border: "none", color: T.green, fontSize: FS.md }}
           >
             &times;
           </button>
@@ -164,7 +164,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                 onClick={() => setShowCreateForm(!showCreateForm)}
                 className="inline-flex items-center gap-1.5 rounded px-3 py-2 cursor-pointer"
                 style={{
-                  fontSize: 12,
+                  fontSize: FS.sm,
                   background: T.accent,
                   color: "#fff",
                   border: "none",
@@ -184,7 +184,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             >
               <div className="flex items-center gap-2 mb-3">
                 <Plus size={13} color={T.accent} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>
+                <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>
                   New User
                 </span>
               </div>
@@ -192,7 +192,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
               {createError && (
                 <div
                   className="rounded p-2.5 mb-3 flex items-center gap-2"
-                  style={{ background: T.redBg, fontSize: 11, color: T.red }}
+                  style={{ background: T.redBg, fontSize: FS.xs, color: T.red }}
                 >
                   <AlertTriangle size={12} />
                   {createError}
@@ -201,7 +201,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
 
               <form onSubmit={handleCreateUser} className="grid grid-cols-2 gap-3">
                 <div>
-                  <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+                  <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
                     Full Name
                   </label>
                   <input
@@ -212,13 +212,13 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                     required
                     className="w-full rounded outline-none"
                     style={{
-                      padding: "6px 10px", fontSize: 12,
+                      padding: "6px 10px", fontSize: FS.sm,
                       background: T.bg, border: `1px solid ${T.border}`, color: T.text,
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+                  <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
                     Email
                   </label>
                   <input
@@ -229,13 +229,13 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                     required
                     className="w-full rounded outline-none"
                     style={{
-                      padding: "6px 10px", fontSize: 12,
+                      padding: "6px 10px", fontSize: FS.sm,
                       background: T.bg, border: `1px solid ${T.border}`, color: T.text,
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+                  <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
                     Password
                   </label>
                   <input
@@ -248,13 +248,13 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                     autoComplete="new-password"
                     className="w-full rounded outline-none"
                     style={{
-                      padding: "6px 10px", fontSize: 12,
+                      padding: "6px 10px", fontSize: FS.sm,
                       background: T.bg, border: `1px solid ${T.border}`, color: T.text,
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+                  <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
                     Role
                   </label>
                   <select
@@ -262,7 +262,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                     onChange={(e) => setNewRole(e.target.value)}
                     className="w-full rounded outline-none cursor-pointer"
                     style={{
-                      padding: "6px 10px", fontSize: 12,
+                      padding: "6px 10px", fontSize: FS.sm,
                       background: T.bg, border: `1px solid ${T.border}`, color: T.text,
                     }}
                   >
@@ -278,7 +278,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                     disabled={creating}
                     className="rounded px-4 py-2 cursor-pointer"
                     style={{
-                      fontSize: 12,
+                      fontSize: FS.sm,
                       background: creating ? T.muted : T.accent,
                       color: "#fff",
                       border: "none",
@@ -298,27 +298,27 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             style={{ border: `1px solid ${T.border}` }}
           >
             {loading ? (
-              <div className="p-8 text-center" style={{ fontSize: 12, color: T.muted }}>
+              <div className="p-8 text-center" style={{ fontSize: FS.sm, color: T.muted }}>
                 Loading users...
               </div>
             ) : users.length === 0 ? (
-              <div className="p-8 text-center" style={{ fontSize: 12, color: T.muted }}>
+              <div className="p-8 text-center" style={{ fontSize: FS.sm, color: T.muted }}>
                 No users found. Create the first user above.
               </div>
             ) : (
-              <table className="w-full" style={{ fontSize: 12 }}>
+              <table className="w-full" style={{ fontSize: FS.sm }}>
                 <thead>
                   <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: 10 }}>
+                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       USER
                     </th>
-                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: 10 }}>
+                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       EMAIL
                     </th>
-                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: 10 }}>
+                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       ROLE
                     </th>
-                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: 10 }}>
+                    <th className="text-left px-4 py-2.5 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       CREATED
                     </th>
                   </tr>
@@ -336,7 +336,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                             <div
                               className="flex items-center justify-center rounded-full font-bold shrink-0"
                               style={{
-                                width: 26, height: 26, fontSize: 9,
+                                width: 26, height: 26, fontSize: FS.xs,
                                 background: rc.bg, color: rc.color,
                               }}
                             >
@@ -353,12 +353,12 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                         <td className="px-4 py-2.5">
                           <span
                             className="inline-block rounded font-mono px-2 py-0.5"
-                            style={{ fontSize: 9, background: rc.bg, color: rc.color }}
+                            style={{ fontSize: FS.xs, background: rc.bg, color: rc.color }}
                           >
                             {roleLabel(u.role)}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 font-mono" style={{ color: T.muted, fontSize: 10 }}>
+                        <td className="px-4 py-2.5 font-mono" style={{ color: T.muted, fontSize: FS.xs }}>
                           {u.created_at ? new Date(u.created_at).toLocaleDateString() : "N/A"}
                         </td>
                       </tr>
@@ -368,7 +368,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
               </table>
             )}
           </div>
-          <div style={{ fontSize: 10, color: T.muted }}>
+          <div style={{ fontSize: FS.xs, color: T.muted }}>
             {users.length} user{users.length !== 1 ? "s" : ""} registered
           </div>
         </div>
@@ -389,30 +389,30 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             style={{ border: `1px solid ${T.border}`, maxHeight: "calc(100vh - 200px)" }}
           >
             {loading ? (
-              <div className="p-8 text-center" style={{ fontSize: 12, color: T.muted }}>
+              <div className="p-8 text-center" style={{ fontSize: FS.sm, color: T.muted }}>
                 Loading audit log...
               </div>
             ) : auditLog.length === 0 ? (
-              <div className="p-8 text-center" style={{ fontSize: 12, color: T.muted }}>
+              <div className="p-8 text-center" style={{ fontSize: FS.sm, color: T.muted }}>
                 No audit entries yet.
               </div>
             ) : (
-              <table className="w-full" style={{ fontSize: 11 }}>
+              <table className="w-full" style={{ fontSize: FS.xs }}>
                 <thead className="sticky top-0">
                   <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: 9 }}>
+                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       TIMESTAMP
                     </th>
-                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: 9 }}>
+                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       USER
                     </th>
-                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: 9 }}>
+                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       ACTION
                     </th>
-                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: 9 }}>
+                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       DETAIL
                     </th>
-                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: 9 }}>
+                    <th className="text-left px-3 py-2 font-medium" style={{ color: T.muted, fontSize: FS.xs }}>
                       IP
                     </th>
                   </tr>
@@ -431,7 +431,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                         key={entry.id}
                         style={{ borderBottom: `1px solid ${T.border}` }}
                       >
-                        <td className="px-3 py-2 font-mono whitespace-nowrap" style={{ color: T.muted, fontSize: 10 }}>
+                        <td className="px-3 py-2 font-mono whitespace-nowrap" style={{ color: T.muted, fontSize: FS.xs }}>
                           {new Date(entry.timestamp).toLocaleString()}
                         </td>
                         <td className="px-3 py-2" style={{ color: T.dim }}>
@@ -440,7 +440,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                         <td className="px-3 py-2">
                           <span
                             className="font-mono"
-                            style={{ fontSize: 10, color: actionColor }}
+                            style={{ fontSize: FS.xs, color: actionColor }}
                           >
                             {entry.action}
                           </span>
@@ -448,7 +448,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                         <td className="px-3 py-2" style={{ color: T.text, maxWidth: 300 }}>
                           <span className="block truncate">{entry.detail || ""}</span>
                         </td>
-                        <td className="px-3 py-2 font-mono" style={{ color: T.muted, fontSize: 10 }}>
+                        <td className="px-3 py-2 font-mono" style={{ color: T.muted, fontSize: FS.xs }}>
                           {entry.ip_address || "N/A"}
                         </td>
                       </tr>
@@ -458,7 +458,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
               </table>
             )}
           </div>
-          <div style={{ fontSize: 10, color: T.muted }}>
+          <div style={{ fontSize: FS.xs, color: T.muted }}>
             Showing {auditLog.length} entries (most recent first)
           </div>
         </div>

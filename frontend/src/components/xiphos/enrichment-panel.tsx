@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import {
   Radar, ChevronDown, ChevronRight, ExternalLink, Clock,
   XCircle, Database, Zap, Filter,
@@ -69,23 +69,23 @@ function FindingCard({ f }: { f: EnrichmentFinding }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span
               className="inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono font-bold uppercase"
-              style={{ fontSize: 8, color: sev.color, background: sev.bg, border: `1px solid ${sev.color}22` }}
+              style={{ fontSize: FS.xs, color: sev.color, background: sev.bg, border: `1px solid ${sev.color}22` }}
             >
               {sev.label}
             </span>
             <span
               className="font-mono rounded-sm px-1.5 py-0.5"
-              style={{ fontSize: 8, color: T.muted, background: T.raised }}
+              style={{ fontSize: FS.xs, color: T.muted, background: T.raised }}
             >
               {connectorLabel(f.source)}
             </span>
             {f.confidence > 0 && (
-              <span className="font-mono" style={{ fontSize: 8, color: T.muted }}>
+              <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
                 {Math.round(f.confidence * 100)}%
               </span>
             )}
           </div>
-          <div className="mt-1" style={{ fontSize: 12, color: T.text, lineHeight: 1.4 }}>
+          <div className="mt-1" style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.4 }}>
             {f.title}
           </div>
         </div>
@@ -95,7 +95,7 @@ function FindingCard({ f }: { f: EnrichmentFinding }) {
         <div style={{ padding: "0 12px 12px 32px" }}>
           <pre
             className="whitespace-pre-wrap font-mono"
-            style={{ fontSize: 10, color: T.dim, lineHeight: 1.6, margin: 0 }}
+            style={{ fontSize: FS.xs, color: T.dim, lineHeight: 1.6, margin: 0 }}
           >
             {f.detail}
           </pre>
@@ -105,7 +105,7 @@ function FindingCard({ f }: { f: EnrichmentFinding }) {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 mt-2"
-              style={{ fontSize: 10, color: T.accent, textDecoration: "none" }}
+              style={{ fontSize: FS.xs, color: T.accent, textDecoration: "none" }}
             >
               <ExternalLink size={9} /> Source
             </a>
@@ -127,13 +127,13 @@ function ConnectorRow({ name, status }: { name: string; status: ConnectorStatus 
       style={{ padding: "4px 0", borderBottom: `1px solid ${T.border}` }}
     >
       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: col }} />
-      <span className="flex-1 truncate" style={{ fontSize: 11, color: T.dim }}>
+      <span className="flex-1 truncate" style={{ fontSize: FS.sm, color: T.dim }}>
         {connectorLabel(name)}
       </span>
-      <span className="font-mono" style={{ fontSize: 9, color: T.muted }}>
+      <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
         {status.findings_count}
       </span>
-      <span className="font-mono" style={{ fontSize: 9, color: T.muted, width: 50, textAlign: "right" }}>
+      <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted, width: 50, textAlign: "right" }}>
         {status.elapsed_ms > 0 ? `${(status.elapsed_ms / 1000).toFixed(1)}s` : "--"}
       </span>
     </div>
@@ -179,13 +179,13 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
       <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 14 }}>
         <div className="flex items-center gap-2 mb-3">
           <Radar size={14} color={T.accent} />
-          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
             OSINT Intelligence Summary
           </span>
           {report._cached && (
             <span
               className="font-mono rounded px-1.5 py-0.5"
-              style={{ fontSize: 8, color: T.amber, background: T.amberBg }}
+              style={{ fontSize: FS.xs, color: T.amber, background: T.amberBg }}
             >
               CACHED
             </span>
@@ -194,28 +194,28 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
-            <div className="font-mono font-bold" style={{ fontSize: 22, color: T.text }}>
+            <div className="font-mono font-bold" style={{ fontSize: FS.xl, color: T.text }}>
               {report.summary.findings_total}
             </div>
-            <div style={{ fontSize: 10, color: T.muted }}>Total Findings</div>
+            <div style={{ fontSize: FS.xs, color: T.muted }}>Total Findings</div>
           </div>
           <div>
-            <div className="font-mono font-bold" style={{ fontSize: 22, color: T.text }}>
+            <div className="font-mono font-bold" style={{ fontSize: FS.xl, color: T.text }}>
               {report.summary.connectors_run}
             </div>
-            <div style={{ fontSize: 10, color: T.muted }}>Sources Queried</div>
+            <div style={{ fontSize: FS.xs, color: T.muted }}>Sources Queried</div>
           </div>
           <div>
-            <div className="font-mono font-bold" style={{ fontSize: 22, color: T.text }}>
+            <div className="font-mono font-bold" style={{ fontSize: FS.xl, color: T.text }}>
               {(report.total_elapsed_ms / 1000).toFixed(1)}s
             </div>
-            <div style={{ fontSize: 10, color: T.muted }}>Collection Time</div>
+            <div style={{ fontSize: FS.xs, color: T.muted }}>Collection Time</div>
           </div>
           <div>
-            <div className="font-mono font-bold" style={{ fontSize: 22, color: T.text }}>
+            <div className="font-mono font-bold" style={{ fontSize: FS.xl, color: T.text }}>
               {Object.keys(report.identifiers).length}
             </div>
-            <div style={{ fontSize: 10, color: T.muted }}>IDs Discovered</div>
+            <div style={{ fontSize: FS.xs, color: T.muted }}>IDs Discovered</div>
           </div>
         </div>
 
@@ -228,7 +228,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
             return (
               <div key={sev} className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                <span className="font-mono" style={{ fontSize: 10, color: s.color }}>
+                <span className="font-mono" style={{ fontSize: FS.xs, color: s.color }}>
                   {count} {s.label}
                 </span>
               </div>
@@ -237,7 +237,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
           {report.summary.errors > 0 && (
             <div className="flex items-center gap-1">
               <XCircle size={10} color={T.red} />
-              <span className="font-mono" style={{ fontSize: 10, color: T.red }}>
+              <span className="font-mono" style={{ fontSize: FS.xs, color: T.red }}>
                 {report.summary.errors} errors
               </span>
             </div>
@@ -257,7 +257,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
               onChange={(e) => setSeverityFilter(e.target.value as Severity | "all")}
               className="rounded font-mono outline-none cursor-pointer"
               style={{
-                fontSize: 10, padding: "4px 8px",
+                fontSize: FS.xs, padding: "4px 8px",
                 background: T.raised, color: T.dim, border: `1px solid ${T.border}`,
               }}
             >
@@ -273,7 +273,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
               onChange={(e) => setSourceFilter(e.target.value)}
               className="rounded font-mono outline-none cursor-pointer"
               style={{
-                fontSize: 10, padding: "4px 8px",
+                fontSize: FS.xs, padding: "4px 8px",
                 background: T.raised, color: T.dim, border: `1px solid ${T.border}`,
               }}
             >
@@ -282,24 +282,44 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
                 <option key={s} value={s}>{connectorLabel(s)}</option>
               ))}
             </select>
-            <span className="font-mono" style={{ fontSize: 9, color: T.muted }}>
+            <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
               {filtered.length} / {report.findings.length}
             </span>
           </div>
 
-          {/* Findings */}
+          {/* Findings grouped by severity */}
           <div>
-            {filtered.map((f, i) => (
-              <FindingCard key={`${f.source}-${i}`} f={f} />
-            ))}
-            {filtered.length === 0 && (
-              <div
-                className="text-center rounded py-8"
-                style={{ background: T.surface, border: `1px solid ${T.border}`, fontSize: 11, color: T.muted }}
-              >
-                No findings match current filters.
-              </div>
-            )}
+            {(() => {
+              const critical = filtered.filter(f => f.severity === "critical" || f.severity === "high" || f.severity === "medium");
+              const info = filtered.filter(f => f.severity === "info" || f.severity === "low");
+              return (
+                <>
+                  {critical.map((f, i) => (
+                    <FindingCard key={`${f.source}-${i}`} f={f} />
+                  ))}
+                  {info.length > 0 && critical.length > 0 && (
+                    <div className="flex items-center gap-2 my-3">
+                      <div style={{ flex: 1, height: 1, background: T.border }} />
+                      <span style={{ fontSize: FS.xs, color: T.muted }}>
+                        Clean Checks ({info.length})
+                      </span>
+                      <div style={{ flex: 1, height: 1, background: T.border }} />
+                    </div>
+                  )}
+                  {info.map((f, i) => (
+                    <FindingCard key={`info-${f.source}-${i}`} f={f} />
+                  ))}
+                  {filtered.length === 0 && (
+                    <div
+                      className="text-center rounded py-8"
+                      style={{ background: T.surface, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}
+                    >
+                      No findings match current filters.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -309,7 +329,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
           <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
             <div className="flex items-center gap-1.5 mb-2">
               <Database size={11} color={T.muted} />
-              <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 9, color: T.muted }}>
+              <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
                 Source Status
               </span>
             </div>
@@ -323,7 +343,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
             <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
               <div className="flex items-center gap-1.5 mb-2">
                 <Zap size={11} color={T.muted} />
-                <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 9, color: T.muted }}>
+                <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
                   Discovered Identifiers
                 </span>
               </div>
@@ -333,8 +353,8 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
                   className="flex items-start justify-between gap-2"
                   style={{ padding: "3px 0", borderBottom: `1px solid ${T.border}` }}
                 >
-                  <span className="font-mono truncate" style={{ fontSize: 9, color: T.muted }}>{key}</span>
-                  <span className="font-mono text-right" style={{ fontSize: 9, color: T.dim, maxWidth: 120 }}>
+                  <span className="font-mono truncate" style={{ fontSize: FS.xs, color: T.muted }}>{key}</span>
+                  <span className="font-mono text-right" style={{ fontSize: FS.xs, color: T.dim, maxWidth: 120 }}>
                     {String(val).substring(0, 30)}
                   </span>
                 </div>
@@ -346,7 +366,7 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
           <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
             <div className="flex items-center gap-1.5 mb-2">
               <Clock size={11} color={T.muted} />
-              <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 9, color: T.muted }}>
+              <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
                 Collection Metadata
               </span>
             </div>
@@ -363,8 +383,8 @@ export function EnrichmentPanel({ report }: EnrichmentPanelProps) {
                 className="flex items-center justify-between"
                 style={{ padding: "3px 0", borderBottom: `1px solid ${T.border}` }}
               >
-                <span style={{ fontSize: 10, color: T.muted }}>{k}</span>
-                <span className="font-mono" style={{ fontSize: 10, color: T.dim }}>{v}</span>
+                <span style={{ fontSize: FS.xs, color: T.muted }}>{k}</span>
+                <span className="font-mono" style={{ fontSize: FS.xs, color: T.dim }}>{v}</span>
               </div>
             ))}
           </div>

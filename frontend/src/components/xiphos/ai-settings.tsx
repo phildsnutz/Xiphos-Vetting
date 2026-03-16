@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import { Brain, Check, Trash2, AlertTriangle, Building2 } from "lucide-react";
 import {
   fetchAIProviders, fetchAIConfig, saveAIConfig, deleteAIConfig, saveOrgAIConfig,
@@ -107,7 +107,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
 
   if (loading) {
     return (
-      <div className="p-6 text-center" style={{ fontSize: 12, color: T.muted }}>
+      <div className="p-6 text-center" style={{ fontSize: FS.sm, color: T.muted }}>
         Loading AI settings...
       </div>
     );
@@ -120,12 +120,12 @@ export function AISettings({ currentUser }: AISettingsProps) {
       {/* Header */}
       <div className="flex items-center gap-2">
         <Brain size={16} color={T.accent} />
-        <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>
+        <span style={{ fontSize: FS.md, fontWeight: 600, color: T.text }}>
           AI Provider Settings
         </span>
       </div>
 
-      <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.5 }}>
+      <div style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5 }}>
         Configure your AI provider to enable intelligent risk narratives,
         executive summaries, and actionable recommendations powered by LLM analysis.
         Your API key is encrypted at rest using the server's secret key.
@@ -139,10 +139,10 @@ export function AISettings({ currentUser }: AISettingsProps) {
         >
           <div className="flex items-center gap-2">
             <Check size={14} color={T.green} />
-            <span style={{ fontSize: 12, color: T.green }}>
+            <span style={{ fontSize: FS.sm, color: T.green }}>
               Active: <strong>{config.provider}</strong> / {config.model}
             </span>
-            <span className="font-mono" style={{ fontSize: 10, color: T.green }}>
+            <span className="font-mono" style={{ fontSize: FS.xs, color: T.green }}>
               (key: {config.api_key_hint})
             </span>
           </div>
@@ -151,7 +151,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
             disabled={saving}
             className="inline-flex items-center gap-1 rounded cursor-pointer"
             style={{
-              padding: "4px 8px", fontSize: 10,
+              padding: "4px 8px", fontSize: FS.xs,
               background: "transparent", border: `1px solid ${T.red}44`, color: T.red,
             }}
           >
@@ -163,12 +163,12 @@ export function AISettings({ currentUser }: AISettingsProps) {
 
       {/* Status messages */}
       {success && (
-        <div className="rounded p-2.5" style={{ background: T.greenBg, fontSize: 11, color: T.green }}>
+        <div className="rounded p-2.5" style={{ background: T.greenBg, fontSize: FS.xs, color: T.green }}>
           {success}
         </div>
       )}
       {error && (
-        <div className="rounded p-2.5 flex items-center gap-2" style={{ background: T.redBg, fontSize: 11, color: T.red }}>
+        <div className="rounded p-2.5 flex items-center gap-2" style={{ background: T.redBg, fontSize: FS.xs, color: T.red }}>
           <AlertTriangle size={12} />
           {error}
         </div>
@@ -179,7 +179,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
         <div className="grid grid-cols-2 gap-3">
           {/* Provider selector */}
           <div>
-            <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+            <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
               Provider
             </label>
             <select
@@ -187,7 +187,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
               onChange={(e) => handleProviderChange(e.target.value)}
               className="w-full rounded outline-none cursor-pointer"
               style={{
-                padding: "8px 10px", fontSize: 12,
+                padding: "8px 10px", fontSize: FS.sm,
                 background: T.bg, border: `1px solid ${T.border}`, color: T.text,
               }}
             >
@@ -201,7 +201,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
 
           {/* Model selector */}
           <div>
-            <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+            <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
               Model
             </label>
             <select
@@ -209,7 +209,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
               onChange={(e) => setSelectedModel(e.target.value)}
               className="w-full rounded outline-none cursor-pointer"
               style={{
-                padding: "8px 10px", fontSize: 12,
+                padding: "8px 10px", fontSize: FS.sm,
                 background: T.bg, border: `1px solid ${T.border}`, color: T.text,
               }}
             >
@@ -222,7 +222,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
 
         {/* API Key */}
         <div>
-          <label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>
+          <label style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 3 }}>
             API Key {config?.configured && "(leave blank to keep existing)"}
           </label>
           <input
@@ -234,7 +234,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
             autoComplete="off"
             className="w-full rounded outline-none"
             style={{
-              padding: "8px 10px", fontSize: 12,
+              padding: "8px 10px", fontSize: FS.sm,
               background: T.bg, border: `1px solid ${T.border}`, color: T.text,
             }}
           />
@@ -250,7 +250,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
               style={{ accentColor: T.accent }}
             />
             <Building2 size={12} color={T.muted} />
-            <span style={{ fontSize: 11, color: T.dim }}>
+            <span style={{ fontSize: FS.xs, color: T.dim }}>
               Set as organization default (applies to all users who haven't configured their own)
             </span>
           </label>
@@ -261,7 +261,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
           disabled={saving}
           className="self-start rounded px-4 py-2 cursor-pointer"
           style={{
-            fontSize: 12,
+            fontSize: FS.sm,
             background: saving ? T.muted : T.accent,
             color: "#fff",
             border: "none",
@@ -274,7 +274,7 @@ export function AISettings({ currentUser }: AISettingsProps) {
 
       {/* Provider info cards */}
       <div style={{ marginTop: 8 }}>
-        <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: 10, color: T.muted }}>
+        <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.muted }}>
           Available Providers
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -288,10 +288,10 @@ export function AISettings({ currentUser }: AISettingsProps) {
                 border: `1px solid ${selectedProvider === p.name ? T.accent + "44" : T.border}`,
               }}
             >
-              <div className="font-medium" style={{ fontSize: 12, color: T.text }}>
+              <div className="font-medium" style={{ fontSize: FS.sm, color: T.text }}>
                 {p.display_name}
               </div>
-              <div className="font-mono" style={{ fontSize: 9, color: T.muted, marginTop: 4 }}>
+              <div className="font-mono" style={{ fontSize: FS.xs, color: T.muted, marginTop: 4 }}>
                 {p.models.join(", ")}
               </div>
             </div>

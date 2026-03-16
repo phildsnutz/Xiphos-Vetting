@@ -7,7 +7,7 @@
  * 3. Confidence distribution (how sure are we across the board?)
  */
 
-import { T, TIER_META, type TierKey } from "@/lib/tokens";
+import { T, TIER_META, FS, type TierKey } from "@/lib/tokens";
 import type { VettingCase } from "@/lib/types";
 
 interface PortfolioProps {
@@ -36,7 +36,7 @@ function GeoConcentration({ cases }: PortfolioProps) {
 
   return (
     <div>
-      <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: 10, color: T.muted }}>
+      <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.muted }}>
         Geographic Exposure
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -50,10 +50,10 @@ function GeoConcentration({ cases }: PortfolioProps) {
               border: `1px solid ${TIER_META[data.tier]?.color ?? T.border}33`,
             }}
           >
-            <span className="font-mono font-bold" style={{ fontSize: 11, color: TIER_META[data.tier]?.color ?? T.dim }}>
+            <span className="font-mono font-bold" style={{ fontSize: FS.xs, color: TIER_META[data.tier]?.color ?? T.dim }}>
               {cc}
             </span>
-            <span className="font-mono" style={{ fontSize: 9, color: T.muted }}>
+            <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
               {data.count}
             </span>
           </div>
@@ -85,7 +85,7 @@ function FactorExposure({ cases }: PortfolioProps) {
 
   return (
     <div>
-      <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: 10, color: T.muted }}>
+      <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.muted }}>
         Portfolio Factor Exposure
       </div>
       {sorted.map((f) => {
@@ -94,8 +94,8 @@ function FactorExposure({ cases }: PortfolioProps) {
         return (
           <div key={f.name} className="mb-2">
             <div className="flex items-center justify-between mb-0.5">
-              <span style={{ fontSize: 10, color: T.dim }}>{f.name}</span>
-              <span className="font-mono font-semibold" style={{ fontSize: 10, color }}>{pct}</span>
+              <span style={{ fontSize: FS.xs, color: T.dim }}>{f.name}</span>
+              <span className="font-mono font-semibold" style={{ fontSize: FS.xs, color }}>{pct}</span>
             </div>
             <div className="w-full rounded-full overflow-hidden" style={{ height: 4, background: T.border }}>
               <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
@@ -127,14 +127,14 @@ function ConfidenceDistribution({ cases }: PortfolioProps) {
 
   return (
     <div>
-      <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: 10, color: T.muted }}>
+      <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.muted }}>
         Confidence Quality
       </div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="font-mono font-bold" style={{ fontSize: 18, color: avgCov > 0.75 ? T.green : avgCov > 0.60 ? T.amber : T.red }}>
+        <span className="font-mono font-bold" style={{ fontSize: FS.xxl, color: avgCov > 0.75 ? T.green : avgCov > 0.60 ? T.amber : T.red }}>
           {Math.round(avgCov * 100)}%
         </span>
-        <span style={{ fontSize: 10, color: T.muted }}>mean coverage</span>
+        <span style={{ fontSize: FS.xs, color: T.muted }}>mean coverage</span>
       </div>
       <div className="flex gap-1" style={{ height: 20 }}>
         {buckets.tight > 0 && (
@@ -144,7 +144,7 @@ function ConfidenceDistribution({ cases }: PortfolioProps) {
               flex: buckets.tight,
               background: T.greenBg,
               border: `1px solid ${T.green}33`,
-              fontSize: 9, color: T.green,
+              fontSize: FS.xs, color: T.green,
             }}
             title={`${buckets.tight} tight CI (&lt;15pp)`}
           >
@@ -158,7 +158,7 @@ function ConfidenceDistribution({ cases }: PortfolioProps) {
               flex: buckets.moderate,
               background: T.amberBg,
               border: `1px solid ${T.amber}33`,
-              fontSize: 9, color: T.amber,
+              fontSize: FS.xs, color: T.amber,
             }}
             title={`${buckets.moderate} moderate CI (15-30pp)`}
           >
@@ -172,7 +172,7 @@ function ConfidenceDistribution({ cases }: PortfolioProps) {
               flex: buckets.wide,
               background: T.redBg,
               border: `1px solid ${T.red}33`,
-              fontSize: 9, color: T.red,
+              fontSize: FS.xs, color: T.red,
             }}
             title={`${buckets.wide} wide CI (&gt;30pp)`}
           >
@@ -181,8 +181,8 @@ function ConfidenceDistribution({ cases }: PortfolioProps) {
         )}
       </div>
       <div className="flex justify-between mt-1">
-        <span style={{ fontSize: 8, color: T.muted }}>Tight</span>
-        <span style={{ fontSize: 8, color: T.muted }}>Wide</span>
+        <span style={{ fontSize: FS.xs, color: T.muted }}>Tight</span>
+        <span style={{ fontSize: FS.xs, color: T.muted }}>Wide</span>
       </div>
     </div>
   );

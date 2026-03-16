@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Shield, Lock, AlertTriangle, UserPlus } from "lucide-react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import { login, setup } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 
@@ -44,30 +44,44 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
 
   return (
     <div
-      className="h-screen flex items-center justify-center"
+      className="h-screen flex flex-col items-center justify-center"
       style={{ background: T.bg }}
     >
+      {/* CUI Banner - top */}
+      <div
+        className="fixed top-0 left-0 right-0 text-center py-1.5"
+        style={{ background: T.hardStopBg, borderBottom: `2px solid ${T.hardStopBorder}` }}
+      >
+        <span className="font-bold tracking-wider" style={{ fontSize: FS.xs, color: "#ffffff" }}>
+          CUI // CONTROLLED UNCLASSIFIED INFORMATION
+        </span>
+      </div>
+
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div
-            className="flex items-center justify-center rounded-lg mb-3"
+            className="flex items-center justify-center rounded-lg mb-4"
             style={{
-              width: 48,
-              height: 48,
+              width: 56,
+              height: 56,
               background: T.accent + "18",
+              border: `1px solid ${T.accent}33`,
             }}
           >
-            <Shield size={26} color={T.accent} />
+            <Shield size={30} color={T.accent} />
           </div>
           <span
-            className="font-mono font-bold"
-            style={{ fontSize: 18, letterSpacing: "0.15em", color: T.text }}
+            className="font-bold tracking-widest"
+            style={{ fontSize: 22, letterSpacing: "0.2em", color: T.text }}
           >
             XIPHOS
           </span>
-          <span style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-            Intelligence-Grade Vendor Assurance
+          <span style={{ fontSize: FS.sm, color: T.dim, marginTop: 6, textAlign: "center" }}>
+            Defense Supply Chain Intelligence Platform
+          </span>
+          <span style={{ fontSize: FS.xs, color: T.muted, marginTop: 2 }}>
+            Vendor Vetting &amp; Continuous Monitoring
           </span>
         </div>
 
@@ -85,15 +99,15 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
             ) : (
               <Lock size={14} color={T.accent} />
             )}
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
-              {mode === "setup" ? "Create Admin Account" : "Sign In"}
+            <span style={{ fontSize: FS.md, fontWeight: 600, color: T.text }}>
+              {mode === "setup" ? "Create Admin Account" : "Secure Sign In"}
             </span>
           </div>
 
           {mode === "setup" && (
             <div
               className="rounded p-3 mb-4 flex items-start gap-2"
-              style={{ background: T.amberBg, fontSize: 11, color: T.amber }}
+              style={{ background: T.amberBg, fontSize: FS.xs, color: T.amber }}
             >
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
               <span>
@@ -106,7 +120,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
           {error && (
             <div
               className="rounded p-3 mb-4"
-              style={{ background: T.redBg, fontSize: 11, color: T.red }}
+              style={{ background: T.redBg, fontSize: FS.xs, color: T.red }}
             >
               {error}
             </div>
@@ -116,7 +130,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
             {mode === "setup" && (
               <div>
                 <label
-                  style={{ fontSize: 11, color: T.muted, display: "block", marginBottom: 4 }}
+                  style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 4 }}
                 >
                   Full Name
                 </label>
@@ -129,7 +143,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
                   className="w-full rounded outline-none"
                   style={{
                     padding: "8px 12px",
-                    fontSize: 13,
+                    fontSize: FS.base,
                     background: T.bg,
                     border: `1px solid ${T.border}`,
                     color: T.text,
@@ -140,7 +154,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
 
             <div>
               <label
-                style={{ fontSize: 11, color: T.muted, display: "block", marginBottom: 4 }}
+                style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 4 }}
               >
                 Email
               </label>
@@ -154,7 +168,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
                 className="w-full rounded outline-none"
                 style={{
                   padding: "8px 12px",
-                  fontSize: 13,
+                  fontSize: FS.base,
                   background: T.bg,
                   border: `1px solid ${T.border}`,
                   color: T.text,
@@ -164,7 +178,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
 
             <div>
               <label
-                style={{ fontSize: 11, color: T.muted, display: "block", marginBottom: 4 }}
+                style={{ fontSize: FS.xs, color: T.muted, display: "block", marginBottom: 4 }}
               >
                 Password
               </label>
@@ -179,7 +193,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
                 className="w-full rounded outline-none"
                 style={{
                   padding: "8px 12px",
-                  fontSize: 13,
+                  fontSize: FS.base,
                   background: T.bg,
                   border: `1px solid ${T.border}`,
                   color: T.text,
@@ -190,10 +204,10 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
             <button
               type="submit"
               disabled={loading}
-              className="rounded font-medium cursor-pointer"
+              className="rounded font-semibold cursor-pointer"
               style={{
-                padding: "9px 0",
-                fontSize: 13,
+                padding: "10px 0",
+                fontSize: FS.base,
                 background: loading ? T.muted : T.accent,
                 color: "#fff",
                 border: "none",
@@ -215,7 +229,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
               onClick={() => setMode("setup")}
               className="w-full mt-3 cursor-pointer"
               style={{
-                fontSize: 11,
+                fontSize: FS.xs,
                 color: T.muted,
                 background: "none",
                 border: "none",
@@ -231,7 +245,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
               onClick={() => setMode("login")}
               className="w-full mt-3 cursor-pointer"
               style={{
-                fontSize: 11,
+                fontSize: FS.xs,
                 color: T.muted,
                 background: "none",
                 border: "none",
@@ -244,13 +258,23 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
           )}
         </div>
 
-        {/* Classification banner */}
+        {/* System info */}
         <div
-          className="text-center mt-4 font-mono"
-          style={{ fontSize: 9, color: T.muted }}
+          className="text-center mt-4"
+          style={{ fontSize: FS.xs, color: T.muted }}
         >
-          XIPHOS v2.6 &mdash; UNCLASSIFIED // FOR OFFICIAL USE ONLY
+          XIPHOS v3.1 // System of Record // Defense Acquisition
         </div>
+      </div>
+
+      {/* CUI Banner - bottom */}
+      <div
+        className="fixed bottom-0 left-0 right-0 text-center py-1.5"
+        style={{ background: T.hardStopBg, borderTop: `2px solid ${T.hardStopBorder}` }}
+      >
+        <span className="font-bold tracking-wider" style={{ fontSize: FS.xs, color: "#ffffff" }}>
+          CUI // CONTROLLED UNCLASSIFIED INFORMATION
+        </span>
       </div>
     </div>
   );

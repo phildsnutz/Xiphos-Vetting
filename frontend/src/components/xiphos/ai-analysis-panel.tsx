@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import {
   Brain, Loader2, RefreshCw, CheckCircle, XCircle,
   AlertTriangle, Shield, Clock, ChevronDown, ChevronUp,
@@ -66,7 +66,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
         <div className="flex items-center gap-2">
           <Brain size={14} color={T.muted} className="animate-pulse" />
-          <span style={{ fontSize: 11, color: T.muted }}>Checking AI configuration...</span>
+          <span style={{ fontSize: FS.sm, color: T.muted }}>Checking AI configuration...</span>
         </div>
       </div>
     );
@@ -77,7 +77,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
         <div className="flex items-center gap-2 mb-2">
           <Brain size={14} color={T.muted} />
-          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
             AI Risk Analysis
           </span>
         </div>
@@ -99,18 +99,16 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       <div className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${T.border}` }}>
         <div className="flex items-center gap-2">
           <Brain size={14} color={T.accent} />
-          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
             AI Risk Analysis
           </span>
-          {analysis && (
-            <span className="font-mono" style={{ fontSize: 9, color: T.muted }}>
-              via {analysis.provider}/{analysis.model}
-            </span>
-          )}
+          <span style={{ fontSize: FS.xs, color: T.dim, fontWeight: 500 }}>
+            Xiphos Intelligence Engine
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {analysis && (
-            <span className="flex items-center gap-1 font-mono" style={{ fontSize: 9, color: T.muted }}>
+            <span className="flex items-center gap-1 font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
               <Clock size={10} />
               {(analysis.elapsed_ms / 1000).toFixed(1)}s
               {" | "}
@@ -123,7 +121,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
             style={{
               padding: "5px 10px",
-              fontSize: 11,
+              fontSize: FS.sm,
               background: loading ? T.raised : T.accent + "18",
               color: loading ? T.muted : T.accent,
               borderColor: loading ? T.border : T.accent + "44",
@@ -149,7 +147,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           style={{ background: T.redBg, border: `1px solid ${T.red}33` }}
         >
           <XCircle size={12} color={T.red} className="shrink-0" />
-          <span style={{ fontSize: 11, color: T.red }}>{error}</span>
+          <span style={{ fontSize: FS.sm, color: T.red }}>{error}</span>
         </div>
       )}
 
@@ -157,10 +155,10 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       {loading && !analysis && (
         <div className="p-8 flex flex-col items-center gap-3">
           <Loader2 size={24} color={T.accent} className="animate-spin" />
-          <span style={{ fontSize: 12, color: T.muted }}>
+          <span style={{ fontSize: FS.sm, color: T.muted }}>
             Generating intelligence assessment for {vendorName}...
           </span>
-          <span style={{ fontSize: 10, color: T.muted }}>
+          <span style={{ fontSize: FS.xs, color: T.muted }}>
             This typically takes 5-15 seconds depending on provider
           </span>
         </div>
@@ -175,8 +173,49 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             style={{ background: vs.bg, border: `1px solid ${vs.color}33` }}
           >
             <vs.icon size={16} color={vs.color} />
-            <span className="font-mono font-bold" style={{ fontSize: 13, color: vs.color }}>
+            <span className="font-mono font-bold" style={{ fontSize: FS.md, color: vs.color }}>
               {verdict.replace(/_/g, " ")}
+            </span>
+          </div>
+
+          {/* Decision workflow */}
+          <div
+            className="flex items-center gap-2 p-3 rounded-lg"
+            style={{ background: T.raised, border: `1px solid ${T.border}` }}
+          >
+            <span style={{ fontSize: FS.xs, color: T.muted, fontWeight: 500 }}>DECISION:</span>
+            <button
+              className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+              style={{
+                padding: "5px 14px", fontSize: FS.sm,
+                background: T.greenBg, color: T.green,
+                border: `1px solid ${T.green}33`,
+              }}
+            >
+              <CheckCircle size={12} /> Approve
+            </button>
+            <button
+              className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+              style={{
+                padding: "5px 14px", fontSize: FS.sm,
+                background: T.redBg, color: T.red,
+                border: `1px solid ${T.red}33`,
+              }}
+            >
+              <XCircle size={12} /> Reject
+            </button>
+            <button
+              className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+              style={{
+                padding: "5px 14px", fontSize: FS.sm,
+                background: T.amberBg, color: T.amber,
+                border: `1px solid ${T.amber}33`,
+              }}
+            >
+              <AlertTriangle size={12} /> Escalate
+            </button>
+            <span style={{ fontSize: FS.xs, color: T.muted, marginLeft: "auto" }}>
+              Action will be recorded in audit trail
             </span>
           </div>
 
@@ -187,7 +226,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             expanded={expandedSections.has("summary")}
             onToggle={toggleSection}
           >
-            <p style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, margin: 0 }}>
+            <p style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.6, margin: 0 }}>
               {a.executive_summary}
             </p>
           </Section>
@@ -199,7 +238,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             expanded={expandedSections.has("narrative")}
             onToggle={toggleSection}
           >
-            <p style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, margin: 0 }}>
+            <p style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.6, margin: 0 }}>
               {a.risk_narrative}
             </p>
           </Section>
@@ -215,10 +254,10 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             >
               {a.critical_concerns.map((c, i) => (
                 <div key={i} className="flex gap-2" style={{ marginTop: i > 0 ? 6 : 0 }}>
-                  <span className="font-mono font-bold shrink-0" style={{ fontSize: 10, color: T.red }}>
+                  <span className="font-mono font-bold shrink-0" style={{ fontSize: FS.xs, color: T.red }}>
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span style={{ fontSize: 11, color: T.dim, lineHeight: 1.5 }}>{c}</span>
+                  <span style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5 }}>{c}</span>
                 </div>
               ))}
             </Section>
@@ -235,10 +274,10 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             >
               {a.mitigating_factors.map((f, i) => (
                 <div key={i} className="flex gap-2" style={{ marginTop: i > 0 ? 6 : 0 }}>
-                  <span className="font-mono font-bold shrink-0" style={{ fontSize: 10, color: T.green }}>
+                  <span className="font-mono font-bold shrink-0" style={{ fontSize: FS.xs, color: T.green }}>
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span style={{ fontSize: 11, color: T.dim, lineHeight: 1.5 }}>{f}</span>
+                  <span style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5 }}>{f}</span>
                 </div>
               ))}
             </Section>
@@ -254,10 +293,10 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             >
               {a.recommended_actions.map((act, i) => (
                 <div key={i} className="flex gap-2" style={{ marginTop: i > 0 ? 6 : 0 }}>
-                  <span className="font-mono font-bold shrink-0" style={{ fontSize: 10, color: T.accent }}>
+                  <span className="font-mono font-bold shrink-0" style={{ fontSize: FS.xs, color: T.accent }}>
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span style={{ fontSize: 11, color: T.dim, lineHeight: 1.5 }}>{act}</span>
+                  <span style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5 }}>{act}</span>
                 </div>
               ))}
             </Section>
@@ -270,7 +309,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             expanded={expandedSections.has("regulatory")}
             onToggle={toggleSection}
           >
-            <p style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, margin: 0 }}>
+            <p style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.6, margin: 0 }}>
               {a.regulatory_exposure}
             </p>
           </Section>
@@ -282,7 +321,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             expanded={expandedSections.has("confidence")}
             onToggle={toggleSection}
           >
-            <p style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, margin: 0 }}>
+            <p style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.6, margin: 0 }}>
               {a.confidence_assessment}
             </p>
           </Section>
@@ -312,7 +351,7 @@ function Section({
       >
         <div className="flex items-center gap-1.5">
           {icon}
-          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
             {title}
           </span>
         </div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { T, TIER_META, type TierKey } from "@/lib/tokens";
+import { T, FS, TIER_META, type TierKey } from "@/lib/tokens";
 import { BarChart3, List } from "lucide-react";
 import { StatCard } from "./stat-card";
 import { CaseRow } from "./case-row";
@@ -43,7 +43,7 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 shrink-0">
         <StatCard label="Vendors" value={cases.length} color={T.text} />
-        <StatCard label="Hard Stops" value={hs} color={hs ? T.red : T.muted} />
+        <StatCard label="Hard Stops" value={hs} color={hs ? T.red : T.muted} emphasis={hs > 0} />
         <StatCard label="Elevated" value={el} color={el ? T.amber : T.muted} />
         <StatCard label="Alerts" value={alerts.length} color={alerts.length ? T.amber : T.muted} />
         <StatCard
@@ -59,7 +59,7 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
         {/* Left: case list or matrix */}
         <div className="flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2 shrink-0">
-            <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+            <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
               Assessments
             </span>
             {/* View toggle */}
@@ -96,10 +96,10 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
                   style={{ width: 56, height: 56, background: T.accent + "15" }}>
                   <BarChart3 size={24} color={T.accent} />
                 </div>
-                <div className="font-semibold mb-1" style={{ fontSize: 14, color: T.text }}>
+                <div className="font-semibold mb-1" style={{ fontSize: FS.md, color: T.text }}>
                   No vendors yet
                 </div>
-                <div style={{ fontSize: 12, color: T.muted, textAlign: "center", maxWidth: 320 }}>
+                <div style={{ fontSize: FS.sm, color: T.muted, textAlign: "center", maxWidth: 320 }}>
                   Use the Screen Vendor tab to add your first vendor. The scoring engine will analyze risk factors and assign a tier automatically.
                 </div>
               </div>
@@ -117,35 +117,58 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
 
         {/* Right: sidebar */}
         <div className="flex flex-col gap-2 min-h-0 overflow-auto">
-          {/* Tier summary table */}
+          {/* Tier distribution with donut */}
           <div className="rounded-lg p-3 shrink-0" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-            <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: 10, color: T.muted }}>
+            <div className="font-semibold uppercase tracking-wider mb-3" style={{ fontSize: FS.xs, color: T.muted }}>
               Tier Distribution
             </div>
-            {tierRows.map((r, i) => (
-              <div
-                key={r.tier}
-                className="flex items-center justify-between"
-                style={{ padding: "5px 0", borderBottom: i < tierRows.length - 1 ? `1px solid ${T.border}` : "none" }}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: r.color }} />
-                  <span className="font-mono" style={{ fontSize: 11, color: T.dim }}>{r.label}</span>
+            {cases.length > 0 ? (
+              <div className="flex items-center gap-4">
+                {/* SVG Donut */}
+                <svg width={80} height={80} viewBox="0 0 36 36" className="shrink-0">
+                  {(() => {
+                    const total = cases.length || 1;
+                    let offset = 0;
+                    return tierRows.map((r) => {
+                      const pct = (r.count / total) * 100;
+                      const segment = (
+                        <circle
+                          key={r.tier}
+                          cx="18" cy="18" r="14"
+                          fill="none"
+                          stroke={r.color}
+                          strokeWidth="5"
+                          strokeDasharray={`${pct * 0.88} ${88 - pct * 0.88}`}
+                          strokeDashoffset={-offset * 0.88}
+                          transform="rotate(-90 18 18)"
+                        />
+                      );
+                      offset += pct;
+                      return segment;
+                    });
+                  })()}
+                  <text x="18" y="19" textAnchor="middle" dominantBaseline="middle" fill={T.text} fontSize="8" fontWeight="bold">
+                    {cases.length}
+                  </text>
+                </svg>
+                {/* Legend */}
+                <div className="flex-1">
+                  {tierRows.map((r) => (
+                    <div key={r.tier} className="flex items-center justify-between" style={{ padding: "3px 0" }}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: r.color }} />
+                        <span style={{ fontSize: FS.sm, color: T.dim }}>{r.label}</span>
+                      </div>
+                      <span className="font-bold" style={{ fontSize: FS.base, color: r.color }}>
+                        {r.count}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <span className="font-mono font-bold" style={{ fontSize: 13, color: r.color }}>
-                  {r.count}
-                </span>
               </div>
-            ))}
-            <div
-              className="flex items-center justify-between mt-1 pt-1"
-              style={{ borderTop: `1px solid ${T.border}` }}
-            >
-              <span className="font-mono" style={{ fontSize: 11, color: T.muted }}>Total</span>
-              <span className="font-mono font-bold" style={{ fontSize: 13, color: T.text }}>
-                {cases.length}
-              </span>
-            </div>
+            ) : (
+              <div style={{ fontSize: FS.xs, color: T.muted, padding: "12px 0" }}>No data</div>
+            )}
           </div>
 
           {/* Portfolio Analytics */}
@@ -155,11 +178,11 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
 
           {/* Alerts */}
           <div className="rounded-lg p-3 flex-1" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-            <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: 10, color: T.muted }}>
+            <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.muted }}>
               Alerts
             </div>
             {alerts.length === 0 && (
-              <div style={{ fontSize: 11, color: T.muted, padding: "8px 0" }}>No active alerts</div>
+              <div style={{ fontSize: FS.sm, color: T.muted, padding: "8px 0" }}>No active alerts</div>
             )}
             {alerts.map((a, i) => (
               <div
@@ -168,12 +191,12 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
                 style={{ borderBottom: i < alerts.length - 1 ? `1px solid ${T.border}` : "none" }}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold truncate mr-1" style={{ fontSize: 11, color: T.text }}>
+                  <span className="font-semibold truncate mr-1" style={{ fontSize: FS.sm, color: T.text }}>
                     {a.entity}
                   </span>
                   <SeverityBadge sev={a.sev} />
                 </div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{a.title}</div>
+                <div style={{ fontSize: FS.xs, color: T.muted, marginTop: 2 }}>{a.title}</div>
               </div>
             ))}
           </div>

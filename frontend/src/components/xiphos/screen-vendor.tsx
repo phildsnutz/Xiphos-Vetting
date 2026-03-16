@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { T } from "@/lib/tokens";
+import { T, FS } from "@/lib/tokens";
 import { Search, Shield, ChevronDown, ChevronUp, Zap, Loader2, Radar, Brain } from "lucide-react";
 import { createCase, screenVendor, enrichAndScore, runAIAnalysis } from "@/lib/api";
 import type { CreateCasePayload, ScreeningResult as ApiScreeningResult } from "@/lib/api";
@@ -56,7 +56,7 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="font-mono uppercase tracking-wider block mb-1" style={{ fontSize: 9, color: T.muted }}>
+      <label className="font-mono uppercase tracking-wider block mb-1" style={{ fontSize: FS.xs, color: T.muted }}>
         {label}
       </label>
       <select
@@ -64,7 +64,7 @@ function SelectField({
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded outline-none font-mono"
         style={{
-          padding: "6px 8px", fontSize: 11,
+          padding: "6px 8px", fontSize: FS.sm,
           background: T.raised, color: T.text,
           border: `1px solid ${T.border}`,
         }}
@@ -83,7 +83,7 @@ function Toggle({
   label: string; checked: boolean; onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 11, color: T.dim }}>
+    <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: FS.sm, color: T.dim }}>
       <div
         className="rounded-sm flex items-center justify-center"
         style={{
@@ -93,7 +93,7 @@ function Toggle({
         }}
         onClick={() => onChange(!checked)}
       >
-        {checked && <span style={{ fontSize: 10, color: "white" }}>&#10003;</span>}
+        {checked && <span style={{ fontSize: FS.xs, color: "white" }}>&#10003;</span>}
       </div>
       {label}
     </label>
@@ -109,8 +109,8 @@ function SliderField({
   return (
     <div>
       <div className="flex items-center justify-between mb-0.5">
-        <span style={{ fontSize: 10, color: T.muted }}>{label}</span>
-        <span className="font-mono" style={{ fontSize: 10, color: T.dim }}>{(value * 100).toFixed(0)}%</span>
+        <span style={{ fontSize: FS.xs, color: T.muted }}>{label}</span>
+        <span className="font-mono" style={{ fontSize: FS.xs, color: T.dim }}>{(value * 100).toFixed(0)}%</span>
       </div>
       <input
         type="range"
@@ -313,14 +313,14 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
         <div className="flex items-center gap-2 mb-3">
           <Shield size={14} color={T.accent} />
-          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
             Screen New Vendor
           </span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_100px_160px_auto] gap-2 items-end">
           <div>
-            <label className="font-mono uppercase tracking-wider block mb-1" style={{ fontSize: 9, color: T.muted }}>
+            <label className="font-mono uppercase tracking-wider block mb-1" style={{ fontSize: FS.xs, color: T.muted }}>
               Vendor Name
             </label>
             <input
@@ -330,7 +330,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
               placeholder="e.g. Rostec Corporation"
               className="w-full rounded outline-none"
               style={{
-                padding: "6px 10px", fontSize: 12,
+                padding: "6px 10px", fontSize: FS.sm,
                 background: T.raised, color: T.text,
                 border: `1px solid ${T.border}`,
               }}
@@ -353,7 +353,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             disabled={!name.trim() || loading}
             className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-pointer"
             style={{
-              padding: "6px 16px", fontSize: 12,
+              padding: "6px 16px", fontSize: FS.sm,
               background: T.accent,
               opacity: name.trim() && !loading ? 1 : 0.4,
               height: 33, marginBottom: 0,
@@ -366,7 +366,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
 
         {/* Automation toggles */}
         <div className="flex items-center gap-4 mt-3">
-          <label className="flex items-center gap-1.5 cursor-pointer" style={{ fontSize: 10, color: T.dim }}>
+          <label className="flex items-center gap-1.5 cursor-pointer" style={{ fontSize: FS.xs, color: T.dim }}>
             <div
               className="rounded-sm flex items-center justify-center"
               style={{
@@ -376,11 +376,11 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
               }}
               onClick={() => setAutoEnrich(!autoEnrich)}
             >
-              {autoEnrich && <span style={{ fontSize: 8, color: "white" }}>&#10003;</span>}
+              {autoEnrich && <span style={{ fontSize: FS.xs, color: "white" }}>&#10003;</span>}
             </div>
             <Radar size={10} /> Auto-Enrich (OSINT)
           </label>
-          <label className="flex items-center gap-1.5 cursor-pointer" style={{ fontSize: 10, color: T.dim }}>
+          <label className="flex items-center gap-1.5 cursor-pointer" style={{ fontSize: FS.xs, color: T.dim }}>
             <div
               className="rounded-sm flex items-center justify-center"
               style={{
@@ -390,7 +390,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
               }}
               onClick={() => setAutoAnalyze(!autoAnalyze)}
             >
-              {autoAnalyze && <span style={{ fontSize: 8, color: "white" }}>&#10003;</span>}
+              {autoAnalyze && <span style={{ fontSize: FS.xs, color: "white" }}>&#10003;</span>}
             </div>
             <Brain size={10} /> Auto-Analyze (AI)
           </label>
@@ -400,7 +400,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="inline-flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer mt-3"
-          style={{ fontSize: 10, color: T.muted }}
+          style={{ fontSize: FS.xs, color: T.muted }}
         >
           {showAdvanced ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
           Advanced Parameters
@@ -410,7 +410,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
             {/* Ownership */}
             <div>
-              <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: 9, color: T.accent }}>
+              <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.accent }}>
                 Ownership
               </div>
               <div className="flex flex-col gap-2">
@@ -420,13 +420,13 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
                 <Toggle label="PEP connection" checked={pep} onChange={setPep} />
                 <SliderField label="Ownership resolved" value={ownershipPct} onChange={setOwnershipPct} />
                 <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 10, color: T.muted }}>Shell layers</span>
+                  <span style={{ fontSize: FS.xs, color: T.muted }}>Shell layers</span>
                   <input
                     type="number" min={0} max={5} value={shells}
                     onChange={(e) => setShells(parseInt(e.target.value) || 0)}
                     className="rounded outline-none font-mono"
                     style={{
-                      width: 50, padding: "3px 6px", fontSize: 11,
+                      width: 50, padding: "3px 6px", fontSize: FS.sm,
                       background: T.raised, color: T.text,
                       border: `1px solid ${T.border}`,
                     }}
@@ -437,7 +437,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
 
             {/* Data Quality */}
             <div>
-              <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: 9, color: T.accent }}>
+              <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.accent }}>
                 Data Quality
               </div>
               <div className="flex flex-col gap-2">
@@ -447,13 +447,13 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
                 <Toggle label="Tax ID" checked={hasTaxId} onChange={setHasTaxId} />
                 <Toggle label="Audited financials" checked={hasAudit} onChange={setHasAudit} />
                 <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 10, color: T.muted }}>Years of records</span>
+                  <span style={{ fontSize: FS.xs, color: T.muted }}>Years of records</span>
                   <input
                     type="number" min={0} max={100} value={years}
                     onChange={(e) => setYears(parseInt(e.target.value) || 0)}
                     className="rounded outline-none font-mono"
                     style={{
-                      width: 50, padding: "3px 6px", fontSize: 11,
+                      width: 50, padding: "3px 6px", fontSize: FS.sm,
                       background: T.raised, color: T.text,
                       border: `1px solid ${T.border}`,
                     }}
@@ -464,7 +464,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
 
             {/* Executive */}
             <div>
-              <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: 9, color: T.accent }}>
+              <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.accent }}>
                 Executive Risk
               </div>
               <div className="flex flex-col gap-2">
@@ -475,13 +475,13 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
                   { label: "Litigation events", value: litigation, set: setLitigation, max: 10 },
                 ].map((f) => (
                   <div key={f.label} className="flex items-center justify-between">
-                    <span style={{ fontSize: 10, color: T.muted }}>{f.label}</span>
+                    <span style={{ fontSize: FS.xs, color: T.muted }}>{f.label}</span>
                     <input
                       type="number" min={0} max={f.max} value={f.value}
                       onChange={(e) => f.set(parseInt(e.target.value) || 0)}
                       className="rounded outline-none font-mono"
                       style={{
-                        width: 50, padding: "3px 6px", fontSize: 11,
+                        width: 50, padding: "3px 6px", fontSize: FS.sm,
                         background: T.raised, color: T.text,
                         border: `1px solid ${T.border}`,
                       }}
@@ -501,7 +501,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           style={{ background: T.accent + "11", border: `1px solid ${T.accent}33` }}
         >
           <Loader2 size={14} color={T.accent} className="animate-spin shrink-0" />
-          <span className="font-mono" style={{ fontSize: 11, color: T.accent }}>{pipelineStep}</span>
+          <span className="font-mono" style={{ fontSize: FS.sm, color: T.accent }}>{pipelineStep}</span>
         </div>
       )}
 
@@ -511,7 +511,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           className="rounded-lg p-3"
           style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${T.red}44` }}
         >
-          <span style={{ fontSize: 12, color: T.red }}>{error}</span>
+          <span style={{ fontSize: FS.sm, color: T.red }}>{error}</span>
         </div>
       )}
 
@@ -528,31 +528,31 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         >
           <div className="flex items-center gap-2 mb-2">
             <Search size={12} color={screening.matched ? T.red : T.green} />
-            <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: screening.matched ? T.red : T.green }}>
+            <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: screening.matched ? T.red : T.green }}>
               Sanctions Screening
             </span>
             {screening.screening_db && (
-              <span className="font-mono" style={{ fontSize: 8, color: T.muted }}>
+              <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
                 {screening.screening_db} | {screening.screening_ms}ms
               </span>
             )}
           </div>
           {screening.matched ? (
             <div>
-              <div className="font-semibold" style={{ fontSize: 12, color: T.red }}>
+              <div className="font-semibold" style={{ fontSize: FS.sm, color: T.red }}>
                 MATCH FOUND
               </div>
               {screening.all_matches.map((m, i) => (
                 <div key={i} className="mt-2 rounded p-2" style={{ background: "rgba(239,68,68,0.06)" }}>
                   <div className="flex items-center justify-between">
-                    <span className="font-medium" style={{ fontSize: 11, color: T.text }}>
+                    <span className="font-medium" style={{ fontSize: FS.sm, color: T.text }}>
                       {m.matched_on}
                     </span>
-                    <span className="font-mono font-bold" style={{ fontSize: 12, color: T.red }}>
+                    <span className="font-mono font-bold" style={{ fontSize: FS.sm, color: T.red }}>
                       {(m.score * 100).toFixed(1)}%
                     </span>
                   </div>
-                  <div className="font-mono" style={{ fontSize: 10, color: T.muted }}>
+                  <div className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
                     {m.list} | {m.name} | {m.source}
                   </div>
                 </div>
@@ -560,8 +560,8 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             </div>
           ) : (
             <div>
-              <div className="font-semibold" style={{ fontSize: 12, color: T.green }}>NO MATCHES</div>
-              <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+              <div className="font-semibold" style={{ fontSize: FS.sm, color: T.green }}>NO MATCHES</div>
+              <div style={{ fontSize: FS.xs, color: T.muted, marginTop: 2 }}>
                 Screened against {screening.screening_db || "OFAC SDN, Entity List, CAATSA, SSI, UK, EU, UN"} databases.
                 {screening.best_score > 0.5 && (
                   <span> Closest match: "{screening.matched_name}" at {(screening.best_score * 100).toFixed(0)}% (below threshold).</span>
@@ -577,7 +577,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+              <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
                 Assessment Result
               </span>
               <TierBadge tier={result.cal.tier} />
@@ -585,7 +585,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             <button
               onClick={handleAdd}
               className="inline-flex items-center gap-1.5 rounded font-medium text-white border-none cursor-pointer"
-              style={{ padding: "5px 12px", fontSize: 11, background: T.green }}
+              style={{ padding: "5px 12px", fontSize: FS.sm, background: T.green }}
             >
               + Add to Portfolio
             </button>
@@ -594,25 +594,25 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="flex flex-col items-center">
               <Gauge value={result.cal.p} lo={result.cal.lo} hi={result.cal.hi} />
-              <span className="font-mono mt-1" style={{ fontSize: 9, color: T.muted }}>Bayesian Posterior</span>
+              <span className="font-mono mt-1" style={{ fontSize: FS.xs, color: T.muted }}>Bayesian Posterior</span>
             </div>
             <div className="text-center">
               <div className="font-mono font-bold" style={{ fontSize: 24, color: T.text }}>
                 {result.sc}
               </div>
-              <div className="font-mono" style={{ fontSize: 9, color: T.muted }}>/100 Policy Rubric</div>
+              <div className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>/100 Policy Rubric</div>
             </div>
             <div className="text-center">
               <div className="font-mono font-bold" style={{ fontSize: 24, color: T.muted }}>
                 {Math.round(result.cal.lo * 100)}%&ndash;{Math.round(result.cal.hi * 100)}%
               </div>
-              <div className="font-mono" style={{ fontSize: 9, color: T.muted }}>95% CI</div>
+              <div className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>95% CI</div>
             </div>
             <div className="text-center">
               <div className="font-mono font-bold" style={{ fontSize: 24, color: T.text }}>
                 {Math.round(result.cal.cov * 100)}%
               </div>
-              <div className="font-mono" style={{ fontSize: 9, color: T.muted }}>Coverage</div>
+              <div className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>Coverage</div>
             </div>
           </div>
 
@@ -624,8 +624,8 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             >
               {result.cal.stops.map((s, i) => (
                 <div key={i}>
-                  <div className="font-bold" style={{ fontSize: 11, color: T.dRed }}>{s.t}</div>
-                  <div style={{ fontSize: 10, color: T.red, marginTop: 1 }}>{s.x}</div>
+                  <div className="font-bold" style={{ fontSize: FS.sm, color: T.dRed }}>{s.t}</div>
+                  <div style={{ fontSize: FS.xs, color: T.red, marginTop: 1 }}>{s.x}</div>
                 </div>
               ))}
             </div>
@@ -633,7 +633,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
 
           {/* Factor contributions */}
           <div className="mt-3">
-            <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: 9, color: T.muted }}>
+            <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.muted }}>
               Factor Contributions
             </div>
             {[...result.cal.ct].sort((a, b) => Math.abs(b.s) - Math.abs(a.s)).map((ct, i) => (
@@ -642,15 +642,15 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
                 className="flex items-center justify-between"
                 style={{ padding: "4px 0", borderBottom: `1px solid ${T.border}` }}
               >
-                <span style={{ fontSize: 11, color: T.dim }}>{ct.n}</span>
+                <span style={{ fontSize: FS.sm, color: T.dim }}>{ct.n}</span>
                 <div className="flex items-center gap-3">
-                  <span className="font-mono" style={{ fontSize: 10, color: T.muted }}>
+                  <span className="font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
                     {(ct.raw * 100).toFixed(0)}/100
                   </span>
                   <span
                     className="font-mono font-semibold"
                     style={{
-                      fontSize: 11, minWidth: 60, textAlign: "right",
+                      fontSize: FS.sm, minWidth: 60, textAlign: "right",
                       color: ct.s > 0 ? T.red : ct.s < 0 ? T.green : T.muted,
                     }}
                   >
@@ -664,15 +664,15 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           {/* Key findings */}
           {result.cal.finds.length > 0 && (
             <div className="mt-3">
-              <div className="font-mono uppercase tracking-wider mb-1" style={{ fontSize: 9, color: T.muted }}>
+              <div className="font-mono uppercase tracking-wider mb-1" style={{ fontSize: FS.xs, color: T.muted }}>
                 Key Findings
               </div>
               {result.cal.finds.map((f, i) => (
                 <div key={i} className="flex gap-2" style={{ marginTop: 3 }}>
-                  <span className="font-mono font-bold shrink-0" style={{ fontSize: 10, color: T.accent }}>
+                  <span className="font-mono font-bold shrink-0" style={{ fontSize: FS.xs, color: T.accent }}>
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span style={{ fontSize: 11, color: T.dim, lineHeight: 1.4 }}>{f}</span>
+                  <span style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.4 }}>{f}</span>
                 </div>
               ))}
             </div>

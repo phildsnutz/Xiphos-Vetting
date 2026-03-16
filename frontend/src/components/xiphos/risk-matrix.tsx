@@ -8,7 +8,7 @@
  * Enables instant visual comparison of WHERE risk concentrates.
  */
 
-import { T, probColor } from "@/lib/tokens";
+import { T, probColor, FS } from "@/lib/tokens";
 import { TierBadge } from "./badges";
 import type { VettingCase } from "@/lib/types";
 
@@ -42,10 +42,10 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
   return (
     <div className="rounded-lg overflow-hidden" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
       <div className="p-3 pb-0">
-        <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 10, color: T.muted }}>
+        <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
           Cross-Vendor Risk Comparison
         </div>
-        <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>
+        <div style={{ fontSize: FS.xs, color: T.muted, marginTop: 2 }}>
           Raw factor scores across all vendors. Click a row to drill in.
         </div>
       </div>
@@ -56,7 +56,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
             <tr>
               <th
                 style={{
-                  textAlign: "left", padding: "6px 8px", fontSize: 9,
+                  textAlign: "left", padding: "6px 8px", fontSize: FS.xs,
                   color: T.muted, fontWeight: 600, borderBottom: `1px solid ${T.border}`,
                   position: "sticky", left: 0, background: T.surface, zIndex: 1,
                   minWidth: 140,
@@ -66,7 +66,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
               </th>
               <th
                 style={{
-                  textAlign: "center", padding: "6px 4px", fontSize: 9,
+                  textAlign: "center", padding: "6px 4px", fontSize: FS.xs,
                   color: T.muted, fontWeight: 600, borderBottom: `1px solid ${T.border}`,
                   width: 50,
                 }}
@@ -77,7 +77,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
                 <th
                   key={f}
                   style={{
-                    textAlign: "center", padding: "6px 4px", fontSize: 9,
+                    textAlign: "center", padding: "6px 4px", fontSize: FS.xs,
                     color: T.muted, fontWeight: 600, borderBottom: `1px solid ${T.border}`,
                     minWidth: 70,
                   }}
@@ -87,7 +87,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
               ))}
               <th
                 style={{
-                  textAlign: "center", padding: "6px 4px", fontSize: 9,
+                  textAlign: "center", padding: "6px 4px", fontSize: FS.xs,
                   color: T.muted, fontWeight: 600, borderBottom: `1px solid ${T.border}`,
                   width: 70,
                 }}
@@ -120,7 +120,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
                 >
                   <td
                     style={{
-                      padding: "6px 8px", fontSize: 11, color: T.text,
+                      padding: "6px 8px", fontSize: FS.xs, color: T.text,
                       fontWeight: 500, whiteSpace: "nowrap",
                       position: "sticky", left: 0, background: T.surface,
                       zIndex: 1,
@@ -129,7 +129,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
                     <div className="flex items-center gap-2">
                       <span
                         className="font-mono font-bold shrink-0"
-                        style={{ fontSize: 9, color: T.dim, width: 20 }}
+                        style={{ fontSize: FS.xs, color: T.dim, width: 20 }}
                       >
                         {c.cc}
                       </span>
@@ -139,7 +139,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
                   <td style={{ padding: "6px 4px", textAlign: "center" }}>
                     <span
                       className="font-mono font-bold"
-                      style={{ fontSize: 12, color: probColor(cal.p) }}
+                      style={{ fontSize: FS.sm, color: probColor(cal.p) }}
                     >
                       {Math.round(cal.p * 100)}%
                     </span>
@@ -152,7 +152,7 @@ export function RiskMatrix({ cases, onSelect }: RiskMatrixProps) {
                           className="rounded mx-auto font-mono font-semibold"
                           style={{
                             width: 42, padding: "3px 0",
-                            fontSize: 10,
+                            fontSize: FS.xs,
                             color: cellColor(raw),
                             background: cellBg(raw),
                           }}
