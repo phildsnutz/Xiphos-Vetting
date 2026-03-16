@@ -34,6 +34,10 @@ Core Endpoints:
   POST /api/alerts/:id/resolve           Resolve an alert
   POST /api/monitor/run                  Run monitoring sweep on all vendors
   GET  /api/monitor/changes              Get recent risk changes
+  GET  /api/monitor/schedule             Get current monitoring schedule status
+  POST /api/monitor/schedule             Update monitoring settings (admin only)
+  POST /api/monitor/sweep                Trigger immediate monitoring sweep
+  GET  /api/monitor/sweep/:id            Check sweep progress/results
   GET  /api/graph/shared/:id_a/:id_b     Find hidden connections between vendors
 
 AI Analysis Endpoints:
@@ -64,7 +68,7 @@ import argparse
 import csv
 import threading
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Flask, request, jsonify, send_file, g
 
@@ -79,6 +83,9 @@ from auth import (
 from hardening import (
     rate_limit, validate_vendor_input, validate_auth_input,
     configure_cors, add_security_headers,
+)
+from profiles import (
+    get_profile, list_profiles, profile_to_dict, validate_profile_id
 )
 
 # Optional: sanctions sync engine (may fail if dependencies missing)
@@ -111,6 +118,15 @@ try:
     HAS_MONITOR = True
 except ImportError:
     HAS_MONITOR = False
+
+# Optional: Monitoring scheduler
+try:
+    from monitor_scheduler import (
+        get_scheduler, init_scheduler, stop_scheduler, MonitorScheduler
+    )
+    HAS_SCHEDULER = True
+except ImportError:
+    HAS_SCHEDULER = False
 
 # Optional: Dossier generator
 try:
@@ -200,15 +216,26 @@ def _full_score_dict(result) -> dict:
     }
 
 
-def _score_and_persist(vendor_id: str, v: dict) -> dict:
-    """Score a vendor and persist everything to the database."""
+def _score_and_persist(vendor_id: str, v: dict, profile_id: str = "defense_acquisition") -> dict:
+    """
+    Score a vendor and persist everything to the database.
+
+    Args:
+        vendor_id: Unique vendor identifier
+        v: Vendor input dict with name, country, ownership, data_quality, etc.
+        profile_id: Compliance profile ID (default: defense_acquisition)
+    """
+    # Validate and normalize profile
+    if not validate_profile_id(profile_id):
+        profile_id = "defense_acquisition"
+
     inp = _build_vendor_input(v)
-    result = score_vendor(inp)
+    result = score_vendor(inp, profile_id=profile_id)
     score_dict = _full_score_dict(result)
 
-    # Persist vendor
+    # Persist vendor with profile
     db.upsert_vendor(vendor_id, v["name"], v["country"],
-                     v.get("program", "standard_industrial"), v)
+                     v.get("program", "standard_industrial"), v, profile=profile_id)
 
     # Persist score
     db.save_score(vendor_id, score_dict)
@@ -284,6 +311,33 @@ def health():
     })
 
 
+# ---- Compliance Profiles ----
+
+@app.route("/api/profiles")
+def api_list_profiles():
+    """
+    List all available compliance profiles.
+    Public endpoint (no auth required).
+    """
+    profiles = list_profiles()
+    return jsonify({
+        "profiles": [profile_to_dict(p) for p in profiles],
+        "count": len(profiles),
+    })
+
+
+@app.route("/api/profiles/<profile_id>")
+def api_get_profile(profile_id):
+    """
+    Get a single compliance profile by ID.
+    Public endpoint (no auth required).
+    """
+    profile = get_profile(profile_id)
+    if not profile:
+        return jsonify({"error": f"Profile not found: {profile_id}"}), 404
+    return jsonify(profile_to_dict(profile))
+
+
 @app.route("/api/cases")
 @require_auth("cases:read")
 def api_list_cases():
@@ -330,6 +384,11 @@ def api_create_case():
     if not valid:
         return jsonify({"error": err}), 400
 
+    # Get and validate profile (optional, defaults to defense_acquisition)
+    profile_id = body.get("profile", "defense_acquisition")
+    if not validate_profile_id(profile_id):
+        return jsonify({"error": f"Invalid profile: {profile_id}"}), 400
+
     vendor_id = body.get("id", f"c-{uuid.uuid4().hex[:8]}")
     v = {
         "id": vendor_id,
@@ -339,12 +398,14 @@ def api_create_case():
         "data_quality": body.get("data_quality", {}),
         "exec": body.get("exec", {}),
         "program": body.get("program", "standard_industrial"),
+        "profile": profile_id,
     }
-    score_dict = _score_and_persist(vendor_id, v)
+    score_dict = _score_and_persist(vendor_id, v, profile_id=profile_id)
     log_audit("case_created", "case", vendor_id,
-              detail=f"Created case for {body['name']} ({body['country']})")
+              detail=f"Created case for {body['name']} ({body['country']}) under profile {profile_id}")
     return jsonify({
         "case_id": vendor_id,
+        "profile": profile_id,
         "composite_score": score_dict["composite_score"],
         "is_hard_stop": score_dict["is_hard_stop"],
         "calibrated": score_dict["calibrated"],
@@ -493,6 +554,118 @@ def api_monitor_changes():
         return jsonify({"changes": changes})
     except Exception:
         return jsonify({"changes": [], "note": "Monitoring log table not initialized"})
+
+
+# ---- Monitoring Scheduler ----
+
+@app.route("/api/monitor/schedule", methods=["GET"])
+@require_auth("monitor:read")
+def api_get_monitor_schedule():
+    """Get current monitoring schedule status."""
+    if not HAS_SCHEDULER:
+        return jsonify({"error": "Monitoring scheduler not available"}), 501
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        return jsonify({
+            "enabled": False,
+            "interval_hours": None,
+            "last_sweep": None,
+            "next_sweep": None,
+            "vendors_due": 0,
+        })
+
+    stale_vendors = scheduler.get_stale_vendors()
+    latest = db.get_latest_sweep()
+
+    response = {
+        "enabled": scheduler.running,
+        "interval_hours": scheduler.interval_hours,
+        "vendors_due": len(stale_vendors),
+        "last_sweep": latest["created_at"] if latest else None,
+        "last_sweep_status": latest["status"] if latest else None,
+    }
+
+    if latest and latest["completed_at"]:
+        next_check = (
+            datetime.fromisoformat(latest["completed_at"]) +
+            timedelta(hours=scheduler.interval_hours)
+        ).isoformat()
+        response["next_sweep_estimate"] = next_check
+
+    return jsonify(response)
+
+
+@app.route("/api/monitor/schedule", methods=["POST"])
+@require_auth("admin")
+def api_set_monitor_schedule():
+    """Update monitoring schedule settings."""
+    if not HAS_SCHEDULER:
+        return jsonify({"error": "Monitoring scheduler not available"}), 501
+
+    body = request.get_json(silent=True) or {}
+    interval_hours = body.get("interval_hours")
+    enabled = body.get("enabled")
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Scheduler not initialized"}), 500
+
+    if interval_hours is not None:
+        scheduler.interval_hours = int(interval_hours)
+        scheduler.interval_seconds = interval_hours * 3600
+        db.set_monitor_config("interval_hours", str(interval_hours))
+
+    if enabled is not None:
+        if enabled and not scheduler.running:
+            scheduler.start()
+        elif not enabled and scheduler.running:
+            scheduler.stop()
+        db.set_monitor_config("enabled", "true" if enabled else "false")
+
+    return jsonify({
+        "success": True,
+        "enabled": scheduler.running,
+        "interval_hours": scheduler.interval_hours,
+    })
+
+
+@app.route("/api/monitor/sweep", methods=["POST"])
+@require_auth("analyst")
+def api_trigger_monitoring_sweep():
+    """Trigger an immediate monitoring sweep."""
+    if not HAS_SCHEDULER:
+        return jsonify({"error": "Monitoring scheduler not available"}), 501
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Scheduler not initialized"}), 500
+
+    body = request.get_json(silent=True) or {}
+    vendor_ids = body.get("vendor_ids")  # Optional: specific vendors
+
+    sweep_id = scheduler.trigger_sweep(vendor_ids=vendor_ids)
+
+    return jsonify({
+        "sweep_id": sweep_id,
+        "status": "queued",
+        "message": "Monitoring sweep queued. Poll /api/monitor/sweep/{sweep_id} for progress.",
+    })
+
+
+@app.route("/api/monitor/sweep/<sweep_id>", methods=["GET"])
+@require_auth("monitor:read")
+def api_get_monitoring_sweep(sweep_id):
+    """Check sweep progress and results."""
+    if not HAS_SCHEDULER:
+        return jsonify({"error": "Monitoring scheduler not available"}), 501
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Scheduler not initialized"}), 500
+
+    status = scheduler.get_sweep_status(sweep_id)
+    return jsonify(status)
 
 
 # ---- Entity Resolution / Knowledge Graph ----
@@ -1434,6 +1607,7 @@ def main():
 
     print("Initializing database...")
     db.init_db()
+    db.migrate_add_profile_column()  # Add profile column if it doesn't exist
     init_auth_db()
     if HAS_AI:
         init_ai_tables()
@@ -1467,15 +1641,34 @@ def main():
         kg.init_kg_db()
         print("  Knowledge graph: initialized")
 
+    # Initialize monitoring scheduler
+    if HAS_SCHEDULER:
+        monitor_enabled = os.environ.get("XIPHOS_MONITOR_ENABLED", "false").lower() == "true"
+        interval_hours = int(os.environ.get("XIPHOS_MONITOR_INTERVAL_HOURS", "168"))
+        if monitor_enabled:
+            init_scheduler(interval_hours=interval_hours)
+            print(f"  Monitoring scheduler: started (interval: {interval_hours}h)")
+        else:
+            print(f"  Monitoring scheduler: available but disabled (set XIPHOS_MONITOR_ENABLED=true to enable)")
+    else:
+        print("  Monitoring scheduler: not available (monitor_scheduler module missing)")
+
     print(f"  Monitoring: {'enabled' if HAS_MONITOR else 'not available'}")
     print(f"  Dossier gen: {'enabled' if HAS_DOSSIER else 'not available'}")
     print(f"  Auth/RBAC: {'ENFORCED' if AUTH_ENABLED else 'DEV MODE (all requests = admin)'}")
 
     stats = db.get_stats()
+    # Show compliance profiles
+    profiles = list_profiles()
+    print(f"  Compliance profiles: {len(profiles)} available")
+    for p in profiles:
+        print(f"    - {p.id}: {p.name}")
+
     print(f"\n{'='*50}")
     print(f"  XIPHOS v2.8 -- Intelligence-Grade Vendor Assurance")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
+    print(f"  Compliance profiles: {len(profiles)}")
     print(f"  http://{args.host}:{args.port}")
     print(f"{'='*50}\n")
 

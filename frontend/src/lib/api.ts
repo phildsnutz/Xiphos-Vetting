@@ -44,6 +44,17 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/* ---- Profiles ---- */
+
+export async function fetchProfiles(): Promise<ComplianceProfile[]> {
+  const data = await json<{ profiles: ComplianceProfile[] }>("/api/profiles");
+  return data.profiles;
+}
+
+export async function fetchProfile(id: string): Promise<ComplianceProfile> {
+  return json<ComplianceProfile>(`/api/profiles/${id}`);
+}
+
 /* ---- Cases ---- */
 
 export interface ApiCase {
@@ -52,6 +63,19 @@ export interface ApiCase {
   status: string;
   created_at: string;
   score: Record<string, unknown> | null;
+}
+
+/** Compliance profile types */
+export interface ComplianceProfile {
+  id: string;
+  name: string;
+  description: string;
+  entity_label: string;
+  program_types: Array<{ id: string; label: string }>;
+  required_fields: string[];
+  optional_fields: Array<{ id: string; label: string; type: string; options?: Array<{ value: string; label: string }> }>;
+  ui_config: Record<string, unknown>;
+  regulatory_references: Array<{ name: string; url: string; description: string }>;
 }
 
 /** Payload shape for POST /api/cases (snake_case for backend) */
@@ -81,6 +105,7 @@ export interface CreateCasePayload {
     litigation_history: number;
   };
   program: string;
+  profile?: string;
 }
 
 /** Response from POST /api/cases */

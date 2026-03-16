@@ -36,7 +36,7 @@ def get_conn():
 
 
 def init_db():
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist. Includes migration for existing databases."""
     with get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS vendors (
@@ -44,6 +44,7 @@ def init_db():
                 name TEXT NOT NULL,
                 country TEXT NOT NULL,
                 program TEXT NOT NULL DEFAULT 'standard_industrial',
+                profile TEXT NOT NULL DEFAULT 'defense_acquisition',
                 vendor_input JSON NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -175,25 +176,58 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_batch_status ON batches(status);
             CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id);
             CREATE INDEX IF NOT EXISTS idx_batch_items_status ON batch_items(status);
+
+            CREATE TABLE IF NOT EXISTS monitor_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sweep_id TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                total_vendors INTEGER NOT NULL DEFAULT 0,
+                processed INTEGER NOT NULL DEFAULT 0,
+                risk_changes INTEGER NOT NULL DEFAULT 0,
+                new_alerts INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT,
+                completed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS monitor_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_monitor_schedules_status ON monitor_schedules(status);
+            CREATE INDEX IF NOT EXISTS idx_monitor_schedules_created ON monitor_schedules(created_at);
         """)
 
 
 # ---- Vendor CRUD ----
 
 def upsert_vendor(vendor_id: str, name: str, country: str, program: str,
-                  vendor_input: dict) -> str:
-    """Insert or update a vendor. Returns the vendor ID."""
+                  vendor_input: dict, profile: str = "defense_acquisition") -> str:
+    """
+    Insert or update a vendor. Returns the vendor ID.
+
+    Args:
+        vendor_id: Unique vendor identifier
+        name: Vendor name
+        country: ISO-2 country code
+        program: Program type (e.g., weapons_system, standard_industrial)
+        vendor_input: Full vendor input JSON (ownership, data_quality, exec data)
+        profile: Compliance profile ID (default: defense_acquisition)
+    """
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO vendors (id, name, country, program, vendor_input, updated_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            INSERT INTO vendors (id, name, country, program, profile, vendor_input, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
                 country=excluded.country,
                 program=excluded.program,
+                profile=excluded.profile,
                 vendor_input=excluded.vendor_input,
                 updated_at=datetime('now')
-        """, (vendor_id, name, country, program, json.dumps(vendor_input)))
+        """, (vendor_id, name, country, program, profile, json.dumps(vendor_input)))
     return vendor_id
 
 
@@ -202,9 +236,12 @@ def get_vendor(vendor_id: str) -> dict | None:
         row = conn.execute("SELECT * FROM vendors WHERE id = ?", (vendor_id,)).fetchone()
         if not row:
             return None
+        # sqlite3.Row is dict-like but use [] for access
+        profile = row["profile"] if "profile" in row.keys() else "defense_acquisition"
         return {
             "id": row["id"], "name": row["name"], "country": row["country"],
-            "program": row["program"], "vendor_input": json.loads(row["vendor_input"]),
+            "program": row["program"], "profile": profile,
+            "vendor_input": json.loads(row["vendor_input"]),
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 
@@ -216,7 +253,8 @@ def list_vendors(limit: int = 100) -> list[dict]:
         ).fetchall()
         return [
             {"id": r["id"], "name": r["name"], "country": r["country"],
-             "program": r["program"], "vendor_input": json.loads(r["vendor_input"]),
+             "program": r["program"], "profile": r["profile"] if "profile" in r.keys() else "defense_acquisition",
+             "vendor_input": json.loads(r["vendor_input"]),
              "created_at": r["created_at"]}
             for r in rows
         ]
@@ -628,3 +666,93 @@ def get_batch_items(batch_id: str, limit: int = 1000) -> list[dict]:
             ORDER BY created_at ASC LIMIT ?
         """, (batch_id, limit)).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---- Migration ----
+
+def migrate_add_profile_column():
+    """
+    Migrate existing vendors table to add profile column if it doesn't exist.
+    Safe to call multiple times. Called automatically during server startup.
+    """
+    with get_conn() as conn:
+        try:
+            # Try to query the profile column
+            conn.execute("SELECT profile FROM vendors LIMIT 1")
+        except Exception:
+            # Column doesn't exist, add it
+            try:
+                conn.execute("""
+                    ALTER TABLE vendors ADD COLUMN profile TEXT NOT NULL DEFAULT 'defense_acquisition'
+                """)
+                print("  [Migration] Added 'profile' column to vendors table")
+            except Exception as e:
+                # May fail if column already exists in some edge case
+                print(f"  [Migration] Profile column already exists or skipped: {e}")
+
+
+# ---- Monitoring schedules ----
+
+def create_sweep(sweep_id: str, total_vendors: int) -> str:
+    """Create a new monitoring sweep record. Returns the sweep_id."""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO monitor_schedules (sweep_id, status, total_vendors, started_at)
+            VALUES (?, 'running', ?, datetime('now'))
+        """, (sweep_id, total_vendors))
+    return sweep_id
+
+
+def update_sweep_progress(sweep_id: str, processed: int, risk_changes: int, new_alerts: int, status: str) -> bool:
+    """Update sweep progress. Returns True if successful."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            UPDATE monitor_schedules
+            SET processed = ?, risk_changes = ?, new_alerts = ?, status = ?
+            WHERE sweep_id = ?
+        """, (processed, risk_changes, new_alerts, status, sweep_id))
+        return cursor.rowcount > 0
+
+
+def complete_sweep(sweep_id: str) -> bool:
+    """Mark sweep as completed. Returns True if successful."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            UPDATE monitor_schedules SET status = 'completed', completed_at = datetime('now')
+            WHERE sweep_id = ?
+        """, (sweep_id,))
+        return cursor.rowcount > 0
+
+
+def get_sweep(sweep_id: str) -> dict | None:
+    """Get a monitoring sweep by ID."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM monitor_schedules WHERE sweep_id = ?", (sweep_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_latest_sweep() -> dict | None:
+    """Get the most recent monitoring sweep."""
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT * FROM monitor_schedules
+            ORDER BY created_at DESC LIMIT 1
+        """).fetchone()
+        return dict(row) if row else None
+
+
+def get_monitor_config(key: str, default: str = "") -> str:
+    """Get monitoring configuration value."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM monitor_config WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def set_monitor_config(key: str, value: str) -> None:
+    """Set monitoring configuration value."""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO monitor_config (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')
+        """, (key, value))

@@ -8,11 +8,11 @@
  * One-click workflow: Screen -> Auto-Enrich -> Auto-Analyze
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
-import { Search, Shield, ChevronDown, ChevronUp, Zap, Loader2, Radar, Brain } from "lucide-react";
-import { createCase, screenVendor, enrichAndScore, runAIAnalysis } from "@/lib/api";
-import type { CreateCasePayload, ScreeningResult as ApiScreeningResult } from "@/lib/api";
+import { Search, Shield, ChevronDown, ChevronUp, Zap, Loader2, Radar, Brain, Globe, GraduationCap, Landmark, Package } from "lucide-react";
+import { createCase, screenVendor, enrichAndScore, runAIAnalysis, fetchProfiles } from "@/lib/api";
+import type { CreateCasePayload, ScreeningResult as ApiScreeningResult, ComplianceProfile } from "@/lib/api";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
 import type { VettingCase, Calibration } from "@/lib/types";
@@ -124,6 +124,22 @@ function SliderField({
   );
 }
 
+function getProfileIcon(profileId: string) {
+  switch (profileId) {
+    case "itar_trade_compliance":
+      return <Globe size={16} />;
+    case "university_research_security":
+      return <GraduationCap size={16} />;
+    case "grants_compliance":
+      return <Landmark size={16} />;
+    case "commercial_supply_chain":
+      return <Package size={16} />;
+    case "defense_acquisition":
+    default:
+      return <Shield size={16} />;
+  }
+}
+
 /** Convert backend calibration response to our Calibration type */
 function mapBackendCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -165,10 +181,19 @@ function mapBackendCalibration(apiCal: Record<string, unknown>): Calibration {
 }
 
 export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
+  // Profile management
+  const [profiles, setProfiles] = useState<ComplianceProfile[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState<ComplianceProfile | null>(null);
+  const [profilesLoading, setProfilesLoading] = useState(true);
+
+  // Form state
   const [name, setName] = useState("");
   const [country, setCountry] = useState("US");
   const [program, setProgram] = useState<ProgramType>("standard_industrial");
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Dynamic optional fields
+  const [dynamicFields, setDynamicFields] = useState<Record<string, string>>({});
 
   // Ownership
   const [publiclyTraded, setPubliclyTraded] = useState(false);
@@ -202,6 +227,38 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
   const [pipelineStep, setPipelineStep] = useState<string | null>(null);
   const [autoEnrich, setAutoEnrich] = useState(true);
   const [autoAnalyze, setAutoAnalyze] = useState(true);
+
+  // Load profiles on mount
+  useEffect(() => {
+    fetchProfiles()
+      .then((loaded) => {
+        setProfiles(loaded);
+        if (loaded.length > 0) {
+          setSelectedProfile(loaded[0]);
+          // Update program to first program type of selected profile
+          const firstProgram = loaded[0].program_types[0];
+          if (firstProgram) {
+            setProgram(firstProgram.id as ProgramType);
+          }
+        }
+      })
+      .catch(() => {
+        // Profiles fetch failed, use default
+        setProfiles([]);
+      })
+      .finally(() => {
+        setProfilesLoading(false);
+      });
+  }, []);
+
+  // Update program when profile changes
+  useEffect(() => {
+    if (selectedProfile && selectedProfile.program_types.length > 0) {
+      const firstProgram = selectedProfile.program_types[0];
+      setProgram(firstProgram.id as ProgramType);
+    }
+    setDynamicFields({});
+  }, [selectedProfile]);
 
   const handleScreen = async () => {
     if (!name.trim()) return;
@@ -244,6 +301,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
           litigation_history: litigation,
         },
         program,
+        ...(selectedProfile && { profile: selectedProfile.id }),
       };
 
       const caseResult = await createCase(payload);
@@ -263,6 +321,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         sc: caseResult.composite_score,
         conf: mc,
         cal,
+        profile: selectedProfile?.id,
       };
 
       setResult(c);
@@ -309,6 +368,45 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Profile Selector */}
+      {!profilesLoading && profiles.length > 0 && (
+        <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Shield size={14} color={T.accent} />
+            <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
+              Compliance Profile
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {profiles.map((prof) => (
+              <button
+                key={prof.id}
+                onClick={() => setSelectedProfile(prof)}
+                className="rounded-lg p-3 flex flex-col items-start gap-1.5 border-2 transition-colors"
+                style={{
+                  borderColor: selectedProfile?.id === prof.id ? T.accent : T.border,
+                  background: selectedProfile?.id === prof.id ? T.accent + "08" : T.raised,
+                  minWidth: 150,
+                  cursor: "pointer",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <div style={{ color: selectedProfile?.id === prof.id ? T.accent : T.dim }}>
+                    {getProfileIcon(prof.id)}
+                  </div>
+                  <span className="font-semibold" style={{ fontSize: FS.sm, color: T.text }}>
+                    {prof.name}
+                  </span>
+                </div>
+                <span style={{ fontSize: FS.xs, color: T.dim, lineHeight: 1.3 }}>
+                  {prof.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input form */}
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
         <div className="flex items-center gap-2 mb-3">
@@ -321,7 +419,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_100px_160px_auto] gap-2 items-end">
           <div>
             <label className="font-mono uppercase tracking-wider block mb-1" style={{ fontSize: FS.xs, color: T.muted }}>
-              Vendor Name
+              {selectedProfile?.entity_label || "Entity Name"}
             </label>
             <input
               value={name}
@@ -346,7 +444,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             label="Program"
             value={program}
             onChange={(v) => setProgram(v as ProgramType)}
-            options={PROGRAMS}
+            options={selectedProfile?.program_types.map((p) => ({ value: p.id, label: p.label })) || PROGRAMS}
           />
           <button
             onClick={handleScreen}
@@ -395,6 +493,79 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
             <Brain size={10} /> Auto-Analyze (AI)
           </label>
         </div>
+
+        {/* Dynamic optional fields from profile */}
+        {selectedProfile && selectedProfile.optional_fields.length > 0 && (
+          <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+            <div className="font-mono uppercase tracking-wider mb-2" style={{ fontSize: FS.xs, color: T.accent }}>
+              Additional Information
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              {selectedProfile.optional_fields.map((field) => (
+                <div key={field.id}>
+                  <label className="font-mono uppercase tracking-wider block mb-1" style={{ fontSize: FS.xs, color: T.muted }}>
+                    {field.label}
+                  </label>
+                  {field.type === "textarea" ? (
+                    <textarea
+                      value={dynamicFields[field.id] || ""}
+                      onChange={(e) => setDynamicFields({ ...dynamicFields, [field.id]: e.target.value })}
+                      placeholder={field.label}
+                      className="w-full rounded outline-none"
+                      style={{
+                        padding: "6px 10px", fontSize: FS.sm, minHeight: 60,
+                        background: T.raised, color: T.text,
+                        border: `1px solid ${T.border}`,
+                      }}
+                    />
+                  ) : field.type === "select" && field.options ? (
+                    <select
+                      value={dynamicFields[field.id] || ""}
+                      onChange={(e) => setDynamicFields({ ...dynamicFields, [field.id]: e.target.value })}
+                      className="w-full rounded outline-none font-mono"
+                      style={{
+                        padding: "6px 8px", fontSize: FS.sm,
+                        background: T.raised, color: T.text,
+                        border: `1px solid ${T.border}`,
+                      }}
+                    >
+                      <option value="">-- Select --</option>
+                      {field.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  ) : field.type === "number" ? (
+                    <input
+                      type="number"
+                      value={dynamicFields[field.id] || ""}
+                      onChange={(e) => setDynamicFields({ ...dynamicFields, [field.id]: e.target.value })}
+                      placeholder={field.label}
+                      className="w-full rounded outline-none font-mono"
+                      style={{
+                        padding: "6px 10px", fontSize: FS.sm,
+                        background: T.raised, color: T.text,
+                        border: `1px solid ${T.border}`,
+                      }}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={dynamicFields[field.id] || ""}
+                      onChange={(e) => setDynamicFields({ ...dynamicFields, [field.id]: e.target.value })}
+                      placeholder={field.label}
+                      className="w-full rounded outline-none"
+                      style={{
+                        padding: "6px 10px", fontSize: FS.sm,
+                        background: T.raised, color: T.text,
+                        border: `1px solid ${T.border}`,
+                      }}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Advanced parameters toggle */}
         <button

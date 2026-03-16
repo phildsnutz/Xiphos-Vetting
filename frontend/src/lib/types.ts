@@ -57,6 +57,7 @@ export interface VettingCase {
   conf: number;
   cal: Calibration | null;
   history?: ScoreSnapshot[];
+  profile?: string;
 }
 
 export interface Alert {

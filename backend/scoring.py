@@ -352,11 +352,26 @@ def _evaluate_composite_hard_stops(
     return stops
 
 
-def score_vendor(inp: VendorInput) -> ScoringResult:
+def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> ScoringResult:
     """
     Score a vendor through the full Bayesian pipeline with composite
     hard stop rules and integrated sanctions screening.
+
+    Args:
+        inp: VendorInput with vendor details
+        profile_id: Compliance profile to use (default: defense_acquisition for backward compatibility)
+
+    Returns:
+        ScoringResult with calibrated probabilities, tier, and detailed findings
     """
+    # Import profiles module
+    from profiles import get_profile, validate_profile_id
+
+    # Validate profile
+    if not validate_profile_id(profile_id):
+        profile_id = "defense_acquisition"
+    profile = get_profile(profile_id)
+
     # Step 1: Sanctions screening (integrated into pipeline)
     screening = screen_name(inp.name)
 
@@ -368,17 +383,21 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
     ex_raw = exec_risk(inp.exec_profile)
     prog_mult = program_multiplier(inp.program)
 
-    # Step 3: Bayesian update -- Beta(2, 8) prior
+    # Step 3: Get factor weights from profile, build factors list
+    factor_weights = {f["name"]: f["weight"] for f in profile.risk_factors}
+
+    # Build factors list dynamically based on profile
+    factors = [
+        {"name": "Sanctions",    "raw": sanctions_raw, "weight": factor_weights.get("Sanctions", 5.0)},
+        {"name": "Geography",    "raw": geo_raw,       "weight": factor_weights.get("Geography", 2.5)},
+        {"name": "Ownership",    "raw": own_raw,       "weight": factor_weights.get("Ownership", 3.0)},
+        {"name": "Data Quality", "raw": dq_raw,        "weight": factor_weights.get("Data Quality", 1.5)},
+        {"name": "Executive",    "raw": ex_raw,        "weight": factor_weights.get("Executive", 2.0)},
+    ]
+
+    # Step 3b: Bayesian update -- Beta(2, 8) prior
     alpha = 2.0
     beta = 8.0
-
-    factors = [
-        {"name": "Sanctions",    "raw": sanctions_raw, "weight": 5.0},
-        {"name": "Geography",    "raw": geo_raw,       "weight": 2.5},
-        {"name": "Ownership",    "raw": own_raw,       "weight": 3.0},
-        {"name": "Data Quality", "raw": dq_raw,        "weight": 1.5},
-        {"name": "Executive",    "raw": ex_raw,        "weight": 2.0},
-    ]
 
     for f in factors:
         n = f["weight"] * prog_mult
@@ -392,20 +411,25 @@ def score_vendor(inp: VendorInput) -> ScoringResult:
     # Step 4: Composite hard stop rules (v2.8)
     stops = _evaluate_composite_hard_stops(inp, screening, geo_raw)
 
-    # Step 5: Tier assignment
+    # Step 5: Tier assignment with profile-aware thresholds
+    tier_thresholds = profile.tier_thresholds
+    hard_stop_threshold = tier_thresholds.get("hard_stop", 0.60)
+    elevated_threshold = tier_thresholds.get("elevated", 0.30)
+    monitor_threshold = tier_thresholds.get("monitor", 0.15)
+
     # Hard stops override the Bayesian tier
     if stops:
         tier = "hard_stop"
         # If Bayesian model underscored, boost composite to reflect hard stop
-        if posterior_mean < 0.60:
+        if posterior_mean < hard_stop_threshold:
             # Don't change the Bayesian math, but ensure the composite score
             # reflects the hard stop status
             pass
-    elif posterior_mean >= 0.60:
+    elif posterior_mean >= hard_stop_threshold:
         tier = "hard_stop"
-    elif posterior_mean >= 0.30:
+    elif posterior_mean >= elevated_threshold:
         tier = "elevated"
-    elif posterior_mean >= 0.15:
+    elif posterior_mean >= monitor_threshold:
         tier = "monitor"
     else:
         tier = "clear"

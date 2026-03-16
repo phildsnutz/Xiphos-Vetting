@@ -54,7 +54,7 @@ function mapCalibration(apiCal: Record<string, unknown>): Calibration {
 }
 
 /** Convert an API case to our internal VettingCase */
-function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string; created_at: string; score: Record<string, unknown> | null }): VettingCase | null {
+function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string; created_at: string; score: Record<string, unknown> | null; profile?: string }): VettingCase | null {
   if (!ac.score) return null;
   const score = ac.score as { composite_score: number; is_hard_stop: boolean; calibrated: Record<string, unknown> };
   if (!score.calibrated) return null;
@@ -69,6 +69,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
     sc: score.composite_score,
     conf: mc,
     cal,
+    profile: ac.profile,
     ...(() => {
       const geoCt = cal.ct.find((c) => c.n === "Geography");
       const ccMatch = geoCt?.d?.match(/\(([A-Z]{2})\)/);

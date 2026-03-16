@@ -43,6 +43,22 @@ from . import dod_sam_exclusions
 from . import bis_entity_list
 from . import cfius_risk
 
+# ITAR/Export Control connectors
+from . import usml_classifier
+from . import end_use_risk
+from . import deemed_export
+
+# University Research Security connectors
+from . import foreign_talent_programs
+from . import institutional_risk
+
+# Grants Compliance connectors
+from . import fapiis_check
+from . import do_not_pay
+
+# Commercial Supply Chain connectors
+from . import regulatory_compliance
+
 # Ordered by priority: sanctions/exclusions first, then identity, then context
 CONNECTORS = [
     # --- Sanctions & Restricted Parties (primary) ---
@@ -80,6 +96,22 @@ CONNECTORS = [
     # --- Litigation & Financial Regulation ---
     ("courtlistener", courtlistener),                # Federal/state litigation
     ("fdic_bankfind", fdic_bankfind),                # FDIC bank regulatory data
+
+    # --- ITAR/Export Control ---
+    ("usml_classifier", usml_classifier),            # USML category risk classification (ITAR)
+    ("end_use_risk", end_use_risk),                  # End-use/end-user red flag analysis (BIS KYC)
+    ("deemed_export", deemed_export),                # Deemed export screening (technology transfer risk)
+
+    # --- University Research Security ---
+    ("foreign_talent_programs", foreign_talent_programs),    # Foreign talent program screening (China, Russia, Iran)
+    ("institutional_risk", institutional_risk),              # Institutional risk assessment (PLA, state labs, etc.)
+
+    # --- Grants Compliance ---
+    ("fapiis_check", fapiis_check),                  # FAPIIS (Federal Awardee Performance & Integrity)
+    ("do_not_pay", do_not_pay),                      # Do Not Pay consolidated check (DNP, OFAC, TOP, etc.)
+
+    # --- Commercial Supply Chain ---
+    ("regulatory_compliance", regulatory_compliance),  # Regulatory compliance (FDA, REACH/RoHS, conflict minerals)
 ]
 
 

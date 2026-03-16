@@ -30,10 +30,25 @@ export function CaseRow({ c, onClick }: CaseRowProps) {
           {c.cc}
         </div>
 
-        {/* Name + date */}
+        {/* Name + date + profile */}
         <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="font-semibold truncate" style={{ fontSize: FS.base, color: T.text }}>
-            {c.name}
+          <div className="flex items-center gap-2">
+            <div className="font-semibold truncate" style={{ fontSize: FS.base, color: T.text }}>
+              {c.name}
+            </div>
+            {c.profile && (
+              <div
+                className="rounded px-1.5 py-0.5 shrink-0"
+                style={{
+                  fontSize: FS.xs,
+                  background: T.accent + "22",
+                  color: T.accent,
+                  fontWeight: 600,
+                }}
+              >
+                {c.profile.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+              </div>
+            )}
           </div>
           <div style={{ fontSize: FS.xs, color: T.muted, marginTop: 1 }}>{c.date}</div>
         </div>
