@@ -374,6 +374,144 @@ def _generate_risk_timeline(monitoring_history: list) -> str:
     '''
 
 
+def _generate_ai_narrative(vendor_id: str, vendor: dict) -> str:
+    """Generate AI intelligence narrative section from latest analysis."""
+    try:
+        from ai_analysis import get_latest_analysis
+        analysis_data = get_latest_analysis(vendor_id)
+    except (ImportError, Exception):
+        return ""
+
+    if not analysis_data:
+        return ""
+
+    analysis = analysis_data.get("analysis", {})
+    if not analysis:
+        return ""
+
+    provider = analysis_data.get("provider", "unknown")
+    model = analysis_data.get("model", "unknown")
+    created = analysis_data.get("created_at", "")
+
+    verdict = analysis.get("verdict", "UNKNOWN")
+    verdict_colors = {
+        "APPROVE": "#198754",
+        "CONDITIONAL_APPROVE": "#ffc107",
+        "ENHANCED_DUE_DILIGENCE": "#fd7e14",
+        "REJECT": "#dc3545",
+    }
+    verdict_color = verdict_colors.get(verdict, "#6c757d")
+    verdict_display = verdict.replace("_", " ")
+
+    # Critical concerns
+    concerns_html = ""
+    for i, concern in enumerate(analysis.get("critical_concerns", []), 1):
+        concerns_html += f'''
+        <div style="padding: 6px 0; border-bottom: 1px solid #e9ecef; font-size: 12px;">
+            <span style="color: #dc3545; font-weight: 700; font-family: monospace;">{i:02d}</span>
+            &nbsp; {escape(concern)}
+        </div>
+        '''
+
+    # Mitigating factors
+    mitigating_html = ""
+    for i, factor in enumerate(analysis.get("mitigating_factors", []), 1):
+        mitigating_html += f'''
+        <div style="padding: 6px 0; border-bottom: 1px solid #e9ecef; font-size: 12px;">
+            <span style="color: #198754; font-weight: 700; font-family: monospace;">{i:02d}</span>
+            &nbsp; {escape(factor)}
+        </div>
+        '''
+
+    # Recommended actions
+    actions_html = ""
+    for i, action in enumerate(analysis.get("recommended_actions", []), 1):
+        actions_html += f'''
+        <div style="padding: 6px 0; border-bottom: 1px solid #e9ecef; font-size: 12px;">
+            <span style="color: #0d6efd; font-weight: 700; font-family: monospace;">{i:02d}</span>
+            &nbsp; {escape(action)}
+        </div>
+        '''
+
+    return f'''
+    <section style="page-break-inside: avoid; margin-bottom: 32px;">
+        <h2 style="color: #1a1f36; border-bottom: 3px solid #fd7e14; padding-bottom: 12px;
+                   margin-bottom: 20px; font-size: 18px;">
+            AI Intelligence Assessment
+        </h2>
+
+        <div style="display: flex; align-items: center; justify-content: space-between;
+                    margin-bottom: 16px;">
+            <div>
+                <span style="display: inline-block; padding: 8px 16px;
+                            background-color: {verdict_color}; color: white;
+                            border-radius: 4px; font-size: 14px; font-weight: 700;
+                            letter-spacing: 1px;">
+                    {verdict_display}
+                </span>
+            </div>
+            <div style="font-size: 10px; color: #6c757d; text-align: right;">
+                Provider: {escape(provider)} / {escape(model)}<br>
+                Generated: {escape(created[:19] if created else 'N/A')}
+            </div>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <strong style="font-size: 13px; color: #1a1f36;">Executive Summary</strong>
+            <p style="font-size: 12px; line-height: 1.7; color: #1a1f36; margin-top: 8px;">
+                {escape(analysis.get('executive_summary', ''))}
+            </p>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <strong style="font-size: 13px; color: #1a1f36;">Risk Narrative</strong>
+            <p style="font-size: 12px; line-height: 1.7; color: #1a1f36; margin-top: 8px;">
+                {escape(analysis.get('risk_narrative', ''))}
+            </p>
+        </div>
+
+        {f"""
+        <div style="margin-bottom: 20px;">
+            <strong style="font-size: 13px; color: #dc3545;">
+                Critical Concerns ({len(analysis.get('critical_concerns', []))})
+            </strong>
+            <div style="margin-top: 8px;">{concerns_html}</div>
+        </div>
+        """ if concerns_html else ""}
+
+        {f"""
+        <div style="margin-bottom: 20px;">
+            <strong style="font-size: 13px; color: #198754;">
+                Mitigating Factors ({len(analysis.get('mitigating_factors', []))})
+            </strong>
+            <div style="margin-top: 8px;">{mitigating_html}</div>
+        </div>
+        """ if mitigating_html else ""}
+
+        {f"""
+        <div style="margin-bottom: 20px;">
+            <strong style="font-size: 13px; color: #0d6efd;">
+                Recommended Actions ({len(analysis.get('recommended_actions', []))})
+            </strong>
+            <div style="margin-top: 8px;">{actions_html}</div>
+        </div>
+        """ if actions_html else ""}
+
+        <div style="margin-bottom: 20px;">
+            <strong style="font-size: 13px; color: #1a1f36;">Regulatory Exposure</strong>
+            <p style="font-size: 12px; line-height: 1.7; color: #1a1f36; margin-top: 8px;">
+                {escape(analysis.get('regulatory_exposure', ''))}
+            </p>
+        </div>
+
+        <div style="padding: 10px; background-color: #f8f9fa; border-radius: 4px;
+                    font-size: 11px; color: #6c757d;">
+            <strong>Confidence:</strong> {escape(analysis.get('confidence_assessment', 'N/A'))}
+        </div>
+    </section>
+    '''
+
+
 def _generate_recommended_actions(score: dict) -> str:
     """Generate recommended actions from marginal information values."""
     if not score:
@@ -492,6 +630,7 @@ def generate_dossier(vendor_id: str) -> str:
     sections = [
         _generate_executive_summary(vendor, score, enrichment),
         _generate_scoring_breakdown(score),
+        _generate_ai_narrative(vendor_id, vendor),
         _generate_osint_findings(enrichment),
         _generate_risk_timeline(monitoring_history),
         _generate_recommended_actions(score),
