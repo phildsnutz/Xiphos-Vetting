@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  xiphos:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - xiphos-data:/data
+    environment:
+      - XIPHOS_DB_PATH=/data/xiphos.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  xiphos-data:
