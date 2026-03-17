@@ -1,20 +1,18 @@
 """
-Xiphos Compliance Profiles System v1.0
+Xiphos Compliance Profiles System v2.0
 
 Defines configurable compliance profiles for 5 vertical markets, each with:
 - Entity labeling (vendor/end-user/collaborator/sub-awardee/supplier)
 - Program type categories
-- Risk factor weights for the Bayesian engine
-- Connector orchestration priorities
+- OSINT connector orchestration priorities and weights
 - Hard stop rules
-- Tier thresholds
 - Required and optional fields
 - UI configuration
 - Regulatory references
 
-This system allows Xiphos to scale from defense acquisition (current) to
-ITAR trade compliance, university research security, grants compliance,
-and commercial supply chain vetting.
+NOTE: Scoring weights and tier thresholds are NOT in profiles. The v5.0
+FGAMLogit engine (fgamlogit.py) owns all scoring parameters via its
+sensitivity-aware weight matrices and integrate_layers() tier logic.
 """
 
 from dataclasses import dataclass, field
@@ -26,21 +24,24 @@ class ComplianceProfile:
     """
     A compliance profile defines how a vendor/entity is screened for a
     specific vertical market or regulatory domain.
+
+    Scoring configuration (factor weights, tier thresholds) is managed
+    by fgamlogit.py, not here. This profile controls: entity labeling,
+    program types, connector orchestration, hard stop rules, form fields,
+    UI styling, and regulatory references.
     """
-    id: str                          # e.g., "defense_acquisition"
-    name: str                        # e.g., "Defense Acquisition"
+    id: str
+    name: str
     description: str
-    entity_label: str                # "Vendor", "Collaborator", "End-User", "Sub-Awardee", "Supplier"
-    program_types: list[dict]        # [{"id": "weapons_system", "label": "Weapons System"}, ...]
-    risk_factors: list[dict]         # [{"name": "Sanctions", "weight": 5.0}, ...]
-    connector_priority: list[str]    # Ordered connector names to run
-    connector_weights: dict          # Override severity weights per connector
-    hard_stop_rules: list[str]       # Active hard stop rules (e.g., "sanctioned_country_sensitive")
-    tier_thresholds: dict            # {"hard_stop": 0.60, "elevated": 0.30, "monitor": 0.15}
-    required_fields: list[str]       # Beyond name/country
-    optional_fields: list[dict]      # [{"id": "field_name", "label": "Field Label", "type": "text"}, ...]
-    ui_config: dict = field(default_factory=dict)  # Color, terminology, etc.
-    regulatory_references: list[dict] = field(default_factory=list)  # URLs and regulations
+    entity_label: str
+    program_types: list[dict]
+    connector_priority: list[str]
+    connector_weights: dict
+    hard_stop_rules: list[str]
+    required_fields: list[str]
+    optional_fields: list[dict]
+    ui_config: dict = field(default_factory=dict)
+    regulatory_references: list[dict] = field(default_factory=list)
 
 
 # ============================================================================
@@ -64,13 +65,6 @@ PROFILES = {
             {"id": "commercial_off_shelf", "label": "Commercial Off-Shelf (COTS)"},
             {"id": "services", "label": "Services"},
         ],
-        risk_factors=[
-            {"name": "Sanctions", "weight": 5.0},
-            {"name": "Geography", "weight": 2.5},
-            {"name": "Ownership", "weight": 3.0},
-            {"name": "Data Quality", "weight": 1.5},
-            {"name": "Executive", "weight": 2.0},
-        ],
         connector_priority=[
             "dod_sam_exclusions", "bis_entity_list", "cfius_risk", "trade_csl",
             "un_sanctions", "opensanctions_pep", "worldbank_debarred", "icij_offshore",
@@ -78,12 +72,11 @@ PROFILES = {
             "uk_companies_house", "sam_gov", "usaspending", "epa_echo", "osha_safety",
             "courtlistener", "fdic_bankfind",
         ],
-        connector_weights={},  # Use defaults
+        connector_weights={},
         hard_stop_rules=[
             "sanctions_match", "sanctioned_country_sensitive", "sanctioned_state_owned",
             "adversary_state_owned", "sectoral_state_weapons", "shell_depth", "opaque_high_risk",
         ],
-        tier_thresholds={"hard_stop": 0.60, "elevated": 0.30, "monitor": 0.15},
         required_fields=["name", "country"],
         optional_fields=[
             {"id": "program", "label": "Program Type", "type": "select"},
@@ -91,7 +84,7 @@ PROFILES = {
             {"id": "duns", "label": "DUNS Number", "type": "text"},
         ],
         ui_config={
-            "color": "#0052CC",  # DoD blue
+            "color": "#0052CC",
             "icon": "shield",
             "risk_label": "Compliance Risk",
         },
@@ -131,15 +124,6 @@ PROFILES = {
             {"id": "cat_xxi_misc", "label": "Cat XXI: Miscellaneous"},
             {"id": "dual_use_ear", "label": "Dual-Use (EAR)"},
         ],
-        risk_factors=[
-            {"name": "Sanctions", "weight": 6.0},
-            {"name": "Geography", "weight": 3.0},
-            {"name": "Ownership", "weight": 2.5},
-            {"name": "Data Quality", "weight": 1.0},
-            {"name": "Executive", "weight": 1.5},
-            {"name": "End-Use", "weight": 3.5},
-            {"name": "Deemed Export", "weight": 2.0},
-        ],
         connector_priority=[
             "bis_entity_list", "trade_csl", "un_sanctions", "dod_sam_exclusions",
             "cfius_risk", "opensanctions_pep", "worldbank_debarred",
@@ -155,7 +139,6 @@ PROFILES = {
             "sanctions_match", "sanctioned_country_sensitive", "sanctioned_state_owned",
             "adversary_state_owned", "sectoral_state_weapons",
         ],
-        tier_thresholds={"hard_stop": 0.50, "elevated": 0.25, "monitor": 0.12},
         required_fields=["name", "country", "usml_category"],
         optional_fields=[
             {"id": "usml_category", "label": "USML Category", "type": "select"},
@@ -165,7 +148,7 @@ PROFILES = {
             {"id": "license_type", "label": "License Type", "type": "select"},
         ],
         ui_config={
-            "color": "#DC3545",  # Danger red for strict compliance
+            "color": "#DC3545",
             "icon": "alert-triangle",
             "risk_label": "Export Control Risk",
         },
@@ -194,15 +177,6 @@ PROFILES = {
             {"id": "energy_storage", "label": "Energy Storage"},
             {"id": "general_research", "label": "General Research"},
         ],
-        risk_factors=[
-            {"name": "Sanctions", "weight": 4.0},
-            {"name": "Geography", "weight": 3.5},
-            {"name": "Ownership", "weight": 2.0},
-            {"name": "Data Quality", "weight": 1.0},
-            {"name": "Executive", "weight": 1.5},
-            {"name": "Talent Program", "weight": 4.0},
-            {"name": "Institutional Risk", "weight": 3.0},
-        ],
         connector_priority=[
             "bis_entity_list", "opensanctions_pep", "un_sanctions", "dod_sam_exclusions",
             "cfius_risk", "trade_csl", "worldbank_debarred", "icij_offshore",
@@ -217,7 +191,6 @@ PROFILES = {
             "sanctions_match", "sanctioned_country_sensitive", "sanctioned_state_owned",
             "adversary_state_owned",
         ],
-        tier_thresholds={"hard_stop": 0.55, "elevated": 0.28, "monitor": 0.14},
         required_fields=["name", "country", "research_domain"],
         optional_fields=[
             {"id": "research_domain", "label": "Research Domain", "type": "select"},
@@ -227,7 +200,7 @@ PROFILES = {
             {"id": "collaboration_type", "label": "Collaboration Type", "type": "select"},
         ],
         ui_config={
-            "color": "#6F42C1",  # Purple for academic
+            "color": "#6F42C1",
             "icon": "graduation-cap",
             "risk_label": "Research Security Risk",
         },
@@ -250,15 +223,6 @@ PROFILES = {
             {"id": "cooperative_agreement", "label": "Cooperative Agreement"},
             {"id": "subcontract", "label": "Subcontract"},
         ],
-        risk_factors=[
-            {"name": "Sanctions", "weight": 4.0},
-            {"name": "Geography", "weight": 1.5},
-            {"name": "Ownership", "weight": 2.0},
-            {"name": "Data Quality", "weight": 3.0},
-            {"name": "Executive", "weight": 1.5},
-            {"name": "Past Performance", "weight": 3.0},
-            {"name": "Financial Stability", "weight": 2.5},
-        ],
         connector_priority=[
             "sam_gov", "usaspending", "dod_sam_exclusions", "bis_entity_list",
             "un_sanctions", "trade_csl", "worldbank_debarred", "sec_edgar",
@@ -271,7 +235,6 @@ PROFILES = {
         hard_stop_rules=[
             "sanctions_match", "sanctioned_country_sensitive", "sanctioned_state_owned",
         ],
-        tier_thresholds={"hard_stop": 0.55, "elevated": 0.30, "monitor": 0.15},
         required_fields=["name", "country"],
         optional_fields=[
             {"id": "uei_number", "label": "UEI Number", "type": "text"},
@@ -280,7 +243,7 @@ PROFILES = {
             {"id": "agency", "label": "Funding Agency", "type": "select"},
         ],
         ui_config={
-            "color": "#20C997",  # Green for grants
+            "color": "#20C997",
             "icon": "check-circle",
             "risk_label": "Award Compliance Risk",
         },
@@ -305,15 +268,6 @@ PROFILES = {
             {"id": "textile_material", "label": "Textile Materials"},
             {"id": "general_commercial", "label": "General Commercial"},
         ],
-        risk_factors=[
-            {"name": "Sanctions", "weight": 3.0},
-            {"name": "Geography", "weight": 2.0},
-            {"name": "Ownership", "weight": 2.0},
-            {"name": "Data Quality", "weight": 2.0},
-            {"name": "Executive", "weight": 1.5},
-            {"name": "Regulatory Compliance", "weight": 3.5},
-            {"name": "ESG", "weight": 2.0},
-        ],
         connector_priority=[
             "bis_entity_list", "trade_csl", "dod_sam_exclusions", "un_sanctions",
             "sec_edgar", "gleif_lei", "opencorporates", "epa_echo", "osha_safety",
@@ -326,7 +280,6 @@ PROFILES = {
         hard_stop_rules=[
             "sanctions_match", "sanctioned_country_sensitive", "sanctioned_state_owned",
         ],
-        tier_thresholds={"hard_stop": 0.60, "elevated": 0.35, "monitor": 0.18},
         required_fields=["name", "country"],
         optional_fields=[
             {"id": "industry_sector", "label": "Industry Sector", "type": "select"},
@@ -335,7 +288,7 @@ PROFILES = {
             {"id": "hs_code", "label": "HS Code(s)", "type": "text"},
         ],
         ui_config={
-            "color": "#FFC107",  # Amber for caution
+            "color": "#FFC107",
             "icon": "package",
             "risk_label": "Supply Chain Risk",
         },
@@ -367,32 +320,8 @@ def get_default_profile() -> ComplianceProfile:
     return PROFILES["defense_acquisition"]
 
 
-def get_factor_weights(profile_id: str) -> Optional[dict]:
-    """
-    Return the risk factor weights for a profile.
-    Format: {"Sanctions": 5.0, "Geography": 2.5, ...}
-    """
-    profile = get_profile(profile_id)
-    if not profile:
-        return None
-    return {f["name"]: f["weight"] for f in profile.risk_factors}
-
-
-def get_tier_thresholds(profile_id: str) -> Optional[dict]:
-    """
-    Return the tier thresholds for a profile.
-    Format: {"hard_stop": 0.60, "elevated": 0.30, "monitor": 0.15}
-    """
-    profile = get_profile(profile_id)
-    if not profile:
-        return None
-    return profile.tier_thresholds
-
-
 def get_connector_list(profile_id: str) -> Optional[list[str]]:
-    """
-    Return the ordered list of connectors to run for a profile.
-    """
+    """Return the ordered list of OSINT connectors for a profile."""
     profile = get_profile(profile_id)
     if not profile:
         return None
@@ -412,11 +341,9 @@ def profile_to_dict(profile: ComplianceProfile) -> dict:
         "description": profile.description,
         "entity_label": profile.entity_label,
         "program_types": profile.program_types,
-        "risk_factors": profile.risk_factors,
         "connector_priority": profile.connector_priority,
         "connector_weights": profile.connector_weights,
         "hard_stop_rules": profile.hard_stop_rules,
-        "tier_thresholds": profile.tier_thresholds,
         "required_fields": profile.required_fields,
         "optional_fields": profile.optional_fields,
         "ui_config": profile.ui_config,
