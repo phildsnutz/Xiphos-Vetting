@@ -30,7 +30,7 @@ from dataclasses import asdict
 import db
 from fgamlogit import (
     score_vendor, VendorInputV5, OwnershipProfile, DataQuality,
-    ExecProfile, DoDContext,
+    ExecProfile, DoDContext, PROGRAM_TO_SENSITIVITY,
 )
 from profiles import get_connector_list
 
@@ -317,13 +317,7 @@ class MonitorScheduler:
             d = vi.get("data_quality", {})
             e = vi.get("exec", {})
             dod_raw = vi.get("dod", {})
-            _prog_map = {
-                "weapons_system": "ELEVATED", "mission_critical": "ENHANCED",
-                "nuclear_related": "CRITICAL_SAP", "intelligence_community": "CRITICAL_SCI",
-                "critical_infrastructure": "ENHANCED",
-                "dual_use": "CONTROLLED", "standard_industrial": "COMMERCIAL",
-                "commercial_off_shelf": "COMMERCIAL", "services": "COMMERCIAL",
-            }
+            _prog_map = PROGRAM_TO_SENSITIVITY
             program = vendor.get("program", vi.get("program", "standard_industrial"))
             default_sens = _prog_map.get(program, "COMMERCIAL")
 

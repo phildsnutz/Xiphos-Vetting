@@ -1067,21 +1067,10 @@ def score_vendor(
 
 
 # =============================================================================
-# BACKWARD COMPATIBILITY SHIM
+# PROGRAM-TO-SENSITIVITY MAP (single source of truth)
 # =============================================================================
 
-@dataclass
-class VendorInput:
-    """Legacy input shape -- passes through to v5.0 scorer with COMMERCIAL defaults."""
-    name: str
-    country: str
-    ownership: OwnershipProfile
-    data_quality: DataQuality
-    exec_profile: ExecProfile
-    program: str = "standard_industrial"
-
-
-_PROGRAM_TO_SENSITIVITY: dict[str, str] = {
+PROGRAM_TO_SENSITIVITY: dict[str, str] = {
     "weapons_system":      "ELEVATED",
     "mission_critical":    "ENHANCED",
     "nuclear_related":     "ELEVATED",
@@ -1092,25 +1081,3 @@ _PROGRAM_TO_SENSITIVITY: dict[str, str] = {
     "commercial_off_shelf":"COMMERCIAL",
     "services":            "COMMERCIAL",
 }
-
-
-def score_vendor_legacy(inp: VendorInput) -> ScoringResultV5:
-    """Backward-compatible wrapper for legacy VendorInput callers."""
-    ownership_v5 = OwnershipProfile(
-        publicly_traded=inp.ownership.publicly_traded,
-        state_owned=inp.ownership.state_owned,
-        beneficial_owner_known=inp.ownership.beneficial_owner_known,
-        ownership_pct_resolved=inp.ownership.ownership_pct_resolved,
-        shell_layers=inp.ownership.shell_layers,
-        pep_connection=inp.ownership.pep_connection,
-        foreign_ownership_pct=0.0,
-        foreign_ownership_is_allied=True,
-    )
-    sensitivity = _PROGRAM_TO_SENSITIVITY.get(inp.program, "COMMERCIAL")
-    inp_v5 = VendorInputV5(
-        name=inp.name, country=inp.country,
-        ownership=ownership_v5, data_quality=inp.data_quality,
-        exec_profile=inp.exec_profile,
-        dod=DoDContext(sensitivity=sensitivity),
-    )
-    return score_vendor(inp_v5, regulatory_status="NOT_EVALUATED")

@@ -49,7 +49,7 @@ from flask import Flask, request, jsonify, send_file
 
 from fgamlogit import (
     score_vendor, VendorInputV5, OwnershipProfile, DataQuality,
-    ExecProfile, DoDContext, integrate_layers,
+    ExecProfile, DoDContext, integrate_layers, PROGRAM_TO_SENSITIVITY,
 )
 from ofac import screen_name, get_active_db, invalidate_cache
 import db
@@ -173,14 +173,7 @@ def _build_vendor_input(v: dict) -> VendorInputV5:
     )
     # Derive sensitivity from program if dod block not supplied
     program = v.get("program", "standard_industrial")
-    _program_map = {
-        "weapons_system": "ELEVATED", "mission_critical": "ENHANCED",
-        "nuclear_related": "CRITICAL_SAP", "intelligence_community": "CRITICAL_SCI",
-        "critical_infrastructure": "ENHANCED",
-        "dual_use": "CONTROLLED", "standard_industrial": "COMMERCIAL",
-        "commercial_off_shelf": "COMMERCIAL", "services": "COMMERCIAL",
-    }
-    default_sensitivity = _program_map.get(program, "COMMERCIAL")
+    default_sensitivity = PROGRAM_TO_SENSITIVITY.get(program, "COMMERCIAL")
 
     dod = DoDContext(
         sensitivity=dod_raw.get("sensitivity", default_sensitivity),
@@ -742,7 +735,8 @@ def api_enrich_standalone():
 @app.route("/api/cases/<case_id>/enrich-and-score", methods=["POST"])
 @require_auth("cases:enrich")
 def api_enrich_and_score(case_id):
-    """Run OSINT enrichment, augment scoring inputs, and re-score. Full pipeline."""
+    """Run OSINT enrichment, augment scoring inputs, then score through the
+    canonical two-layer pipeline (_score_and_persist). Single scoring path."""
     if not HAS_OSINT:
         return jsonify({"error": "OSINT enrichment module not available"}), 501
 
@@ -766,48 +760,44 @@ def api_enrich_and_score(case_id):
     base_input = _build_vendor_input(vendor_input)
     augmentation = augment_from_enrichment(base_input, report)
 
-    # Step 3: Re-score with augmented input
-    result = score_vendor(augmentation.vendor_input)
-    score_dict = _full_score_dict(result)
-
-    # Persist updated vendor input and score
+    # Step 3: Serialize augmented input back to dict (preserving ALL v5 fields)
+    aug_vi = augmentation.vendor_input
     updated_input = {
-        **vendor_input,
+        **vendor_input,  # preserves dod{}, program, and any other original fields
         "ownership": {
-            "publicly_traded": augmentation.vendor_input.ownership.publicly_traded,
-            "state_owned": augmentation.vendor_input.ownership.state_owned,
-            "beneficial_owner_known": augmentation.vendor_input.ownership.beneficial_owner_known,
-            "ownership_pct_resolved": augmentation.vendor_input.ownership.ownership_pct_resolved,
-            "shell_layers": augmentation.vendor_input.ownership.shell_layers,
-            "pep_connection": augmentation.vendor_input.ownership.pep_connection,
+            "publicly_traded": aug_vi.ownership.publicly_traded,
+            "state_owned": aug_vi.ownership.state_owned,
+            "beneficial_owner_known": aug_vi.ownership.beneficial_owner_known,
+            "ownership_pct_resolved": aug_vi.ownership.ownership_pct_resolved,
+            "shell_layers": aug_vi.ownership.shell_layers,
+            "pep_connection": aug_vi.ownership.pep_connection,
+            "foreign_ownership_pct": aug_vi.ownership.foreign_ownership_pct,
+            "foreign_ownership_is_allied": aug_vi.ownership.foreign_ownership_is_allied,
         },
         "data_quality": {
-            "has_lei": augmentation.vendor_input.data_quality.has_lei,
-            "has_cage": augmentation.vendor_input.data_quality.has_cage,
-            "has_duns": augmentation.vendor_input.data_quality.has_duns,
-            "has_tax_id": augmentation.vendor_input.data_quality.has_tax_id,
-            "has_audited_financials": augmentation.vendor_input.data_quality.has_audited_financials,
-            "years_of_records": augmentation.vendor_input.data_quality.years_of_records,
+            "has_lei": aug_vi.data_quality.has_lei,
+            "has_cage": aug_vi.data_quality.has_cage,
+            "has_duns": aug_vi.data_quality.has_duns,
+            "has_tax_id": aug_vi.data_quality.has_tax_id,
+            "has_audited_financials": aug_vi.data_quality.has_audited_financials,
+            "years_of_records": aug_vi.data_quality.years_of_records,
         },
         "exec": {
-            "known_execs": augmentation.vendor_input.exec_profile.known_execs,
-            "adverse_media": augmentation.vendor_input.exec_profile.adverse_media,
-            "pep_execs": augmentation.vendor_input.exec_profile.pep_execs,
-            "litigation_history": augmentation.vendor_input.exec_profile.litigation_history,
+            "known_execs": aug_vi.exec_profile.known_execs,
+            "adverse_media": aug_vi.exec_profile.adverse_media,
+            "pep_execs": aug_vi.exec_profile.pep_execs,
+            "litigation_history": aug_vi.exec_profile.litigation_history,
         },
     }
-    db.upsert_vendor(case_id, v["name"], v["country"],
-                     v.get("program", "standard_industrial"), updated_input)
-    db.save_score(case_id, score_dict)
 
-    # Generate alerts from enrichment + scoring
+    # Step 4: Score through the SINGLE canonical pipeline (Layer 1 gates + Layer 2 FGAMLogit)
+    score_dict = _score_and_persist(case_id, updated_input)
+
+    # Generate alerts from OSINT findings (hard stop alerts handled by _score_and_persist)
     for finding in report.get("findings", []):
         if finding["severity"] in ("critical", "high"):
             db.save_alert(case_id, v["name"], finding["severity"],
                           f"[OSINT] {finding['title']}", finding.get("detail", ""))
-    for stop in result.hard_stop_decisions:
-        db.save_alert(case_id, v["name"], "critical",
-                      stop["trigger"], stop["explanation"])
 
     return jsonify({
         "case_id": case_id,
