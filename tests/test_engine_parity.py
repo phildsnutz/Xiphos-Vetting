@@ -2,6 +2,9 @@
 Xiphos v5.0 scoring engine tests -- validates FGAMLogit math,
 geo risk lookups, ownership risk calculations, tier integration,
 and sensitivity-aware scoring surface.
+
+Sensitivity tiers use Xiphos program scrutiny labels (not classification markings):
+  CRITICAL_SAP, CRITICAL_SCI, ELEVATED, ENHANCED, CONTROLLED, STANDARD, COMMERCIAL
 """
 
 import sys, os
@@ -86,17 +89,24 @@ class TestFGAMLogitMath:
 
 
 class TestSensitivitySurface:
-    """Verify that higher sensitivity tiers produce higher baseline risk."""
-    def test_baseline_ordering(self):
-        # SAP should have highest baseline, COMMERCIAL lowest
-        assert BASELINE_LOGODDS["SAP"] > BASELINE_LOGODDS["SCI"]
-        assert BASELINE_LOGODDS["SCI"] > BASELINE_LOGODDS["TOP_SECRET"]
-        assert BASELINE_LOGODDS["TOP_SECRET"] > BASELINE_LOGODDS["SECRET"]
-        assert BASELINE_LOGODDS["SECRET"] > BASELINE_LOGODDS["CUI"]
-        assert BASELINE_LOGODDS["CUI"] > BASELINE_LOGODDS["COMMERCIAL"]
+    """Verify sensitivity tiers use Xiphos labels (not classification markings)."""
+    def test_no_classification_markings(self):
+        """Ensure no actual classification terms appear in the tier names."""
+        for tier in SENSITIVITY_TIERS:
+            assert "TOP_SECRET" not in tier
+            assert "SECRET" not in tier or "ENHANCED" in tier  # ENHANCED replaced SECRET
+            assert "SCI" not in tier or "CRITICAL_SCI" in tier  # wrapped in CRITICAL_
+            assert "SAP" not in tier or "CRITICAL_SAP" in tier
 
-    def test_commercial_and_unclassified_equal(self):
-        assert BASELINE_LOGODDS["COMMERCIAL"] == BASELINE_LOGODDS["UNCLASSIFIED"]
+    def test_baseline_ordering(self):
+        assert BASELINE_LOGODDS["CRITICAL_SAP"] > BASELINE_LOGODDS["CRITICAL_SCI"]
+        assert BASELINE_LOGODDS["CRITICAL_SCI"] > BASELINE_LOGODDS["ELEVATED"]
+        assert BASELINE_LOGODDS["ELEVATED"] > BASELINE_LOGODDS["ENHANCED"]
+        assert BASELINE_LOGODDS["ENHANCED"] > BASELINE_LOGODDS["CONTROLLED"]
+        assert BASELINE_LOGODDS["CONTROLLED"] > BASELINE_LOGODDS["COMMERCIAL"]
+
+    def test_commercial_and_standard_equal(self):
+        assert BASELINE_LOGODDS["COMMERCIAL"] == BASELINE_LOGODDS["STANDARD"]
 
     def test_all_14_factors_have_weights(self):
         for sens in SENSITIVITY_TIERS:
@@ -115,17 +125,17 @@ class TestLayerIntegration:
         assert tier == "TIER_4_CLEAR"
 
     def test_requires_review_low_risk(self):
-        tier = integrate_layers("REQUIRES_REVIEW", 0.20, "SECRET")
+        tier = integrate_layers("REQUIRES_REVIEW", 0.20, "ENHANCED")
         assert tier == "TIER_2_CONDITIONAL_ACCEPTABLE"
 
     def test_requires_review_high_risk(self):
-        tier = integrate_layers("REQUIRES_REVIEW", 0.70, "SECRET")
+        tier = integrate_layers("REQUIRES_REVIEW", 0.70, "ENHANCED")
         assert tier == "TIER_1_CRITICAL_CONCERN"
 
-    def test_sap_compliant_low_risk(self):
-        tier = integrate_layers("COMPLIANT", 0.15, "SAP")
-        assert tier == "TIER_4_SAP_QUALIFIED"
+    def test_critical_compliant_low_risk(self):
+        tier = integrate_layers("COMPLIANT", 0.15, "CRITICAL_SAP")
+        assert tier == "TIER_4_CRITICAL_QUALIFIED"
 
-    def test_sap_compliant_high_risk(self):
-        tier = integrate_layers("COMPLIANT", 0.50, "SAP")
-        assert tier == "TIER_2_ELEVATED_CONCERN"
+    def test_critical_compliant_high_risk(self):
+        tier = integrate_layers("COMPLIANT", 0.50, "CRITICAL_SAP")
+        assert tier == "TIER_2_HIGH_CONCERN"

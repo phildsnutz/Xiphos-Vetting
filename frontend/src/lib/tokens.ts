@@ -71,13 +71,13 @@ export type TierKey =
   | "TIER_1_CRITICAL_CONCERN"
   | "TIER_2_ELEVATED_REVIEW"
   | "TIER_2_CONDITIONAL_ACCEPTABLE"
-  | "TIER_2_ELEVATED_CONCERN"
+  | "TIER_2_HIGH_CONCERN"
   | "TIER_2_ELEVATED"
   | "TIER_2_CAUTION"
   | "TIER_2_CAUTION_COMMERCIAL"
   | "TIER_3_CONDITIONAL"
-  | "TIER_3_SAP_ACCEPTABLE"
-  | "TIER_4_SAP_QUALIFIED"
+  | "TIER_3_CRITICAL_ACCEPTABLE"
+  | "TIER_4_CRITICAL_QUALIFIED"
   | "TIER_4_APPROVED"
   | "TIER_4_CLEAR";
 
@@ -96,20 +96,42 @@ export function tierBand(tier: TierKey): TierBand {
 
 /** Display metadata for each tier */
 export const TIER_META: Record<TierKey, { label: string; shortLabel: string; color: string; bg: string; band: TierBand }> = {
-  TIER_1_DISQUALIFIED:          { label: "DISQUALIFIED",              shortLabel: "DISQUALIFIED",  color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
-  TIER_1_CRITICAL_CONCERN:      { label: "CRITICAL CONCERN",          shortLabel: "CRITICAL",      color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
-  TIER_2_ELEVATED_REVIEW:       { label: "ELEVATED REVIEW",           shortLabel: "ELEVATED",      color: T.red,      bg: T.redBg,       band: "elevated" },
-  TIER_2_CONDITIONAL_ACCEPTABLE:{ label: "CONDITIONAL ACCEPTABLE",    shortLabel: "CONDITIONAL",   color: T.orange,   bg: T.orangeBg,    band: "elevated" },
-  TIER_2_ELEVATED_CONCERN:      { label: "ELEVATED CONCERN",          shortLabel: "ELEVATED",      color: T.red,      bg: T.redBg,       band: "elevated" },
-  TIER_2_ELEVATED:              { label: "ELEVATED",                  shortLabel: "ELEVATED",      color: T.red,      bg: T.redBg,       band: "elevated" },
-  TIER_2_CAUTION:               { label: "CAUTION",                   shortLabel: "CAUTION",       color: T.orange,   bg: T.orangeBg,    band: "elevated" },
-  TIER_2_CAUTION_COMMERCIAL:    { label: "CAUTION",                   shortLabel: "CAUTION",       color: T.orange,   bg: T.orangeBg,    band: "elevated" },
-  TIER_3_CONDITIONAL:           { label: "CONDITIONAL",               shortLabel: "CONDITIONAL",   color: T.amber,    bg: T.amberBg,     band: "conditional" },
-  TIER_3_SAP_ACCEPTABLE:        { label: "SAP ACCEPTABLE",            shortLabel: "SAP OK",        color: T.amber,    bg: T.amberBg,     band: "conditional" },
-  TIER_4_SAP_QUALIFIED:         { label: "SAP QUALIFIED",             shortLabel: "SAP QUALIFIED", color: T.green,    bg: T.greenBg,     band: "clear" },
-  TIER_4_APPROVED:              { label: "APPROVED",                  shortLabel: "APPROVED",      color: T.green,    bg: T.greenBg,     band: "clear" },
-  TIER_4_CLEAR:                 { label: "CLEAR",                     shortLabel: "CLEAR",         color: T.green,    bg: T.greenBg,     band: "clear" },
+  TIER_1_DISQUALIFIED:          { label: "DISQUALIFIED",              shortLabel: "DISQUALIFIED",     color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
+  TIER_1_CRITICAL_CONCERN:      { label: "CRITICAL CONCERN",          shortLabel: "CRITICAL",         color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
+  TIER_2_ELEVATED_REVIEW:       { label: "ELEVATED REVIEW",           shortLabel: "ELEVATED",         color: T.red,      bg: T.redBg,       band: "elevated" },
+  TIER_2_CONDITIONAL_ACCEPTABLE:{ label: "CONDITIONAL ACCEPTABLE",    shortLabel: "CONDITIONAL",      color: T.orange,   bg: T.orangeBg,    band: "elevated" },
+  TIER_2_HIGH_CONCERN:          { label: "HIGH CONCERN",              shortLabel: "HIGH CONCERN",     color: T.red,      bg: T.redBg,       band: "elevated" },
+  TIER_2_ELEVATED:              { label: "ELEVATED",                  shortLabel: "ELEVATED",         color: T.red,      bg: T.redBg,       band: "elevated" },
+  TIER_2_CAUTION:               { label: "CAUTION",                   shortLabel: "CAUTION",          color: T.orange,   bg: T.orangeBg,    band: "elevated" },
+  TIER_2_CAUTION_COMMERCIAL:    { label: "CAUTION",                   shortLabel: "CAUTION",          color: T.orange,   bg: T.orangeBg,    band: "elevated" },
+  TIER_3_CONDITIONAL:           { label: "CONDITIONAL",               shortLabel: "CONDITIONAL",      color: T.amber,    bg: T.amberBg,     band: "conditional" },
+  TIER_3_CRITICAL_ACCEPTABLE:   { label: "CRITICAL ACCEPTABLE",       shortLabel: "CRITICAL OK",      color: T.amber,    bg: T.amberBg,     band: "conditional" },
+  TIER_4_CRITICAL_QUALIFIED:    { label: "CRITICAL QUALIFIED",        shortLabel: "QUALIFIED",        color: T.green,    bg: T.greenBg,     band: "clear" },
+  TIER_4_APPROVED:              { label: "APPROVED",                  shortLabel: "APPROVED",         color: T.green,    bg: T.greenBg,     band: "clear" },
+  TIER_4_CLEAR:                 { label: "CLEAR",                     shortLabel: "CLEAR",            color: T.green,    bg: T.greenBg,     band: "clear" },
 };
+
+/**
+ * Program Scrutiny Level metadata (sensitivity context).
+ * These are Xiphos-native labels -- NOT classification markings.
+ */
+export type SensitivityKey = "CRITICAL_SAP" | "CRITICAL_SCI" | "ELEVATED" | "ENHANCED" | "CONTROLLED" | "STANDARD" | "COMMERCIAL";
+
+export const SENSITIVITY_META: Record<SensitivityKey, { label: string; color: string; bg: string; tagColor: string }> = {
+  CRITICAL_SAP: { label: "CRITICAL",    color: "#ffffff",  bg: "#991b1b", tagColor: "#ef4444" },
+  CRITICAL_SCI: { label: "CRITICAL",    color: "#ffffff",  bg: "#991b1b", tagColor: "#ef4444" },
+  ELEVATED:     { label: "ELEVATED",    color: "#ffffff",  bg: "#c2410c", tagColor: "#f97316" },
+  ENHANCED:     { label: "ENHANCED",    color: "#ffffff",  bg: "#a16207", tagColor: "#f59e0b" },
+  CONTROLLED:   { label: "CONTROLLED",  color: "#ffffff",  bg: "#1d4ed8", tagColor: "#3b82f6" },
+  STANDARD:     { label: "STANDARD",    color: "#ffffff",  bg: "#15803d", tagColor: "#10b981" },
+  COMMERCIAL:   { label: "COMMERCIAL",  color: T.dim,      bg: T.raised,  tagColor: T.muted },
+};
+
+export function parseSensitivity(raw: string | undefined | null): SensitivityKey {
+  if (!raw) return "COMMERCIAL";
+  if (raw in SENSITIVITY_META) return raw as SensitivityKey;
+  return "COMMERCIAL";
+}
 
 /** Band-level display metadata (for aggregated views like dashboards) */
 export const BAND_META: Record<TierBand, { label: string; color: string; bg: string }> = {

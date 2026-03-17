@@ -174,8 +174,10 @@ def _build_vendor_input(v: dict) -> VendorInputV5:
     # Derive sensitivity from program if dod block not supplied
     program = v.get("program", "standard_industrial")
     _program_map = {
-        "weapons_system": "TOP_SECRET", "mission_critical": "SECRET",
-        "dual_use": "CUI", "standard_industrial": "COMMERCIAL",
+        "weapons_system": "ELEVATED", "mission_critical": "ENHANCED",
+        "nuclear_related": "CRITICAL_SAP", "intelligence_community": "CRITICAL_SCI",
+        "critical_infrastructure": "ENHANCED",
+        "dual_use": "CONTROLLED", "standard_industrial": "COMMERCIAL",
         "commercial_off_shelf": "COMMERCIAL", "services": "COMMERCIAL",
     }
     default_sensitivity = _program_map.get(program, "COMMERCIAL")
@@ -244,7 +246,7 @@ def _run_regulatory_gates(v: dict, sensitivity: str, tier: int) -> tuple:
     """
     if not HAS_GATES:
         return ("NOT_EVALUATED", [], 0.0)
-    if sensitivity in ("COMMERCIAL", "UNCLASSIFIED"):
+    if sensitivity in ("COMMERCIAL", "STANDARD"):
         return ("NOT_EVALUATED", [], 0.0)
 
     name = v.get("name", "")

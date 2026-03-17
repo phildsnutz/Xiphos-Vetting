@@ -318,8 +318,10 @@ class MonitorScheduler:
             e = vi.get("exec", {})
             dod_raw = vi.get("dod", {})
             _prog_map = {
-                "weapons_system": "TOP_SECRET", "mission_critical": "SECRET",
-                "dual_use": "CUI", "standard_industrial": "COMMERCIAL",
+                "weapons_system": "ELEVATED", "mission_critical": "ENHANCED",
+                "nuclear_related": "CRITICAL_SAP", "intelligence_community": "CRITICAL_SCI",
+                "critical_infrastructure": "ENHANCED",
+                "dual_use": "CONTROLLED", "standard_industrial": "COMMERCIAL",
                 "commercial_off_shelf": "COMMERCIAL", "services": "COMMERCIAL",
             }
             program = vendor.get("program", vi.get("program", "standard_industrial"))

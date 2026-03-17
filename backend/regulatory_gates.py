@@ -480,7 +480,7 @@ def evaluate_itar(inp: ITARInput) -> GateResult:
         )
 
     # Tier 0-1: SAP/SCI — any foreign ownership is disqualifying
-    if sensitivity in ("SAP", "SCI"):
+    if sensitivity in ("CRITICAL_SAP", "CRITICAL_SCI"):
         if inp.entity_foreign_ownership_pct > 0.0:
             return GateResult(
                 gate_id=2, gate_name="ITAR",
@@ -495,7 +495,7 @@ def evaluate_itar(inp: ITARInput) -> GateResult:
             )
 
     # TOP_SECRET: foreign ownership allowed only with approved voting agreement + FOCI mitigated
-    if sensitivity == "TOP_SECRET":
+    if sensitivity == "ELEVATED":
         if inp.entity_foreign_ownership_pct > 0.0:
             if inp.entity_has_approved_voting_agreement and inp.entity_foci_status == "MITIGATED":
                 return GateResult(
@@ -518,10 +518,10 @@ def evaluate_itar(inp: ITARInput) -> GateResult:
             )
 
     # SECRET/CUI: requires FOCI mitigation or CMMC Level 2+
-    if sensitivity in ("SECRET", "CUI"):
+    if sensitivity in ("ENHANCED", "CONTROLLED"):
         if inp.entity_foreign_ownership_pct > 0.0:
             if inp.entity_foci_status == "MITIGATED":
-                if sensitivity == "CUI" and inp.entity_cmmc_level < 2:
+                if sensitivity == "CONTROLLED" and inp.entity_cmmc_level < 2:
                     return GateResult(
                         gate_id=2, gate_name="ITAR",
                         state=GateState.PENDING, severity="MEDIUM",
@@ -787,7 +787,7 @@ def evaluate_foci(inp: FOCIInput) -> GateResult:
     pct = max(inp.entity_foreign_ownership_pct, inp.entity_foreign_control_pct)
 
     # SAP/SCI: any foreign interest is disqualifying
-    if sensitivity in ("SAP", "SCI"):
+    if sensitivity in ("CRITICAL_SAP", "CRITICAL_SCI"):
         return GateResult(
             gate_id=7, gate_name="FOCI",
             state=GateState.FAIL, severity="CRITICAL",

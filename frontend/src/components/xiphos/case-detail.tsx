@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
-import { tierColor, parseTier } from "@/lib/tokens";
+import { tierColor, parseTier, SENSITIVITY_META, parseSensitivity } from "@/lib/tokens";
 import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar, Brain, Lock } from "lucide-react";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
@@ -422,14 +422,17 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
               <div className="flex items-center gap-2 mb-3">
                 <Globe size={16} color={T.accent} />
                 <span className="font-bold" style={{ fontSize: FS.md, color: T.text }}>DoD Compliance Assessment</span>
-                {cal.sensitivityContext && (
-                  <span
-                    className="rounded px-2 py-0.5 font-semibold"
-                    style={{ fontSize: FS.xs, background: T.accent + "22", color: T.accent, border: `1px solid ${T.accent}44` }}
-                  >
-                    {cal.sensitivityContext}
-                  </span>
-                )}
+                {cal.sensitivityContext && cal.sensitivityContext !== "COMMERCIAL" && (() => {
+                  const sm = SENSITIVITY_META[parseSensitivity(cal.sensitivityContext)];
+                  return (
+                    <span
+                      className="rounded px-2 py-0.5 font-semibold"
+                      style={{ fontSize: FS.xs, background: sm.bg, color: sm.color, border: `1px solid ${sm.tagColor}44` }}
+                    >
+                      {sm.label}
+                    </span>
+                  );
+                })()}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {/* Regulatory Status */}

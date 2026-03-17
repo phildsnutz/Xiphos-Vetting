@@ -165,7 +165,7 @@ class VendorInputV5:
 # MODEL PARAMETERS
 # =============================================================================
 
-SENSITIVITY_TIERS = ("SAP", "SCI", "TOP_SECRET", "SECRET", "CUI", "UNCLASSIFIED", "COMMERCIAL")
+SENSITIVITY_TIERS = ("CRITICAL_SAP", "CRITICAL_SCI", "ELEVATED", "ENHANCED", "CONTROLLED", "STANDARD", "COMMERCIAL")
 
 # 14 factor names in canonical order
 FACTOR_NAMES = (
@@ -177,104 +177,104 @@ FACTOR_NAMES = (
 
 # Baseline log-odds by sensitivity (higher = more scrutiny = higher baseline risk)
 BASELINE_LOGODDS: dict[str, float] = {
-    "SAP":          0.50,
-    "SCI":          0.30,
-    "TOP_SECRET":   0.10,
-    "SECRET":      -0.41,
-    "CUI":         -1.39,
-    "UNCLASSIFIED":-2.94,
+    "CRITICAL_SAP":          0.50,
+    "CRITICAL_SCI":          0.30,
+    "ELEVATED":   0.10,
+    "ENHANCED":      -0.41,
+    "CONTROLLED":         -1.39,
+    "STANDARD":-2.94,
     "COMMERCIAL":  -2.94,
 }
 
 # Factor weights: [factor][sensitivity] -> weight
 FACTOR_WEIGHTS: dict[str, dict[str, float]] = {
     "sanctions": {
-        "SAP": 2.5, "SCI": 2.3, "TOP_SECRET": 2.0, "SECRET": 1.8,
-        "CUI": 1.5, "UNCLASSIFIED": 1.0, "COMMERCIAL": 1.0,
+        "CRITICAL_SAP": 2.5, "CRITICAL_SCI": 2.3, "ELEVATED": 2.0, "ENHANCED": 1.8,
+        "CONTROLLED": 1.5, "STANDARD": 1.0, "COMMERCIAL": 1.0,
     },
     "geography": {
-        "SAP": 2.0, "SCI": 1.8, "TOP_SECRET": 1.5, "SECRET": 1.3,
-        "CUI": 1.2, "UNCLASSIFIED": 1.0, "COMMERCIAL": 1.0,
+        "CRITICAL_SAP": 2.0, "CRITICAL_SCI": 1.8, "ELEVATED": 1.5, "ENHANCED": 1.3,
+        "CONTROLLED": 1.2, "STANDARD": 1.0, "COMMERCIAL": 1.0,
     },
     "ownership": {
-        "SAP": 3.0, "SCI": 2.8, "TOP_SECRET": 2.2, "SECRET": 1.8,
-        "CUI": 1.2, "UNCLASSIFIED": 0.8, "COMMERCIAL": 0.8,
+        "CRITICAL_SAP": 3.0, "CRITICAL_SCI": 2.8, "ELEVATED": 2.2, "ENHANCED": 1.8,
+        "CONTROLLED": 1.2, "STANDARD": 0.8, "COMMERCIAL": 0.8,
     },
     "data_quality": {
-        "SAP": 1.0, "SCI": 1.0, "TOP_SECRET": 1.0, "SECRET": 0.8,
-        "CUI": 1.2, "UNCLASSIFIED": 0.6, "COMMERCIAL": 0.6,
+        "CRITICAL_SAP": 1.0, "CRITICAL_SCI": 1.0, "ELEVATED": 1.0, "ENHANCED": 0.8,
+        "CONTROLLED": 1.2, "STANDARD": 0.6, "COMMERCIAL": 0.6,
     },
     "executive": {
-        "SAP": 1.5, "SCI": 1.3, "TOP_SECRET": 1.0, "SECRET": 0.8,
-        "CUI": 0.6, "UNCLASSIFIED": 0.5, "COMMERCIAL": 0.5,
+        "CRITICAL_SAP": 1.5, "CRITICAL_SCI": 1.3, "ELEVATED": 1.0, "ENHANCED": 0.8,
+        "CONTROLLED": 0.6, "STANDARD": 0.5, "COMMERCIAL": 0.5,
     },
     "regulatory_gate_proximity": {
-        "SAP": 3.5, "SCI": 3.2, "TOP_SECRET": 2.5, "SECRET": 2.0,
-        "CUI": 1.8, "UNCLASSIFIED": 0.5, "COMMERCIAL": 0.0,
+        "CRITICAL_SAP": 3.5, "CRITICAL_SCI": 3.2, "ELEVATED": 2.5, "ENHANCED": 2.0,
+        "CONTROLLED": 1.8, "STANDARD": 0.5, "COMMERCIAL": 0.0,
     },
     "itar_exposure": {
-        "SAP": 2.8, "SCI": 2.5, "TOP_SECRET": 2.0, "SECRET": 1.5,
-        "CUI": 1.0, "UNCLASSIFIED": 0.5, "COMMERCIAL": 0.0,
+        "CRITICAL_SAP": 2.8, "CRITICAL_SCI": 2.5, "ELEVATED": 2.0, "ENHANCED": 1.5,
+        "CONTROLLED": 1.0, "STANDARD": 0.5, "COMMERCIAL": 0.0,
     },
     "ear_control_status": {
-        "SAP": 2.2, "SCI": 2.0, "TOP_SECRET": 1.8, "SECRET": 1.5,
-        "CUI": 1.0, "UNCLASSIFIED": 0.8, "COMMERCIAL": 0.0,
+        "CRITICAL_SAP": 2.2, "CRITICAL_SCI": 2.0, "ELEVATED": 1.8, "ENHANCED": 1.5,
+        "CONTROLLED": 1.0, "STANDARD": 0.8, "COMMERCIAL": 0.0,
     },
     "foreign_ownership_depth": {
-        "SAP": 2.5, "SCI": 2.3, "TOP_SECRET": 1.8, "SECRET": 1.5,
-        "CUI": 1.2, "UNCLASSIFIED": 0.8, "COMMERCIAL": 0.5,
+        "CRITICAL_SAP": 2.5, "CRITICAL_SCI": 2.3, "ELEVATED": 1.8, "ENHANCED": 1.5,
+        "CONTROLLED": 1.2, "STANDARD": 0.8, "COMMERCIAL": 0.5,
     },
     "cmmc_readiness": {
-        "SAP": 2.0, "SCI": 2.0, "TOP_SECRET": 1.8, "SECRET": 1.5,
-        "CUI": 3.0, "UNCLASSIFIED": 0.0, "COMMERCIAL": 0.0,
+        "CRITICAL_SAP": 2.0, "CRITICAL_SCI": 2.0, "ELEVATED": 1.8, "ENHANCED": 1.5,
+        "CONTROLLED": 3.0, "STANDARD": 0.0, "COMMERCIAL": 0.0,
     },
     "single_source_risk": {
-        "SAP": 1.5, "SCI": 1.5, "TOP_SECRET": 1.3, "SECRET": 1.2,
-        "CUI": 1.2, "UNCLASSIFIED": 1.0, "COMMERCIAL": 1.2,
+        "CRITICAL_SAP": 1.5, "CRITICAL_SCI": 1.5, "ELEVATED": 1.3, "ENHANCED": 1.2,
+        "CONTROLLED": 1.2, "STANDARD": 1.0, "COMMERCIAL": 1.2,
     },
     "geopolitical_sector_exposure": {
-        "SAP": 2.0, "SCI": 1.8, "TOP_SECRET": 1.5, "SECRET": 1.2,
-        "CUI": 1.0, "UNCLASSIFIED": 0.8, "COMMERCIAL": 0.8,
+        "CRITICAL_SAP": 2.0, "CRITICAL_SCI": 1.8, "ELEVATED": 1.5, "ENHANCED": 1.2,
+        "CONTROLLED": 1.0, "STANDARD": 0.8, "COMMERCIAL": 0.8,
     },
     "financial_stability": {
-        "SAP": 1.0, "SCI": 1.0, "TOP_SECRET": 1.0, "SECRET": 1.0,
-        "CUI": 1.0, "UNCLASSIFIED": 1.0, "COMMERCIAL": 1.0,
+        "CRITICAL_SAP": 1.0, "CRITICAL_SCI": 1.0, "ELEVATED": 1.0, "ENHANCED": 1.0,
+        "CONTROLLED": 1.0, "STANDARD": 1.0, "COMMERCIAL": 1.0,
     },
     "compliance_history": {
-        "SAP": 1.5, "SCI": 1.5, "TOP_SECRET": 1.3, "SECRET": 1.2,
-        "CUI": 1.0, "UNCLASSIFIED": 0.8, "COMMERCIAL": 0.8,
+        "CRITICAL_SAP": 1.5, "CRITICAL_SCI": 1.5, "ELEVATED": 1.3, "ENHANCED": 1.2,
+        "CONTROLLED": 1.0, "STANDARD": 0.8, "COMMERCIAL": 0.8,
     },
 }
 
 # Interaction terms: (factor_a, factor_b) -> {sensitivity: gamma}
 INTERACTION_WEIGHTS: dict[tuple[str, str], dict[str, float]] = {
     ("sanctions", "foreign_ownership_depth"): {
-        "SAP": 0.6, "SCI": 0.5, "TOP_SECRET": 0.4, "SECRET": 0.3,
-        "CUI": 0.2, "UNCLASSIFIED": 0.2, "COMMERCIAL": 0.2,
+        "CRITICAL_SAP": 0.6, "CRITICAL_SCI": 0.5, "ELEVATED": 0.4, "ENHANCED": 0.3,
+        "CONTROLLED": 0.2, "STANDARD": 0.2, "COMMERCIAL": 0.2,
     },
     ("regulatory_gate_proximity", "cmmc_readiness"): {
-        "SAP": 0.5, "SCI": 0.4, "TOP_SECRET": 0.3, "SECRET": 0.2,
-        "CUI": 0.8, "UNCLASSIFIED": 0.0, "COMMERCIAL": 0.0,
+        "CRITICAL_SAP": 0.5, "CRITICAL_SCI": 0.4, "ELEVATED": 0.3, "ENHANCED": 0.2,
+        "CONTROLLED": 0.8, "STANDARD": 0.0, "COMMERCIAL": 0.0,
     },
     ("foreign_ownership_depth", "geopolitical_sector_exposure"): {
-        "SAP": 0.3, "SCI": 0.3, "TOP_SECRET": 0.3, "SECRET": 0.3,
-        "CUI": 0.3, "UNCLASSIFIED": 0.3, "COMMERCIAL": 0.3,
+        "CRITICAL_SAP": 0.3, "CRITICAL_SCI": 0.3, "ELEVATED": 0.3, "ENHANCED": 0.3,
+        "CONTROLLED": 0.3, "STANDARD": 0.3, "COMMERCIAL": 0.3,
     },
     ("single_source_risk", "financial_stability"): {
-        "SAP": 0.4, "SCI": 0.4, "TOP_SECRET": 0.4, "SECRET": 0.4,
-        "CUI": 0.4, "UNCLASSIFIED": 0.4, "COMMERCIAL": 0.4,
+        "CRITICAL_SAP": 0.4, "CRITICAL_SCI": 0.4, "ELEVATED": 0.4, "ENHANCED": 0.4,
+        "CONTROLLED": 0.4, "STANDARD": 0.4, "COMMERCIAL": 0.4,
     },
     ("itar_exposure", "compliance_history"): {
-        "SAP": 0.5, "SCI": 0.5, "TOP_SECRET": 0.5, "SECRET": 0.5,
-        "CUI": 0.5, "UNCLASSIFIED": 0.5, "COMMERCIAL": 0.5,
+        "CRITICAL_SAP": 0.5, "CRITICAL_SCI": 0.5, "ELEVATED": 0.5, "ENHANCED": 0.5,
+        "CONTROLLED": 0.5, "STANDARD": 0.5, "COMMERCIAL": 0.5,
     },
 }
 
 # Effective sample size for Wilson CI by sensitivity
 # SAP cohort smaller = wider CI (more uncertainty)
 EFFECTIVE_N_BASE: dict[str, float] = {
-    "SAP": 50.0, "SCI": 60.0, "TOP_SECRET": 80.0, "SECRET": 100.0,
-    "CUI": 120.0, "UNCLASSIFIED": 150.0, "COMMERCIAL": 150.0,
+    "CRITICAL_SAP": 50.0, "CRITICAL_SCI": 60.0, "ELEVATED": 80.0, "ENHANCED": 100.0,
+    "CONTROLLED": 120.0, "STANDARD": 150.0, "COMMERCIAL": 150.0,
 }
 
 
@@ -400,7 +400,7 @@ def _evaluate_hard_stops(
             })
 
     # Rule 4: SAP/SCI with any foreign ownership
-    if sensitivity in ("SAP", "SCI") and ownership.foreign_ownership_pct > 0.0:
+    if sensitivity in ("CRITICAL_SAP", "CRITICAL_SCI") and ownership.foreign_ownership_pct > 0.0:
         stops.append({
             "trigger": f"Foreign Ownership Disqualifier for {sensitivity}",
             "explanation": (
@@ -510,7 +510,7 @@ def _evaluate_soft_flags(
             ),
             "confidence": 0.88,
         })
-    if dod.cmmc_readiness >= 0.5 and dod.sensitivity in ("SAP", "SCI", "TOP_SECRET", "SECRET", "CUI"):
+    if dod.cmmc_readiness >= 0.5 and dod.sensitivity in ("CRITICAL_SAP", "CRITICAL_SCI", "ELEVATED", "ENHANCED", "CONTROLLED"):
         flags.append({
             "trigger": "CMMC Certification Gap",
             "explanation": (
@@ -739,21 +739,21 @@ def integrate_layers(
         return "TIER_1_CRITICAL_CONCERN"
 
     # COMPLIANT paths
-    if sensitivity in ("SAP", "SCI"):
+    if sensitivity in ("CRITICAL_SAP", "CRITICAL_SCI"):
         if risk_probability < 0.20:
-            return "TIER_4_SAP_QUALIFIED"
+            return "TIER_4_CRITICAL_QUALIFIED"
         if risk_probability < 0.35:
-            return "TIER_3_SAP_ACCEPTABLE"
-        return "TIER_2_ELEVATED_CONCERN"
+            return "TIER_3_CRITICAL_ACCEPTABLE"
+        return "TIER_2_HIGH_CONCERN"
 
-    if sensitivity == "TOP_SECRET":
+    if sensitivity == "ELEVATED":
         if risk_probability < 0.25:
             return "TIER_4_APPROVED"
         if risk_probability < 0.40:
             return "TIER_3_CONDITIONAL"
         return "TIER_2_ELEVATED"
 
-    if sensitivity in ("SECRET", "CUI"):
+    if sensitivity in ("ENHANCED", "CONTROLLED"):
         if risk_probability < 0.30:
             return "TIER_4_APPROVED"
         if risk_probability < 0.50:
@@ -1082,12 +1082,12 @@ class VendorInput:
 
 
 _PROGRAM_TO_SENSITIVITY: dict[str, str] = {
-    "weapons_system":      "TOP_SECRET",
-    "mission_critical":    "SECRET",
-    "nuclear_related":     "TOP_SECRET",
-    "intelligence_community": "SCI",
-    "critical_infrastructure": "SECRET",
-    "dual_use":            "CUI",
+    "weapons_system":      "ELEVATED",
+    "mission_critical":    "ENHANCED",
+    "nuclear_related":     "ELEVATED",
+    "intelligence_community": "CRITICAL_SCI",
+    "critical_infrastructure": "ENHANCED",
+    "dual_use":            "CONTROLLED",
     "standard_industrial": "COMMERCIAL",
     "commercial_off_shelf":"COMMERCIAL",
     "services":            "COMMERCIAL",
