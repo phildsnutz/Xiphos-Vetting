@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { T, FS, TIER_META, type TierKey } from "@/lib/tokens";
+import { T, FS, TIER_META, type TierKey, tierBand, TIER_BANDS, BAND_META, parseTier } from "@/lib/tokens";
 import { BarChart3, List } from "lucide-react";
 import { StatCard } from "./stat-card";
 import { CaseRow } from "./case-row";
@@ -17,18 +17,22 @@ interface DashboardScreenProps {
 export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProps) {
   const [view, setView] = useState<"list" | "matrix">("list");
 
-  const hs = cases.filter((x) => x.cal?.tier === "hard_stop").length;
-  const el = cases.filter((x) => x.cal?.tier === "elevated").length;
-  const mo = cases.filter((x) => x.cal?.tier === "monitor").length;
-  const cl = cases.filter((x) => x.cal?.tier === "clear").length;
+  const bandCounts = Object.fromEntries(
+    TIER_BANDS.map((band) => [
+      band,
+      cases.filter((x) => x.cal?.tier && tierBand(parseTier(x.cal.tier)) === band).length,
+    ])
+  );
   const pe = cases.filter((x) => !x.cal).length;
 
-  const allTierRows: { tier: TierKey | "pending"; label: string; count: number; color: string }[] = [
-    { tier: "hard_stop" as const, label: "HARD STOP", count: hs, color: TIER_META.hard_stop.color },
-    { tier: "elevated" as const, label: "ELEVATED", count: el, color: TIER_META.elevated.color },
-    { tier: "monitor" as const, label: "MONITOR", count: mo, color: TIER_META.monitor.color },
-    { tier: "clear" as const, label: "CLEAR", count: cl, color: TIER_META.clear.color },
-    { tier: "pending" as const, label: "PENDING", count: pe, color: T.muted },
+  const allTierRows: { band: typeof TIER_BANDS[number] | "pending"; label: string; count: number; color: string }[] = [
+    ...TIER_BANDS.map((band) => ({
+      band,
+      label: BAND_META[band].label,
+      count: bandCounts[band],
+      color: BAND_META[band].color,
+    })),
+    { band: "pending" as const, label: "PENDING", count: pe, color: T.muted },
   ];
   const tierRows = allTierRows.filter((r) => r.count > 0);
 
@@ -43,8 +47,8 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 shrink-0">
         <StatCard label="Vendors" value={cases.length} color={T.text} />
-        <StatCard label="Hard Stops" value={hs} color={hs ? T.red : T.muted} emphasis={hs > 0} />
-        <StatCard label="Elevated" value={el} color={el ? T.amber : T.muted} />
+        <StatCard label="Critical" value={bandCounts.critical} color={bandCounts.critical ? T.red : T.muted} emphasis={bandCounts.critical > 0} />
+        <StatCard label="Elevated" value={bandCounts.elevated} color={bandCounts.elevated ? T.amber : T.muted} />
         <StatCard label="Alerts" value={alerts.length} color={alerts.length ? T.amber : T.muted} />
         <StatCard
           label="Portfolio Risk"
@@ -133,7 +137,7 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
                       const pct = (r.count / total) * 100;
                       const segment = (
                         <circle
-                          key={r.tier}
+                          key={r.band}
                           cx="18" cy="18" r="14"
                           fill="none"
                           stroke={r.color}
@@ -154,7 +158,7 @@ export function DashboardScreen({ cases, alerts, onSelect }: DashboardScreenProp
                 {/* Legend */}
                 <div className="flex-1">
                   {tierRows.map((r) => (
-                    <div key={r.tier} className="flex items-center justify-between" style={{ padding: "3px 0" }}>
+                    <div key={r.band} className="flex items-center justify-between" style={{ padding: "3px 0" }}>
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: r.color }} />
                         <span style={{ fontSize: FS.sm, color: T.dim }}>{r.label}</span>

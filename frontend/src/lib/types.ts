@@ -29,6 +29,7 @@ export interface MIV {
 export interface Calibration {
   p: number;
   tier: TierKey;
+  combinedTier?: TierKey;
   lo: number;
   hi: number;
   cov: number;
@@ -38,6 +39,15 @@ export interface Calibration {
   flags: Flag[];
   finds: string[];
   miv: MIV[];
+  // v5.0 DoD layer fields
+  dodEligible?: boolean;
+  dodQualified?: boolean;
+  recommendation?: string;
+  regulatoryStatus?: string;
+  regulatoryFindings?: Array<Record<string, unknown>>;
+  sensitivityContext?: string;
+  supplyChainTier?: number;
+  modelVersion?: string;
 }
 
 export interface ScoreSnapshot {

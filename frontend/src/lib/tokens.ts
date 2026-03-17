@@ -37,14 +37,14 @@ export const T = {
 
 /** Type scale - minimum 11px, modular scale */
 export const FS = {
-  xs: 11,     // smallest allowed (was 8-9)
-  sm: 12,     // secondary text
-  base: 13,   // body text
-  md: 14,     // emphasized body
-  lg: 16,     // section headers
-  xl: 20,     // large numbers
-  xxl: 28,    // hero metrics
-  huge: 36,   // page titles
+  xs: 11,
+  sm: 12,
+  base: 13,
+  md: 14,
+  lg: 16,
+  xl: 20,
+  xxl: 28,
+  huge: 36,
 } as const;
 
 /** Spacing scale */
@@ -57,15 +57,96 @@ export const SP = {
   xxl: 32,
 } as const;
 
-export type TierKey = "clear" | "monitor" | "elevated" | "hard_stop";
+
+// =============================================================================
+// v5.0 TIER SYSTEM
+// =============================================================================
+
+/**
+ * All v5.0 tier names from the FGAMLogit two-layer integration.
+ * TIER_1 = critical/blocked, TIER_2 = elevated concern, TIER_3 = conditional, TIER_4 = approved/clear
+ */
+export type TierKey =
+  | "TIER_1_DISQUALIFIED"
+  | "TIER_1_CRITICAL_CONCERN"
+  | "TIER_2_ELEVATED_REVIEW"
+  | "TIER_2_CONDITIONAL_ACCEPTABLE"
+  | "TIER_2_ELEVATED_CONCERN"
+  | "TIER_2_ELEVATED"
+  | "TIER_2_CAUTION"
+  | "TIER_2_CAUTION_COMMERCIAL"
+  | "TIER_3_CONDITIONAL"
+  | "TIER_3_SAP_ACCEPTABLE"
+  | "TIER_4_SAP_QUALIFIED"
+  | "TIER_4_APPROVED"
+  | "TIER_4_CLEAR";
+
 export type RiskKey = "low" | "medium" | "elevated" | "high" | "critical";
 
-export const TIER_META: Record<TierKey, { label: string; color: string; bg: string }> = {
-  clear:     { label: "CLEAR",     color: T.green,  bg: T.greenBg  },
-  monitor:   { label: "MONITOR",   color: T.amber,  bg: T.amberBg  },
-  elevated:  { label: "ELEVATED",  color: T.red,    bg: T.redBg    },
-  hard_stop: { label: "HARD STOP", color: "#ffffff", bg: T.hardStopBg },
+/** Tier category: groups individual tiers into 4 visual bands */
+export type TierBand = "critical" | "elevated" | "conditional" | "clear";
+
+/** Which band does this tier belong to? */
+export function tierBand(tier: TierKey): TierBand {
+  if (tier.startsWith("TIER_1")) return "critical";
+  if (tier.startsWith("TIER_2")) return "elevated";
+  if (tier.startsWith("TIER_3")) return "conditional";
+  return "clear";
+}
+
+/** Display metadata for each tier */
+export const TIER_META: Record<TierKey, { label: string; shortLabel: string; color: string; bg: string; band: TierBand }> = {
+  TIER_1_DISQUALIFIED:          { label: "DISQUALIFIED",              shortLabel: "DISQUALIFIED",  color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
+  TIER_1_CRITICAL_CONCERN:      { label: "CRITICAL CONCERN",          shortLabel: "CRITICAL",      color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
+  TIER_2_ELEVATED_REVIEW:       { label: "ELEVATED REVIEW",           shortLabel: "ELEVATED",      color: T.red,      bg: T.redBg,       band: "elevated" },
+  TIER_2_CONDITIONAL_ACCEPTABLE:{ label: "CONDITIONAL ACCEPTABLE",    shortLabel: "CONDITIONAL",   color: T.orange,   bg: T.orangeBg,    band: "elevated" },
+  TIER_2_ELEVATED_CONCERN:      { label: "ELEVATED CONCERN",          shortLabel: "ELEVATED",      color: T.red,      bg: T.redBg,       band: "elevated" },
+  TIER_2_ELEVATED:              { label: "ELEVATED",                  shortLabel: "ELEVATED",      color: T.red,      bg: T.redBg,       band: "elevated" },
+  TIER_2_CAUTION:               { label: "CAUTION",                   shortLabel: "CAUTION",       color: T.orange,   bg: T.orangeBg,    band: "elevated" },
+  TIER_2_CAUTION_COMMERCIAL:    { label: "CAUTION",                   shortLabel: "CAUTION",       color: T.orange,   bg: T.orangeBg,    band: "elevated" },
+  TIER_3_CONDITIONAL:           { label: "CONDITIONAL",               shortLabel: "CONDITIONAL",   color: T.amber,    bg: T.amberBg,     band: "conditional" },
+  TIER_3_SAP_ACCEPTABLE:        { label: "SAP ACCEPTABLE",            shortLabel: "SAP OK",        color: T.amber,    bg: T.amberBg,     band: "conditional" },
+  TIER_4_SAP_QUALIFIED:         { label: "SAP QUALIFIED",             shortLabel: "SAP QUALIFIED", color: T.green,    bg: T.greenBg,     band: "clear" },
+  TIER_4_APPROVED:              { label: "APPROVED",                  shortLabel: "APPROVED",      color: T.green,    bg: T.greenBg,     band: "clear" },
+  TIER_4_CLEAR:                 { label: "CLEAR",                     shortLabel: "CLEAR",         color: T.green,    bg: T.greenBg,     band: "clear" },
 };
+
+/** Band-level display metadata (for aggregated views like dashboards) */
+export const BAND_META: Record<TierBand, { label: string; color: string; bg: string }> = {
+  critical:    { label: "CRITICAL",     color: "#ffffff",  bg: T.hardStopBg },
+  elevated:    { label: "ELEVATED",     color: T.red,      bg: T.redBg },
+  conditional: { label: "CONDITIONAL",  color: T.amber,    bg: T.amberBg },
+  clear:       { label: "CLEAR",        color: T.green,    bg: T.greenBg },
+};
+
+/** Map a tier to risk level (for the legacy risk-level display) */
+export function tierToRisk(tier: TierKey): RiskKey {
+  const b = tierBand(tier);
+  if (b === "critical") return "critical";
+  if (b === "elevated") return "elevated";
+  if (b === "conditional") return "medium";
+  return "low";
+}
+
+/** Get color for a tier */
+export function tierColor(tier: TierKey): string {
+  return TIER_META[tier]?.color ?? T.green;
+}
+
+/** Safely parse a tier string from the backend. Falls back to TIER_4_CLEAR. */
+export function parseTier(raw: string | undefined | null): TierKey {
+  if (!raw) return "TIER_4_CLEAR";
+  if (raw in TIER_META) return raw as TierKey;
+  return "TIER_4_CLEAR";
+}
+
+/** The 4 bands in display order (most severe first) for dashboard aggregation */
+export const TIER_BANDS: TierBand[] = ["critical", "elevated", "conditional", "clear"];
+
+/** All tiers belonging to a band */
+export function tiersInBand(band: TierBand): TierKey[] {
+  return (Object.keys(TIER_META) as TierKey[]).filter(t => TIER_META[t].band === band);
+}
 
 export const RISK_META: Record<RiskKey, { label: string; color: string; bg: string }> = {
   low:      { label: "LOW",      color: T.green,  bg: T.greenBg  },

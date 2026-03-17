@@ -47,8 +47,8 @@ from datetime import datetime
 
 from flask import Flask, request, jsonify, send_file
 
-from scoring_v5 import (
-    score_vendor, VendorInputV5, VendorInput, OwnershipProfile, DataQuality,
+from fgamlogit import (
+    score_vendor, VendorInputV5, OwnershipProfile, DataQuality,
     ExecProfile, DoDContext, integrate_layers,
 )
 from ofac import screen_name, get_active_db, invalidate_cache
@@ -194,6 +194,7 @@ def _score_to_api_dict(result) -> dict:
     return {
         "calibrated_probability": result.calibrated_probability,
         "calibrated_tier": result.calibrated_tier,
+        "combined_tier": result.combined_tier,
         "interval": {
             "lower": result.interval_lower,
             "upper": result.interval_upper,
@@ -203,7 +204,7 @@ def _score_to_api_dict(result) -> dict:
         "soft_flags": result.soft_flags,
         "narratives": {"findings": result.findings},
         "marginal_information_values": result.marginal_information_values,
-        # DoD fields (new in v5.0)
+        # DoD fields (v5.0)
         "is_dod_eligible": result.is_dod_eligible,
         "is_dod_qualified": result.is_dod_qualified,
         "program_recommendation": result.program_recommendation,

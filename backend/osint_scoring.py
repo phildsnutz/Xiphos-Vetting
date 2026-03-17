@@ -2,7 +2,7 @@
 OSINT-to-Scoring Bridge
 
 Takes an OSINT enrichment report and produces augmented scoring inputs.
-Updates VendorInput fields based on discovered data, and generates
+Updates VendorInputV5 fields based on discovered data, and generates
 additional risk signals that feed into the Bayesian scoring engine.
 
 Original scoring weights (from deep-research-report.md):
@@ -16,14 +16,14 @@ Original scoring weights (from deep-research-report.md):
 
 from dataclasses import dataclass
 from typing import Optional
-from scoring_v5 import VendorInput, OwnershipProfile, DataQuality, ExecProfile
+from fgamlogit import VendorInputV5, OwnershipProfile, DataQuality, ExecProfile, DoDContext
 
 
 @dataclass
 class OSINTAugmentation:
     """Result of processing an enrichment report for scoring."""
     # Updated vendor input (with OSINT-discovered data)
-    vendor_input: VendorInput
+    vendor_input: VendorInputV5
     # Additional risk signals not captured by the standard scoring factors
     extra_risk_signals: list[dict]
     # Data quality improvements (what OSINT verified)
@@ -33,7 +33,7 @@ class OSINTAugmentation:
 
 
 def augment_from_enrichment(
-    base_input: VendorInput,
+    base_input: VendorInputV5,
     enrichment: dict,
 ) -> OSINTAugmentation:
     """
@@ -46,7 +46,7 @@ def augment_from_enrichment(
     4. Produces extra risk signals from screening list matches, exclusions, etc.
 
     Args:
-        base_input: The current VendorInput for scoring
+        base_input: The current VendorInputV5 for scoring
         enrichment: The enrichment report dict from enrich_vendor()
 
     Returns:
@@ -362,15 +362,15 @@ def augment_from_enrichment(
         changes.append(f"FARA Foreign Principal ID: {identifiers['fara_principal_id']}")
 
     # -------------------------------------------------------------------
-    # Build augmented VendorInput
+    # Build augmented VendorInputV5
     # -------------------------------------------------------------------
-    augmented = VendorInput(
+    augmented = VendorInputV5(
         name=base_input.name,
         country=base_input.country,
         ownership=own,
         data_quality=dq,
         exec_profile=ex,
-        program=base_input.program,
+        dod=base_input.dod,
     )
 
     return OSINTAugmentation(

@@ -16,44 +16,67 @@ import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, Alert } from "@/lib/types";
+import { parseTier, tierToRisk } from "@/lib/tokens";
 import type { TierKey } from "@/lib/tokens";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
     calibrated_probability: number;
     calibrated_tier: string;
-    interval: { lower: number; upper: number; coverage: number };
+    combined_tier?: string;
+    interval: { lower: number; upper: number; coverage?: number };
     contributions: Array<{
-      factor: string; raw_score: number; confidence: number;
+      factor: string; raw_score: number; confidence?: number; weight?: number;
       signed_contribution: number; description: string;
     }>;
     hard_stop_decisions: Array<{ trigger: string; explanation: string; confidence: number }>;
     soft_flags: Array<{ trigger: string; explanation: string; confidence: number }>;
     narratives: { findings: string[] };
     marginal_information_values: Array<{
-      recommendation: string; expected_info_gain_pp: number; tier_change_probability: number;
+      recommendation?: string; factor?: string;
+      expected_info_gain_pp?: number; expected_shift_pp?: number;
+      tier_change_probability: number;
     }>;
+    // v5.0 DoD fields
+    is_dod_eligible?: boolean;
+    is_dod_qualified?: boolean;
+    program_recommendation?: string;
+    regulatory_status?: string;
+    regulatory_findings?: Array<Record<string, unknown>>;
+    sensitivity_context?: string;
+    supply_chain_tier?: number;
+    model_version?: string;
   };
 
   const meanConf = cal.contributions.length > 0
-    ? cal.contributions.reduce((s, c) => s + c.confidence, 0) / cal.contributions.length : 0;
+    ? cal.contributions.reduce((s, c) => s + (c.confidence ?? c.weight ?? 0), 0) / cal.contributions.length : 0;
 
   return {
     p: cal.calibrated_probability,
-    tier: cal.calibrated_tier as TierKey,
+    tier: parseTier(cal.calibrated_tier),
+    combinedTier: parseTier(cal.combined_tier ?? cal.calibrated_tier),
     lo: cal.interval.lower,
     hi: cal.interval.upper,
-    cov: cal.interval.coverage,
+    cov: cal.interval.coverage ?? 0,
     mc: meanConf,
     ct: cal.contributions.map((c) => ({
-      n: c.factor, raw: c.raw_score, c: c.confidence, s: c.signed_contribution, d: c.description,
+      n: c.factor, raw: c.raw_score, c: c.confidence ?? c.weight ?? 0, s: c.signed_contribution, d: c.description,
     })),
     stops: cal.hard_stop_decisions.map((h) => ({ t: h.trigger, x: h.explanation, c: h.confidence })),
     flags: cal.soft_flags.map((f) => ({ t: f.trigger, x: f.explanation, c: f.confidence })),
     finds: cal.narratives?.findings ?? [],
     miv: (cal.marginal_information_values ?? []).map((m) => ({
-      t: m.recommendation, i: m.expected_info_gain_pp, tp: m.tier_change_probability,
+      t: m.recommendation ?? m.factor ?? "", i: m.expected_info_gain_pp ?? m.expected_shift_pp ?? 0, tp: m.tier_change_probability,
     })),
+    // v5.0 DoD layer
+    dodEligible: cal.is_dod_eligible,
+    dodQualified: cal.is_dod_qualified,
+    recommendation: cal.program_recommendation,
+    regulatoryStatus: cal.regulatory_status,
+    regulatoryFindings: cal.regulatory_findings,
+    sensitivityContext: cal.sensitivity_context,
+    supplyChainTier: cal.supply_chain_tier,
+    modelVersion: cal.model_version,
   };
 }
 
@@ -69,7 +92,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
     name: ac.vendor_name,
     cc: (score.calibrated as { calibrated_tier?: string })?.calibrated_tier ? "" : "",
     date: ac.created_at,
-    rl: cal.tier === "clear" ? "low" : cal.tier === "monitor" ? "medium" : cal.tier === "elevated" ? "elevated" : "critical",
+    rl: tierToRisk(cal.tier),
     sc: score.composite_score,
     conf: mc,
     cal,
@@ -212,7 +235,7 @@ export default function App() {
   const handleRescore = async (caseId: string) => {
     const result = await rescore(caseId);
     const cal = mapCalibration(result.calibrated as unknown as Record<string, unknown>);
-    const rl = cal.tier === "clear" ? "low" as const : cal.tier === "hard_stop" ? "critical" as const : "elevated" as const;
+    const rl = tierToRisk(cal.tier);
     const snapshot = { p: cal.p, tier: cal.tier, sc: result.composite_score, ts: new Date().toISOString() };
     setCases((prev) => prev.map((c) => {
       if (c.id !== caseId) return c;

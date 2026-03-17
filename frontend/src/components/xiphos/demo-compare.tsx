@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { T, FS } from "@/lib/tokens";
+import { tierBand, BAND_META, TIER_META, parseTier, tierColor } from "@/lib/tokens";
 import {
   Shield, Globe, Search, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle, XOctagon, Eye, Zap,
@@ -23,14 +24,6 @@ interface DemoResult {
   profiles: ProfileResult[];
   demo: boolean;
 }
-
-/* ---- Tier styling ---- */
-const TIER_CONFIG: Record<string, { color: string; bg: string; icon: typeof Shield; label: string }> = {
-  hard_stop: { color: "#ef4444", bg: "rgba(239,68,68,0.12)", icon: XOctagon, label: "HARD STOP" },
-  elevated:  { color: "#f97316", bg: "rgba(249,115,22,0.12)", icon: AlertTriangle, label: "ELEVATED" },
-  monitor:   { color: "#eab308", bg: "rgba(234,179,8,0.12)", icon: Eye, label: "MONITOR" },
-  clear:     { color: "#22c55e", bg: "rgba(34,197,94,0.12)", icon: CheckCircle, label: "CLEAR" },
-};
 
 /* ---- Profile short labels and descriptions ---- */
 const PROFILE_INFO: Record<string, { short: string; desc: string; icon: string }> = {
@@ -451,9 +444,22 @@ export function DemoCompare() {
           {/* Profile cards grid */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
             {displayProfiles.map((p) => {
-              const tc = TIER_CONFIG[p.tier] || TIER_CONFIG.clear;
+              const parsedTier = parseTier(p.tier);
+              const band = tierBand(parsedTier);
+              const bandMeta = BAND_META[band];
+              const tierMeta = TIER_META[parsedTier];
               const pi = PROFILE_INFO[p.profile_id] || { short: p.profile_id, desc: "", icon: "shield" };
-              const TierIcon = tc.icon;
+              const color = tierColor(parsedTier);
+              const bg = tierMeta?.bg || bandMeta?.bg || "rgba(148,163,184,0.12)";
+              // Map band to icon
+              const iconMap: Record<typeof band, typeof Shield> = {
+                critical: XOctagon,
+                elevated: AlertTriangle,
+                conditional: Eye,
+                clear: CheckCircle,
+              };
+              const TierIcon = iconMap[band];
+              const label = tierMeta?.shortLabel || bandMeta?.label || "UNKNOWN";
               const isExpanded = expanded === p.profile_id;
 
               return (
@@ -463,7 +469,7 @@ export function DemoCompare() {
                   className="rounded-lg text-left border-none cursor-pointer w-full"
                   style={{
                     background: T.surface,
-                    border: `1px solid ${isExpanded ? tc.color + "44" : T.border}`,
+                    border: `1px solid ${isExpanded ? color + "44" : T.border}`,
                     padding: 14,
                     transition: "border-color 0.2s",
                   }}
@@ -479,16 +485,16 @@ export function DemoCompare() {
                   {/* Tier badge */}
                   <div
                     className="inline-flex items-center gap-1 rounded-sm px-2 py-1 mb-2"
-                    style={{ background: tc.bg, border: `1px solid ${tc.color}22` }}
+                    style={{ background: bg, border: `1px solid ${color}22` }}
                   >
-                    <TierIcon size={10} color={tc.color} />
-                    <span className="font-mono font-bold" style={{ fontSize: FS.xs, color: tc.color }}>
-                      {tc.label}
+                    <TierIcon size={10} color={color} />
+                    <span className="font-mono font-bold" style={{ fontSize: FS.xs, color: color }}>
+                      {label}
                     </span>
                   </div>
 
                   {/* Probability */}
-                  <div className="font-mono font-bold" style={{ fontSize: 22, color: tc.color }}>
+                  <div className="font-mono font-bold" style={{ fontSize: 22, color: color }}>
                     {Math.round(p.probability * 100)}%
                   </div>
                   <div style={{ fontSize: "9px", color: T.muted }}>risk probability</div>

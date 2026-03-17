@@ -1,25 +1,10 @@
 import { useMemo } from "react";
-import { T, FS } from "@/lib/tokens";
+import { T, FS, tierBand, TIER_BANDS, BAND_META, tierColor, parseTier } from "@/lib/tokens";
 import {
   Shield, TrendingUp, TrendingDown, AlertTriangle, Eye,
   CheckCircle, XOctagon, Clock, Users, BarChart3,
 } from "lucide-react";
 import type { VettingCase, Alert } from "@/lib/types";
-
-/* ---- Tier config ---- */
-const TIER_COLORS: Record<string, string> = {
-  hard_stop: "#ef4444",
-  elevated: "#f97316",
-  monitor: "#eab308",
-  clear: "#22c55e",
-};
-
-const TIER_LABELS: Record<string, string> = {
-  hard_stop: "HARD STOP",
-  elevated: "ELEVATED",
-  monitor: "MONITOR",
-  clear: "CLEAR",
-};
 
 /* ---- Props ---- */
 interface ExecDashboardProps {
@@ -32,12 +17,11 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
   // Compute portfolio metrics
   const metrics = useMemo(() => {
     const total = cases.length;
-    const byTier: Record<string, VettingCase[]> = {
-      hard_stop: [], elevated: [], monitor: [], clear: [],
-    };
+    const byBand: Record<string, VettingCase[]> = Object.fromEntries(TIER_BANDS.map(b => [b, []]));
     for (const c of cases) {
-      const tier = c.cal?.tier ?? "clear";
-      (byTier[tier] ??= []).push(c);
+      const tierKey = c.cal?.tier ? parseTier(c.cal.tier) : "TIER_4_CLEAR";
+      const band = tierBand(tierKey);
+      (byBand[band] ??= []).push(c);
     }
 
     const avgRisk = total > 0
@@ -65,7 +49,7 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
     const recent = cases.filter((c) => now - new Date(c.date).getTime() < sevenDays);
 
-    return { total, byTier, avgRisk, stale, critAlerts, highAlerts, topRisk, recent };
+    return { total, byBand, avgRisk, stale, critAlerts, highAlerts, topRisk, recent };
   }, [cases, alerts]);
 
   return (
@@ -128,34 +112,34 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
           {/* Visual bar */}
           {metrics.total > 0 && (
             <div className="flex rounded-full overflow-hidden mb-3" style={{ height: 12 }}>
-              {(["hard_stop", "elevated", "monitor", "clear"] as const).map((tier) => {
-                const count = metrics.byTier[tier]?.length ?? 0;
+              {TIER_BANDS.map((band) => {
+                const count = metrics.byBand[band]?.length ?? 0;
                 const pct = (count / metrics.total) * 100;
                 if (pct === 0) return null;
                 return (
                   <div
-                    key={tier}
-                    style={{ width: `${pct}%`, background: TIER_COLORS[tier], minWidth: pct > 0 ? 4 : 0 }}
-                    title={`${TIER_LABELS[tier]}: ${count} (${Math.round(pct)}%)`}
+                    key={band}
+                    style={{ width: `${pct}%`, background: BAND_META[band].color, minWidth: pct > 0 ? 4 : 0 }}
+                    title={`${BAND_META[band].label}: ${count} (${Math.round(pct)}%)`}
                   />
                 );
               })}
             </div>
           )}
 
-          {/* Tier rows */}
-          {(["hard_stop", "elevated", "monitor", "clear"] as const).map((tier) => {
-            const count = metrics.byTier[tier]?.length ?? 0;
+          {/* Band rows */}
+          {TIER_BANDS.map((band) => {
+            const count = metrics.byBand[band]?.length ?? 0;
             const pct = metrics.total > 0 ? Math.round((count / metrics.total) * 100) : 0;
             return (
               <div
-                key={tier}
+                key={band}
                 className="flex items-center justify-between py-1.5"
                 style={{ borderBottom: `1px solid ${T.border}22` }}
               >
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: TIER_COLORS[tier] }} />
-                  <span style={{ fontSize: FS.sm, color: T.dim }}>{TIER_LABELS[tier]}</span>
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: BAND_META[band].color }} />
+                  <span style={{ fontSize: FS.sm, color: T.dim }}>{BAND_META[band].label}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold" style={{ fontSize: FS.sm, color: T.text }}>
@@ -186,9 +170,9 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
           )}
 
           {metrics.topRisk.map((c, i) => {
-            const tier = c.cal?.tier ?? "clear";
+            const tierKey = c.cal?.tier ? parseTier(c.cal.tier) : "TIER_4_CLEAR";
             const prob = c.cal?.p ?? 0;
-            const color = TIER_COLORS[tier] || T.muted;
+            const color = tierColor(tierKey);
             const stops = c.cal?.stops?.length ?? 0;
             const flags = c.cal?.flags?.length ?? 0;
 
@@ -246,7 +230,7 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
                   className="font-mono font-bold rounded-sm px-1.5 py-0.5 shrink-0"
                   style={{ fontSize: "9px", color, background: color + "15", border: `1px solid ${color}22` }}
                 >
-                  {TIER_LABELS[tier]}
+                  {tierKey}
                 </span>
               </button>
             );

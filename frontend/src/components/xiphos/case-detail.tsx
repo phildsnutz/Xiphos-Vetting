@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
+import { tierColor, tierBand, parseTier, TIER_META, BAND_META } from "@/lib/tokens";
 import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar, Brain, Lock } from "lucide-react";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
@@ -82,11 +83,10 @@ function ScoreHistory({ history, current }: { history: ScoreSnapshot[]; current:
 
         {/* Data points */}
         {points.map((pt, i) => {
-          const tierColor = pt.tier === "clear" ? T.green : pt.tier === "monitor" ? T.amber :
-            pt.tier === "elevated" ? T.orange : T.red;
+          const color = tierColor(parseTier(pt.tier));
           return (
             <g key={i}>
-              <circle cx={x(i)} cy={y(pt.p)} r={3.5} fill={T.bg} stroke={tierColor} strokeWidth={1.5} />
+              <circle cx={x(i)} cy={y(pt.p)} r={3.5} fill={T.bg} stroke={color} strokeWidth={1.5} />
               {/* Label on first and last */}
               {(i === 0 || i === points.length - 1) && (
                 <text

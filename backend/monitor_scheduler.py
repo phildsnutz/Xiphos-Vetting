@@ -28,7 +28,10 @@ from typing import Optional
 from dataclasses import asdict
 
 import db
-from scoring import score_vendor
+from fgamlogit import (
+    score_vendor, VendorInputV5, OwnershipProfile, DataQuality,
+    ExecProfile, DoDContext,
+)
 from profiles import get_connector_list
 
 try:
@@ -308,23 +311,73 @@ class MonitorScheduler:
             # Save enrichment
             db.save_enrichment(vendor_id, enrichment)
 
-            # Re-score with updated data
-            vendor_input = vendor.get("vendor_input", {})
-            score_result = score_vendor(vendor_input, profile=profile)
+            # Re-score with updated data -- build VendorInputV5 from stored vendor dict
+            vi = vendor.get("vendor_input", {})
+            o = vi.get("ownership", {})
+            d = vi.get("data_quality", {})
+            e = vi.get("exec", {})
+            dod_raw = vi.get("dod", {})
+            _prog_map = {
+                "weapons_system": "TOP_SECRET", "mission_critical": "SECRET",
+                "dual_use": "CUI", "standard_industrial": "COMMERCIAL",
+                "commercial_off_shelf": "COMMERCIAL", "services": "COMMERCIAL",
+            }
+            program = vendor.get("program", vi.get("program", "standard_industrial"))
+            default_sens = _prog_map.get(program, "COMMERCIAL")
 
-            # Convert dataclass to dict format expected by save_score()
+            inp = VendorInputV5(
+                name=vendor_name, country=vendor_country,
+                ownership=OwnershipProfile(
+                    publicly_traded=o.get("publicly_traded", False),
+                    state_owned=o.get("state_owned", False),
+                    beneficial_owner_known=o.get("beneficial_owner_known", False),
+                    ownership_pct_resolved=o.get("ownership_pct_resolved", 0.0),
+                    shell_layers=o.get("shell_layers", 0),
+                    pep_connection=o.get("pep_connection", False),
+                    foreign_ownership_pct=o.get("foreign_ownership_pct", 0.0),
+                    foreign_ownership_is_allied=o.get("foreign_ownership_is_allied", True),
+                ),
+                data_quality=DataQuality(
+                    has_lei=d.get("has_lei", False), has_cage=d.get("has_cage", False),
+                    has_duns=d.get("has_duns", False), has_tax_id=d.get("has_tax_id", False),
+                    has_audited_financials=d.get("has_audited_financials", False),
+                    years_of_records=d.get("years_of_records", 0),
+                ),
+                exec_profile=ExecProfile(
+                    known_execs=e.get("known_execs", 0), adverse_media=e.get("adverse_media", 0),
+                    pep_execs=e.get("pep_execs", 0), litigation_history=e.get("litigation_history", 0),
+                ),
+                dod=DoDContext(
+                    sensitivity=dod_raw.get("sensitivity", default_sens),
+                    supply_chain_tier=dod_raw.get("supply_chain_tier", 0),
+                    regulatory_gate_proximity=dod_raw.get("regulatory_gate_proximity", 0.0),
+                    itar_exposure=dod_raw.get("itar_exposure", 0.0),
+                    ear_control_status=dod_raw.get("ear_control_status", 0.0),
+                    foreign_ownership_depth=dod_raw.get("foreign_ownership_depth", 0.0),
+                    cmmc_readiness=dod_raw.get("cmmc_readiness", 0.0),
+                    single_source_risk=dod_raw.get("single_source_risk", 0.0),
+                    geopolitical_sector_exposure=dod_raw.get("geopolitical_sector_exposure", 0.0),
+                    financial_stability=dod_raw.get("financial_stability", 0.2),
+                    compliance_history=dod_raw.get("compliance_history", 0.0),
+                ),
+            )
+            score_result = score_vendor(inp)
+
+            # Convert to dict format expected by save_score()
+            composite_score = round(score_result.calibrated_probability * 100)
+            is_hard_stop = score_result.calibrated_tier.startswith("TIER_1")
             score_dict = {
                 "calibrated": {
                     "calibrated_probability": score_result.calibrated_probability,
                     "calibrated_tier": score_result.calibrated_tier,
+                    "combined_tier": score_result.combined_tier,
                     "interval": {
                         "lower": score_result.interval_lower,
                         "upper": score_result.interval_upper,
-                        "coverage": score_result.interval_coverage,
-                    }
+                    },
                 },
-                "composite_score": score_result.composite_score,
-                "is_hard_stop": score_result.calibrated_tier == "hard_stop",
+                "composite_score": composite_score,
+                "is_hard_stop": is_hard_stop,
             }
 
             # Save new score
@@ -336,7 +389,7 @@ class MonitorScheduler:
 
             # Generate alert if tier changed
             if risk_changed:
-                severity = "critical" if new_tier == "hard_stop" else "high" if new_tier == "elevated" else "medium"
+                severity = "critical" if "TIER_1" in new_tier else "high" if "TIER_2" in new_tier else "medium"
                 db.save_alert(
                     vendor_id=vendor_id,
                     entity_name=vendor_name,
