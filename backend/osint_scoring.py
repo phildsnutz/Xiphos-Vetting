@@ -16,7 +16,7 @@ Original scoring weights (from deep-research-report.md):
 
 from dataclasses import dataclass
 from typing import Optional
-from scoring import VendorInput, OwnershipProfile, DataQuality, ExecProfile
+from scoring_v5 import VendorInput, OwnershipProfile, DataQuality, ExecProfile
 
 
 @dataclass

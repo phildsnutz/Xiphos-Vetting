@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Xiphos v2.8 API Server
+Xiphos v5.0 API Server
 
 Flask backend with SQLite persistence, JWT authentication, RBAC, and
-full audit logging. All scoring runs through the Python Bayesian engine.
+full audit logging. All scoring runs through the FGAMLogit v5.0 engine
+(two-layer DoD/commercial dual-vertical architecture).
 17-source OSINT enrichment, entity resolution, continuous monitoring,
 and dossier generation.
 
@@ -25,7 +26,6 @@ Core Endpoints:
   POST /api/cases/:id/enrich-and-score   Full pipeline: enrich + augment + rescore
   GET  /api/cases/:id/enrichment         Get latest enrichment report
   POST /api/cases/:id/dossier            Generate dossier (HTML)
-  POST /api/cases/:id/dossier-pdf        Generate and download dossier (PDF)
   POST /api/cases/:id/monitor            Check vendor for risk changes
   GET  /api/cases/:id/graph              Get entity resolution graph
   POST /api/enrich                       Run standalone OSINT enrichment
@@ -35,30 +35,7 @@ Core Endpoints:
   POST /api/alerts/:id/resolve           Resolve an alert
   POST /api/monitor/run                  Run monitoring sweep on all vendors
   GET  /api/monitor/changes              Get recent risk changes
-  GET  /api/monitor/schedule             Get current monitoring schedule status
-  POST /api/monitor/schedule             Update monitoring settings (admin only)
-  POST /api/monitor/sweep                Trigger immediate monitoring sweep
-  GET  /api/monitor/sweep/:id            Check sweep progress/results
   GET  /api/graph/shared/:id_a/:id_b     Find hidden connections between vendors
-
-AI Analysis Endpoints:
-  GET  /api/ai/providers                 List available AI providers + models
-  GET  /api/ai/config                    Get current user's AI config
-  POST /api/ai/config                    Set user's AI provider/key/model
-  DELETE /api/ai/config                  Remove user's AI config
-  POST /api/ai/config/org-default        Set org-wide default AI config (admin)
-  POST /api/cases/:id/analyze            Run AI analysis on a vendor
-  GET  /api/cases/:id/analysis           Get latest AI analysis for a vendor
-
-Decision Workflow Endpoints:
-  POST /api/cases/:id/decision           Submit approval/rejection/escalation decision
-  GET  /api/cases/:id/decisions          Get decision history for vendor
-
-Batch Import Endpoints:
-  POST /api/batch/upload                 Upload CSV of vendors for batch screening
-  GET  /api/batch                        List batches for current user (admin: all)
-  GET  /api/batch/:id                    Get batch details and results
-  GET  /api/batch/:id/report             Download CSV summary report
 """
 
 import os
@@ -66,15 +43,13 @@ import sys
 import json
 import uuid
 import argparse
-import csv
-import threading
-import io
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from flask import Flask, request, jsonify, send_file, g, Response, stream_with_context
+from flask import Flask, request, jsonify, send_file
 
-from scoring import (
-    score_vendor, VendorInput, OwnershipProfile, DataQuality, ExecProfile
+from scoring_v5 import (
+    score_vendor, VendorInputV5, VendorInput, OwnershipProfile, DataQuality,
+    ExecProfile, DoDContext, integrate_layers,
 )
 from ofac import screen_name, get_active_db, invalidate_cache
 import db
@@ -84,9 +59,6 @@ from auth import (
 from hardening import (
     rate_limit, validate_vendor_input, validate_auth_input,
     configure_cors, add_security_headers,
-)
-from profiles import (
-    get_profile, list_profiles, profile_to_dict, validate_profile_id
 )
 
 # Optional: sanctions sync engine (may fail if dependencies missing)
@@ -98,7 +70,7 @@ except ImportError:
 
 # Optional: OSINT enrichment engine
 try:
-    from osint.enrichment import enrich_vendor, enrich_vendor_streaming
+    from osint.enrichment import enrich_vendor
     from osint_scoring import augment_from_enrichment
     from osint_cache import get_enricher
     HAS_OSINT = True
@@ -120,38 +92,12 @@ try:
 except ImportError:
     HAS_MONITOR = False
 
-# Optional: Monitoring scheduler
-try:
-    from monitor_scheduler import (
-        get_scheduler, init_scheduler, stop_scheduler, MonitorScheduler
-    )
-    HAS_SCHEDULER = True
-except ImportError:
-    HAS_SCHEDULER = False
-
-# Optional: Dossier generator (HTML and PDF)
+# Optional: Dossier generator
 try:
     from dossier import generate_dossier
     HAS_DOSSIER = True
 except ImportError:
     HAS_DOSSIER = False
-
-try:
-    from dossier_pdf import generate_pdf_dossier
-    HAS_PDF_DOSSIER = True
-except ImportError:
-    HAS_PDF_DOSSIER = False
-
-# AI Analysis module (multi-provider: Claude, OpenAI, Gemini)
-try:
-    from ai_analysis import (
-        init_ai_tables, analyze_vendor as ai_analyze_vendor,
-        get_available_providers, save_ai_config, get_ai_config,
-        delete_ai_config, get_latest_analysis,
-    )
-    HAS_AI = True
-except ImportError:
-    HAS_AI = False
 
 # Static folder for serving the bundled frontend
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -184,65 +130,111 @@ def serve_frontend():
 SEED_VENDORS: list[dict] = []
 
 
-def _build_vendor_input(v: dict) -> VendorInput:
-    o = v["ownership"]
-    d = v["data_quality"]
-    e = v["exec"]
-    return VendorInput(
+def _build_vendor_input(v: dict) -> VendorInputV5:
+    """Build VendorInputV5 from the stored/submitted vendor dict."""
+    o = v.get("ownership", {})
+    d = v.get("data_quality", {})
+    e = v.get("exec", {})
+    dod_raw = v.get("dod", {})
+
+    ownership = OwnershipProfile(
+        publicly_traded=o.get("publicly_traded", False),
+        state_owned=o.get("state_owned", False),
+        beneficial_owner_known=o.get("beneficial_owner_known", False),
+        ownership_pct_resolved=o.get("ownership_pct_resolved", 0.0),
+        shell_layers=o.get("shell_layers", 0),
+        pep_connection=o.get("pep_connection", False),
+        foreign_ownership_pct=o.get("foreign_ownership_pct", 0.0),
+        foreign_ownership_is_allied=o.get("foreign_ownership_is_allied", True),
+    )
+    dq = DataQuality(
+        has_lei=d.get("has_lei", False),
+        has_cage=d.get("has_cage", False),
+        has_duns=d.get("has_duns", False),
+        has_tax_id=d.get("has_tax_id", False),
+        has_audited_financials=d.get("has_audited_financials", False),
+        years_of_records=d.get("years_of_records", 0),
+    )
+    ep = ExecProfile(
+        known_execs=e.get("known_execs", 0),
+        adverse_media=e.get("adverse_media", 0),
+        pep_execs=e.get("pep_execs", 0),
+        litigation_history=e.get("litigation_history", 0),
+    )
+    # Derive sensitivity from program if dod block not supplied
+    program = v.get("program", "standard_industrial")
+    _program_map = {
+        "weapons_system": "TOP_SECRET", "mission_critical": "SECRET",
+        "dual_use": "CUI", "standard_industrial": "COMMERCIAL",
+        "commercial_off_shelf": "COMMERCIAL", "services": "COMMERCIAL",
+    }
+    default_sensitivity = _program_map.get(program, "COMMERCIAL")
+
+    dod = DoDContext(
+        sensitivity=dod_raw.get("sensitivity", default_sensitivity),
+        supply_chain_tier=dod_raw.get("supply_chain_tier", 0),
+        regulatory_gate_proximity=dod_raw.get("regulatory_gate_proximity", 0.0),
+        itar_exposure=dod_raw.get("itar_exposure", 0.0),
+        ear_control_status=dod_raw.get("ear_control_status", 0.0),
+        foreign_ownership_depth=dod_raw.get("foreign_ownership_depth", 0.0),
+        cmmc_readiness=dod_raw.get("cmmc_readiness", 0.0),
+        single_source_risk=dod_raw.get("single_source_risk", 0.0),
+        geopolitical_sector_exposure=dod_raw.get("geopolitical_sector_exposure", 0.0),
+        financial_stability=dod_raw.get("financial_stability", 0.2),
+        compliance_history=dod_raw.get("compliance_history", 0.0),
+    )
+    return VendorInputV5(
         name=v["name"], country=v["country"],
-        ownership=OwnershipProfile(**o),
-        data_quality=DataQuality(**d),
-        exec_profile=ExecProfile(**e),
-        program=v.get("program", "standard_industrial"),
+        ownership=ownership, data_quality=dq, exec_profile=ep, dod=dod,
     )
 
 
 def _score_to_api_dict(result) -> dict:
-    """Format ScoringResult into the JSON shape the frontend expects."""
+    """Format ScoringResultV5 into the JSON shape the frontend expects."""
     return {
         "calibrated_probability": result.calibrated_probability,
         "calibrated_tier": result.calibrated_tier,
         "interval": {
             "lower": result.interval_lower,
             "upper": result.interval_upper,
-            "coverage": result.interval_coverage,
         },
         "contributions": result.contributions,
         "hard_stop_decisions": result.hard_stop_decisions,
         "soft_flags": result.soft_flags,
         "narratives": {"findings": result.findings},
         "marginal_information_values": result.marginal_information_values,
+        # DoD fields (new in v5.0)
+        "is_dod_eligible": result.is_dod_eligible,
+        "is_dod_qualified": result.is_dod_qualified,
+        "program_recommendation": result.program_recommendation,
+        "sensitivity_context": result.sensitivity_context,
+        "supply_chain_tier": result.supply_chain_tier,
+        "regulatory_status": result.regulatory_status,
+        "regulatory_findings": result.regulatory_findings,
+        "model_version": result.model_version,
     }
 
 
 def _full_score_dict(result) -> dict:
+    # composite_score: probabilistic risk as 0-100 for legacy frontend display
+    composite_score = round(result.calibrated_probability * 100)
+    is_hard_stop = result.calibrated_tier.startswith("TIER_1")
     return {
-        "composite_score": result.composite_score,
-        "is_hard_stop": result.calibrated_tier == "hard_stop",
+        "composite_score": composite_score,
+        "is_hard_stop": is_hard_stop,
         "calibrated": _score_to_api_dict(result),
     }
 
 
-def _score_and_persist(vendor_id: str, v: dict, profile_id: str = "defense_acquisition") -> dict:
-    """
-    Score a vendor and persist everything to the database.
-
-    Args:
-        vendor_id: Unique vendor identifier
-        v: Vendor input dict with name, country, ownership, data_quality, etc.
-        profile_id: Compliance profile ID (default: defense_acquisition)
-    """
-    # Validate and normalize profile
-    if not validate_profile_id(profile_id):
-        profile_id = "defense_acquisition"
-
+def _score_and_persist(vendor_id: str, v: dict) -> dict:
+    """Score a vendor and persist everything to the database."""
     inp = _build_vendor_input(v)
-    result = score_vendor(inp, profile_id=profile_id)
+    result = score_vendor(inp)
     score_dict = _full_score_dict(result)
 
-    # Persist vendor with profile
+    # Persist vendor
     db.upsert_vendor(vendor_id, v["name"], v["country"],
-                     v.get("program", "standard_industrial"), v, profile=profile_id)
+                     v.get("program", "standard_industrial"), v)
 
     # Persist score
     db.save_score(vendor_id, score_dict)
@@ -304,45 +296,17 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "version": "2.8",
+        "version": "5.0.0",
         "auth_enabled": AUTH_ENABLED,
-        "engine": "bayesian-beta",
+        "engine": "fgamlogit-dod-dual-vertical",
         "persistence": "sqlite",
         "sanctions_db": db_label,
         "sanctions_sync": sanctions_status,
         "osint_enabled": HAS_OSINT,
         "osint_connectors": osint_connectors,
         "osint_cache": cache_stats,
-        "ai_enabled": HAS_AI,
         "stats": stats,
     })
-
-
-# ---- Compliance Profiles ----
-
-@app.route("/api/profiles")
-def api_list_profiles():
-    """
-    List all available compliance profiles.
-    Public endpoint (no auth required).
-    """
-    profiles = list_profiles()
-    return jsonify({
-        "profiles": [profile_to_dict(p) for p in profiles],
-        "count": len(profiles),
-    })
-
-
-@app.route("/api/profiles/<profile_id>")
-def api_get_profile(profile_id):
-    """
-    Get a single compliance profile by ID.
-    Public endpoint (no auth required).
-    """
-    profile = get_profile(profile_id)
-    if not profile:
-        return jsonify({"error": f"Profile not found: {profile_id}"}), 404
-    return jsonify(profile_to_dict(profile))
 
 
 @app.route("/api/cases")
@@ -391,11 +355,6 @@ def api_create_case():
     if not valid:
         return jsonify({"error": err}), 400
 
-    # Get and validate profile (optional, defaults to defense_acquisition)
-    profile_id = body.get("profile", "defense_acquisition")
-    if not validate_profile_id(profile_id):
-        return jsonify({"error": f"Invalid profile: {profile_id}"}), 400
-
     vendor_id = body.get("id", f"c-{uuid.uuid4().hex[:8]}")
     v = {
         "id": vendor_id,
@@ -405,351 +364,16 @@ def api_create_case():
         "data_quality": body.get("data_quality", {}),
         "exec": body.get("exec", {}),
         "program": body.get("program", "standard_industrial"),
-        "profile": profile_id,
     }
-    score_dict = _score_and_persist(vendor_id, v, profile_id=profile_id)
+    score_dict = _score_and_persist(vendor_id, v)
     log_audit("case_created", "case", vendor_id,
-              detail=f"Created case for {body['name']} ({body['country']}) under profile {profile_id}")
+              detail=f"Created case for {body['name']} ({body['country']})")
     return jsonify({
         "case_id": vendor_id,
-        "profile": profile_id,
         "composite_score": score_dict["composite_score"],
         "is_hard_stop": score_dict["is_hard_stop"],
         "calibrated": score_dict["calibrated"],
     }), 201
-
-
-@app.route("/api/demo/compare", methods=["POST"])
-@require_auth("public")
-@rate_limit(5)
-def api_demo_compare():
-    """
-    Public demo endpoint: compare an entity across all 5 profiles.
-    No authentication required. Rate-limited to 5 requests/minute per IP.
-    Returns simplified scoring results for the landing page demo.
-    """
-    body = request.get_json(silent=True) or {}
-    vendor_name = (body.get("name") or "").strip()
-    vendor_country = (body.get("country") or "").strip().upper()
-
-    if not vendor_name or len(vendor_name) < 2:
-        return jsonify({"error": "Vendor name is required (min 2 characters)"}), 400
-    if not vendor_country or len(vendor_country) != 2:
-        return jsonify({"error": "2-letter country code is required"}), 400
-    # Sanitize
-    if len(vendor_name) > 100:
-        vendor_name = vendor_name[:100]
-
-    all_profiles = [
-        "defense_acquisition", "itar_trade_compliance",
-        "university_research_security", "grants_compliance",
-        "commercial_supply_chain",
-    ]
-
-    results = []
-    for pid in all_profiles:
-        try:
-            profile = get_profile(pid)
-            program = profile.program_types[0]["id"] if profile.program_types else "standard_industrial"
-
-            vendor_input = {
-                "name": vendor_name, "country": vendor_country,
-                "ownership": {
-                    "publicly_traded": False, "state_owned": False,
-                    "beneficial_owner_known": True, "ownership_pct_resolved": 0.85,
-                    "shell_layers": 0, "pep_connection": False,
-                },
-                "data_quality": {
-                    "has_lei": True, "has_cage": False, "has_duns": True,
-                    "has_tax_id": True, "has_audited_financials": True,
-                    "years_of_records": 10,
-                },
-                "exec": {
-                    "known_execs": 5, "adverse_media": 0,
-                    "pep_execs": 0, "litigation_history": 0,
-                },
-                "program": program, "profile": pid,
-            }
-
-            vendor_obj = _build_vendor_input(vendor_input)
-            result = score_vendor(vendor_obj, profile_id=pid)
-            sd = _score_to_api_dict(result)
-
-            results.append({
-                "profile_id": pid,
-                "profile_name": profile.name,
-                "tier": sd["calibrated_tier"],
-                "probability": round(sd["calibrated_probability"], 4),
-                "hard_stops": len(sd.get("hard_stop_decisions", [])),
-                "soft_flags": len(sd.get("soft_flags", [])),
-                "top_factor": sd["contributions"][0]["factor"] if sd.get("contributions") else "N/A",
-                "top_factor_desc": sd["contributions"][0]["description"] if sd.get("contributions") else "",
-            })
-        except Exception as e:
-            results.append({
-                "profile_id": pid, "profile_name": pid.replace("_", " ").title(),
-                "tier": "error", "probability": 0, "hard_stops": 0, "soft_flags": 0,
-                "top_factor": "Error", "top_factor_desc": str(e)[:100],
-            })
-
-    return jsonify({
-        "entity": {"name": vendor_name, "country": vendor_country},
-        "profiles": results,
-        "demo": True,
-    })
-
-
-@app.route("/api/demo/enrich-stream")
-@require_auth("public")
-@rate_limit(3)
-def api_demo_enrich_stream():
-    """
-    Public SSE endpoint for demo enrichment streaming.
-    No authentication required. Rate-limited to 3 requests/minute per IP.
-    Runs the full OSINT pipeline and streams connector progress in real time.
-    """
-    if not HAS_OSINT:
-        return jsonify({"error": "OSINT enrichment module not available"}), 501
-
-    vendor_name = (request.args.get("name") or "").strip()
-    vendor_country = (request.args.get("country") or "").strip().upper()
-
-    if not vendor_name or len(vendor_name) < 2:
-        return jsonify({"error": "Vendor name required (min 2 characters)"}), 400
-    if not vendor_country or len(vendor_country) != 2:
-        return jsonify({"error": "2-letter country code required"}), 400
-    if len(vendor_name) > 100:
-        vendor_name = vendor_name[:100]
-
-    def generate():
-        for event_type, data in enrich_vendor_streaming(
-            vendor_name=vendor_name,
-            country=vendor_country,
-        ):
-            yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-
-        # After enrichment, score under all 5 profiles and send summary
-        all_profiles = [
-            "defense_acquisition", "itar_trade_compliance",
-            "university_research_security", "grants_compliance",
-            "commercial_supply_chain",
-        ]
-        profile_scores = []
-        for pid in all_profiles:
-            try:
-                profile = get_profile(pid)
-                program = profile.program_types[0]["id"] if profile.program_types else "standard_industrial"
-                vendor_input = {
-                    "name": vendor_name, "country": vendor_country,
-                    "ownership": {
-                        "publicly_traded": False, "state_owned": False,
-                        "beneficial_owner_known": True, "ownership_pct_resolved": 0.85,
-                        "shell_layers": 0, "pep_connection": False,
-                    },
-                    "data_quality": {
-                        "has_lei": True, "has_cage": False, "has_duns": True,
-                        "has_tax_id": True, "has_audited_financials": True,
-                        "years_of_records": 10,
-                    },
-                    "exec": {
-                        "known_execs": 5, "adverse_media": 0,
-                        "pep_execs": 0, "litigation_history": 0,
-                    },
-                    "program": program, "profile": pid,
-                }
-                vendor_obj = _build_vendor_input(vendor_input)
-                result = score_vendor(vendor_obj, profile_id=pid)
-                sd = _score_to_api_dict(result)
-                profile_scores.append({
-                    "profile_id": pid,
-                    "profile_name": profile.name,
-                    "tier": sd["calibrated_tier"],
-                    "probability": round(sd["calibrated_probability"], 4),
-                    "hard_stops": len(sd.get("hard_stop_decisions", [])),
-                    "soft_flags": len(sd.get("soft_flags", [])),
-                    "top_factor": sd["contributions"][0]["factor"] if sd.get("contributions") else "N/A",
-                    "top_factor_desc": sd["contributions"][0]["description"] if sd.get("contributions") else "",
-                })
-            except Exception as e:
-                profile_scores.append({
-                    "profile_id": pid, "profile_name": pid.replace("_", " ").title(),
-                    "tier": "error", "probability": 0, "hard_stops": 0, "soft_flags": 0,
-                    "top_factor": "Error", "top_factor_desc": str(e)[:100],
-                })
-
-        yield f"event: scored\ndata: {json.dumps({'profiles': profile_scores})}\n\n"
-        yield "event: done\ndata: {}\n\n"
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
-
-
-@app.route("/api/compare", methods=["POST"])
-@require_auth("cases:read")
-def api_compare_profiles():
-    """
-    Compare how the same entity scores under different compliance profiles.
-
-    Request body:
-    {
-        "name": "Vendor Name",
-        "country": "CN",
-        "profiles": ["defense_acquisition", "itar_trade_compliance", ...],
-        "programs": {
-            "defense_acquisition": "weapons_system",
-            "itar_trade_compliance": "cat_xi_electronics",
-            ...
-        }
-    }
-
-    Returns comparison results across all requested profiles.
-    """
-    body = request.get_json(silent=True) or {}
-
-    # Validate required fields
-    required = ["name", "country"]
-    for field in required:
-        if field not in body:
-            return jsonify({"error": f"Missing required field: {field}"}), 400
-
-    vendor_name = body["name"].strip()
-    vendor_country = body["country"].strip()
-    requested_profiles = body.get("profiles", [])
-    programs_map = body.get("programs", {})
-
-    if not vendor_name:
-        return jsonify({"error": "Vendor name cannot be empty"}), 400
-
-    if not requested_profiles:
-        return jsonify({"error": "At least one profile must be specified"}), 400
-
-    # Validate all requested profiles exist
-    for profile_id in requested_profiles:
-        if not validate_profile_id(profile_id):
-            return jsonify({"error": f"Invalid profile: {profile_id}"}), 400
-
-    # Create temporary scores for each profile
-    comparisons = []
-
-    for profile_id in requested_profiles:
-        try:
-            # Get the program type for this profile (default to first available)
-            program = programs_map.get(profile_id)
-            if not program:
-                profile = get_profile(profile_id)
-                if profile and profile.program_types:
-                    program = profile.program_types[0]["id"]
-                else:
-                    program = "standard_industrial"
-
-            # Build vendor input with minimal defaults
-            vendor_input = {
-                "name": vendor_name,
-                "country": vendor_country,
-                "ownership": body.get("ownership", {
-                    "publicly_traded": False,
-                    "state_owned": False,
-                    "beneficial_owner_known": True,
-                    "ownership_pct_resolved": 0.85,
-                    "shell_layers": 0,
-                    "pep_connection": False,
-                }),
-                "data_quality": body.get("data_quality", {
-                    "has_lei": True,
-                    "has_cage": False,
-                    "has_duns": True,
-                    "has_tax_id": True,
-                    "has_audited_financials": True,
-                    "years_of_records": 10,
-                }),
-                "exec": body.get("exec", {
-                    "known_execs": 5,
-                    "adverse_media": 0,
-                    "pep_execs": 0,
-                    "litigation_history": 0,
-                }),
-                "program": program,
-                "profile": profile_id,
-            }
-
-            # Score under this profile (without persisting)
-            vendor_obj = _build_vendor_input(vendor_input)
-            result = score_vendor(vendor_obj, profile_id=profile_id)
-            score_dict = _score_to_api_dict(result)
-
-            # Extract key data for comparison
-            cal_data = score_dict["calibrated"]
-
-            comparison = {
-                "profile_id": profile_id,
-                "profile_name": get_profile(profile_id).name,
-                "tier": cal_data["calibrated_tier"],
-                "posterior": round(cal_data["calibrated_probability"], 4),
-                "hard_stops": [
-                    {
-                        "trigger": h["trigger"],
-                        "explanation": h["explanation"],
-                        "confidence": round(h["confidence"], 3),
-                    }
-                    for h in cal_data.get("hard_stop_decisions", [])
-                ],
-                "soft_flags": [
-                    {
-                        "trigger": f["trigger"],
-                        "explanation": f["explanation"],
-                        "confidence": round(f["confidence"], 3),
-                    }
-                    for f in cal_data.get("soft_flags", [])
-                ],
-                "contributions": [
-                    {
-                        "factor": c["factor"],
-                        "raw_score": round(c["raw_score"], 3),
-                        "confidence": round(c["confidence"], 3),
-                        "signed_contribution": round(c["signed_contribution"], 4),
-                        "description": c["description"],
-                    }
-                    for c in sorted(
-                        cal_data.get("contributions", []),
-                        key=lambda x: abs(x["signed_contribution"]),
-                        reverse=True
-                    )[:3]  # Top 3 contributions
-                ],
-            }
-            comparisons.append(comparison)
-
-        except Exception as e:
-            # If scoring fails for one profile, include error but continue
-            comparison = {
-                "profile_id": profile_id,
-                "profile_name": get_profile(profile_id).name,
-                "error": str(e),
-                "tier": "unknown",
-                "posterior": 0,
-                "hard_stops": [],
-                "soft_flags": [],
-                "contributions": [],
-            }
-            comparisons.append(comparison)
-
-    # Log the comparison
-    log_audit("compare_profiles", "vendor", vendor_name,
-              detail=f"Compared across {len(comparisons)} profiles: {', '.join(requested_profiles)}")
-
-    return jsonify({
-        "entity": {
-            "name": vendor_name,
-            "country": vendor_country,
-        },
-        "comparisons": comparisons,
-    }), 200
 
 
 @app.route("/api/cases/<case_id>/score", methods=["POST"])
@@ -764,9 +388,7 @@ def api_rescore_case(case_id):
     if "program_type" in body:
         vendor_input["program"] = body["program_type"]
 
-    # Pass the case's profile_id to ensure correct compliance profile is used
-    profile_id = v.get("profile", "defense_acquisition")
-    score_dict = _score_and_persist(case_id, vendor_input, profile_id=profile_id)
+    score_dict = _score_and_persist(case_id, vendor_input)
     return jsonify({
         "case_id": case_id,
         "composite_score": score_dict["composite_score"],
@@ -821,44 +443,9 @@ def api_generate_dossier(case_id):
     })
 
 
-@app.route("/api/cases/<case_id>/dossier-pdf", methods=["POST"])
-@require_auth("cases:dossier")
-def api_generate_dossier_pdf(case_id):
-    """Generate a professional PDF dossier for a vendor."""
-    if not HAS_PDF_DOSSIER:
-        return jsonify({"error": "PDF dossier generator not available"}), 501
-    v = db.get_vendor(case_id)
-    if not v:
-        return jsonify({"error": "Case not found"}), 404
-
-    try:
-        pdf_bytes = generate_pdf_dossier(case_id)
-    except Exception as e:
-        return jsonify({"error": f"PDF generation failed: {str(e)}"}), 500
-
-    # Save to dossiers dir for archival
-    dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
-    os.makedirs(dossier_dir, exist_ok=True)
-    filename = f"dossier-{case_id}.pdf"
-    filepath = os.path.join(dossier_dir, filename)
-    with open(filepath, "wb") as f:
-        f.write(pdf_bytes)
-
-    log_audit("dossier_pdf_generated", "case", case_id,
-              detail=f"PDF dossier generated for {v['name']}")
-
-    # Return PDF as file download
-    return send_file(
-        io.BytesIO(pdf_bytes),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"dossier-{v['name']}-{case_id}.pdf"
-    )
-
-
 @app.route("/api/dossiers/<filename>")
 def api_serve_dossier(filename):
-    """Serve a generated dossier HTML or PDF file."""
+    """Serve a generated dossier HTML file."""
     dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
     filepath = os.path.join(dossier_dir, filename)
     if os.path.exists(filepath):
@@ -931,118 +518,6 @@ def api_monitor_changes():
         return jsonify({"changes": changes})
     except Exception:
         return jsonify({"changes": [], "note": "Monitoring log table not initialized"})
-
-
-# ---- Monitoring Scheduler ----
-
-@app.route("/api/monitor/schedule", methods=["GET"])
-@require_auth("monitor:read")
-def api_get_monitor_schedule():
-    """Get current monitoring schedule status."""
-    if not HAS_SCHEDULER:
-        return jsonify({"error": "Monitoring scheduler not available"}), 501
-
-    scheduler = get_scheduler()
-    if not scheduler:
-        return jsonify({
-            "enabled": False,
-            "interval_hours": None,
-            "last_sweep": None,
-            "next_sweep": None,
-            "vendors_due": 0,
-        })
-
-    stale_vendors = scheduler.get_stale_vendors()
-    latest = db.get_latest_sweep()
-
-    response = {
-        "enabled": scheduler.running,
-        "interval_hours": scheduler.interval_hours,
-        "vendors_due": len(stale_vendors),
-        "last_sweep": latest["created_at"] if latest else None,
-        "last_sweep_status": latest["status"] if latest else None,
-    }
-
-    if latest and latest["completed_at"]:
-        next_check = (
-            datetime.fromisoformat(latest["completed_at"]) +
-            timedelta(hours=scheduler.interval_hours)
-        ).isoformat()
-        response["next_sweep_estimate"] = next_check
-
-    return jsonify(response)
-
-
-@app.route("/api/monitor/schedule", methods=["POST"])
-@require_auth("admin")
-def api_set_monitor_schedule():
-    """Update monitoring schedule settings."""
-    if not HAS_SCHEDULER:
-        return jsonify({"error": "Monitoring scheduler not available"}), 501
-
-    body = request.get_json(silent=True) or {}
-    interval_hours = body.get("interval_hours")
-    enabled = body.get("enabled")
-
-    scheduler = get_scheduler()
-    if not scheduler:
-        return jsonify({"error": "Scheduler not initialized"}), 500
-
-    if interval_hours is not None:
-        scheduler.interval_hours = int(interval_hours)
-        scheduler.interval_seconds = interval_hours * 3600
-        db.set_monitor_config("interval_hours", str(interval_hours))
-
-    if enabled is not None:
-        if enabled and not scheduler.running:
-            scheduler.start()
-        elif not enabled and scheduler.running:
-            scheduler.stop()
-        db.set_monitor_config("enabled", "true" if enabled else "false")
-
-    return jsonify({
-        "success": True,
-        "enabled": scheduler.running,
-        "interval_hours": scheduler.interval_hours,
-    })
-
-
-@app.route("/api/monitor/sweep", methods=["POST"])
-@require_auth("analyst")
-def api_trigger_monitoring_sweep():
-    """Trigger an immediate monitoring sweep."""
-    if not HAS_SCHEDULER:
-        return jsonify({"error": "Monitoring scheduler not available"}), 501
-
-    scheduler = get_scheduler()
-    if not scheduler:
-        return jsonify({"error": "Scheduler not initialized"}), 500
-
-    body = request.get_json(silent=True) or {}
-    vendor_ids = body.get("vendor_ids")  # Optional: specific vendors
-
-    sweep_id = scheduler.trigger_sweep(vendor_ids=vendor_ids)
-
-    return jsonify({
-        "sweep_id": sweep_id,
-        "status": "queued",
-        "message": "Monitoring sweep queued. Poll /api/monitor/sweep/{sweep_id} for progress.",
-    })
-
-
-@app.route("/api/monitor/sweep/<sweep_id>", methods=["GET"])
-@require_auth("monitor:read")
-def api_get_monitoring_sweep(sweep_id):
-    """Check sweep progress and results."""
-    if not HAS_SCHEDULER:
-        return jsonify({"error": "Monitoring scheduler not available"}), 501
-
-    scheduler = get_scheduler()
-    if not scheduler:
-        return jsonify({"error": "Scheduler not initialized"}), 500
-
-    status = scheduler.get_sweep_status(sweep_id)
-    return jsonify(status)
 
 
 # ---- Entity Resolution / Knowledge Graph ----
@@ -1218,9 +693,8 @@ def api_enrich_and_score(case_id):
     base_input = _build_vendor_input(vendor_input)
     augmentation = augment_from_enrichment(base_input, report)
 
-    # Step 3: Re-score with augmented input using the case's profile
-    profile_id = v.get("profile", "defense_acquisition")
-    result = score_vendor(augmentation.vendor_input, profile_id=profile_id)
+    # Step 3: Re-score with augmented input
+    result = score_vendor(augmentation.vendor_input)
     score_dict = _full_score_dict(result)
 
     # Persist updated vendor input and score
@@ -1250,7 +724,7 @@ def api_enrich_and_score(case_id):
         },
     }
     db.upsert_vendor(case_id, v["name"], v["country"],
-                     v.get("program", "standard_industrial"), updated_input, profile=profile_id)
+                     v.get("program", "standard_industrial"), updated_input)
     db.save_score(case_id, score_dict)
 
     # Generate alerts from enrichment + scoring
@@ -1269,7 +743,6 @@ def api_enrich_and_score(case_id):
             "summary": report["summary"],
             "identifiers": report["identifiers"],
             "total_elapsed_ms": report["total_elapsed_ms"],
-            "connector_status": report.get("connector_status", {}),
         },
         "augmentation": {
             "changes": augmentation.changes,
@@ -1282,97 +755,6 @@ def api_enrich_and_score(case_id):
             "calibrated": score_dict["calibrated"],
         },
     })
-
-
-@app.route("/api/cases/<case_id>/enrich-stream")
-@require_auth("cases:enrich")
-def api_enrich_stream(case_id):
-    """
-    Server-Sent Events endpoint for real-time enrichment progress.
-    Streams per-connector updates as each OSINT source completes.
-
-    Events:
-        start           - {total_connectors, connector_names}
-        connector_done  - {name, has_data, findings_count, elapsed_ms, index, total}
-        connector_error - {name, error, index, total}
-        complete        - {full enrichment summary + scoring update}
-    """
-    if not HAS_OSINT:
-        return jsonify({"error": "OSINT enrichment module not available"}), 501
-
-    v = db.get_vendor(case_id)
-    if not v:
-        return jsonify({"error": "Case not found"}), 404
-
-    connectors_filter = request.args.get("connectors", None)
-    if connectors_filter:
-        connectors_filter = [c.strip() for c in connectors_filter.split(",")]
-
-    def generate():
-        # Stream enrichment events
-        final_report = None
-        for event_type, data in enrich_vendor_streaming(
-            vendor_name=v["name"],
-            country=v["country"],
-            connectors=connectors_filter,
-        ):
-            if event_type == "complete":
-                final_report = data
-            yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-
-        # After enrichment completes, persist and re-score
-        if final_report:
-            db.save_enrichment(case_id, final_report)
-
-            vendor_input = v["vendor_input"]
-            base_input = _build_vendor_input(vendor_input)
-            augmentation = augment_from_enrichment(base_input, final_report)
-            result = score_vendor(augmentation.vendor_input)
-            score_dict = _full_score_dict(result)
-
-            updated_input = {
-                **vendor_input,
-                "ownership": {
-                    "publicly_traded": augmentation.vendor_input.ownership.publicly_traded,
-                    "state_owned": augmentation.vendor_input.ownership.state_owned,
-                    "beneficial_owner_known": augmentation.vendor_input.ownership.beneficial_owner_known,
-                    "ownership_pct_resolved": augmentation.vendor_input.ownership.ownership_pct_resolved,
-                    "shell_layers": augmentation.vendor_input.ownership.shell_layers,
-                    "pep_connection": augmentation.vendor_input.ownership.pep_connection,
-                },
-                "data_quality": {
-                    "has_lei": augmentation.vendor_input.data_quality.has_lei,
-                    "has_cage": augmentation.vendor_input.data_quality.has_cage,
-                    "has_duns": augmentation.vendor_input.data_quality.has_duns,
-                    "has_tax_id": augmentation.vendor_input.data_quality.has_tax_id,
-                    "has_audited_financials": augmentation.vendor_input.data_quality.has_audited_financials,
-                    "years_of_records": augmentation.vendor_input.data_quality.years_of_records,
-                },
-                "exec": {
-                    "known_execs": augmentation.vendor_input.exec_profile.known_execs,
-                    "adverse_media": augmentation.vendor_input.exec_profile.adverse_media,
-                    "pep_execs": augmentation.vendor_input.exec_profile.pep_execs,
-                    "litigation_history": augmentation.vendor_input.exec_profile.litigation_history,
-                },
-            }
-            db.upsert_vendor(case_id, v["name"], v["country"],
-                             v.get("program", "standard_industrial"), updated_input)
-            db.save_score(case_id, score_dict)
-
-            # Final scoring event
-            yield f"event: scored\ndata: {json.dumps({'calibrated_tier': score_dict['calibrated']['tier'], 'calibrated_probability': score_dict['calibrated']['probability'], 'is_hard_stop': score_dict['is_hard_stop'], 'composite_score': score_dict['composite_score']})}\n\n"
-
-        yield "event: done\ndata: {}\n\n"
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
 
 
 @app.route("/api/screen", methods=["POST"])
@@ -1392,7 +774,6 @@ def api_screen_vendor():
     result_dict = {
         "matched": result.matched,
         "best_score": round(result.best_score, 4),
-        "best_raw_jw": round(result.best_raw_jw, 4),
         "matched_name": result.matched_name,
         "matched_entry": {
             "name": result.matched_entry.name,
@@ -1407,7 +788,6 @@ def api_screen_vendor():
              "source": getattr(m.entry, "source", "hardcoded")}
             for m in result.all_matches
         ],
-        "match_details": result.match_details,
         "screening_db": result.db_label,
         "screening_ms": result.screening_ms,
     }
@@ -1425,274 +805,6 @@ def api_screening_history():
     limit = request.args.get("limit", 50, type=int)
     history = db.get_screening_history(limit)
     return jsonify({"screenings": history})
-
-
-# ---- AI Analysis ----
-
-@app.route("/api/ai/providers")
-@require_auth("cases:read")
-def api_ai_providers():
-    """List available AI providers and their models."""
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-    return jsonify({"providers": get_available_providers()})
-
-
-@app.route("/api/ai/config", methods=["GET"])
-@require_auth("cases:read")
-def api_ai_config_get():
-    """Get the current user's AI provider config (key is masked)."""
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-    user_id = g.user.get("sub", "dev")
-    config = get_ai_config(user_id)
-    if not config:
-        return jsonify({"configured": False})
-    return jsonify({
-        "configured": True,
-        "provider": config["provider"],
-        "model": config["model"],
-        "api_key_hint": config["api_key"][:8] + "..." if len(config["api_key"]) > 8 else "***",
-    })
-
-
-@app.route("/api/ai/config", methods=["POST"])
-@require_auth("cases:score")
-def api_ai_config_set():
-    """Set the current user's AI provider configuration."""
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-    body = request.get_json(silent=True) or {}
-    required = ["provider", "model", "api_key"]
-    for field in required:
-        if field not in body:
-            return jsonify({"error": f"Missing required field: {field}"}), 400
-
-    user_id = g.user.get("sub", "dev")
-    try:
-        save_ai_config(user_id, body["provider"], body["model"], body["api_key"])
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    log_audit("ai_config_set", "user", user_id,
-              detail=f"AI config: {body['provider']}/{body['model']}")
-    return jsonify({"status": "saved", "provider": body["provider"], "model": body["model"]})
-
-
-@app.route("/api/ai/config", methods=["DELETE"])
-@require_auth("cases:score")
-def api_ai_config_delete():
-    """Remove the current user's AI provider configuration."""
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-    user_id = g.user.get("sub", "dev")
-    deleted = delete_ai_config(user_id)
-    if deleted:
-        log_audit("ai_config_deleted", "user", user_id)
-        return jsonify({"status": "deleted"})
-    return jsonify({"error": "No config found to delete"}), 404
-
-
-@app.route("/api/ai/config/org-default", methods=["POST"])
-@require_auth("system:config")
-def api_ai_config_org_default():
-    """Set the organization-wide default AI provider config (admin only)."""
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-    body = request.get_json(silent=True) or {}
-    required = ["provider", "model", "api_key"]
-    for field in required:
-        if field not in body:
-            return jsonify({"error": f"Missing required field: {field}"}), 400
-
-    try:
-        save_ai_config("__org_default__", body["provider"], body["model"], body["api_key"])
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    log_audit("ai_org_default_set", "system", "org",
-              detail=f"Org AI default: {body['provider']}/{body['model']}")
-    return jsonify({"status": "saved", "scope": "organization",
-                    "provider": body["provider"], "model": body["model"]})
-
-
-@app.route("/api/cases/<case_id>/analyze", methods=["POST"])
-@require_auth("cases:score")
-def api_analyze_case(case_id):
-    """Run AI analysis on a vendor case using the user's configured provider.
-
-    Gracefully handles missing or malformed enrichment data. Returns 200 with
-    a valid analysis even if enrichment data cannot be fully processed.
-    Returns 400 only for config/auth/validation issues.
-    Returns 500 only for unexpected system errors.
-    """
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-
-    v = db.get_vendor(case_id)
-    if not v:
-        return jsonify({"error": "Case not found"}), 404
-
-    score = db.get_latest_score(case_id)
-    if not score:
-        return jsonify({"error": "No score found. Score the vendor first."}), 400
-
-    # Get enrichment data if available - failure here should not block analysis
-    enrichment = None
-    enrichment_status = "available"
-    try:
-        enrichment = db.get_latest_enrichment(case_id)
-        if not enrichment:
-            enrichment_status = "none"
-    except Exception as e:
-        enrichment_status = f"error: {str(e)[:50]}"
-        enrichment = None
-
-    user_id = g.user.get("sub", "dev")
-    vendor_data = {
-        **v.get("vendor_input", {}),
-        "id": case_id,
-        "name": v["name"],
-        "country": v["country"]
-    }
-
-    # Validate vendor_data has required fields
-    if "name" not in vendor_data or not vendor_data["name"]:
-        return jsonify({"error": "Vendor name is required for analysis"}), 400
-    if "country" not in vendor_data or not vendor_data["country"]:
-        return jsonify({"error": "Vendor country is required for analysis"}), 400
-
-    try:
-        result = ai_analyze_vendor(
-            user_id=user_id,
-            vendor_data=vendor_data,
-            score_data=score,
-            enrichment_data=enrichment,
-        )
-    except ValueError as e:
-        # Configuration or validation errors -> 400
-        error_msg = str(e)
-        return jsonify({
-            "error": error_msg,
-            "error_type": "configuration_error",
-        }), 400
-    except Exception as e:
-        # Unexpected errors -> 500, but include enrichment status for debugging
-        error_msg = str(e)
-        return jsonify({
-            "error": f"AI analysis failed: {error_msg}",
-            "error_type": "unexpected_error",
-            "enrichment_status": enrichment_status,
-        }), 500
-
-    # Success - include enrichment status for transparency
-    response = {
-        "case_id": case_id,
-        "vendor_name": v["name"],
-        **result,
-    }
-
-    # Add enrichment status only if there were issues
-    if enrichment_status != "available":
-        response["enrichment_status"] = enrichment_status
-
-    log_audit("ai_analysis_run", "case", case_id,
-              detail=f"AI analysis via {result['provider']}/{result['model']} ({result['elapsed_ms']}ms, enrichment: {enrichment_status})")
-
-    return jsonify(response)
-
-
-@app.route("/api/cases/<case_id>/analysis")
-@require_auth("cases:read")
-def api_get_analysis(case_id):
-    """Get the latest AI analysis for a vendor case."""
-    if not HAS_AI:
-        return jsonify({"error": "AI analysis module not available"}), 501
-    v = db.get_vendor(case_id)
-    if not v:
-        return jsonify({"error": "Case not found"}), 404
-
-    analysis = get_latest_analysis(case_id)
-    if not analysis:
-        return jsonify({"error": "No AI analysis found. Run POST /api/cases/{id}/analyze first."}), 404
-    return jsonify({"case_id": case_id, "vendor_name": v["name"], **analysis})
-
-
-# ---- Decision Workflow ----
-
-@app.route("/api/cases/<case_id>/decision", methods=["POST"])
-@require_auth("cases:score")
-def api_submit_decision(case_id):
-    """Submit an approval/rejection/escalation decision for a vendor."""
-    v = db.get_vendor(case_id)
-    if not v:
-        return jsonify({"error": "Case not found"}), 404
-
-    body = request.get_json(silent=True) or {}
-    decision = body.get("decision", "").lower()
-    if decision not in ("approve", "reject", "escalate"):
-        return jsonify({"error": "Invalid decision. Must be 'approve', 'reject', or 'escalate'"}), 400
-
-    reason = body.get("reason", "")
-
-    # Get current scoring data to capture posterior and tier at time of decision
-    score = db.get_latest_score(case_id)
-    posterior = None
-    tier = None
-    if score:
-        cal = score.get("calibrated", {})
-        posterior = cal.get("calibrated_probability")
-        tier = cal.get("calibrated_tier")
-
-    # Get current user info
-    user_id = g.user.get("sub", "dev")
-    user_email = g.user.get("email", "")
-
-    # Save decision
-    decision_id = db.save_decision(
-        vendor_id=case_id,
-        decision=decision,
-        user_id=user_id,
-        email=user_email,
-        reason=reason if reason else None,
-        posterior=posterior,
-        tier=tier,
-    )
-
-    # Log to audit trail
-    log_audit("decision_made", "case", case_id,
-              detail=f"Decision: {decision.upper()}, Reason: {reason or 'none'}, Posterior: {posterior}, Tier: {tier}")
-
-    return jsonify({
-        "decision_id": decision_id,
-        "vendor_id": case_id,
-        "decision": decision,
-        "decided_by": user_id,
-        "decided_by_email": user_email,
-        "reason": reason if reason else None,
-        "posterior_at_decision": posterior,
-        "tier_at_decision": tier,
-        "created_at": datetime.now().isoformat(),
-    }), 201
-
-
-@app.route("/api/cases/<case_id>/decisions")
-@require_auth("cases:read")
-def api_get_decisions(case_id):
-    """Get decision history for a vendor."""
-    v = db.get_vendor(case_id)
-    if not v:
-        return jsonify({"error": "Case not found"}), 404
-
-    limit = request.args.get("limit", 50, type=int)
-    decisions = db.get_decisions(case_id, limit)
-    latest = db.get_latest_decision(case_id)
-
-    return jsonify({
-        "vendor_id": case_id,
-        "decisions": decisions,
-        "latest_decision": latest,
-    })
 
 
 # ---- Sanctions sync ----
@@ -1749,291 +861,6 @@ def api_sanctions_sync():
     })
 
 
-# ---- Batch Import ----
-
-def _validate_csv_row(row: dict, row_num: int) -> tuple[bool, str]:
-    """Validate a CSV row. Returns (is_valid, error_message)."""
-    if not row.get("name", "").strip():
-        return False, f"Row {row_num}: name is required"
-    if not row.get("country", "").strip():
-        return False, f"Row {row_num}: country is required"
-    # Validate country code format (2 letters)
-    country = row.get("country", "").strip().upper()
-    if len(country) != 2 or not country.isalpha():
-        return False, f"Row {row_num}: invalid country code '{country}' (must be 2 letters)"
-    return True, ""
-
-
-def _process_batch_background(batch_id: str, items: list[dict]) -> None:
-    """Background thread function to process a batch of vendors."""
-    try:
-        for idx, item in enumerate(items):
-            vendor_name = item["name"].strip()
-            country = item["country"].strip().upper()
-            program = item.get("program", "standard_industrial").strip() or "standard_industrial"
-
-            item_row_id = None
-            try:
-                # Create batch item record
-                item_row_id = db.add_batch_item(batch_id, vendor_name, country, status="processing")
-
-                # Build vendor input with defaults (conservative scoring)
-                vendor_input = {
-                    "name": vendor_name,
-                    "country": country,
-                    "ownership": {
-                        "publicly_traded": False,
-                        "state_owned": False,
-                        "beneficial_owner_known": False,
-                        "ownership_pct_resolved": 0.0,
-                        "shell_layers": 0,
-                        "pep_connection": False,
-                    },
-                    "data_quality": {
-                        "has_lei": False,
-                        "has_cage": False,
-                        "has_duns": False,
-                        "has_tax_id": False,
-                        "has_audited_financials": False,
-                        "years_of_records": 0,
-                    },
-                    "exec": {
-                        "known_execs": 0,
-                        "adverse_media": 0,
-                        "pep_execs": 0,
-                        "litigation_history": 0,
-                    },
-                    "program": program,
-                }
-
-                # Create case and score
-                case_id = f"batch-{batch_id[:8]}-{uuid.uuid4().hex[:8]}"
-                score_dict = _score_and_persist(case_id, vendor_input)
-
-                # Get tier and posterior
-                calibrated = score_dict.get("calibrated", {})
-                tier = calibrated.get("calibrated_tier", "unknown")
-                posterior = calibrated.get("calibrated_probability", 0.0)
-
-                # Count findings (hard stops + soft flags)
-                findings_count = len(calibrated.get("hard_stop_decisions", [])) + len(
-                    calibrated.get("soft_flags", [])
-                )
-
-                # Update batch item with results
-                if item_row_id:
-                    db.update_batch_item(
-                        item_row_id,
-                        case_id=case_id,
-                        tier=tier,
-                        posterior=posterior,
-                        findings_count=findings_count,
-                        status="completed",
-                    )
-
-            except Exception as e:
-                # Mark this item as failed but continue processing others
-                error_msg = str(e)[:200]
-                if item_row_id:
-                    db.update_batch_item(item_row_id, status="failed", error=error_msg)
-                print(f"Batch {batch_id}: Error processing {vendor_name}: {error_msg}")
-
-            # Update batch progress
-            processed_count = idx + 1
-            db.update_batch_progress(batch_id, processed_count, "processing")
-
-        # Mark batch as completed
-        db.complete_batch(batch_id)
-        print(f"Batch {batch_id}: Completed ({len(items)} vendors processed)")
-
-    except Exception as e:
-        print(f"Batch {batch_id}: Fatal error: {e}")
-        db.fail_batch(batch_id)
-
-
-@app.route("/api/batch/upload", methods=["POST"])
-@require_auth("batch:create")
-def api_batch_upload():
-    """Upload CSV of vendors for batch screening."""
-    # Get user info for audit
-    user_id = g.get("user_id", "system")
-    user_email = g.get("user_email", "")
-
-    # Check for file upload
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No file selected"}), 400
-
-    if not file.filename.lower().endswith(".csv"):
-        return jsonify({"error": "File must be a CSV"}), 400
-
-    # Read and parse CSV
-    try:
-        stream = io.TextIOWrapper(file.stream, encoding="utf-8")
-        reader = csv.DictReader(stream)
-        if reader.fieldnames is None:
-            return jsonify({"error": "CSV file is empty"}), 400
-
-        rows = list(reader)
-        if not rows:
-            return jsonify({"error": "CSV has no data rows"}), 400
-
-        # Validate all rows
-        for i, row in enumerate(rows, start=2):  # start=2 because row 1 is header
-            is_valid, err = _validate_csv_row(row, i)
-            if not is_valid:
-                return jsonify({"error": err}), 400
-
-    except Exception as e:
-        return jsonify({"error": f"Failed to parse CSV: {str(e)}"}), 400
-
-    # Create batch record
-    batch_id = f"batch-{uuid.uuid4().hex[:12]}"
-    db.create_batch(batch_id, user_id, user_email, file.filename, len(rows))
-
-    # Pre-create batch items
-    items = []
-    for row in rows:
-        item_dict = {
-            "name": row.get("name", "").strip(),
-            "country": row.get("country", "").strip().upper(),
-            "program": row.get("program", "standard_industrial").strip(),
-        }
-        items.append(item_dict)
-        db.add_batch_item(batch_id, item_dict["name"], item_dict["country"])
-
-    # Spawn background thread to process batch
-    thread = threading.Thread(target=_process_batch_background, args=(batch_id, items), daemon=True)
-    thread.start()
-
-    log_audit("batch_uploaded", "batch", batch_id,
-              detail=f"Batch upload: {file.filename} ({len(rows)} vendors)")
-
-    return jsonify({
-        "batch_id": batch_id,
-        "filename": file.filename,
-        "total_vendors": len(rows),
-        "status": "pending",
-        "created_at": datetime.now().isoformat(),
-    }), 201
-
-
-@app.route("/api/batch")
-@require_auth("batch:read")
-def api_list_batches():
-    """List batches for current user (admin sees all)."""
-    user_id = g.get("user_id", "system")
-    user_role = g.get("user_role", "")
-
-    # Admin and analyst can see all batches; others see only theirs
-    if user_role in ("admin", "analyst"):
-        batches = db.get_batches(uploaded_by=None)
-    else:
-        batches = db.get_batches(uploaded_by=user_id)
-
-    # Calculate completion percentage for each batch
-    result = []
-    for batch in batches:
-        completion_pct = 0
-        if batch["total_vendors"] > 0:
-            completion_pct = int((batch["processed"] / batch["total_vendors"]) * 100)
-        result.append({
-            **batch,
-            "completion_pct": completion_pct,
-        })
-
-    return jsonify({"batches": result})
-
-
-@app.route("/api/batch/<batch_id>")
-@require_auth("batch:read")
-def api_get_batch(batch_id):
-    """Get batch details including all items and summary stats."""
-    batch = db.get_batch(batch_id)
-    if not batch:
-        return jsonify({"error": "Batch not found"}), 404
-
-    items = batch.get("items", [])
-
-    # Calculate summary stats
-    tier_dist = {}
-    total_findings = 0
-    completed_count = 0
-
-    for item in items:
-        if item.get("status") == "completed" and item.get("tier"):
-            completed_count += 1
-            tier_dist[item["tier"]] = tier_dist.get(item["tier"], 0) + 1
-            total_findings += item.get("findings_count", 0)
-
-    completion_pct = 0
-    if batch["total_vendors"] > 0:
-        completion_pct = int((batch["processed"] / batch["total_vendors"]) * 100)
-
-    return jsonify({
-        "batch_id": batch_id,
-        "filename": batch["filename"],
-        "uploaded_by": batch["uploaded_by"],
-        "uploaded_by_email": batch["uploaded_by_email"],
-        "status": batch["status"],
-        "total_vendors": batch["total_vendors"],
-        "processed": batch["processed"],
-        "completion_pct": completion_pct,
-        "created_at": batch["created_at"],
-        "completed_at": batch.get("completed_at"),
-        "items": items,
-        "summary": {
-            "completed": completed_count,
-            "tier_distribution": tier_dist,
-            "total_findings": total_findings,
-            "avg_posterior": (
-                sum(i.get("posterior", 0) for i in items if i.get("posterior")) / completed_count
-                if completed_count > 0
-                else 0
-            ),
-        },
-    })
-
-
-@app.route("/api/batch/<batch_id>/report")
-@require_auth("batch:read")
-def api_batch_report(batch_id):
-    """Generate and download CSV summary report."""
-    batch = db.get_batch(batch_id)
-    if not batch:
-        return jsonify({"error": "Batch not found"}), 404
-
-    items = batch.get("items", [])
-
-    # Build CSV
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Vendor Name", "Country", "Case ID", "Status", "Tier", "Posterior", "Findings"])
-
-    for item in items:
-        writer.writerow([
-            item.get("vendor_name", ""),
-            item.get("country", ""),
-            item.get("case_id", ""),
-            item.get("status", ""),
-            item.get("tier", ""),
-            f"{item.get('posterior', 0):.4f}" if item.get("posterior") else "",
-            item.get("findings_count", 0),
-        ])
-
-    # Return as downloadable file
-    output.seek(0)
-    return send_file(
-        io.BytesIO(output.getvalue().encode("utf-8")),
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name=f"batch-{batch_id}-report.csv",
-    )
-
-
 # ---- Main ----
 
 def _load_demo_data():
@@ -2061,7 +888,7 @@ def _load_demo_data():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Xiphos v2.8 API Server")
+    parser = argparse.ArgumentParser(description="Xiphos v2.0 API Server")
     parser.add_argument("--port", type=int, default=8080, help="Server port (default: 8080)")
     parser.add_argument("--host", default="0.0.0.0", help="Server host")
     parser.add_argument("--reset-db", action="store_true", help="Delete and recreate the database")
@@ -2079,11 +906,7 @@ def main():
 
     print("Initializing database...")
     db.init_db()
-    db.migrate_add_profile_column()  # Add profile column if it doesn't exist
     init_auth_db()
-    if HAS_AI:
-        init_ai_tables()
-        print("  AI analysis: initialized")
     _seed_if_empty()
 
     if args.demo:
@@ -2113,34 +936,15 @@ def main():
         kg.init_kg_db()
         print("  Knowledge graph: initialized")
 
-    # Initialize monitoring scheduler
-    if HAS_SCHEDULER:
-        monitor_enabled = os.environ.get("XIPHOS_MONITOR_ENABLED", "false").lower() == "true"
-        interval_hours = int(os.environ.get("XIPHOS_MONITOR_INTERVAL_HOURS", "168"))
-        if monitor_enabled:
-            init_scheduler(interval_hours=interval_hours)
-            print(f"  Monitoring scheduler: started (interval: {interval_hours}h)")
-        else:
-            print(f"  Monitoring scheduler: available but disabled (set XIPHOS_MONITOR_ENABLED=true to enable)")
-    else:
-        print("  Monitoring scheduler: not available (monitor_scheduler module missing)")
-
     print(f"  Monitoring: {'enabled' if HAS_MONITOR else 'not available'}")
     print(f"  Dossier gen: {'enabled' if HAS_DOSSIER else 'not available'}")
     print(f"  Auth/RBAC: {'ENFORCED' if AUTH_ENABLED else 'DEV MODE (all requests = admin)'}")
 
     stats = db.get_stats()
-    # Show compliance profiles
-    profiles = list_profiles()
-    print(f"  Compliance profiles: {len(profiles)} available")
-    for p in profiles:
-        print(f"    - {p.id}: {p.name}")
-
     print(f"\n{'='*50}")
-    print(f"  XIPHOS v2.8 -- Intelligence-Grade Vendor Assurance")
+    print(f"  XIPHOS v5.0 -- Intelligence-Grade Vendor Assurance (FGAMLogit DoD Dual-Vertical)")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
-    print(f"  Compliance profiles: {len(profiles)}")
     print(f"  http://{args.host}:{args.port}")
     print(f"{'='*50}\n")
 
