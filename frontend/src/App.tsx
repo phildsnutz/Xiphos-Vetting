@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings, Upload } from "lucide-react";
+import { Shield, Search, Wifi, WifiOff, LayoutDashboard, Zap, LogOut, User, Settings, Upload, BarChart3 } from "lucide-react";
 import { T, FS } from "@/lib/tokens";
 import { DashboardScreen } from "@/components/xiphos/dashboard-screen";
 import { CaseDetail } from "@/components/xiphos/case-detail";
@@ -8,6 +8,9 @@ import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { BatchImport } from "@/components/xiphos/batch-import";
 import { ProfileCompare } from "@/components/xiphos/profile-compare";
+import { DemoCompare } from "@/components/xiphos/demo-compare";
+import { OnboardingWizard } from "@/components/xiphos/onboarding-wizard";
+import { ExecDashboard } from "@/components/xiphos/exec-dashboard";
 import { rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
@@ -79,7 +82,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   };
 }
 
-type Tab = "dashboard" | "screen" | "compare" | "admin" | "batch";
+type Tab = "dashboard" | "screen" | "compare" | "admin" | "batch" | "executive";
 
 export default function App() {
   // Auth state
@@ -94,6 +97,10 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("screen");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => localStorage.getItem("xiphos_onboarding_done") === "1"
+  );
 
   // Handle 401 from any API call (auto-logout)
   useEffect(() => {
@@ -170,6 +177,19 @@ export default function App() {
     setAlerts([]);
     setSelected(null);
     setTab("screen");
+  }
+
+  // Demo mode: /demo or /#demo path renders public comparison page
+  const isDemo = window.location.pathname === "/demo"
+    || window.location.hash === "#demo"
+    || window.location.hash === "#/demo";
+
+  if (isDemo) {
+    return (
+      <div className="min-h-screen" style={{ background: T.bg, color: T.text }}>
+        <DemoCompare />
+      </div>
+    );
   }
 
   // If auth is required and no user, show login
@@ -278,6 +298,18 @@ export default function App() {
               >
                 <LayoutDashboard size={12} />
                 Dashboard
+              </button>
+              <button
+                onClick={() => setTab("executive")}
+                className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                style={{
+                  fontSize: FS.sm,
+                  background: tab === "executive" ? T.accent + "22" : "transparent",
+                  color: tab === "executive" ? T.accent : T.muted,
+                }}
+              >
+                <BarChart3 size={12} />
+                Executive
               </button>
               {hasPermission(user, "analyst") && (
                 <>
@@ -455,7 +487,20 @@ export default function App() {
       {/* Main content */}
       <main className="flex-1 overflow-auto p-3 lg:p-4">
         <div className="max-w-[1400px] mx-auto h-full">
-          {selected ? (
+          {/* Onboarding wizard for first-time users */}
+          {!onboardingDismissed && cases.length === 0 && !selected && tab === "screen" ? (
+            <OnboardingWizard
+              onComplete={(data) => {
+                localStorage.setItem("xiphos_onboarding_done", "1");
+                setOnboardingDismissed(true);
+                // TODO: Create case from onboarding data
+              }}
+              onSkip={() => {
+                localStorage.setItem("xiphos_onboarding_done", "1");
+                setOnboardingDismissed(true);
+              }}
+            />
+          ) : selected ? (
             <CaseDetail
               c={selected}
               onBack={() => setSelected(null)}
@@ -466,6 +511,8 @@ export default function App() {
             <ScreenVendor onAddCase={handleAddCase} />
           ) : tab === "compare" ? (
             <ProfileCompare />
+          ) : tab === "executive" ? (
+            <ExecDashboard cases={cases} alerts={alerts} onSelectCase={setSelected} />
           ) : tab === "batch" ? (
             <BatchImport />
           ) : tab === "admin" && user ? (

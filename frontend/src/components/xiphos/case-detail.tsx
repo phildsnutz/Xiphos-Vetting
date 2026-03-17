@@ -5,10 +5,11 @@ import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
 import { ContribBar } from "./charts";
 import { EnrichmentPanel } from "./enrichment-panel";
+import { EnrichmentStream } from "./enrichment-stream";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { ActionPanel } from "./action-panel";
 import { enrichAndScore, fetchEnrichment, downloadDossierPDF } from "@/lib/api";
-import { getUser } from "@/lib/auth";
+import { getUser, getToken } from "@/lib/auth";
 import type { EnrichmentReport } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot } from "@/lib/types";
 
@@ -127,6 +128,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState<EnrichmentReport | null>(null);
   const [showEnrichment, setShowEnrichment] = useState(false);
+  const [showStream, setShowStream] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -139,15 +141,19 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
 
   const handleEnrich = async () => {
     setEnriching(true);
+    setShowStream(true);
+    setShowEnrichment(false);
     setError(null);
+  };
+
+  const handleStreamComplete = async () => {
     try {
-      // Run enrich-and-score pipeline, then fetch the full enrichment report
-      await enrichAndScore(c.id);
       const fullReport = await fetchEnrichment(c.id);
       setEnrichment(fullReport);
       setShowEnrichment(true);
+      setShowStream(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Enrichment failed");
+      setError(e instanceof Error ? e.message : "Failed to load enrichment report");
     } finally {
       setEnriching(false);
     }
@@ -415,8 +421,20 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
           )}
         </div>
 
-        {/* OSINT Enrichment Panel */}
-        {showEnrichment && enrichment && (
+        {/* Live Enrichment Stream */}
+        {showStream && enriching && (
+          <div className="mt-3">
+            <EnrichmentStream
+              caseId={c.id}
+              token={getToken() || ""}
+              apiBase={import.meta.env.VITE_API_URL ?? ""}
+              onComplete={handleStreamComplete}
+            />
+          </div>
+        )}
+
+        {/* OSINT Enrichment Panel (post-enrichment) */}
+        {showEnrichment && enrichment && !showStream && (
           <div className="mt-3">
             <EnrichmentPanel report={enrichment} />
           </div>

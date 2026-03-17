@@ -115,6 +115,136 @@ CONNECTORS = [
 ]
 
 
+def enrich_vendor_streaming(
+    vendor_name: str,
+    country: str = "",
+    connectors: Optional[list[str]] = None,
+    timeout: int = 60,
+    **ids,
+):
+    """
+    Generator that yields (event_type, data) tuples as each connector completes.
+
+    Events:
+        ("start", {"total_connectors": N, "connector_names": [...]})
+        ("connector_done", {"name": ..., "has_data": ..., "findings_count": ..., "elapsed_ms": ..., "index": ...})
+        ("connector_error", {"name": ..., "error": ..., "index": ...})
+        ("complete", {full report dict})
+    """
+    t0 = time.time()
+
+    active = CONNECTORS
+    if connectors:
+        active = [(name, mod) for name, mod in CONNECTORS if name in connectors]
+
+    yield ("start", {
+        "total_connectors": len(active),
+        "connector_names": [name for name, _ in active],
+    })
+
+    results: list[EnrichmentResult] = []
+    completed = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(active)) as executor:
+        futures = {}
+        for name, mod in active:
+            f = executor.submit(mod.enrich, vendor_name, country, **ids)
+            futures[f] = name
+
+        for f in concurrent.futures.as_completed(futures, timeout=timeout):
+            name = futures[f]
+            completed += 1
+            try:
+                r = f.result()
+                results.append(r)
+                yield ("connector_done", {
+                    "name": name,
+                    "has_data": r.has_data,
+                    "findings_count": len(r.findings),
+                    "elapsed_ms": r.elapsed_ms,
+                    "index": completed,
+                    "total": len(active),
+                })
+            except Exception as e:
+                results.append(EnrichmentResult(
+                    source=name, vendor_name=vendor_name, error=str(e)
+                ))
+                yield ("connector_error", {
+                    "name": name,
+                    "error": str(e)[:200],
+                    "index": completed,
+                    "total": len(active),
+                })
+
+    # Build final report (same aggregation as enrich_vendor)
+    report = _build_report(vendor_name, country, results, t0)
+    yield ("complete", report)
+
+
+def _build_report(vendor_name: str, country: str, results: list, t0: float) -> dict:
+    """Build the unified enrichment report from connector results."""
+    all_findings: list[dict] = []
+    all_identifiers: dict = {}
+    all_relationships: list[dict] = []
+    all_risk_signals: list[dict] = []
+    connector_status: dict = {}
+    errors: list[str] = []
+
+    for r in results:
+        connector_status[r.source] = {
+            "has_data": r.has_data,
+            "findings_count": len(r.findings),
+            "elapsed_ms": r.elapsed_ms,
+            "error": r.error,
+        }
+        if r.error:
+            errors.append(f"{r.source}: {r.error}")
+        for f in r.findings:
+            all_findings.append({
+                "source": f.source, "category": f.category,
+                "title": f.title, "detail": f.detail,
+                "severity": f.severity, "confidence": f.confidence,
+                "url": f.url,
+            })
+        all_identifiers.update(r.identifiers)
+        all_relationships.extend(r.relationships)
+        all_risk_signals.extend(r.risk_signals)
+
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    all_findings.sort(key=lambda f: severity_order.get(f["severity"], 5))
+
+    critical_count = sum(1 for f in all_findings if f["severity"] == "critical")
+    high_count = sum(1 for f in all_findings if f["severity"] == "high")
+    medium_count = sum(1 for f in all_findings if f["severity"] == "medium")
+
+    if critical_count > 0:
+        overall_risk = "CRITICAL"
+    elif high_count > 0:
+        overall_risk = "HIGH"
+    elif medium_count > 0:
+        overall_risk = "MEDIUM"
+    else:
+        overall_risk = "LOW"
+
+    total_ms = int((time.time() - t0) * 1000)
+
+    return {
+        "vendor_name": vendor_name, "country": country,
+        "enriched_at": datetime.utcnow().isoformat() + "Z",
+        "total_elapsed_ms": total_ms, "overall_risk": overall_risk,
+        "summary": {
+            "findings_total": len(all_findings), "critical": critical_count,
+            "high": high_count, "medium": medium_count,
+            "connectors_run": len(results),
+            "connectors_with_data": sum(1 for r in results if r.has_data),
+            "errors": len(errors),
+        },
+        "identifiers": all_identifiers, "findings": all_findings,
+        "relationships": all_relationships, "risk_signals": all_risk_signals,
+        "connector_status": connector_status, "errors": errors,
+    }
+
+
 def enrich_vendor(
     vendor_name: str,
     country: str = "",

@@ -1,9 +1,14 @@
 """
-Xiphos Bayesian Scoring Engine v2.8
+Xiphos Bayesian Scoring Engine v2.9
 
 Beta-distributed priors with conjugate updates, composite hard stop
 rules, and integrated sanctions screening.
 
+v2.9 changes:
+  - Allied-nation false-positive mitigation: country-aware sanctions matching
+    raises hard stop threshold when vendor is from a trusted jurisdiction and
+    the matched sanctions entry is from a different country (fixes BAE Systems
+    GB matching AK SYSTEMS RU, Samsung KR matching Sanam Electronics IR)
 v2.8 changes:
   - Composite hard stop rules: country + ownership + program combinations
   - Sanctions screening wired into scoring pipeline (not just OFAC name match)
@@ -28,6 +33,18 @@ GEO_RISK: dict[str, float] = {
     "MM": 0.50, "BD": 0.35, "VN": 0.30, "EG": 0.28, "NG": 0.38,
     "RU": 0.85, "CN": 0.45, "IR": 0.92, "KP": 0.98, "SY": 0.90,
     "CU": 0.70, "AF": 0.65, "SO": 0.60, "SD": 0.75, "YE": 0.55,
+}
+
+# Allied nations: Five Eyes + NATO/key allies with geo_risk < 0.10.
+# Used to mitigate false-positive sanctions matching (e.g., BAE Systems GB
+# matching AK SYSTEMS RU at 0.91 Jaro-Winkler despite being in a trusted
+# jurisdiction). When a vendor is from an allied nation and the matched
+# sanctions entry is in a DIFFERENT country, the hard stop threshold is
+# raised from 0.88 to 0.96.
+ALLIED_NATIONS = {
+    "US", "GB", "CA", "AU", "NZ",  # Five Eyes
+    "DE", "FR", "NL", "NO", "DK", "SE", "FI", "IT", "ES", "PL", "CZ",  # NATO/EU
+    "JP", "KR", "IL", "SG", "TW",  # Key allies / low-risk partners
 }
 
 # Countries under comprehensive US sanctions (EO-based embargo).
@@ -251,18 +268,38 @@ def _evaluate_composite_hard_stops(
     cc = inp.country.upper()
     is_sensitive = inp.program in HIGH_SENSITIVITY_PROGRAMS
 
-    # Rule 1: Confirmed sanctions match (>88% fuzzy match)
-    if screening.matched and screening.best_score > 0.88:
-        stops.append({
-            "trigger": f"{screening.matched_entry.list_type} Match: {screening.matched_name}",
-            "explanation": (
-                f"Entity matches {screening.matched_entry.list_type} list under "
-                f"{screening.matched_entry.program} program -- "
-                f"{screening.best_score*100:.0f}% fuzzy match confidence."
-            ),
-            "confidence": round(screening.best_score, 4),
-            "rule": "sanctions_match",
-        })
+    # Rule 1: Confirmed sanctions match (fuzzy match)
+    # v2.9: Allied-nation false-positive mitigation. When vendor is from an
+    # allied nation and the matched entry is from a DIFFERENT country, require
+    # near-exact match (0.96) instead of the standard 0.88 threshold. This
+    # prevents BAE Systems (GB) from hard-stopping on AK SYSTEMS (RU) at 0.91
+    # or Samsung Electronics (KR) on Sanam Electronics (IR) at 0.93, while
+    # still catching true sanctions matches in the same jurisdiction or against
+    # entities without country data.
+    if screening.matched:
+        sanctions_threshold = 0.88  # default threshold
+        matched_country = (screening.matched_entry.country or "").upper() if screening.matched_entry else ""
+        vendor_is_allied = cc in ALLIED_NATIONS
+        # Country mismatch: either different country OR unknown country on the match.
+        # When the sanctions entry has no country data, allied-nation vendors still
+        # get the elevated threshold -- matching on name alone is insufficient to
+        # hard-stop a Five Eyes / NATO entity.
+        same_country = matched_country and matched_country == cc
+
+        if vendor_is_allied and not same_country:
+            sanctions_threshold = 0.96  # require near-exact for allied cross-country
+
+        if screening.best_score > sanctions_threshold:
+            stops.append({
+                "trigger": f"{screening.matched_entry.list_type} Match: {screening.matched_name}",
+                "explanation": (
+                    f"Entity matches {screening.matched_entry.list_type} list under "
+                    f"{screening.matched_entry.program} program -- "
+                    f"{screening.best_score*100:.0f}% fuzzy match confidence."
+                ),
+                "confidence": round(screening.best_score, 4),
+                "rule": "sanctions_match",
+            })
 
     # Rule 2: Comprehensively sanctioned country (RU, IR, KP, SY, CU)
     # Any entity domiciled in these countries is prohibited for sensitive programs.
@@ -371,6 +408,9 @@ def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> S
     if not validate_profile_id(profile_id):
         profile_id = "defense_acquisition"
     profile = get_profile(profile_id)
+
+    # Country code (used throughout pipeline)
+    cc = inp.country.upper()
 
     # Step 1: Sanctions screening (integrated into pipeline)
     screening = screen_name(inp.name)
@@ -501,12 +541,25 @@ def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> S
         flags.append({"trigger": "Unresolved Ownership", "explanation": f"Only {round(inp.ownership.ownership_pct_resolved*100)}% of beneficial ownership resolved.", "confidence": 0.80})
     if screening.matched and 0.70 < screening.best_score <= 0.88:
         flags.append({"trigger": "Fuzzy Sanctions Match", "explanation": f"Name similarity {screening.best_score*100:.0f}% to {screening.matched_entry.list_type} entry -- manual review recommended.", "confidence": round(screening.best_score, 4)})
+    # v2.9: Allied-nation cross-country near-miss soft flag
+    if screening.matched and screening.best_score > 0.88:
+        matched_country = (screening.matched_entry.country or "").upper() if screening.matched_entry else ""
+        same_country_flag = matched_country and matched_country == cc
+        if cc in ALLIED_NATIONS and not same_country_flag and screening.best_score <= 0.96:
+            flags.append({
+                "trigger": "Cross-Jurisdiction Name Similarity",
+                "explanation": (
+                    f"Vendor in allied nation ({cc}) has {screening.best_score*100:.0f}% name similarity "
+                    f"to {screening.matched_entry.list_type} entry \"{screening.matched_name}\" ({matched_country}). "
+                    f"Country mismatch indicates likely false positive but manual verification recommended."
+                ),
+                "confidence": round(screening.best_score * 0.6, 4),  # Downweighted confidence
+            })
     if inp.exec_profile.adverse_media > 0:
         flags.append({"trigger": "Adverse Media", "explanation": f"{inp.exec_profile.adverse_media} adverse media hit(s) detected on executive screening.", "confidence": 0.70})
     if inp.data_quality.years_of_records < 3:
         flags.append({"trigger": "Limited Operating History", "explanation": f"Entity has only {inp.data_quality.years_of_records} year(s) of verifiable records.", "confidence": 0.85})
     # Sectoral sanctions soft flag (state-owned in sectoral country, non-weapons)
-    cc = inp.country.upper()
     if cc in SECTORAL_SANCTIONED and inp.ownership.state_owned and inp.program not in ("weapons_system", "nuclear_related"):
         if not stops:  # Only flag if no hard stop already
             flags.append({"trigger": f"Sectoral Sanctions Exposure ({cc})", "explanation": f"State-owned entity in {cc} which is subject to US sectoral sanctions. Enhanced due diligence required.", "confidence": 0.75})

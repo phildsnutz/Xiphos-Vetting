@@ -83,7 +83,8 @@ PERMISSIONS = {
     "ai:config":           50,   # analyst+
     "ai:analyze":          50,   # analyst+
 
-    # Health
+    # Public endpoints (no auth required)
+    "public":              0,    # anyone (unauthenticated, rate-limited)
     "health:read":         0,    # anyone (even unauthenticated)
 
     # Admin
@@ -367,13 +368,17 @@ def require_auth(permission: str):
                 g.user = {"sub": "anonymous", "email": "", "role": ""}
                 return f(*args, **kwargs)
 
-            # Extract token from Authorization header
+            # Extract token from Authorization header or query param (SSE support)
             auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
+            token = None
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+            elif request.args.get("token"):
+                token = request.args.get("token")
+
+            if not token:
                 log_audit("auth_failed", detail="Missing bearer token")
                 return jsonify({"error": "Authentication required"}), 401
-
-            token = auth_header[7:]
             payload = _decode_token(token)
             if not payload:
                 log_audit("auth_failed", detail="Invalid or expired token")

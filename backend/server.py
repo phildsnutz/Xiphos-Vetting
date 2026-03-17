@@ -71,7 +71,7 @@ import threading
 import io
 from datetime import datetime, timedelta
 
-from flask import Flask, request, jsonify, send_file, g
+from flask import Flask, request, jsonify, send_file, g, Response, stream_with_context
 
 from scoring import (
     score_vendor, VendorInput, OwnershipProfile, DataQuality, ExecProfile
@@ -98,7 +98,7 @@ except ImportError:
 
 # Optional: OSINT enrichment engine
 try:
-    from osint.enrichment import enrich_vendor
+    from osint.enrichment import enrich_vendor, enrich_vendor_streaming
     from osint_scoring import augment_from_enrichment
     from osint_cache import get_enricher
     HAS_OSINT = True
@@ -417,6 +417,86 @@ def api_create_case():
         "is_hard_stop": score_dict["is_hard_stop"],
         "calibrated": score_dict["calibrated"],
     }), 201
+
+
+@app.route("/api/demo/compare", methods=["POST"])
+@require_auth("public")
+@rate_limit(5)
+def api_demo_compare():
+    """
+    Public demo endpoint: compare an entity across all 5 profiles.
+    No authentication required. Rate-limited to 5 requests/minute per IP.
+    Returns simplified scoring results for the landing page demo.
+    """
+    body = request.get_json(silent=True) or {}
+    vendor_name = (body.get("name") or "").strip()
+    vendor_country = (body.get("country") or "").strip().upper()
+
+    if not vendor_name or len(vendor_name) < 2:
+        return jsonify({"error": "Vendor name is required (min 2 characters)"}), 400
+    if not vendor_country or len(vendor_country) != 2:
+        return jsonify({"error": "2-letter country code is required"}), 400
+    # Sanitize
+    if len(vendor_name) > 100:
+        vendor_name = vendor_name[:100]
+
+    all_profiles = [
+        "defense_acquisition", "itar_trade_compliance",
+        "university_research_security", "grants_compliance",
+        "commercial_supply_chain",
+    ]
+
+    results = []
+    for pid in all_profiles:
+        try:
+            profile = get_profile(pid)
+            program = profile.program_types[0]["id"] if profile.program_types else "standard_industrial"
+
+            vendor_input = {
+                "name": vendor_name, "country": vendor_country,
+                "ownership": {
+                    "publicly_traded": False, "state_owned": False,
+                    "beneficial_owner_known": True, "ownership_pct_resolved": 0.85,
+                    "shell_layers": 0, "pep_connection": False,
+                },
+                "data_quality": {
+                    "has_lei": True, "has_cage": False, "has_duns": True,
+                    "has_tax_id": True, "has_audited_financials": True,
+                    "years_of_records": 10,
+                },
+                "exec": {
+                    "known_execs": 5, "adverse_media": 0,
+                    "pep_execs": 0, "litigation_history": 0,
+                },
+                "program": program, "profile": pid,
+            }
+
+            vendor_obj = _build_vendor_input(vendor_input)
+            result = score_vendor(vendor_obj, profile_id=pid)
+            sd = _score_to_api_dict(result)
+
+            results.append({
+                "profile_id": pid,
+                "profile_name": profile.name,
+                "tier": sd["calibrated_tier"],
+                "probability": round(sd["calibrated_probability"], 4),
+                "hard_stops": len(sd.get("hard_stop_decisions", [])),
+                "soft_flags": len(sd.get("soft_flags", [])),
+                "top_factor": sd["contributions"][0]["factor"] if sd.get("contributions") else "N/A",
+                "top_factor_desc": sd["contributions"][0]["description"] if sd.get("contributions") else "",
+            })
+        except Exception as e:
+            results.append({
+                "profile_id": pid, "profile_name": pid.replace("_", " ").title(),
+                "tier": "error", "probability": 0, "hard_stops": 0, "soft_flags": 0,
+                "top_factor": "Error", "top_factor_desc": str(e)[:100],
+            })
+
+    return jsonify({
+        "entity": {"name": vendor_name, "country": vendor_country},
+        "profiles": results,
+        "demo": True,
+    })
 
 
 @app.route("/api/compare", methods=["POST"])
@@ -1107,6 +1187,97 @@ def api_enrich_and_score(case_id):
             "calibrated": score_dict["calibrated"],
         },
     })
+
+
+@app.route("/api/cases/<case_id>/enrich-stream")
+@require_auth("cases:enrich")
+def api_enrich_stream(case_id):
+    """
+    Server-Sent Events endpoint for real-time enrichment progress.
+    Streams per-connector updates as each OSINT source completes.
+
+    Events:
+        start           - {total_connectors, connector_names}
+        connector_done  - {name, has_data, findings_count, elapsed_ms, index, total}
+        connector_error - {name, error, index, total}
+        complete        - {full enrichment summary + scoring update}
+    """
+    if not HAS_OSINT:
+        return jsonify({"error": "OSINT enrichment module not available"}), 501
+
+    v = db.get_vendor(case_id)
+    if not v:
+        return jsonify({"error": "Case not found"}), 404
+
+    connectors_filter = request.args.get("connectors", None)
+    if connectors_filter:
+        connectors_filter = [c.strip() for c in connectors_filter.split(",")]
+
+    def generate():
+        # Stream enrichment events
+        final_report = None
+        for event_type, data in enrich_vendor_streaming(
+            vendor_name=v["name"],
+            country=v["country"],
+            connectors=connectors_filter,
+        ):
+            if event_type == "complete":
+                final_report = data
+            yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+        # After enrichment completes, persist and re-score
+        if final_report:
+            db.save_enrichment(case_id, final_report)
+
+            vendor_input = v["vendor_input"]
+            base_input = _build_vendor_input(vendor_input)
+            augmentation = augment_from_enrichment(base_input, final_report)
+            result = score_vendor(augmentation.vendor_input)
+            score_dict = _full_score_dict(result)
+
+            updated_input = {
+                **vendor_input,
+                "ownership": {
+                    "publicly_traded": augmentation.vendor_input.ownership.publicly_traded,
+                    "state_owned": augmentation.vendor_input.ownership.state_owned,
+                    "beneficial_owner_known": augmentation.vendor_input.ownership.beneficial_owner_known,
+                    "ownership_pct_resolved": augmentation.vendor_input.ownership.ownership_pct_resolved,
+                    "shell_layers": augmentation.vendor_input.ownership.shell_layers,
+                    "pep_connection": augmentation.vendor_input.ownership.pep_connection,
+                },
+                "data_quality": {
+                    "has_lei": augmentation.vendor_input.data_quality.has_lei,
+                    "has_cage": augmentation.vendor_input.data_quality.has_cage,
+                    "has_duns": augmentation.vendor_input.data_quality.has_duns,
+                    "has_tax_id": augmentation.vendor_input.data_quality.has_tax_id,
+                    "has_audited_financials": augmentation.vendor_input.data_quality.has_audited_financials,
+                    "years_of_records": augmentation.vendor_input.data_quality.years_of_records,
+                },
+                "exec": {
+                    "known_execs": augmentation.vendor_input.exec_profile.known_execs,
+                    "adverse_media": augmentation.vendor_input.exec_profile.adverse_media,
+                    "pep_execs": augmentation.vendor_input.exec_profile.pep_execs,
+                    "litigation_history": augmentation.vendor_input.exec_profile.litigation_history,
+                },
+            }
+            db.upsert_vendor(case_id, v["name"], v["country"],
+                             v.get("program", "standard_industrial"), updated_input)
+            db.save_score(case_id, score_dict)
+
+            # Final scoring event
+            yield f"event: scored\ndata: {json.dumps({'calibrated_tier': score_dict['calibrated']['tier'], 'calibrated_probability': score_dict['calibrated']['probability'], 'is_hard_stop': score_dict['is_hard_stop'], 'composite_score': score_dict['composite_score']})}\n\n"
+
+        yield "event: done\ndata: {}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.route("/api/screen", methods=["POST"])
