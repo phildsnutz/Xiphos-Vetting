@@ -492,9 +492,9 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
                       <div>
                         <div className="font-semibold" style={{ fontSize: FS.sm, color: T.text }}>{String(f.name)}</div>
                         <div style={{ fontSize: FS.xs, color: T.dim, marginTop: 1 }}>{String(f.explanation)}</div>
-                        {f.remediation && (
+                        {f.remediation ? (
                           <div style={{ fontSize: FS.xs, color: T.amber, marginTop: 3 }}>Remediation: {String(f.remediation)}</div>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   ))}
