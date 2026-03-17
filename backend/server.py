@@ -365,6 +365,7 @@ def api_create_case():
         "data_quality": body.get("data_quality", {}),
         "exec": body.get("exec", {}),
         "program": body.get("program", "standard_industrial"),
+        "dod": body.get("dod", {}),
     }
     score_dict = _score_and_persist(vendor_id, v)
     log_audit("case_created", "case", vendor_id,
@@ -388,6 +389,8 @@ def api_rescore_case(case_id):
     vendor_input = v["vendor_input"]
     if "program_type" in body:
         vendor_input["program"] = body["program_type"]
+    if "dod" in body:
+        vendor_input["dod"] = body["dod"]
 
     score_dict = _score_and_persist(case_id, vendor_input)
     return jsonify({
