@@ -409,6 +409,106 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
             </div>
           )}
 
+          {/* DoD Assessment Panel (v5.0 Layer 1 + Integration) */}
+          {cal?.regulatoryStatus && cal.regulatoryStatus !== "NOT_EVALUATED" && (
+            <div
+              className="mt-3 rounded-lg"
+              style={{
+                padding: 16,
+                background: T.surface,
+                border: `1px solid ${cal.regulatoryStatus === "NON_COMPLIANT" ? T.hardStopBorder : cal.regulatoryStatus === "REQUIRES_REVIEW" ? T.amber + "66" : T.green + "44"}`,
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Globe size={16} color={T.accent} />
+                <span className="font-bold" style={{ fontSize: FS.md, color: T.text }}>DoD Compliance Assessment</span>
+                {cal.sensitivityContext && (
+                  <span
+                    className="rounded px-2 py-0.5 font-semibold"
+                    style={{ fontSize: FS.xs, background: T.accent + "22", color: T.accent, border: `1px solid ${T.accent}44` }}
+                  >
+                    {cal.sensitivityContext}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Regulatory Status */}
+                <div className="rounded p-2" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: FS.xs, color: T.muted, marginBottom: 2 }}>Regulatory Status</div>
+                  <div className="font-bold" style={{
+                    fontSize: FS.sm,
+                    color: cal.regulatoryStatus === "COMPLIANT" ? T.green
+                         : cal.regulatoryStatus === "NON_COMPLIANT" ? T.red
+                         : T.amber,
+                  }}>
+                    {cal.regulatoryStatus.replace(/_/g, " ")}
+                  </div>
+                </div>
+                {/* Program Recommendation */}
+                <div className="rounded p-2" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: FS.xs, color: T.muted, marginBottom: 2 }}>Recommendation</div>
+                  <div className="font-bold" style={{
+                    fontSize: FS.sm,
+                    color: cal.recommendation?.includes("APPROVED") ? T.green
+                         : cal.recommendation?.includes("DO_NOT") ? T.red
+                         : T.amber,
+                  }}>
+                    {(cal.recommendation || "").replace(/_/g, " ")}
+                  </div>
+                </div>
+                {/* DoD Eligible */}
+                <div className="rounded p-2" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: FS.xs, color: T.muted, marginBottom: 2 }}>DoD Eligible</div>
+                  <div className="font-bold" style={{ fontSize: FS.sm, color: cal.dodEligible ? T.green : T.red }}>
+                    {cal.dodEligible ? "YES" : "NO"}
+                  </div>
+                </div>
+                {/* DoD Qualified */}
+                <div className="rounded p-2" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: FS.xs, color: T.muted, marginBottom: 2 }}>DoD Qualified</div>
+                  <div className="font-bold" style={{ fontSize: FS.sm, color: cal.dodQualified ? T.green : T.red }}>
+                    {cal.dodQualified ? "YES" : "NO"}
+                  </div>
+                </div>
+              </div>
+              {/* Regulatory Findings */}
+              {cal.regulatoryFindings && cal.regulatoryFindings.length > 0 && (
+                <div className="mt-3" style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                  <div style={{ fontSize: FS.xs, color: T.muted, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Regulatory Gate Findings
+                  </div>
+                  {(cal.regulatoryFindings as Array<Record<string, unknown>>).map((f, i) => (
+                    <div key={i} className="flex gap-2 mb-2 rounded p-2" style={{
+                      background: String(f.status) === "FAIL" ? T.redBg : T.amberBg,
+                      border: `1px solid ${String(f.status) === "FAIL" ? T.red + "33" : T.amber + "33"}`,
+                    }}>
+                      <div className="font-bold shrink-0" style={{
+                        fontSize: FS.xs,
+                        color: String(f.status) === "FAIL" ? T.red : T.amber,
+                        minWidth: 40,
+                      }}>
+                        {String(f.status)}
+                      </div>
+                      <div>
+                        <div className="font-semibold" style={{ fontSize: FS.sm, color: T.text }}>{String(f.name)}</div>
+                        <div style={{ fontSize: FS.xs, color: T.dim, marginTop: 1 }}>{String(f.explanation)}</div>
+                        {f.remediation && (
+                          <div style={{ fontSize: FS.xs, color: T.amber, marginTop: 3 }}>Remediation: {String(f.remediation)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Model version */}
+              {cal.modelVersion && (
+                <div style={{ fontSize: FS.xs, color: T.muted, marginTop: 8, textAlign: "right" }}>
+                  Engine: {cal.modelVersion}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* API error */}
           {error && (
             <div

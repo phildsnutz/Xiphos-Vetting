@@ -99,6 +99,16 @@ try:
 except ImportError:
     HAS_DOSSIER = False
 
+# Layer 1: Regulatory Gate Engine (DoD compliance)
+try:
+    from regulatory_gates import (
+        evaluate_regulatory_gates, quick_screen,
+        RegulatoryGateInput, Section889Input, NDAA1260HInput,
+    )
+    HAS_GATES = True
+except ImportError:
+    HAS_GATES = False
+
 # Static folder for serving the bundled frontend
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -227,10 +237,67 @@ def _full_score_dict(result) -> dict:
     }
 
 
+def _run_regulatory_gates(v: dict, sensitivity: str, tier: int) -> tuple:
+    """
+    Run Layer 1 regulatory gates if available and sensitivity is DoD-relevant.
+    Returns (regulatory_status, regulatory_findings, gate_proximity_score).
+    """
+    if not HAS_GATES:
+        return ("NOT_EVALUATED", [], 0.0)
+    if sensitivity in ("COMMERCIAL", "UNCLASSIFIED"):
+        return ("NOT_EVALUATED", [], 0.0)
+
+    name = v.get("name", "")
+    country = v.get("country", "US")
+
+    # Quick screen: Section 889 + NDAA 1260H name-based checks
+    screen = quick_screen(
+        entity_name=name,
+        parent_companies=v.get("ownership", {}).get("parent_companies", []),
+        entity_country=country,
+    )
+
+    # Build full gate input
+    gate_inp = RegulatoryGateInput(
+        entity_name=name,
+        entity_country=country,
+        sensitivity=sensitivity,
+        supply_chain_tier=tier,
+    )
+
+    assessment = evaluate_regulatory_gates(gate_inp)
+
+    # Convert gate results to serializable findings
+    findings = []
+    for g in assessment.failed_gates + assessment.pending_gates:
+        findings.append({
+            "gate": g.gate_id,
+            "name": g.gate_name,
+            "status": g.state.value,
+            "severity": g.severity,
+            "explanation": g.details,
+            "regulation": g.regulation,
+            "remediation": g.mitigation,
+            "confidence": g.confidence,
+        })
+
+    return (assessment.status.value, findings, assessment.gate_proximity_score)
+
+
 def _score_and_persist(vendor_id: str, v: dict) -> dict:
-    """Score a vendor and persist everything to the database."""
+    """Score a vendor through full two-layer pipeline and persist."""
     inp = _build_vendor_input(v)
-    result = score_vendor(inp)
+
+    # Layer 1: Regulatory gates (DoD contexts only)
+    reg_status, reg_findings, gate_proximity = _run_regulatory_gates(
+        v, inp.dod.sensitivity, inp.dod.supply_chain_tier
+    )
+
+    # Inject gate proximity into DoD context for Layer 2
+    inp.dod.regulatory_gate_proximity = gate_proximity
+
+    # Layer 2: FGAMLogit probabilistic scoring + Layer Integration
+    result = score_vendor(inp, regulatory_status=reg_status, regulatory_findings=reg_findings)
     score_dict = _full_score_dict(result)
 
     # Persist vendor
