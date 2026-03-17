@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { T, FS } from "@/lib/tokens";
+import { useState, useEffect, useRef } from "react";
+import { T, FS, tierBand } from "@/lib/tokens";
 import { Radar, CheckCircle, XCircle, Loader, Zap } from "lucide-react";
 
 /* ---- Connector display names ---- */
@@ -100,7 +100,7 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
   const [scoring, setScoring] = useState<ScoringResult | null>(null);
   const [startTime] = useState(Date.now());
   const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<number>();
+  const timerRef = useRef<number>(0);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Elapsed timer
@@ -269,7 +269,7 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
               className="font-mono font-bold uppercase"
               style={{
                 fontSize: FS.sm,
-                color: scoring.is_hard_stop ? T.red : scoring.calibrated_tier === "elevated" ? T.amber : T.green,
+                color: scoring.is_hard_stop ? T.red : tierBand(scoring.calibrated_tier as any) === "elevated" ? T.amber : T.green,
               }}
             >
               {scoring.calibrated_tier.replace("_", " ")}

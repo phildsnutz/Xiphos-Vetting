@@ -1,4 +1,4 @@
-import { T, FS, TIER_META, RISK_META, type TierKey, type RiskKey } from "@/lib/tokens";
+import { T, FS, TIER_META, RISK_META, tierBand, type TierKey, type RiskKey } from "@/lib/tokens";
 import { ShieldOff } from "lucide-react";
 
 interface BadgeProps {
@@ -32,8 +32,8 @@ export function XBadge({ color, bg, children, size = "sm" }: BadgeProps) {
 
 /** Hard stop gets special treatment: white on deep red, larger, with icon */
 export function TierBadge({ tier, size = "sm" }: { tier: TierKey; size?: "sm" | "md" | "lg" }) {
-  const t = TIER_META[tier] || TIER_META.monitor;
-  if (tier === "hard_stop") {
+  const t = TIER_META[tier] || TIER_META.TIER_3_CONDITIONAL;
+  if (tierBand(tier) === "critical") {
     const sizes = {
       sm: { fontSize: FS.sm, padding: "3px 10px", borderRadius: 4, iconSize: 12 },
       md: { fontSize: FS.base, padding: "4px 12px", borderRadius: 5, iconSize: 14 },

@@ -177,7 +177,7 @@ export function DemoCompare() {
   const [enrichedProfiles, setEnrichedProfiles] = useState<ProfileResult[] | null>(null);
   const [enrichStartTime, setEnrichStartTime] = useState(0);
   const [enrichElapsed, setEnrichElapsed] = useState(0);
-  const timerRef = useRef<number>();
+  const timerRef = useRef<number>(0);
   const esRef = useRef<EventSource | null>(null);
 
   const BASE = import.meta.env.VITE_API_URL ?? "";

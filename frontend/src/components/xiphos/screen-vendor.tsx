@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { T, FS } from "@/lib/tokens";
+import { T, FS, tierToRisk } from "@/lib/tokens";
 import { Search, Shield, ChevronDown, ChevronUp, Zap, Loader2, Radar, Brain, Globe, GraduationCap, Landmark, Package } from "lucide-react";
 import { createCase, screenVendor, enrichAndScore, runAIAnalysis, fetchProfiles } from "@/lib/api";
 import type { CreateCasePayload, ScreeningResult as ApiScreeningResult, ComplianceProfile } from "@/lib/api";
@@ -315,9 +315,7 @@ export function ScreenVendor({ onAddCase }: ScreenVendorProps) {
         name: name.trim(),
         cc: country,
         date: new Date().toISOString().split("T")[0],
-        rl: cal.tier === "clear" ? "low" :
-          cal.tier === "monitor" ? "medium" :
-          cal.tier === "elevated" ? "elevated" : "critical",
+        rl: tierToRisk(cal.tier),
         sc: caseResult.composite_score,
         conf: mc,
         cal,

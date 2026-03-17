@@ -17,7 +17,6 @@ import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermis
 import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, Alert } from "@/lib/types";
 import { parseTier, tierToRisk } from "@/lib/tokens";
-import type { TierKey } from "@/lib/tokens";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -120,7 +119,6 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("screen");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => localStorage.getItem("xiphos_onboarding_done") === "1"
   );
@@ -513,7 +511,7 @@ export default function App() {
           {/* Onboarding wizard for first-time users */}
           {!onboardingDismissed && cases.length === 0 && !selected && tab === "screen" ? (
             <OnboardingWizard
-              onComplete={(data) => {
+              onComplete={(_data) => {
                 localStorage.setItem("xiphos_onboarding_done", "1");
                 setOnboardingDismissed(true);
                 // TODO: Create case from onboarding data

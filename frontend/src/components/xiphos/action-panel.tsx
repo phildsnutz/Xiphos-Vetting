@@ -1,4 +1,4 @@
-import { T, FS } from "@/lib/tokens";
+import { T, FS, tierBand } from "@/lib/tokens";
 import { CheckCircle2, AlertTriangle, Shield, ChevronRight } from "lucide-react";
 import type { VettingCase } from "@/lib/types";
 
@@ -35,8 +35,8 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
   const cal = c.cal;
   const tier = cal.tier;
 
-  // HARD STOP tier
-  if (tier === "hard_stop") {
+  // CRITICAL tier
+  if (tierBand(tier) === "critical") {
     return (
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
         <div
@@ -95,7 +95,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
   }
 
   // ELEVATED tier
-  if (tier === "elevated") {
+  if (tierBand(tier) === "elevated") {
     // Analyze top contributing factors to provide context-specific recommendations
     const topFactors = cal.ct.slice().sort((a, b) => Math.abs(b.s) - Math.abs(a.s)).slice(0, 3);
     const factorNames = topFactors.map((f) => f.n.toLowerCase());
@@ -253,8 +253,8 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
     );
   }
 
-  // MONITOR tier
-  if (tier === "monitor") {
+  // CONDITIONAL tier
+  if (tierBand(tier) === "conditional") {
     return (
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
         <div
@@ -315,7 +315,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
   }
 
   // CLEAR tier
-  if (tier === "clear") {
+  if (tierBand(tier) === "clear") {
     const meanConfidence = Math.round(cal.mc * 100);
     return (
       <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>

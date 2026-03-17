@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { T, FS, TIER_META, type TierKey, tierBand, TIER_BANDS, BAND_META, parseTier } from "@/lib/tokens";
+import { T, FS, tierBand, TIER_BANDS, BAND_META, parseTier } from "@/lib/tokens";
 import { BarChart3, List } from "lucide-react";
 import { StatCard } from "./stat-card";
 import { CaseRow } from "./case-row";

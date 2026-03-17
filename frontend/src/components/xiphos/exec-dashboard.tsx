@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { T, FS, tierBand, TIER_BANDS, BAND_META, tierColor, parseTier } from "@/lib/tokens";
 import {
-  Shield, TrendingUp, TrendingDown, AlertTriangle, Eye,
+  Shield, TrendingUp, AlertTriangle,
   CheckCircle, XOctagon, Clock, Users, BarChart3,
 } from "lucide-react";
 import type { VettingCase, Alert } from "@/lib/types";

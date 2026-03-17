@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
-import { tierColor, tierBand, parseTier, TIER_META, BAND_META } from "@/lib/tokens";
+import { tierColor, parseTier } from "@/lib/tokens";
 import { ChevronLeft, FileText, Activity, Globe, Clock, XCircle, AlertTriangle, Loader2, TrendingUp, Radar, Brain, Lock } from "lucide-react";
 import { TierBadge } from "./badges";
 import { Gauge } from "./gauge";
@@ -9,7 +9,7 @@ import { EnrichmentPanel } from "./enrichment-panel";
 import { EnrichmentStream } from "./enrichment-stream";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { ActionPanel } from "./action-panel";
-import { enrichAndScore, fetchEnrichment, downloadDossierPDF } from "@/lib/api";
+import { fetchEnrichment, downloadDossierPDF } from "@/lib/api";
 import { getUser, getToken } from "@/lib/auth";
 import type { EnrichmentReport } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot } from "@/lib/types";

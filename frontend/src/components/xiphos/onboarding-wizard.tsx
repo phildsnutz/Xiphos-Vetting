@@ -1,10 +1,9 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { T, FS } from "@/lib/tokens";
 import {
-  Shield, ChevronRight, ChevronLeft, Search, Globe,
+  Shield, ChevronRight, ChevronLeft, Globe,
   Building2, Users, FileCheck, Zap, CheckCircle,
 } from "lucide-react";
-import type { VettingCase } from "@/lib/types";
 
 /* ---- Step definitions ---- */
 const STEPS = [
@@ -14,8 +13,6 @@ const STEPS = [
   { id: "profile", title: "Choose a Profile", icon: FileCheck },
   { id: "scoring", title: "View Results", icon: Zap },
 ] as const;
-
-type StepId = (typeof STEPS)[number]["id"];
 
 /* ---- Country options (subset) ---- */
 const TOP_COUNTRIES = [

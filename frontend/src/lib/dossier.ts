@@ -5,7 +5,7 @@
  */
 
 import type { VettingCase } from "./types";
-import { TIER_META } from "./tokens";
+import { TIER_META, tierColor } from "./tokens";
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -23,12 +23,7 @@ function fmtContrib(s: number): string {
 export function generateDossierHTML(c: VettingCase): string {
   const cal = c.cal;
   const tierLabel = cal ? TIER_META[cal.tier]?.label ?? cal.tier : "PENDING";
-  const tierColor = cal
-    ? cal.tier === "hard_stop" ? "#dc2626"
-    : cal.tier === "elevated" ? "#ef4444"
-    : cal.tier === "monitor" ? "#f59e0b"
-    : "#10b981"
-    : "#64748b";
+  const tierColorValue = cal ? tierColor(cal.tier) : "#64748b";
 
   const now = new Date().toISOString().split("T")[0];
 
@@ -195,7 +190,7 @@ export function generateDossierHTML(c: VettingCase): string {
   <div class="header">
     <h1>XIPHOS Vendor Intelligence Dossier</h1>
     <div class="subtitle">Automated risk assessment generated ${now}</div>
-    <div class="classification" style="background:${tierColor}">
+    <div class="classification" style="background:${tierColorValue}">
       ${tierLabel}
     </div>
   </div>
@@ -212,7 +207,7 @@ export function generateDossierHTML(c: VettingCase): string {
   ${cal ? `
   <div class="score-box">
     <div class="score-item">
-      <div class="value" style="color:${tierColor}">${fmtPct(cal.p)}</div>
+      <div class="value" style="color:${tierColorValue}">${fmtPct(cal.p)}</div>
       <div class="label">Bayesian Posterior</div>
     </div>
     <div class="score-item">

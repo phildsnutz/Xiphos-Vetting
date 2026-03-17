@@ -247,13 +247,13 @@ export function scoreVendor(input: VendorInput): ScoringResult {
   // Step 4: Tier assignment
   let tier: TierKey;
   if (posteriorMean >= 0.60 || (screening.matched && screening.bestScore > 0.90)) {
-    tier = "hard_stop";
+    tier = "TIER_1_CRITICAL_CONCERN";
   } else if (posteriorMean >= 0.30) {
-    tier = "elevated";
+    tier = "TIER_2_ELEVATED_REVIEW";
   } else if (posteriorMean >= 0.15) {
-    tier = "monitor";
+    tier = "TIER_3_CONDITIONAL";
   } else {
-    tier = "clear";
+    tier = "TIER_4_CLEAR";
   }
 
   // Step 5: Per-factor contributions (signed shift from prior)
