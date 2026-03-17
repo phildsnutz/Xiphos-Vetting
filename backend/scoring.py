@@ -1,14 +1,23 @@
 """
-Xiphos Bayesian Scoring Engine v2.9
+Xiphos Bayesian Scoring Engine v3.0
 
 Beta-distributed priors with conjugate updates, composite hard stop
-rules, and integrated sanctions screening.
+rules, and integrated multi-signal sanctions screening.
 
+v3.0 changes:
+  - Token-aware sanctions matching: the raw Jaro-Winkler score is now
+    adjusted by token overlap, length ratio, and short-name penalty before
+    entering the Bayesian model. This eliminates systemic false positives
+    where common-word prefixes ("General", "Korea", "Sierra") or short
+    SDN names ("Park", "Honar", "Thale") inflated risk scores for
+    clearly clean entities like General Atomics, Parker Hannifin, etc.
+  - screening.best_score now returns the adjusted multi-signal score
+  - screening.best_raw_jw provides the raw JW for UI transparency
+  - Default screening threshold raised from 0.82 to 0.88
 v2.9 changes:
   - Allied-nation false-positive mitigation: country-aware sanctions matching
     raises hard stop threshold when vendor is from a trusted jurisdiction and
-    the matched sanctions entry is from a different country (fixes BAE Systems
-    GB matching AK SYSTEMS RU, Samsung KR matching Sanam Electronics IR)
+    the matched sanctions entry is from a different country
 v2.8 changes:
   - Composite hard stop rules: country + ownership + program combinations
   - Sanctions screening wired into scoring pipeline (not just OFAC name match)
@@ -277,7 +286,11 @@ def _evaluate_composite_hard_stops(
     # still catching true sanctions matches in the same jurisdiction or against
     # entities without country data.
     if screening.matched:
-        sanctions_threshold = 0.88  # default threshold
+        # v3.0: thresholds are now on composite multi-signal scores, not raw JW.
+        # Composite scores for true matches: ~0.90-0.98
+        # Composite scores for false positives: ~0.15-0.40
+        # The gap is much wider than with raw JW, so thresholds can be tighter.
+        sanctions_threshold = 0.82  # default threshold (was 0.88 on raw JW)
         matched_country = (screening.matched_entry.country or "").upper() if screening.matched_entry else ""
         vendor_is_allied = cc in ALLIED_NATIONS
         # Country mismatch: either different country OR unknown country on the match.
@@ -287,7 +300,7 @@ def _evaluate_composite_hard_stops(
         same_country = matched_country and matched_country == cc
 
         if vendor_is_allied and not same_country:
-            sanctions_threshold = 0.96  # require near-exact for allied cross-country
+            sanctions_threshold = 0.90  # require near-exact for allied cross-country (was 0.96 on raw JW)
 
         if screening.best_score > sanctions_threshold:
             stops.append({
@@ -458,13 +471,14 @@ def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> S
     monitor_threshold = tier_thresholds.get("monitor", 0.15)
 
     # Hard stops override the Bayesian tier
+    reported_posterior = posterior_mean
     if stops:
         tier = "hard_stop"
-        # If Bayesian model underscored, boost composite to reflect hard stop
+        # If Bayesian model underscored, boost reported probability to reflect hard stop
         if posterior_mean < hard_stop_threshold:
-            # Don't change the Bayesian math, but ensure the composite score
-            # reflects the hard stop status
-            pass
+            # Don't change the Bayesian math, but ensure the reported probability
+            # is consistent with the tier assignment
+            reported_posterior = hard_stop_threshold
     elif posterior_mean >= hard_stop_threshold:
         tier = "hard_stop"
     elif posterior_mean >= elevated_threshold:
@@ -497,7 +511,7 @@ def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> S
         desc = ""
         if f["name"] == "Sanctions":
             if screening.matched:
-                desc = f'Match: "{screening.matched_name}" ({screening.matched_entry.list_type}) -- {screening.best_score*100:.0f}% similarity'
+                desc = f'Match: "{screening.matched_name}" ({screening.matched_entry.list_type}) -- {screening.best_score*100:.0f}% adjusted ({screening.best_raw_jw*100:.0f}% raw JW)'
             else:
                 desc = "No sanctions matches found across OFAC SDN, Entity List, CAATSA, SSI"
         elif f["name"] == "Geography":
@@ -539,21 +553,23 @@ def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> S
         flags.append({"trigger": "PEP Connection", "explanation": "One or more principals match Politically Exposed Person databases.", "confidence": 0.65})
     if inp.ownership.ownership_pct_resolved < 0.60:
         flags.append({"trigger": "Unresolved Ownership", "explanation": f"Only {round(inp.ownership.ownership_pct_resolved*100)}% of beneficial ownership resolved.", "confidence": 0.80})
-    if screening.matched and 0.70 < screening.best_score <= 0.88:
-        flags.append({"trigger": "Fuzzy Sanctions Match", "explanation": f"Name similarity {screening.best_score*100:.0f}% to {screening.matched_entry.list_type} entry -- manual review recommended.", "confidence": round(screening.best_score, 4)})
-    # v2.9: Allied-nation cross-country near-miss soft flag
-    if screening.matched and screening.best_score > 0.88:
+    # v3.0: Soft flag thresholds adjusted for composite scores (lower than raw JW)
+    if screening.matched and 0.60 < screening.best_score <= 0.82:
+        flags.append({"trigger": "Fuzzy Sanctions Match", "explanation": f"Composite match score {screening.best_score*100:.0f}% (raw JW {screening.best_raw_jw*100:.0f}%) to {screening.matched_entry.list_type} entry -- manual review recommended.", "confidence": round(screening.best_score, 4)})
+    # v3.0: Allied-nation cross-country near-miss soft flag
+    if screening.matched and screening.best_score > 0.82:
         matched_country = (screening.matched_entry.country or "").upper() if screening.matched_entry else ""
         same_country_flag = matched_country and matched_country == cc
-        if cc in ALLIED_NATIONS and not same_country_flag and screening.best_score <= 0.96:
+        if cc in ALLIED_NATIONS and not same_country_flag and screening.best_score <= 0.90:
             flags.append({
                 "trigger": "Cross-Jurisdiction Name Similarity",
                 "explanation": (
-                    f"Vendor in allied nation ({cc}) has {screening.best_score*100:.0f}% name similarity "
+                    f"Vendor in allied nation ({cc}) has {screening.best_score*100:.0f}% composite similarity "
+                    f"(raw JW {screening.best_raw_jw*100:.0f}%) "
                     f"to {screening.matched_entry.list_type} entry \"{screening.matched_name}\" ({matched_country}). "
                     f"Country mismatch indicates likely false positive but manual verification recommended."
                 ),
-                "confidence": round(screening.best_score * 0.6, 4),  # Downweighted confidence
+                "confidence": round(screening.best_score * 0.5, 4),  # Downweighted confidence for composite
             })
     if inp.exec_profile.adverse_media > 0:
         flags.append({"trigger": "Adverse Media", "explanation": f"{inp.exec_profile.adverse_media} adverse media hit(s) detected on executive screening.", "confidence": 0.70})
@@ -607,7 +623,7 @@ def score_vendor(inp: VendorInput, profile_id: str = "defense_acquisition") -> S
         rubric_score = min(100, rubric_score)
 
     return ScoringResult(
-        calibrated_probability=round(posterior_mean, 4),
+        calibrated_probability=round(reported_posterior, 4),
         calibrated_tier=tier,
         interval_lower=round(lo, 4),
         interval_upper=round(hi, 4),

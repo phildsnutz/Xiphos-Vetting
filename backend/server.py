@@ -764,7 +764,9 @@ def api_rescore_case(case_id):
     if "program_type" in body:
         vendor_input["program"] = body["program_type"]
 
-    score_dict = _score_and_persist(case_id, vendor_input)
+    # Pass the case's profile_id to ensure correct compliance profile is used
+    profile_id = v.get("profile", "defense_acquisition")
+    score_dict = _score_and_persist(case_id, vendor_input, profile_id=profile_id)
     return jsonify({
         "case_id": case_id,
         "composite_score": score_dict["composite_score"],
@@ -1216,8 +1218,9 @@ def api_enrich_and_score(case_id):
     base_input = _build_vendor_input(vendor_input)
     augmentation = augment_from_enrichment(base_input, report)
 
-    # Step 3: Re-score with augmented input
-    result = score_vendor(augmentation.vendor_input)
+    # Step 3: Re-score with augmented input using the case's profile
+    profile_id = v.get("profile", "defense_acquisition")
+    result = score_vendor(augmentation.vendor_input, profile_id=profile_id)
     score_dict = _full_score_dict(result)
 
     # Persist updated vendor input and score
@@ -1247,7 +1250,7 @@ def api_enrich_and_score(case_id):
         },
     }
     db.upsert_vendor(case_id, v["name"], v["country"],
-                     v.get("program", "standard_industrial"), updated_input)
+                     v.get("program", "standard_industrial"), updated_input, profile=profile_id)
     db.save_score(case_id, score_dict)
 
     # Generate alerts from enrichment + scoring
@@ -1389,6 +1392,7 @@ def api_screen_vendor():
     result_dict = {
         "matched": result.matched,
         "best_score": round(result.best_score, 4),
+        "best_raw_jw": round(result.best_raw_jw, 4),
         "matched_name": result.matched_name,
         "matched_entry": {
             "name": result.matched_entry.name,
@@ -1403,6 +1407,7 @@ def api_screen_vendor():
              "source": getattr(m.entry, "source", "hardcoded")}
             for m in result.all_matches
         ],
+        "match_details": result.match_details,
         "screening_db": result.db_label,
         "screening_ms": result.screening_ms,
     }

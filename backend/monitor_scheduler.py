@@ -25,6 +25,7 @@ import uuid
 import json
 from datetime import datetime, timedelta
 from typing import Optional
+from dataclasses import asdict
 
 import db
 from scoring import score_vendor
@@ -311,11 +312,26 @@ class MonitorScheduler:
             vendor_input = vendor.get("vendor_input", {})
             score_result = score_vendor(vendor_input, profile=profile)
 
+            # Convert dataclass to dict format expected by save_score()
+            score_dict = {
+                "calibrated": {
+                    "calibrated_probability": score_result.calibrated_probability,
+                    "calibrated_tier": score_result.calibrated_tier,
+                    "interval": {
+                        "lower": score_result.interval_lower,
+                        "upper": score_result.interval_upper,
+                        "coverage": score_result.interval_coverage,
+                    }
+                },
+                "composite_score": score_result.composite_score,
+                "is_hard_stop": score_result.calibrated_tier == "hard_stop",
+            }
+
             # Save new score
-            db.save_score(vendor_id, score_result)
+            db.save_score(vendor_id, score_dict)
 
             # Compare tiers
-            new_tier = score_result.get("calibrated", {}).get("calibrated_tier", "unknown")
+            new_tier = score_result.calibrated_tier
             risk_changed = old_tier != new_tier
 
             # Generate alert if tier changed

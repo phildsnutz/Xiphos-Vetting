@@ -145,10 +145,36 @@ def enrich_vendor_streaming(
     results: list[EnrichmentResult] = []
     completed = 0
 
+    # Per-connector timeout: 30s hard cap. Prevents a single slow connector
+    # (e.g., GLEIF LEI lookup) from blocking the entire pipeline.
+    PER_CONNECTOR_TIMEOUT = 30
+
+    def _run_with_timeout(mod, vn, cc, kw):
+        """Wrapper that enforces per-connector timeout."""
+        import signal
+        import threading
+        result = [None]
+        exc = [None]
+
+        def _target():
+            try:
+                result[0] = mod.enrich(vn, cc, **kw)
+            except Exception as e:
+                exc[0] = e
+
+        t = threading.Thread(target=_target, daemon=True)
+        t.start()
+        t.join(timeout=PER_CONNECTOR_TIMEOUT)
+        if t.is_alive():
+            raise TimeoutError(f"Connector timed out after {PER_CONNECTOR_TIMEOUT}s")
+        if exc[0]:
+            raise exc[0]
+        return result[0]
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {}
         for name, mod in active:
-            f = executor.submit(mod.enrich, vendor_name, country, **ids)
+            f = executor.submit(_run_with_timeout, mod, vendor_name, country, ids)
             futures[f] = name
 
         for f in concurrent.futures.as_completed(futures, timeout=timeout):
