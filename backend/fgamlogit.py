@@ -176,14 +176,18 @@ FACTOR_NAMES = (
 )
 
 # Baseline log-odds by sensitivity (higher = more scrutiny = higher baseline risk)
+# These represent the risk probability for a PERFECT vendor (all factors = 0).
+# CRITICAL_SAP: logistic(-0.85) = 30% (even perfect vendors face high SAP scrutiny)
+# ELEVATED:     logistic(-1.95) = 12% (clean weapons system vendor starts low)
+# COMMERCIAL:   logistic(-2.94) =  5% (standard commercial baseline)
 BASELINE_LOGODDS: dict[str, float] = {
-    "CRITICAL_SAP":          0.50,
-    "CRITICAL_SCI":          0.30,
-    "ELEVATED":   0.10,
-    "ENHANCED":      -0.41,
-    "CONTROLLED":         -1.39,
-    "STANDARD":-2.94,
-    "COMMERCIAL":  -2.94,
+    "CRITICAL_SAP": -0.85,
+    "CRITICAL_SCI": -1.10,
+    "ELEVATED":     -1.95,
+    "ENHANCED":     -2.20,
+    "CONTROLLED":   -2.50,
+    "STANDARD":     -2.94,
+    "COMMERCIAL":   -2.94,
 }
 
 # Factor weights: [factor][sensitivity] -> weight

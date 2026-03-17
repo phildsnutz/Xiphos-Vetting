@@ -144,6 +144,10 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         result.identifiers["opencorporates_url"] = co_url
         result.identifiers["company_number"] = co_number
         result.identifiers["jurisdiction"] = co_jurisdiction
+        if co_incorporation_date:
+            result.identifiers["incorporation_date"] = co_incorporation_date
+        if co_type:
+            result.identifiers["company_type"] = co_type
 
         result.findings.append(Finding(
             source="opencorporates", category="identity",
@@ -216,6 +220,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                         officer_names.append(f"{off_name} ({off_position})")
 
                 active_count = sum(1 for o in officers if not o.get("inactive", False))
+                result.identifiers["officers_count"] = active_count
                 result.findings.append(Finding(
                     source="opencorporates", category="officers",
                     title=f"Officers/directors: {active_count} active, {len(officers)} total",

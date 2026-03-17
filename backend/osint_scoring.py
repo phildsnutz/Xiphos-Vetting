@@ -58,7 +58,7 @@ def augment_from_enrichment(
     findings = enrichment.get("findings", [])
     risk_signals = enrichment.get("risk_signals", [])
 
-    # Clone the input profiles
+    # Clone the input profiles (including ALL v5 fields)
     dq = DataQuality(
         has_lei=base_input.data_quality.has_lei,
         has_cage=base_input.data_quality.has_cage,
@@ -74,6 +74,8 @@ def augment_from_enrichment(
         ownership_pct_resolved=base_input.ownership.ownership_pct_resolved,
         shell_layers=base_input.ownership.shell_layers,
         pep_connection=base_input.ownership.pep_connection,
+        foreign_ownership_pct=base_input.ownership.foreign_ownership_pct,
+        foreign_ownership_is_allied=base_input.ownership.foreign_ownership_is_allied,
     )
     ex = ExecProfile(
         known_execs=base_input.exec_profile.known_execs,
@@ -98,6 +100,16 @@ def augment_from_enrichment(
         dq.has_cage = True
         changes.append(f"UEI verified via SAM.gov: {identifiers['uei']}")
 
+    if identifiers.get("duns") and not dq.has_duns:
+        dq.has_duns = True
+        changes.append(f"DUNS verified: {identifiers['duns']}")
+
+    # SAM.gov registered entities have CAGE and are government-vetted
+    if identifiers.get("sam_status") == "active":
+        if not dq.has_cage:
+            dq.has_cage = True
+            changes.append("CAGE inferred from active SAM.gov registration")
+
     if identifiers.get("cik"):
         # SEC registrant implies tax ID and audited financials
         if not dq.has_tax_id:
@@ -111,11 +123,32 @@ def augment_from_enrichment(
                     changes.append("Audited financials verified via SEC EDGAR filings")
                     break
 
-    if identifiers.get("ticker"):
-        # Publicly traded on a US exchange
-        if not own.publicly_traded:
-            own.publicly_traded = True
-            changes.append(f"Publicly traded: ticker {identifiers['ticker']}")
+    # Publicly traded detection: ticker, CIK, or explicit flag from OSINT
+    is_public = identifiers.get("publicly_traded", False)
+    has_ticker = bool(identifiers.get("ticker"))
+    has_cik = bool(identifiers.get("cik"))
+
+    if (is_public or has_ticker or has_cik) and not own.publicly_traded:
+        own.publicly_traded = True
+        source = identifiers.get("ticker") or f"CIK {identifiers.get('cik', '')}"
+        changes.append(f"Publicly traded: {source}")
+
+    # SEC-registered entities have public financial disclosures
+    if has_cik or has_ticker:
+        if not own.beneficial_owner_known:
+            own.beneficial_owner_known = True
+            changes.append("Beneficial ownership known via SEC public filings")
+        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.80)
+        if not dq.has_audited_financials:
+            dq.has_audited_financials = True
+            changes.append("Audited financials inferred from SEC registration")
+
+    # LEI holders have verified legal entity identity
+    if identifiers.get("lei"):
+        if not own.beneficial_owner_known:
+            own.beneficial_owner_known = True
+            changes.append("Beneficial ownership verified via GLEIF LEI registration")
+        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.65)
 
     # -------------------------------------------------------------------
     # 2. Ownership: update from corporate registry and LEI parent chains
@@ -123,12 +156,10 @@ def augment_from_enrichment(
     relationships = enrichment.get("relationships", [])
 
     if relationships:
-        # We have parent chain data from GLEIF
         ultimate_parents = [r for r in relationships if r.get("type") == "ultimate_parent"]
         if ultimate_parents:
             own.beneficial_owner_known = True
-            # Improve ownership resolution proportionally to chain completeness
-            own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.75)
+            own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.85)
             changes.append(f"Ultimate parent identified via GLEIF: {ultimate_parents[0].get('parent_name', 'N/A')}")
 
     # Check for OpenCorporates officer data
@@ -144,6 +175,132 @@ def augment_from_enrichment(
                         changes.append(f"Executive roster updated: {active_count} active officers from OpenCorporates")
                 except (ValueError, IndexError):
                     pass
+
+    # -------------------------------------------------------------------
+    # 2b. Years of records: extract incorporation date from OSINT
+    # -------------------------------------------------------------------
+    incorporation_date = identifiers.get("incorporation_date") or identifiers.get("initial_registration_date")
+    if not incorporation_date:
+        # Try to find it in OpenCorporates findings
+        for f in findings:
+            if f.get("source") == "opencorporates" and "incorporated" in f.get("detail", "").lower():
+                detail = f.get("detail", "")
+                # Look for 4-digit year
+                import re
+                year_match = re.search(r'(\d{4})', detail)
+                if year_match:
+                    incorporation_date = year_match.group(1)
+                    break
+    if not incorporation_date:
+        # Try GLEIF initial registration date
+        for f in findings:
+            if f.get("source") == "gleif_lei" and "registration" in f.get("detail", "").lower():
+                detail = f.get("detail", "")
+                import re
+                year_match = re.search(r'(\d{4})', detail)
+                if year_match:
+                    incorporation_date = year_match.group(1)
+                    break
+
+    if incorporation_date and dq.years_of_records == 0:
+        try:
+            from datetime import datetime
+            if len(str(incorporation_date)) == 4:
+                year = int(incorporation_date)
+            else:
+                year = int(str(incorporation_date)[:4])
+            years = datetime.now().year - year
+            if 0 < years < 200:
+                dq.years_of_records = years
+                changes.append(f"Operating history: {years} years (incorporated {year})")
+        except (ValueError, TypeError):
+            pass
+
+    # -------------------------------------------------------------------
+    # 2c. Executive data: extract from OpenCorporates officer count
+    # -------------------------------------------------------------------
+    # Try identifiers first (structured data), then fall back to title parsing
+    officers_count = identifiers.get("officers_count") or identifiers.get("active_officers")
+    if officers_count and isinstance(officers_count, (int, float)) and int(officers_count) > ex.known_execs:
+        ex.known_execs = int(officers_count)
+        changes.append(f"Executive roster: {ex.known_execs} officers from corporate registry")
+    elif ex.known_execs == 0:
+        # Fallback: try any finding that mentions officers
+        for f in findings:
+            src = f.get("source", "")
+            title = f.get("title", "")
+            if src in ("opencorporates", "uk_companies_house") and "officer" in title.lower():
+                import re
+                nums = re.findall(r'(\d+)', title)
+                if nums:
+                    count = max(int(n) for n in nums)
+                    if count > ex.known_execs and count < 500:
+                        ex.known_execs = count
+                        changes.append(f"Executive roster: {count} officers from {src}")
+                        break
+
+    # -------------------------------------------------------------------
+    # 2d. Adverse media: count from GDELT findings
+    # -------------------------------------------------------------------
+    gdelt_adverse = 0
+    for f in findings:
+        if f.get("source") == "gdelt_media" and f.get("severity") in ("high", "critical"):
+            gdelt_adverse += 1
+    if gdelt_adverse > ex.adverse_media:
+        ex.adverse_media = gdelt_adverse
+        changes.append(f"Adverse media: {gdelt_adverse} significant hit(s) from GDELT")
+
+    # -------------------------------------------------------------------
+    # 2e. PEP connections: count from OpenSanctions PEP findings
+    # -------------------------------------------------------------------
+    pep_hits = 0
+    for f in findings:
+        if f.get("source") == "opensanctions_pep" and f.get("severity") in ("high", "critical", "medium"):
+            pep_hits += 1
+    if pep_hits > ex.pep_execs:
+        ex.pep_execs = pep_hits
+        own.pep_connection = True
+        changes.append(f"PEP exposure: {pep_hits} match(es) from OpenSanctions PEP database")
+
+    # -------------------------------------------------------------------
+    # 2f. Litigation history: count from CourtListener findings
+    # -------------------------------------------------------------------
+    litigation_hits = 0
+    for f in findings:
+        if f.get("source") == "courtlistener":
+            litigation_hits += 1
+    if litigation_hits > ex.litigation_history:
+        ex.litigation_history = litigation_hits
+        changes.append(f"Litigation history: {litigation_hits} case(s) from CourtListener")
+
+    # -------------------------------------------------------------------
+    # 2g. State-owned detection from corporate registry
+    # -------------------------------------------------------------------
+    if not own.state_owned:
+        for f in findings:
+            src = f.get("source", "")
+            detail = (f.get("detail", "") + " " + f.get("title", "")).lower()
+            if src in ("opencorporates", "gleif_lei", "uk_companies_house"):
+                if any(kw in detail for kw in ("state-owned", "state owned", "government", "soe", "crown corporation", "public body")):
+                    own.state_owned = True
+                    changes.append(f"State-owned entity detected via {src}")
+                    break
+
+    # -------------------------------------------------------------------
+    # 2h. Foreign ownership from GLEIF parent chain country
+    # -------------------------------------------------------------------
+    if own.foreign_ownership_pct == 0.0 and relationships:
+        for r in relationships:
+            parent_country = r.get("parent_country", "").upper()
+            entity_country = base_input.country.upper()
+            if parent_country and parent_country != entity_country:
+                # Foreign parent detected
+                pct = r.get("ownership_pct", 0.51)  # Default to majority if not specified
+                own.foreign_ownership_pct = min(1.0, pct)
+                from fgamlogit import ALLIED_NATIONS
+                own.foreign_ownership_is_allied = parent_country in ALLIED_NATIONS
+                changes.append(f"Foreign ownership detected: parent in {parent_country} ({pct*100:.0f}%)")
+                break
 
     # -------------------------------------------------------------------
     # 3. Extra risk signals from OSINT findings

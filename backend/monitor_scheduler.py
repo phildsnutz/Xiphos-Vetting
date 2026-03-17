@@ -40,6 +40,12 @@ try:
 except ImportError:
     HAS_OSINT = False
 
+try:
+    from regulatory_gates import evaluate_regulatory_gates, RegulatoryGateInput
+    HAS_GATES = True
+except ImportError:
+    HAS_GATES = False
+
 
 class MonitorScheduler:
     """Background scheduler for continuous vendor monitoring."""
@@ -357,7 +363,26 @@ class MonitorScheduler:
                     compliance_history=dod_raw.get("compliance_history", 0.0),
                 ),
             )
-            score_result = score_vendor(inp)
+            # Run Layer 1 regulatory gates if available and sensitivity is DoD-relevant
+            reg_status = "NOT_EVALUATED"
+            reg_findings = []
+            gate_proximity = 0.0
+            sens = inp.dod.sensitivity
+            if HAS_GATES and sens not in ("COMMERCIAL", "STANDARD"):
+                try:
+                    gate_inp = RegulatoryGateInput(
+                        entity_name=vendor_name, entity_country=vendor_country,
+                        sensitivity=sens, supply_chain_tier=inp.dod.supply_chain_tier,
+                    )
+                    assessment = evaluate_regulatory_gates(gate_inp)
+                    reg_status = assessment.status.value
+                    gate_proximity = assessment.gate_proximity_score
+                    for g in assessment.failed_gates + assessment.pending_gates:
+                        reg_findings.append({"gate": g.gate_name, "status": g.state.value})
+                except Exception:
+                    pass
+            inp.dod.regulatory_gate_proximity = gate_proximity
+            score_result = score_vendor(inp, regulatory_status=reg_status, regulatory_findings=reg_findings)
 
             # Convert to dict format expected by save_score()
             composite_score = round(score_result.calibrated_probability * 100)
