@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { T, FS } from "@/lib/tokens";
 import {
   Shield, Globe, Search, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle, XOctagon, Eye, Zap,
+  Radar, Loader, XCircle,
 } from "lucide-react";
 
 /* ---- Types ---- */
@@ -60,6 +61,69 @@ const PROFILE_INFO: Record<string, { short: string; desc: string; icon: string }
   },
 };
 
+/* ---- Connector display names ---- */
+const CONNECTOR_LABELS: Record<string, string> = {
+  dod_sam_exclusions: "DoD EPLS Exclusions",
+  bis_entity_list: "BIS Entity List",
+  cfius_risk: "CFIUS Risk Assessment",
+  trade_csl: "Consolidated Screening List",
+  un_sanctions: "UN Sanctions",
+  opensanctions_pep: "OpenSanctions PEP",
+  worldbank_debarred: "World Bank Debarments",
+  icij_offshore: "ICIJ Offshore Leaks",
+  fara: "DOJ FARA",
+  gdelt_media: "GDELT Adverse Media",
+  sec_edgar: "SEC EDGAR",
+  gleif_lei: "GLEIF LEI",
+  opencorporates: "OpenCorporates",
+  uk_companies_house: "UK Companies House",
+  sam_gov: "SAM.gov",
+  usaspending: "USASpending",
+  epa_echo: "EPA ECHO",
+  osha_safety: "OSHA Safety",
+  courtlistener: "CourtListener",
+  fdic_bankfind: "FDIC BankFind",
+  usml_classifier: "USML Classifier",
+  end_use_risk: "End-Use Risk",
+  deemed_export: "Deemed Export",
+  foreign_talent_programs: "Foreign Talent Programs",
+  institutional_risk: "Institutional Risk",
+  fapiis_check: "FAPIIS Check",
+  do_not_pay: "Do Not Pay",
+  regulatory_compliance: "Regulatory Compliance",
+};
+
+const CONNECTOR_GROUPS: Record<string, string> = {
+  dod_sam_exclusions: "Sanctions & Restricted",
+  bis_entity_list: "Sanctions & Restricted",
+  cfius_risk: "Sanctions & Restricted",
+  trade_csl: "Sanctions & Restricted",
+  un_sanctions: "Sanctions & Restricted",
+  opensanctions_pep: "Sanctions & Restricted",
+  worldbank_debarred: "Debarment & Offshore",
+  icij_offshore: "Debarment & Offshore",
+  fara: "Foreign Influence",
+  gdelt_media: "Adverse Media",
+  sec_edgar: "Corporate Identity",
+  gleif_lei: "Corporate Identity",
+  opencorporates: "Corporate Identity",
+  uk_companies_house: "Corporate Identity",
+  sam_gov: "Government Contracts",
+  usaspending: "Government Contracts",
+  epa_echo: "Regulatory",
+  osha_safety: "Regulatory",
+  courtlistener: "Legal & Financial",
+  fdic_bankfind: "Legal & Financial",
+  usml_classifier: "Export Control",
+  end_use_risk: "Export Control",
+  deemed_export: "Export Control",
+  foreign_talent_programs: "Research Security",
+  institutional_risk: "Research Security",
+  fapiis_check: "Grants Compliance",
+  do_not_pay: "Grants Compliance",
+  regulatory_compliance: "Supply Chain",
+};
+
 /* ---- Country code options (common) ---- */
 const COUNTRIES = [
   { code: "US", label: "United States" },
@@ -89,6 +153,18 @@ const COUNTRIES = [
   { code: "CU", label: "Cuba" },
 ];
 
+/* ---- Enrichment stream types ---- */
+type ConnectorState = "pending" | "running" | "done" | "error";
+
+interface ConnectorProgress {
+  name: string;
+  state: ConnectorState;
+  hasData?: boolean;
+  findingsCount?: number;
+  elapsedMs?: number;
+  error?: string;
+}
+
 /* ---- Demo Compare Component ---- */
 export function DemoCompare() {
   const [name, setName] = useState("");
@@ -98,13 +174,39 @@ export function DemoCompare() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Enrichment stream state
+  const [enriching, setEnriching] = useState(false);
+  const [enrichPhase, setEnrichPhase] = useState<"idle" | "connecting" | "enriching" | "scoring" | "done" | "error">("idle");
+  const [connectors, setConnectors] = useState<ConnectorProgress[]>([]);
+  const [totalConnectors, setTotalConnectors] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [totalFindings, setTotalFindings] = useState(0);
+  const [enrichedProfiles, setEnrichedProfiles] = useState<ProfileResult[] | null>(null);
+  const [enrichStartTime, setEnrichStartTime] = useState(0);
+  const [enrichElapsed, setEnrichElapsed] = useState(0);
+  const timerRef = useRef<number>();
+  const esRef = useRef<EventSource | null>(null);
+
   const BASE = import.meta.env.VITE_API_URL ?? "";
+
+  // Elapsed timer for enrichment
+  useEffect(() => {
+    if (enriching && enrichStartTime > 0) {
+      timerRef.current = window.setInterval(() => {
+        setEnrichElapsed(Date.now() - enrichStartTime);
+      }, 100);
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    }
+  }, [enriching, enrichStartTime]);
 
   const handleSubmit = useCallback(async () => {
     if (!name.trim() || !country) return;
     setLoading(true);
     setError(null);
     setResult(null);
+    setEnrichedProfiles(null);
+    setEnrichPhase("idle");
+    setEnriching(false);
 
     try {
       const res = await fetch(`${BASE}/api/demo/compare`, {
@@ -125,8 +227,117 @@ export function DemoCompare() {
     }
   }, [name, country, BASE]);
 
+  const handleEnrich = useCallback(() => {
+    if (!result || enriching) return;
+
+    // Clean up any prior stream
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
+
+    setEnriching(true);
+    setEnrichPhase("connecting");
+    setConnectors([]);
+    setTotalConnectors(0);
+    setCompletedCount(0);
+    setTotalFindings(0);
+    setEnrichedProfiles(null);
+    setEnrichStartTime(Date.now());
+    setEnrichElapsed(0);
+
+    const params = new URLSearchParams({
+      name: result.entity.name,
+      country: result.entity.country,
+    });
+    const url = `${BASE}/api/demo/enrich-stream?${params.toString()}`;
+    const es = new EventSource(url);
+    esRef.current = es;
+
+    es.addEventListener("start", (e) => {
+      const data = JSON.parse(e.data);
+      setTotalConnectors(data.total_connectors);
+      setEnrichPhase("enriching");
+      setConnectors(
+        data.connector_names.map((n: string) => ({
+          name: n,
+          state: "running" as ConnectorState,
+        }))
+      );
+    });
+
+    es.addEventListener("connector_done", (e) => {
+      const data = JSON.parse(e.data);
+      setConnectors((prev) =>
+        prev.map((c) =>
+          c.name === data.name
+            ? { ...c, state: "done", hasData: data.has_data, findingsCount: data.findings_count, elapsedMs: data.elapsed_ms }
+            : c
+        )
+      );
+      setCompletedCount(data.index);
+      setTotalFindings((prev) => prev + (data.findings_count || 0));
+    });
+
+    es.addEventListener("connector_error", (e) => {
+      const data = JSON.parse(e.data);
+      setConnectors((prev) =>
+        prev.map((c) =>
+          c.name === data.name
+            ? { ...c, state: "error", error: data.error }
+            : c
+        )
+      );
+      setCompletedCount(data.index);
+    });
+
+    es.addEventListener("complete", () => {
+      setEnrichPhase("scoring");
+    });
+
+    es.addEventListener("scored", (e) => {
+      const data = JSON.parse(e.data);
+      if (data.profiles) {
+        setEnrichedProfiles(data.profiles);
+      }
+    });
+
+    es.addEventListener("done", () => {
+      setEnrichPhase("done");
+      setEnriching(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      es.close();
+    });
+
+    es.onerror = () => {
+      setEnrichPhase("error");
+      setEnriching(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      es.close();
+    };
+  }, [result, enriching, BASE]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (esRef.current) esRef.current.close();
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const enrichPct = totalConnectors > 0 ? Math.round((completedCount / totalConnectors) * 100) : 0;
+  const dataConnectors = connectors.filter((c) => c.state === "done" && c.hasData).length;
+
+  // Group connectors by category
+  const grouped = connectors.reduce<Record<string, ConnectorProgress[]>>((acc, c) => {
+    const group = CONNECTOR_GROUPS[c.name] || "Other";
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(c);
+    return acc;
+  }, {});
+
+  // Choose which profiles to display (enriched or initial)
+  const displayProfiles = enrichedProfiles || (result?.profiles ?? []);
+
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 16px" }}>
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: "0 16px" }}>
       {/* Hero header */}
       <div className="text-center" style={{ padding: "40px 0 24px" }}>
         <div className="flex items-center justify-center gap-2 mb-3">
@@ -144,10 +355,10 @@ export function DemoCompare() {
         >
           Multi-Vertical Compliance Scoring
         </h1>
-        <p style={{ fontSize: FS.sm, color: T.muted, maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
+        <p style={{ fontSize: FS.sm, color: T.muted, maxWidth: 560, margin: "0 auto", lineHeight: 1.6 }}>
           See how the same entity scores across five compliance verticals. Enter any vendor
-          name and country to get instant risk assessments powered by Bayesian inference
-          and live sanctions screening.
+          name and country to get instant risk assessments powered by Bayesian inference,
+          live sanctions screening, and 28-source OSINT intelligence.
         </p>
       </div>
 
@@ -156,7 +367,7 @@ export function DemoCompare() {
         className="rounded-lg flex items-stretch gap-0 overflow-hidden"
         style={{
           background: T.surface,
-          border: `2px solid ${loading ? T.accent : T.border}`,
+          border: `2px solid ${loading || enriching ? T.accent : T.border}`,
           transition: "border-color 0.2s",
         }}
       >
@@ -227,11 +438,19 @@ export function DemoCompare() {
             >
               {result.entity.country}
             </span>
+            {enrichedProfiles && (
+              <span
+                className="font-mono rounded px-1.5 py-0.5"
+                style={{ fontSize: FS.xs, background: T.accent + "18", color: T.accent }}
+              >
+                OSINT ENRICHED
+              </span>
+            )}
           </div>
 
           {/* Profile cards grid */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-            {result.profiles.map((p) => {
+            {displayProfiles.map((p) => {
               const tc = TIER_CONFIG[p.tier] || TIER_CONFIG.clear;
               const pi = PROFILE_INFO[p.profile_id] || { short: p.profile_id, desc: "", icon: "shield" };
               const TierIcon = tc.icon;
@@ -327,8 +546,8 @@ export function DemoCompare() {
               </span>
             </div>
             {(() => {
-              const probs = result.profiles.map((p) => p.probability);
-              const tiers = new Set(result.profiles.map((p) => p.tier));
+              const probs = displayProfiles.map((p) => p.probability);
+              const tiers = new Set(displayProfiles.map((p) => p.tier));
               const min = Math.min(...probs);
               const max = Math.max(...probs);
               const spread = max - min;
@@ -358,12 +577,185 @@ export function DemoCompare() {
             })()}
           </div>
 
+          {/* Enrichment stream section */}
+          {enrichPhase === "idle" && !enrichedProfiles && (
+            <div className="text-center mt-5">
+              <button
+                onClick={handleEnrich}
+                className="inline-flex items-center gap-2 rounded-lg font-semibold border-none cursor-pointer"
+                style={{
+                  padding: "12px 28px",
+                  background: `linear-gradient(135deg, ${T.accent}, ${T.accent}dd)`,
+                  color: "#fff",
+                  fontSize: FS.sm,
+                  boxShadow: `0 2px 12px ${T.accent}44`,
+                  transition: "transform 0.15s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.02)")}
+                onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+              >
+                <Radar size={16} />
+                Run Live OSINT Enrichment
+              </button>
+              <p style={{ fontSize: FS.xs, color: T.muted, marginTop: 8 }}>
+                Watch 28 intelligence sources scan this entity in real time
+              </p>
+            </div>
+          )}
+
+          {/* Live enrichment stream */}
+          {enrichPhase !== "idle" && (
+            <div className="mt-5">
+              {/* Stream header with progress */}
+              <div
+                className="rounded-lg"
+                style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 16 }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Radar
+                    size={14}
+                    color={T.accent}
+                    className={enrichPhase === "enriching" ? "animate-pulse" : ""}
+                  />
+                  <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.xs, color: T.muted }}>
+                    {enrichPhase === "connecting" && "Connecting to OSINT pipeline..."}
+                    {enrichPhase === "enriching" && "Live Intelligence Collection"}
+                    {enrichPhase === "scoring" && "Re-scoring with enrichment data..."}
+                    {enrichPhase === "done" && "Enrichment Complete"}
+                    {enrichPhase === "error" && "Connection Error"}
+                  </span>
+                  <span className="ml-auto font-mono" style={{ fontSize: FS.xs, color: T.muted }}>
+                    {(enrichElapsed / 1000).toFixed(1)}s
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="rounded-full overflow-hidden" style={{ height: 6, background: T.raised }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${enrichPhase === "done" ? 100 : enrichPct}%`,
+                      background: enrichPhase === "error"
+                        ? T.red
+                        : enrichPhase === "done"
+                        ? T.green
+                        : `linear-gradient(90deg, ${T.accent}, ${T.accent}cc)`,
+                    }}
+                  />
+                </div>
+
+                {/* Live counters */}
+                <div className="grid grid-cols-4 gap-3 mt-3">
+                  <div className="text-center">
+                    <div className="font-mono font-bold" style={{ fontSize: FS.lg, color: T.text }}>
+                      {completedCount}/{totalConnectors}
+                    </div>
+                    <div style={{ fontSize: FS.xs, color: T.muted }}>Sources</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-mono font-bold" style={{ fontSize: FS.lg, color: T.text }}>
+                      {totalFindings}
+                    </div>
+                    <div style={{ fontSize: FS.xs, color: T.muted }}>Findings</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-mono font-bold" style={{ fontSize: FS.lg, color: T.text }}>
+                      {dataConnectors}
+                    </div>
+                    <div style={{ fontSize: FS.xs, color: T.muted }}>With Data</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-mono font-bold" style={{ fontSize: FS.lg, color: T.text }}>
+                      {enrichedProfiles
+                        ? `${Math.round(Math.max(...enrichedProfiles.map(p => p.probability)) * 100)}%`
+                        : "--"}
+                    </div>
+                    <div style={{ fontSize: FS.xs, color: T.muted }}>Peak Risk</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Connector grid by group */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 mt-2">
+                {Object.entries(grouped).map(([group, conns]) => (
+                  <div
+                    key={group}
+                    className="rounded-lg"
+                    style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 10 }}
+                  >
+                    <div
+                      className="font-semibold uppercase tracking-wider mb-1.5"
+                      style={{ fontSize: "9px", color: T.muted, letterSpacing: "0.08em" }}
+                    >
+                      {group}
+                    </div>
+                    {conns.map((c) => {
+                      const label = CONNECTOR_LABELS[c.name] || c.name;
+                      let iconEl: React.ReactNode;
+                      let statusColor: string;
+
+                      switch (c.state) {
+                        case "running":
+                          iconEl = <Loader size={10} color={T.accent} className="animate-spin" />;
+                          statusColor = T.accent;
+                          break;
+                        case "done":
+                          iconEl = <CheckCircle size={10} color={c.hasData ? T.green : T.muted} />;
+                          statusColor = c.hasData ? T.green : T.muted;
+                          break;
+                        case "error":
+                          iconEl = <XCircle size={10} color={T.red} />;
+                          statusColor = T.red;
+                          break;
+                        default:
+                          iconEl = <div className="w-2.5 h-2.5 rounded-full" style={{ background: T.border }} />;
+                          statusColor = T.muted;
+                      }
+
+                      return (
+                        <div
+                          key={c.name}
+                          className="flex items-center gap-1.5"
+                          style={{ padding: "3px 0", borderBottom: `1px solid ${T.border}22` }}
+                          title={c.error || `${c.findingsCount ?? 0} findings, ${c.elapsedMs ?? 0}ms`}
+                        >
+                          {iconEl}
+                          <span
+                            className="flex-1 truncate"
+                            style={{ fontSize: FS.xs, color: c.state === "running" ? T.text : T.dim }}
+                          >
+                            {label}
+                          </span>
+                          {c.state === "done" && (
+                            <>
+                              <span className="font-mono" style={{ fontSize: "9px", color: statusColor }}>
+                                {c.findingsCount || 0}
+                              </span>
+                              <span className="font-mono" style={{ fontSize: "9px", color: T.muted }}>
+                                {c.elapsedMs ? `${(c.elapsedMs / 1000).toFixed(1)}s` : ""}
+                              </span>
+                            </>
+                          )}
+                          {c.state === "running" && (
+                            <span className="font-mono" style={{ fontSize: "9px", color: T.accent }}>
+                              ...
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* CTA */}
           <div className="text-center mt-6 mb-8">
             <p style={{ fontSize: FS.sm, color: T.muted, marginBottom: 12 }}>
-              This is a demo with default ownership assumptions. The full platform includes
-              28-source OSINT enrichment, entity resolution, executive screening, and
-              continuous monitoring.
+              {enrichedProfiles
+                ? "Full enrichment complete. Sign in to save cases, generate dossiers, and enable continuous monitoring."
+                : "This is a demo with default ownership assumptions. The full platform includes entity resolution, executive screening, and continuous monitoring."}
             </p>
             <a
               href="/login"

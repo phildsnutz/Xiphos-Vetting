@@ -499,6 +499,98 @@ def api_demo_compare():
     })
 
 
+@app.route("/api/demo/enrich-stream")
+@require_auth("public")
+@rate_limit(3)
+def api_demo_enrich_stream():
+    """
+    Public SSE endpoint for demo enrichment streaming.
+    No authentication required. Rate-limited to 3 requests/minute per IP.
+    Runs the full OSINT pipeline and streams connector progress in real time.
+    """
+    if not HAS_OSINT:
+        return jsonify({"error": "OSINT enrichment module not available"}), 501
+
+    vendor_name = (request.args.get("name") or "").strip()
+    vendor_country = (request.args.get("country") or "").strip().upper()
+
+    if not vendor_name or len(vendor_name) < 2:
+        return jsonify({"error": "Vendor name required (min 2 characters)"}), 400
+    if not vendor_country or len(vendor_country) != 2:
+        return jsonify({"error": "2-letter country code required"}), 400
+    if len(vendor_name) > 100:
+        vendor_name = vendor_name[:100]
+
+    def generate():
+        for event_type, data in enrich_vendor_streaming(
+            vendor_name=vendor_name,
+            country=vendor_country,
+        ):
+            yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+        # After enrichment, score under all 5 profiles and send summary
+        all_profiles = [
+            "defense_acquisition", "itar_trade_compliance",
+            "university_research_security", "grants_compliance",
+            "commercial_supply_chain",
+        ]
+        profile_scores = []
+        for pid in all_profiles:
+            try:
+                profile = get_profile(pid)
+                program = profile.program_types[0]["id"] if profile.program_types else "standard_industrial"
+                vendor_input = {
+                    "name": vendor_name, "country": vendor_country,
+                    "ownership": {
+                        "publicly_traded": False, "state_owned": False,
+                        "beneficial_owner_known": True, "ownership_pct_resolved": 0.85,
+                        "shell_layers": 0, "pep_connection": False,
+                    },
+                    "data_quality": {
+                        "has_lei": True, "has_cage": False, "has_duns": True,
+                        "has_tax_id": True, "has_audited_financials": True,
+                        "years_of_records": 10,
+                    },
+                    "exec": {
+                        "known_execs": 5, "adverse_media": 0,
+                        "pep_execs": 0, "litigation_history": 0,
+                    },
+                    "program": program, "profile": pid,
+                }
+                vendor_obj = _build_vendor_input(vendor_input)
+                result = score_vendor(vendor_obj, profile_id=pid)
+                sd = _score_to_api_dict(result)
+                profile_scores.append({
+                    "profile_id": pid,
+                    "profile_name": profile.name,
+                    "tier": sd["calibrated_tier"],
+                    "probability": round(sd["calibrated_probability"], 4),
+                    "hard_stops": len(sd.get("hard_stop_decisions", [])),
+                    "soft_flags": len(sd.get("soft_flags", [])),
+                    "top_factor": sd["contributions"][0]["factor"] if sd.get("contributions") else "N/A",
+                    "top_factor_desc": sd["contributions"][0]["description"] if sd.get("contributions") else "",
+                })
+            except Exception as e:
+                profile_scores.append({
+                    "profile_id": pid, "profile_name": pid.replace("_", " ").title(),
+                    "tier": "error", "probability": 0, "hard_stops": 0, "soft_flags": 0,
+                    "top_factor": "Error", "top_factor_desc": str(e)[:100],
+                })
+
+        yield f"event: scored\ndata: {json.dumps({'profiles': profile_scores})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @app.route("/api/compare", methods=["POST"])
 @require_auth("cases:read")
 def api_compare_profiles():
