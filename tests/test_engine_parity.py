@@ -98,15 +98,18 @@ class TestSensitivitySurface:
             assert "SCI" not in tier or "CRITICAL_SCI" in tier  # wrapped in CRITICAL_
             assert "SAP" not in tier or "CRITICAL_SAP" in tier
 
-    def test_baseline_ordering(self):
-        assert BASELINE_LOGODDS["CRITICAL_SAP"] > BASELINE_LOGODDS["CRITICAL_SCI"]
-        assert BASELINE_LOGODDS["CRITICAL_SCI"] > BASELINE_LOGODDS["ELEVATED"]
-        assert BASELINE_LOGODDS["ELEVATED"] > BASELINE_LOGODDS["ENHANCED"]
-        assert BASELINE_LOGODDS["ENHANCED"] > BASELINE_LOGODDS["CONTROLLED"]
-        assert BASELINE_LOGODDS["CONTROLLED"] > BASELINE_LOGODDS["COMMERCIAL"]
+    def test_uniform_baselines(self):
+        """All baselines are uniform. Sensitivity differentiation comes from weights, not baseline."""
+        base = BASELINE_LOGODDS["COMMERCIAL"]
+        for sens in SENSITIVITY_TIERS:
+            assert BASELINE_LOGODDS[sens] == base, f"{sens} baseline should equal COMMERCIAL"
 
-    def test_commercial_and_standard_equal(self):
-        assert BASELINE_LOGODDS["COMMERCIAL"] == BASELINE_LOGODDS["STANDARD"]
+    def test_weight_differentiation(self):
+        """Higher sensitivity tiers should have higher weights on key factors."""
+        # Ownership weight at CRITICAL_SAP (3.0) > COMMERCIAL (0.8)
+        assert FACTOR_WEIGHTS["ownership"]["CRITICAL_SAP"] > FACTOR_WEIGHTS["ownership"]["COMMERCIAL"]
+        # ITAR weight at ELEVATED (2.0) > COMMERCIAL (0.0)
+        assert FACTOR_WEIGHTS["itar_exposure"]["ELEVATED"] > FACTOR_WEIGHTS["itar_exposure"]["COMMERCIAL"]
 
     def test_all_14_factors_have_weights(self):
         for sens in SENSITIVITY_TIERS:
