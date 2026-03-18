@@ -272,6 +272,14 @@ INTERACTION_WEIGHTS: dict[tuple[str, str], dict[str, float]] = {
         "CRITICAL_SAP": 0.5, "CRITICAL_SCI": 0.5, "ELEVATED": 0.5, "ENHANCED": 0.5,
         "CONTROLLED": 0.5, "STANDARD": 0.5, "COMMERCIAL": 0.5,
     },
+    ("itar_exposure", "foreign_ownership_depth"): {
+        "CRITICAL_SAP": 0.8, "CRITICAL_SCI": 0.7, "ELEVATED": 0.6, "ENHANCED": 0.5,
+        "CONTROLLED": 0.4, "STANDARD": 0.3, "COMMERCIAL": 0.2,
+    },
+    ("foreign_ownership_depth", "compliance_history"): {
+        "CRITICAL_SAP": 0.5, "CRITICAL_SCI": 0.5, "ELEVATED": 0.4, "ENHANCED": 0.3,
+        "CONTROLLED": 0.3, "STANDARD": 0.2, "COMMERCIAL": 0.2,
+    },
 }
 
 # Effective sample size for Wilson CI by sensitivity
@@ -279,6 +287,35 @@ INTERACTION_WEIGHTS: dict[tuple[str, str], dict[str, float]] = {
 EFFECTIVE_N_BASE: dict[str, float] = {
     "CRITICAL_SAP": 50.0, "CRITICAL_SCI": 60.0, "ELEVATED": 80.0, "ENHANCED": 100.0,
     "CONTROLLED": 120.0, "STANDARD": 150.0, "COMMERCIAL": 150.0,
+}
+
+# Supply chain tier weight multiplier
+# Tier 0 primes are already heavily vetted -> lower weights on uncertainty factors
+# Tier 3 component/materials suppliers are less known -> higher weights
+TIER_WEIGHT_MULTIPLIER: dict[int, float] = {
+    0: 0.70,   # Prime contractor (cleared facilities, extensive track record)
+    1: 1.00,   # Major subsystem (baseline)
+    2: 1.30,   # Component supplier (moderate uncertainty)
+    3: 1.60,   # Materials/foreign supplier (high uncertainty)
+}
+
+# DoD factor priors for UNKNOWN values (when factor = 0.0 and no data was provided)
+# These add a SMALL uncertainty penalty ("not yet assessed"), NOT actual risk.
+# Real data from supply chain context or OSINT replaces these immediately.
+# Total prior contribution for T1 at ELEVATED: ~0.4 log-odds (shifts p by ~5-8pp)
+DOD_FACTOR_PRIORS: dict[str, dict[int, float]] = {
+    "itar_exposure": {0: 0.03, 1: 0.06, 2: 0.09, 3: 0.12},
+    "ear_control_status": {0: 0.02, 1: 0.04, 2: 0.06, 3: 0.09},
+    "cmmc_readiness": {0: 0.02, 1: 0.04, 2: 0.06, 3: 0.09},
+    "single_source_risk": {0: 0.03, 1: 0.05, 2: 0.08, 3: 0.10},
+    "geopolitical_sector_exposure": {0: 0.02, 1: 0.03, 2: 0.04, 3: 0.06},
+    "compliance_history": {0: 0.01, 1: 0.02, 2: 0.04, 3: 0.06},
+}
+
+# Only commercial uncertainty factors get the tier multiplier
+# DoD factors already have tier-specific priors (no double-counting)
+TIER_MULTIPLIED_FACTORS = {
+    "data_quality", "executive", "ownership",
 }
 
 
@@ -911,10 +948,22 @@ def score_vendor(
         "compliance_history":            inp.dod.compliance_history,
     }
 
-    # Step 3: FGAMLogit log-odds computation
+    # Step 2b: Apply DoD factor priors for unknown values
+    # When a DoD factor is 0.0 and was never explicitly set, use tier-based prior
+    supply_tier = inp.dod.supply_chain_tier
+    for dod_factor, tier_priors in DOD_FACTOR_PRIORS.items():
+        if factor_scores.get(dod_factor, 0.0) == 0.0:
+            prior = tier_priors.get(supply_tier, tier_priors.get(1, 0.15))
+            factor_scores[dod_factor] = prior
+
+    # Step 3: FGAMLogit log-odds computation with tier weight multiplier
+    tier_mult = TIER_WEIGHT_MULTIPLIER.get(supply_tier, 1.0)
     eta = BASELINE_LOGODDS[sensitivity]
     for fname, fx in factor_scores.items():
         w = FACTOR_WEIGHTS[fname].get(sensitivity, 0.0)
+        # Apply tier multiplier to uncertainty-sensitive factors
+        if fname in TIER_MULTIPLIED_FACTORS:
+            w *= tier_mult
         eta += w * fx
     for (fa, fb), iweights in INTERACTION_WEIGHTS.items():
         iw = iweights.get(sensitivity, 0.0)
