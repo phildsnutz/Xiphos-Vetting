@@ -507,9 +507,9 @@ def register_auth_routes(app):
         Rate-limited to prevent brute force on setup.
         """
         # Rate limit: max 5 attempts per minute (for mistyped credentials, etc)
-        from hardening import rate_limit as _rl
+        from hardening import _limiter
         key = request.remote_addr or "unknown"
-        if not _rl._limiter.is_allowed(f"setup:{key}", max_requests=5, window_seconds=60):
+        if not _limiter.is_allowed(f"setup:{key}", max_requests=5, window_seconds=60):
             return jsonify({"error": "Setup endpoint rate limited. Too many attempts."}), 429
         db_path = _get_auth_db_path()
         conn = sqlite3.connect(db_path)
