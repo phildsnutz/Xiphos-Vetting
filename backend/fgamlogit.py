@@ -896,6 +896,7 @@ def score_vendor(
     inp: VendorInputV5,
     regulatory_status: str = "NOT_EVALUATED",
     regulatory_findings: list = None,
+    extra_hard_stops: list = None,
 ) -> ScoringResultV5:
     """
     Score a vendor through the full FGAMLogit v5.0 pipeline.
@@ -905,12 +906,16 @@ def score_vendor(
         regulatory_status:   From Layer 1 ("COMPLIANT" / "NON_COMPLIANT" / "REQUIRES_REVIEW")
                              "NOT_EVALUATED" skips layer integration
         regulatory_findings: List of regulatory finding dicts from Layer 1
+        extra_hard_stops:    Pre-determined hard stops from OSINT (SAM exclusions, UN sanctions, etc.)
+                             These are treated as categorical prohibitions (p=1.0).
 
     Returns:
         ScoringResultV5 with full two-layer output
     """
     if regulatory_findings is None:
         regulatory_findings = []
+    if extra_hard_stops is None:
+        extra_hard_stops = []
 
     sensitivity = inp.dod.sensitivity
     if sensitivity not in BASELINE_LOGODDS:
@@ -973,8 +978,9 @@ def score_vendor(
 
     probability = _logistic(eta)
 
-    # Step 4: Hard stops
+    # Step 4: Hard stops (internal rules + OSINT-discovered prohibitions)
     stops = _evaluate_hard_stops(screening, inp.ownership, inp.country, sensitivity)
+    stops.extend(extra_hard_stops)  # Merge OSINT hard stops (SAM exclusions, UN sanctions, etc.)
     if stops:
         # Hard stops are categorical PROHIBITED state, not just a probability floor
         probability = 1.0
@@ -1006,35 +1012,60 @@ def score_vendor(
         n_eff = n_base
     ci_lo, ci_hi = _wilson_ci(probability, n_eff)
 
-    # Step 7: Per-factor signed contributions (counterfactual)
+    # Step 7: Per-factor signed contributions
+    # When hard stops fire (p=1.0), counterfactual contributions are meaningless.
+    # Instead, show the hard stop as the dominant contribution.
     contributions = []
-    for fname, fx in factor_scores.items():
-        w = FACTOR_WEIGHTS[fname].get(sensitivity, 0.0)
-        if w == 0.0:
-            continue
-
-        eta_without = BASELINE_LOGODDS[sensitivity]
-        for gname, gx in factor_scores.items():
-            gw = FACTOR_WEIGHTS[gname].get(sensitivity, 0.0)
-            if gname == fname:
-                continue
-            eta_without += gw * gx
-        for (fa, fb), iweights in INTERACTION_WEIGHTS.items():
-            iw = iweights.get(sensitivity, 0.0)
-            if iw == 0.0 or fa == fname or fb == fname:
-                continue
-            eta_without += iw * factor_scores.get(fa, 0.0) * factor_scores.get(fb, 0.0)
-
-        prob_without = _logistic(eta_without)
-        signed_contribution = probability - prob_without
-
+    if stops:
         contributions.append({
-            "factor": fname,
-            "raw_score": round(fx, 4),
-            "weight": round(w, 4),
-            "signed_contribution": round(signed_contribution, 4),
-            "description": _factor_description(fname, fx, inp, screening),
+            "factor": "HARD_STOP",
+            "raw_score": 1.0,
+            "weight": 999.0,
+            "signed_contribution": 1.0,
+            "description": f"CATEGORICAL PROHIBITION: {stops[0].get('trigger', 'Hard stop triggered')}. "
+                           f"Probabilistic factors are overridden.",
         })
+        # Still show factor scores for context, but with zero contribution
+        for fname, fx in factor_scores.items():
+            w = FACTOR_WEIGHTS[fname].get(sensitivity, 0.0)
+            if w == 0.0:
+                continue
+            contributions.append({
+                "factor": fname,
+                "raw_score": round(fx, 4),
+                "weight": round(w, 4),
+                "signed_contribution": 0.0,
+                "description": f"[OVERRIDDEN BY HARD STOP] {_factor_description(fname, fx, inp, screening)}",
+            })
+    else:
+        # Normal counterfactual contributions
+        for fname, fx in factor_scores.items():
+            w = FACTOR_WEIGHTS[fname].get(sensitivity, 0.0)
+            if w == 0.0:
+                continue
+
+            eta_without = BASELINE_LOGODDS[sensitivity]
+            for gname, gx in factor_scores.items():
+                gw = FACTOR_WEIGHTS[gname].get(sensitivity, 0.0)
+                if gname == fname:
+                    continue
+                eta_without += gw * gx
+            for (fa, fb), iweights in INTERACTION_WEIGHTS.items():
+                iw = iweights.get(sensitivity, 0.0)
+                if iw == 0.0 or fa == fname or fb == fname:
+                    continue
+                eta_without += iw * factor_scores.get(fa, 0.0) * factor_scores.get(fb, 0.0)
+
+            prob_without = _logistic(eta_without)
+            signed_contribution = probability - prob_without
+
+            contributions.append({
+                "factor": fname,
+                "raw_score": round(fx, 4),
+                "weight": round(w, 4),
+                "signed_contribution": round(signed_contribution, 4),
+                "description": _factor_description(fname, fx, inp, screening),
+            })
 
     contributions.sort(key=lambda c: abs(c["signed_contribution"]), reverse=True)
 

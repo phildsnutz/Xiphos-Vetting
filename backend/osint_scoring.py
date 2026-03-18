@@ -528,9 +528,10 @@ def augment_from_enrichment(
                 "detail": sig["detail"],
                 "scoring_impact": "sanctions_raw_override" if sev == "critical" else "hard_stop_candidate",
             })
-            # Entity IS a foreign principal - higher confidence but still from FARA records
-            own.state_owned = True
-            changes.append("[INFERRED] Entity identified as FARA foreign principal via FARA registry -- requires legal verification")
+            # Entity IS a foreign principal -- high confidence but still from FARA registry, not verified
+            # Do NOT set state_owned=True from FARA alone; add as risk signal
+            own.pep_connection = True
+            changes.append("[INFERRED] Entity identified as FARA foreign principal -- requires legal verification before state-owned designation")
 
     # FARA registrant ID as identifier
     if identifiers.get("fara_registrant_id"):

@@ -313,18 +313,13 @@ def _score_and_persist(vendor_id: str, v: dict) -> dict:
     # Inject gate proximity into DoD context for Layer 2
     inp.dod.regulatory_gate_proximity = gate_proximity
 
-    # Layer 2: FGAMLogit probabilistic scoring + Layer Integration
-    result = score_vendor(inp, regulatory_status=reg_status, regulatory_findings=reg_findings)
-    score_dict = _full_score_dict(result)
+    # Extract OSINT-discovered hard stops and pass them to score_vendor
+    # so they're treated as categorical prohibitions (p=1.0) BEFORE scoring
+    extra_stops = v.pop("extra_hard_stops", [])
 
-    # Apply extra hard stops from OSINT signals if present
-    if "extra_hard_stops" in v:
-        for extra_stop in v["extra_hard_stops"]:
-            result.hard_stop_decisions.append(extra_stop)
-            # If any hard stop is added, update score to reflect prohibition
-            if not score_dict.get("is_hard_stop"):
-                score_dict["is_hard_stop"] = True
-                score_dict["composite_score"] = 1.0
+    # Layer 2: FGAMLogit probabilistic scoring + Layer Integration
+    result = score_vendor(inp, regulatory_status=reg_status, regulatory_findings=reg_findings,
+                          extra_hard_stops=extra_stops)
 
     # Persist vendor
     db.upsert_vendor(vendor_id, v["name"], v["country"],
@@ -510,6 +505,7 @@ def api_get_case(case_id):
 
 @app.route("/api/cases", methods=["POST"])
 @require_auth("cases:create")
+@rate_limit(max_requests=30, window_seconds=60)
 def api_create_case():
     body = request.get_json(silent=True) or {}
     required = ["name", "country"]
@@ -554,6 +550,11 @@ def api_rescore_case(case_id):
 
     body = request.get_json(silent=True) or {}
     vendor_input = v["vendor_input"]
+    # Ensure name/country are present (may be missing from legacy records)
+    if "name" not in vendor_input:
+        vendor_input["name"] = v["name"]
+    if "country" not in vendor_input:
+        vendor_input["country"] = v["country"]
     if "program_type" in body:
         vendor_input["program"] = body["program_type"]
     if "dod" in body:
@@ -617,9 +618,16 @@ def api_generate_dossier(case_id):
 @app.route("/api/dossiers/<filename>")
 @require_auth("cases:read")
 def api_serve_dossier(filename):
-    """Serve a generated dossier HTML file."""
+    """Serve a generated dossier HTML file. Path traversal protected."""
+    # Sanitize filename: strip path separators, reject traversal attempts
+    safe_name = os.path.basename(filename)
+    if safe_name != filename or ".." in filename:
+        return jsonify({"error": "Invalid filename"}), 400
     dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
-    filepath = os.path.join(dossier_dir, filename)
+    filepath = os.path.join(dossier_dir, safe_name)
+    # Verify resolved path is within dossier directory
+    if not os.path.realpath(filepath).startswith(os.path.realpath(dossier_dir)):
+        return jsonify({"error": "Invalid filename"}), 400
     if os.path.exists(filepath):
         return send_file(filepath)
     return jsonify({"error": "Dossier not found"}), 404
@@ -759,6 +767,7 @@ def api_resolve_alert(alert_id):
 
 @app.route("/api/cases/<case_id>/enrich", methods=["POST"])
 @require_auth("cases:enrich")
+@rate_limit(max_requests=10, window_seconds=60)
 def api_enrich_case(case_id):
     """Run OSINT enrichment against a vendor case. Stores results in DB."""
     if not HAS_OSINT:
@@ -840,6 +849,7 @@ def api_enrich_standalone():
 
 @app.route("/api/cases/<case_id>/enrich-and-score", methods=["POST"])
 @require_auth("cases:enrich")
+@rate_limit(max_requests=5, window_seconds=60)
 def api_enrich_and_score(case_id):
     """Run OSINT enrichment, augment scoring inputs, then score through the
     canonical two-layer pipeline (_score_and_persist). Single scoring path."""

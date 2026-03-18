@@ -113,7 +113,10 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
 
   // SSE connection
   useEffect(() => {
-    const url = `${apiBase}/api/cases/${caseId}/enrich-stream?token=${token}`;
+    // SSE (EventSource) does not support Authorization headers.
+    // Token is passed via query param -- the backend SSE endpoint should
+    // validate and rate-limit this. TODO: replace with short-lived SSE session token.
+    const url = `${apiBase}/api/cases/${caseId}/enrich-stream?sse_token=${encodeURIComponent(token)}`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
 

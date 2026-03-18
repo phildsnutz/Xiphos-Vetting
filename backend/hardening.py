@@ -209,10 +209,13 @@ def configure_cors(app, allowed_origins=None):
     elif env_origins:
         origins = [o.strip() for o in env_origins.split(",") if o.strip()]
     else:
-        # Dev mode: allow all
-        origins = "*"
+        # No wildcard with credentials (spec violation). Default to same-origin only.
+        # Set XIPHOS_CORS_ORIGINS for cross-origin access.
+        origins = []
 
-    CORS(app, origins=origins, supports_credentials=True)
+    if origins:
+        CORS(app, origins=origins, supports_credentials=True)
+    # If no origins configured, Flask default is same-origin only (no CORS headers)
 
 
 # =============================================================================
@@ -237,11 +240,12 @@ def add_security_headers(app):
         if response.content_type and "text/html" in response.content_type:
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                "script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data:; "
+                "img-src 'self' data: blob:; "
                 "font-src 'self'; "
-                "connect-src 'self'"
+                "connect-src 'self'; "
+                "frame-ancestors 'none'"
             )
         # HSTS (only effective over HTTPS, harmless over HTTP)
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
