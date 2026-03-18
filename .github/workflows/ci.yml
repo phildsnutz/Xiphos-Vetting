@@ -42,6 +42,7 @@ jobs:
           python -c "
           import sys, os
           os.environ['XIPHOS_DB_PATH'] = '/tmp/xiphos_auth_ci.db'
+          os.environ['XIPHOS_DEV_MODE'] = 'true'
           sys.path.insert(0, '.')
           import db; db.init_db()
           from auth import init_auth_db, AUTH_ENABLED; init_auth_db()
@@ -52,7 +53,7 @@ jobs:
               r = c.get('/api/health')
               assert r.status_code == 200, f'Health failed: {r.status_code}'
 
-              # Case creation works
+              # Case creation works (dev mode allows anonymous access)
               r = c.post('/api/cases', json={'name': 'CI Test Corp', 'country': 'US'})
               assert r.status_code == 201, f'Create case failed: {r.status_code}'
 
@@ -83,6 +84,7 @@ jobs:
           python -c "
           import sys, os
           os.environ['XIPHOS_DB_PATH'] = '/tmp/xiphos_hard_ci.db'
+          os.environ['XIPHOS_DEV_MODE'] = 'true'
           sys.path.insert(0, '.')
           import db; db.init_db()
           from auth import init_auth_db; init_auth_db()
