@@ -67,6 +67,7 @@ export const SP = {
  * TIER_1 = critical/blocked, TIER_2 = elevated concern, TIER_3 = conditional, TIER_4 = approved/clear
  */
 export type TierKey =
+  | "UNSCORED"
   | "TIER_1_DISQUALIFIED"
   | "TIER_1_CRITICAL_CONCERN"
   | "TIER_2_ELEVATED_REVIEW"
@@ -88,6 +89,7 @@ export type TierBand = "critical" | "elevated" | "conditional" | "clear";
 
 /** Which band does this tier belong to? */
 export function tierBand(tier: TierKey): TierBand {
+  if (tier === "UNSCORED") return "clear";  // Unscored cases are neutral, not "clear"
   if (tier.startsWith("TIER_1")) return "critical";
   if (tier.startsWith("TIER_2")) return "elevated";
   if (tier.startsWith("TIER_3")) return "conditional";
@@ -96,6 +98,7 @@ export function tierBand(tier: TierKey): TierBand {
 
 /** Display metadata for each tier */
 export const TIER_META: Record<TierKey, { label: string; shortLabel: string; color: string; bg: string; band: TierBand }> = {
+  UNSCORED:                     { label: "UNSCORED",                  shortLabel: "UNSCORED",         color: T.muted,    bg: "transparent",  band: "clear" },
   TIER_1_DISQUALIFIED:          { label: "DISQUALIFIED",              shortLabel: "DISQUALIFIED",     color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
   TIER_1_CRITICAL_CONCERN:      { label: "CRITICAL CONCERN",          shortLabel: "CRITICAL",         color: "#ffffff",  bg: T.hardStopBg,  band: "critical" },
   TIER_2_ELEVATED_REVIEW:       { label: "ELEVATED REVIEW",           shortLabel: "ELEVATED",         color: T.red,      bg: T.redBg,       band: "elevated" },

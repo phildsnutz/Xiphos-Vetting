@@ -976,11 +976,15 @@ def score_vendor(
     # Step 4: Hard stops
     stops = _evaluate_hard_stops(screening, inp.ownership, inp.country, sensitivity)
     if stops:
-        probability = max(probability, 0.82)
+        # Hard stops are categorical PROHIBITED state, not just a probability floor
+        probability = 1.0
 
     # Step 5: Layer integration -> combined tier
     if regulatory_status == "NOT_EVALUATED":
-        if probability >= 0.82 or stops:
+        if stops:
+            # Hard stop: categorical disqualification
+            combined_tier = "TIER_1_DISQUALIFIED"
+        elif probability >= 0.82:
             combined_tier = "TIER_1_CRITICAL_CONCERN"
         elif probability >= 0.50:
             combined_tier = "TIER_2_ELEVATED_REVIEW"
@@ -990,8 +994,9 @@ def score_vendor(
             combined_tier = "TIER_4_CLEAR"
     else:
         combined_tier = integrate_layers(regulatory_status, probability, sensitivity)
-        if stops and "TIER_1" not in combined_tier:
-            combined_tier = "TIER_1_CRITICAL_CONCERN"
+        if stops:
+            # Hard stop overrides any regulatory status
+            combined_tier = "TIER_1_DISQUALIFIED"
 
     # Step 6: Confidence interval (Wilson score)
     n_base = EFFECTIVE_N_BASE.get(sensitivity, 100.0)

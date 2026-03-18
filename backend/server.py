@@ -104,6 +104,7 @@ try:
     from regulatory_gates import (
         evaluate_regulatory_gates, quick_screen,
         RegulatoryGateInput, Section889Input, NDAA1260HInput,
+        FOCIInput, CFIUSInput,
     )
     HAS_GATES = True
 except ImportError:
@@ -244,21 +245,42 @@ def _run_regulatory_gates(v: dict, sensitivity: str, tier: int) -> tuple:
 
     name = v.get("name", "")
     country = v.get("country", "US")
+    ownership = v.get("ownership", {})
+    program = v.get("program", "standard_industrial")
 
     # Quick screen: Section 889 + NDAA 1260H name-based checks
     screen = quick_screen(
         entity_name=name,
-        parent_companies=v.get("ownership", {}).get("parent_companies", []),
+        parent_companies=ownership.get("parent_companies", []),
         entity_country=country,
     )
 
-    # Build full gate input
+    # Build full gate input with available ownership and program data
     gate_inp = RegulatoryGateInput(
         entity_name=name,
         entity_country=country,
         sensitivity=sensitivity,
         supply_chain_tier=tier,
     )
+
+    # Populate FOCI with foreign ownership data
+    foreign_ownership_pct = ownership.get("foreign_ownership_pct", 0.0)
+    if foreign_ownership_pct > 0:
+        gate_inp.foci = FOCIInput(
+            entity_foreign_ownership_pct=foreign_ownership_pct,
+            sensitivity=sensitivity,
+        )
+
+    # Populate CFIUS with basic foreign involvement data
+    if foreign_ownership_pct > 0:
+        # Mark as transaction involving foreign party if foreign ownership detected
+        gate_inp.cfius = CFIUSInput(
+            transaction_involves_foreign_acquirer=True,
+            foreign_acquirer_country=country if country != "US" else "",
+        )
+        # Add critical tech/infrastructure flags based on program type
+        if "defense" in program.lower() or "dod" in program.lower():
+            gate_inp.cfius.business_involves_critical_technology = True
 
     assessment = evaluate_regulatory_gates(gate_inp)
 
@@ -295,6 +317,15 @@ def _score_and_persist(vendor_id: str, v: dict) -> dict:
     result = score_vendor(inp, regulatory_status=reg_status, regulatory_findings=reg_findings)
     score_dict = _full_score_dict(result)
 
+    # Apply extra hard stops from OSINT signals if present
+    if "extra_hard_stops" in v:
+        for extra_stop in v["extra_hard_stops"]:
+            result.hard_stop_decisions.append(extra_stop)
+            # If any hard stop is added, update score to reflect prohibition
+            if not score_dict.get("is_hard_stop"):
+                score_dict["is_hard_stop"] = True
+                score_dict["composite_score"] = 1.0
+
     # Persist vendor
     db.upsert_vendor(vendor_id, v["name"], v["country"],
                      v.get("program", "standard_industrial"), v)
@@ -312,6 +343,79 @@ def _score_and_persist(vendor_id: str, v: dict) -> dict:
                       flag["trigger"], flag["explanation"])
 
     return score_dict
+
+
+def _apply_extra_risk_signals(updated_input: dict, extra_signals: list) -> dict:
+    """
+    Process extra_risk_signals from OSINT augmentation and apply them to the scoring input.
+
+    Signals are categorized by scoring_impact:
+    - sanctions_raw_override: Signals that should override sanctions factor
+    - hard_stop_candidate: Signals that should trigger hard stops
+    - data_quality_penalty: Signals that lower data quality confidence
+    - ownership_risk_increase: Signals that increase ownership risk
+    """
+    if not extra_signals:
+        return updated_input
+
+    # Ensure nested dicts exist
+    if "dod" not in updated_input:
+        updated_input["dod"] = {}
+    if "ownership" not in updated_input:
+        updated_input["ownership"] = {}
+    if "data_quality" not in updated_input:
+        updated_input["data_quality"] = {}
+
+    for signal in extra_signals:
+        impact = signal.get("scoring_impact", "")
+
+        if impact == "sanctions_raw_override":
+            # Override sanctions factor in dod context
+            # Add/update sanctions field to indicate detected match
+            if "sanctions" not in updated_input["dod"]:
+                updated_input["dod"]["sanctions"] = {}
+            if not isinstance(updated_input["dod"]["sanctions"], dict):
+                updated_input["dod"]["sanctions"] = {}
+            updated_input["dod"]["sanctions"]["detected_match"] = True
+            updated_input["dod"]["sanctions"]["source"] = signal.get("source", "")
+            updated_input["dod"]["sanctions"]["detail"] = signal.get("detail", "")
+
+        elif impact == "hard_stop_candidate":
+            # These signals should add to hard_stop_decisions
+            # We'll return them to be added by the caller
+            if "extra_hard_stops" not in updated_input:
+                updated_input["extra_hard_stops"] = []
+            updated_input["extra_hard_stops"].append({
+                "trigger": signal.get("detail", signal.get("signal", "OSINT Signal")),
+                "explanation": f"OSINT {signal.get('source', 'unknown')}: {signal.get('detail', signal.get('signal', ''))}",
+                "confidence": 0.95 if signal.get("severity") == "critical" else 0.85,
+            })
+
+        elif impact == "data_quality_penalty":
+            # Reduce data quality confidence
+            if "confidence_score" not in updated_input["data_quality"]:
+                updated_input["data_quality"]["confidence_score"] = 1.0
+            # Reduce by signal severity: critical=-0.3, high=-0.2, medium=-0.1
+            penalty = 0.3 if signal.get("severity") == "critical" else (
+                0.2 if signal.get("severity") == "high" else 0.1
+            )
+            updated_input["data_quality"]["confidence_score"] = max(
+                0.0, updated_input["data_quality"]["confidence_score"] - penalty
+            )
+
+        elif impact == "ownership_risk_increase":
+            # Increase ownership risk factors
+            if "risk_score" not in updated_input["ownership"]:
+                updated_input["ownership"]["risk_score"] = 0.0
+            # Increase by signal severity
+            increase = 0.3 if signal.get("severity") == "critical" else (
+                0.2 if signal.get("severity") == "high" else 0.1
+            )
+            updated_input["ownership"]["risk_score"] = min(
+                1.0, updated_input["ownership"]["risk_score"] + increase
+            )
+
+    return updated_input
 
 
 def _seed_if_empty():
@@ -428,6 +532,7 @@ def api_create_case():
         "exec": body.get("exec", {}),
         "program": body.get("program", "standard_industrial"),
         "dod": body.get("dod", {}),
+        "profile": body.get("profile_id", body.get("profile", "defense_acquisition")),
     }
     score_dict = _score_and_persist(vendor_id, v)
     log_audit("case_created", "case", vendor_id,
@@ -510,6 +615,7 @@ def api_generate_dossier(case_id):
 
 
 @app.route("/api/dossiers/<filename>")
+@require_auth("cases:read")
 def api_serve_dossier(filename):
     """Serve a generated dossier HTML file."""
     dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
@@ -789,6 +895,9 @@ def api_enrich_and_score(case_id):
             "litigation_history": aug_vi.exec_profile.litigation_history,
         },
     }
+
+    # Apply extra risk signals from OSINT augmentation before scoring
+    updated_input = _apply_extra_risk_signals(updated_input, augmentation.extra_risk_signals)
 
     # Step 4: Score through the SINGLE canonical pipeline (Layer 1 gates + Layer 2 FGAMLogit)
     score_dict = _score_and_persist(case_id, updated_input)

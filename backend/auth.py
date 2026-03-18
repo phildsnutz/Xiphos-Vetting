@@ -35,9 +35,18 @@ from datetime import datetime, timedelta, timezone
 from flask import request, jsonify, g
 
 # ---- Configuration ----
-SECRET_KEY = os.environ.get("XIPHOS_SECRET_KEY", "xiphos-dev-secret-change-in-production")
-TOKEN_EXPIRY_HOURS = int(os.environ.get("XIPHOS_TOKEN_EXPIRY_HOURS", "8"))
 AUTH_ENABLED = os.environ.get("XIPHOS_AUTH_ENABLED", "false").lower() == "true"
+
+# SECRET_KEY: must be set in production if AUTH_ENABLED
+_default_secret = "xiphos-dev-secret-change-in-production"
+SECRET_KEY = os.environ.get("XIPHOS_SECRET_KEY", _default_secret)
+if AUTH_ENABLED and SECRET_KEY == _default_secret:
+    raise RuntimeError(
+        "SECURITY ERROR: XIPHOS_AUTH_ENABLED=true but XIPHOS_SECRET_KEY not set to a production value. "
+        "Set a strong XIPHOS_SECRET_KEY environment variable before starting the server."
+    )
+
+TOKEN_EXPIRY_HOURS = int(os.environ.get("XIPHOS_TOKEN_EXPIRY_HOURS", "8"))
 
 # Password hashing iterations (PBKDF2-SHA256)
 HASH_ITERATIONS = 260_000
@@ -357,8 +366,10 @@ def require_auth(permission: str):
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            if not AUTH_ENABLED:
-                # Dev mode: everyone is admin
+            # Only allow unauthenticated access if AUTH is disabled AND XIPHOS_DEV_MODE is explicitly set
+            dev_mode = os.environ.get("XIPHOS_DEV_MODE", "false").lower() == "true"
+            if not AUTH_ENABLED and dev_mode:
+                # Dev mode: everyone is admin (only with explicit XIPHOS_DEV_MODE=true)
                 g.user = {"sub": "dev", "email": "dev@xiphos", "role": "admin"}
                 return f(*args, **kwargs)
 
@@ -493,7 +504,13 @@ def register_auth_routes(app):
         """
         One-time setup: create the initial admin user.
         Only works when no users exist in the database.
+        Rate-limited to prevent brute force on setup.
         """
+        # Rate limit: max 5 attempts per minute (for mistyped credentials, etc)
+        from hardening import rate_limit as _rl
+        key = request.remote_addr or "unknown"
+        if not _rl._limiter.is_allowed(f"setup:{key}", max_requests=5, window_seconds=60):
+            return jsonify({"error": "Setup endpoint rate limited. Too many attempts."}), 429
         db_path = _get_auth_db_path()
         conn = sqlite3.connect(db_path)
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]

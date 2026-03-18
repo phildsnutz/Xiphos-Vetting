@@ -137,8 +137,10 @@ def augment_from_enrichment(
     if has_cik or has_ticker:
         if not own.beneficial_owner_known:
             own.beneficial_owner_known = True
-            changes.append("Beneficial ownership known via SEC public filings")
-        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.80)
+            # Beneficial ownership is INFERRED from SEC CIK; requires manual verification
+            changes.append("[INFERRED] Beneficial ownership inferred from SEC CIK -- requires manual verification")
+        # Lower confidence on ownership percentage: CIK presence doesn't guarantee we found real beneficial owner
+        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.60)
         if not dq.has_audited_financials:
             dq.has_audited_financials = True
             changes.append("Audited financials inferred from SEC registration")
@@ -147,8 +149,10 @@ def augment_from_enrichment(
     if identifiers.get("lei"):
         if not own.beneficial_owner_known:
             own.beneficial_owner_known = True
-            changes.append("Beneficial ownership verified via GLEIF LEI registration")
-        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.65)
+            # LEI verifies entity identity but not ultimate beneficial ownership
+            changes.append("[INFERRED] Beneficial ownership inferred from LEI registration -- requires manual verification")
+        # Lower confidence: LEI doesn't guarantee we have ultimate beneficial ownership
+        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.60)
 
     # -------------------------------------------------------------------
     # 2. Ownership: update from corporate registry and LEI parent chains
@@ -282,8 +286,17 @@ def augment_from_enrichment(
             detail = (f.get("detail", "") + " " + f.get("title", "")).lower()
             if src in ("opencorporates", "gleif_lei", "uk_companies_house"):
                 if any(kw in detail for kw in ("state-owned", "state owned", "government", "soe", "crown corporation", "public body")):
-                    own.state_owned = True
-                    changes.append(f"State-owned entity detected via {src}")
+                    # Keyword matching "government" is not definitive; flag for review instead
+                    own.state_owned = False  # Don't set as hard fact
+                    changes.append(f"[INFERRED] Possible state-owned entity (keyword match '{src}') -- requires manual verification")
+                    # Add as a soft risk signal for scoring instead
+                    extra_signals.append({
+                        "signal": "possible_state_owned",
+                        "severity": "medium",
+                        "source": src,
+                        "detail": f"Keyword match suggests possible state ownership",
+                        "scoring_impact": "ownership_risk_increase",
+                    })
                     break
 
     # -------------------------------------------------------------------
@@ -489,13 +502,20 @@ def augment_from_enrichment(
                 "detail": sig["detail"],
                 "scoring_impact": scoring_impact,
             })
-            # FARA registration implies foreign government connection
+            # FARA registration implies foreign government connection (but inferred, not confirmed)
             if not own.state_owned and sev in ("critical", "high"):
-                own.state_owned = True
-                changes.append(f"State-owned flag: FARA registration indicates foreign government principal")
+                own.state_owned = False  # Don't set as hard fact; mark as risk signal
+                changes.append(f"[INFERRED] Foreign government connection inferred from FARA registration -- requires verification")
+                extra_signals.append({
+                    "signal": "fara_foreign_connection",
+                    "severity": sev,
+                    "source": "fara",
+                    "detail": "FARA registration suggests foreign government principal involvement",
+                    "scoring_impact": "ownership_risk_increase",
+                })
             if not own.pep_connection:
                 own.pep_connection = True
-                changes.append("PEP connection inferred from FARA foreign agent registration")
+                changes.append("[INFERRED] PEP connection inferred from FARA foreign agent registration -- requires verification")
 
     # FARA foreign principal match (vendor IS the foreign government/entity)
     for sig in risk_signals:
@@ -508,9 +528,9 @@ def augment_from_enrichment(
                 "detail": sig["detail"],
                 "scoring_impact": "sanctions_raw_override" if sev == "critical" else "hard_stop_candidate",
             })
-            # Entity IS a foreign principal
+            # Entity IS a foreign principal - higher confidence but still from FARA records
             own.state_owned = True
-            changes.append("Entity identified as FARA foreign principal (foreign government/entity)")
+            changes.append("[INFERRED] Entity identified as FARA foreign principal via FARA registry -- requires legal verification")
 
     # FARA registrant ID as identifier
     if identifiers.get("fara_registrant_id"):

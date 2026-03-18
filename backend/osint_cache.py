@@ -34,7 +34,8 @@ RATE_LIMIT_WINDOW = 2          # Minimum seconds between identical requests
 # Connectors that should use longer TTL (expensive to fetch)
 HEAVY_CONNECTORS = {"un_sanctions", "trade_csl", "icij_offshore"}
 
-DB_PATH = os.environ.get("XIPHOS_DB", "xiphos.db")
+# Use XIPHOS_DB_PATH (matching Dockerfile/compose), with fallback to XIPHOS_DB for legacy compatibility
+DB_PATH = os.environ.get("XIPHOS_DB_PATH", os.environ.get("XIPHOS_DB", "xiphos.db"))
 
 _lock = threading.Lock()
 

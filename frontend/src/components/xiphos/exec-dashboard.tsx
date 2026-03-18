@@ -19,7 +19,8 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
     const total = cases.length;
     const byBand: Record<string, VettingCase[]> = Object.fromEntries(TIER_BANDS.map(b => [b, []]));
     for (const c of cases) {
-      const tierKey = c.cal?.tier ? parseTier(c.cal.tier) : "TIER_4_CLEAR";
+      // If no score exists, mark as UNSCORED (not CLEAR)
+      const tierKey = c.cal?.tier ? parseTier(c.cal.tier) : "UNSCORED";
       const band = tierBand(tierKey);
       (byBand[band] ??= []).push(c);
     }
@@ -170,7 +171,8 @@ export function ExecDashboard({ cases, alerts, onSelectCase }: ExecDashboardProp
           )}
 
           {metrics.topRisk.map((c, i) => {
-            const tierKey = c.cal?.tier ? parseTier(c.cal.tier) : "TIER_4_CLEAR";
+            // If no score exists, mark as UNSCORED (not CLEAR)
+            const tierKey = c.cal?.tier ? parseTier(c.cal.tier) : "UNSCORED";
             const prob = c.cal?.p ?? 0;
             const color = tierColor(tierKey);
             const stops = c.cal?.stops?.length ?? 0;
