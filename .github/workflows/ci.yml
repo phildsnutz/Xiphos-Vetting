@@ -211,7 +211,7 @@ jobs:
     name: Remote Integration Tests
     runs-on: ubuntu-latest
     needs: test
-    if: ${{ secrets.HELIOS_BASE_URL != '' && secrets.HELIOS_LOGIN_EMAIL != '' && secrets.HELIOS_LOGIN_PASSWORD != '' }}
+    if: ${{ vars.HELIOS_INTEGRATION_ENABLED == 'true' }}
 
     steps:
       - uses: actions/checkout@v4
