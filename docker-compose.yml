@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  xiphos:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - xiphos-data:/data
+    environment:
+      - XIPHOS_DATA_DIR=/data
+      - XIPHOS_CACHE_DIR=/data/cache
+      - XIPHOS_AUTH_ENABLED=true
+      - XIPHOS_SECRET_KEY=${XIPHOS_SECRET_KEY:?Set XIPHOS_SECRET_KEY before running docker compose}
+      - XIPHOS_AI_CONFIG_KEY=${XIPHOS_AI_CONFIG_KEY:-}
+      - XIPHOS_TOKEN_EXPIRY_HOURS=8
+      - XIPHOS_ML_MODEL_DIR=/app/ml/model
+      - XIPHOS_SAM_API_KEY=${XIPHOS_SAM_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  xiphos-data:

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.db
+.env
+.env.*
+deploy.env
+deploy.local.env
+node_modules/
+dist/
+*.bundle
+var/
+logs/
+
+*.db-journal
+ml/training_data.csv

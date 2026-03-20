@@ -1,0 +1,11 @@
+{
+  "model": "distilbert-base-uncased",
+  "epochs": 3,
+  "best_epoch": 2,
+  "best_val_acc": 1.0,
+  "train_size": 15487,
+  "val_size": 2734,
+  "adverse_pct": 0.056498999160586295,
+  "device": "mps",
+  "max_length": 128
+}

@@ -1,0 +1,234 @@
+name: Xiphos CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run frontend build
+        working-directory: frontend
+        run: npm run build
+
+  test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend route and engine tests
+        run: python -m pytest tests/test_engine_parity.py tests/test_api_surface_local.py tests/test_ai_async_flow.py tests/test_entity_resolution_ai.py tests/test_intel_summary_flow.py -q
+        env:
+          XIPHOS_DB_PATH: /tmp/xiphos_ci.db
+          XIPHOS_KG_DB_PATH: /tmp/xiphos_kg_ci.db
+
+      - name: Run scoring validation harness
+        run: python tests/test_scoring_validation.py
+
+      - name: Run monitoring scheduler tests
+        run: python backend/test_monitor_scheduler.py
+
+      - name: Run auth integration tests
+        run: |
+          cd backend
+          python -c "
+          import sys, os
+          os.environ['XIPHOS_DB_PATH'] = '/tmp/xiphos_auth_ci.db'
+          os.environ['XIPHOS_DEV_MODE'] = 'true'
+          sys.path.insert(0, '.')
+          import db; db.init_db()
+          from auth import init_auth_db, AUTH_ENABLED; init_auth_db()
+          from server import app
+
+          with app.test_client() as c:
+              # Health endpoint works
+              r = c.get('/api/health')
+              assert r.status_code == 200, f'Health failed: {r.status_code}'
+
+              # Case creation works (dev mode allows anonymous access)
+              r = c.post('/api/cases', json={'name': 'CI Test Corp', 'country': 'US'})
+              assert r.status_code == 201, f'Create case failed: {r.status_code}'
+
+              # Input validation blocks bad input
+              r = c.post('/api/cases', json={'name': \"'; DROP TABLE;\", 'country': 'US'})
+              assert r.status_code == 400, f'Validation should block: {r.status_code}'
+
+              # Auth setup works
+              r = c.post('/api/auth/setup', json={
+                  'email': 'ci@test.com', 'password': 'CITestPass1!', 'name': 'CI'
+              })
+              assert r.status_code == 201, f'Setup failed: {r.status_code}'
+
+              # Login works
+              r = c.post('/api/auth/login', json={'email': 'ci@test.com', 'password': 'CITestPass1!'})
+              assert r.status_code == 200, f'Login failed: {r.status_code}'
+
+              # Duplicate setup blocked
+              r = c.post('/api/auth/setup', json={'email': 'x@x.com', 'password': 'test1234'})
+              assert r.status_code == 400, f'Dup setup should fail: {r.status_code}'
+
+          print('All auth integration tests passed')
+          "
+
+      - name: Run hardening tests
+        run: |
+          cd backend
+          python -c "
+          import sys, os
+          os.environ['XIPHOS_DB_PATH'] = '/tmp/xiphos_hard_ci.db'
+          os.environ['XIPHOS_DEV_MODE'] = 'true'
+          sys.path.insert(0, '.')
+          import db; db.init_db()
+          from auth import init_auth_db; init_auth_db()
+          from server import app
+
+          with app.test_client() as c:
+              # Security headers present
+              r = c.get('/api/health')
+              assert r.headers.get('X-Content-Type-Options') == 'nosniff'
+              assert r.headers.get('X-Frame-Options') == 'DENY'
+
+              # Rate limiting works
+              for i in range(7):
+                  r = c.post('/api/auth/login', json={'email': f'rl{i}@test.com', 'password': 'wrong123!'})
+                  if r.status_code == 429:
+                      break
+              assert r.status_code == 429, 'Rate limit should trigger'
+
+          print('All hardening tests passed')
+          "
+
+      - name: Run local smoke flow
+        run: |
+          XIPHOS_AUTH_ENABLED=false XIPHOS_DEV_MODE=true XIPHOS_SKIP_SYNC=true python backend/server.py --port 8095 >/tmp/xiphos-smoke.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8095/api/health || true)
+            if [ "$STATUS" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          python scripts/run_local_smoke.py --base-url http://127.0.0.1:8095
+          kill $SERVER_PID || true
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t xiphos:ci .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name xiphos-ci \
+            -e XIPHOS_DATA_DIR=/data \
+            -e XIPHOS_AUTH_ENABLED=false \
+            -e XIPHOS_SKIP_SYNC=true \
+            -p 8080:8080 \
+            xiphos:ci
+
+          # Wait for container with retry loop (up to 60 seconds)
+          echo "Waiting for Xiphos to start..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed on attempt $i"
+              break
+            fi
+            echo "  Attempt $i: status=$STATUS, retrying..."
+            sleep 2
+          done
+
+          # Final health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health)
+          echo "Final health check: $STATUS"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "=== Container logs ==="
+            docker logs xiphos-ci
+            exit 1
+          fi
+
+          # Frontend serves
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+          echo "Frontend: $STATUS"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "=== Container logs ==="
+            docker logs xiphos-ci
+            exit 1
+          fi
+
+          echo "All Docker smoke tests passed"
+          docker stop xiphos-ci
+
+  remote-integration:
+    name: Remote Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ secrets.HELIOS_BASE_URL != '' && secrets.HELIOS_LOGIN_EMAIL != '' && secrets.HELIOS_LOGIN_PASSWORD != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run hosted integration suite
+        env:
+          HELIOS_BASE_URL: ${{ secrets.HELIOS_BASE_URL }}
+          HELIOS_LOGIN_EMAIL: ${{ secrets.HELIOS_LOGIN_EMAIL }}
+          HELIOS_LOGIN_PASSWORD: ${{ secrets.HELIOS_LOGIN_PASSWORD }}
+          HELIOS_VERIFY_TLS: ${{ secrets.HELIOS_VERIFY_TLS }}
+        run: python tests/test_integration.py
