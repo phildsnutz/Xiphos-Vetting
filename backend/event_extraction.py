@@ -140,10 +140,40 @@ def _infer_jurisdiction(source: str, text: str, country: str) -> str:
     return _JURISDICTION_BY_SOURCE.get(source, country or "GLOBAL")
 
 
+def _is_negative_result(finding: dict) -> bool:
+    """Return True if the finding is a clear/negative result (no match found)."""
+    severity = (finding.get("severity") or "").lower()
+    text = f"{finding.get('title', '')} {finding.get('detail', '')}".lower()
+
+    # INFO severity with negative language = clean check, not a real finding
+    if severity == "info" and any(neg in text for neg in (
+        "not found", "no match", "no pep", "no sanctions", "no debarment",
+        "not configured", "not on", "clear", "no active", "no known",
+        "no osha", "no products associated", "unable to verify",
+        "api key not con", "integration is not",
+        "no articles found", "no inspection records",
+        "not found among", "no world bank",
+    )):
+        return True
+
+    # LOW severity with missing data = informational, not adverse
+    if severity in ("info", "low") and any(neg in text for neg in (
+        "set xiphos_", "environment vari", "register for",
+        "cannot reach", "api unavailable",
+    )):
+        return True
+
+    return False
+
+
 def _event_type_for_finding(finding: dict) -> str | None:
     source = (finding.get("source") or "").lower()
     category = (finding.get("category") or "").lower()
     text = f"{finding.get('title', '')} {finding.get('detail', '')}".lower()
+
+    # Skip negative/clean results entirely -- these are NOT events
+    if _is_negative_result(finding):
+        return None
 
     if source == "courtlistener" or any(token in text for token in ("lawsuit", "complaint", "litigation", "docket", "civil action", "sued", "settlement")):
         return "lawsuit"

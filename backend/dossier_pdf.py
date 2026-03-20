@@ -254,7 +254,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "") -> bytes:
             raw = f"{ct.get('raw_score', 0):.2f}"
             contrib = f"{ct.get('signed_contribution', 0):+.3f} pp"
             weight = f"{ct.get('weight', 0):.1f}"
-            desc = ct.get('description', '')[:50]
+            desc = Paragraph(ct.get('description', ''), normal_style)
 
             contrib_data.append([
                 ct.get("factor", "Unknown"),
@@ -338,8 +338,19 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "") -> bytes:
         story.append(Paragraph("OSINT ENRICHMENT SUMMARY", heading_style))
 
         summary = enrichment.get("summary", {})
+        # Reconcile overall_risk with scored tier (same logic as HTML dossier)
+        osint_label = enrichment.get('overall_risk', 'UNKNOWN')
+        if score:
+            scored_tier = (score.get("calibrated", {}).get("calibrated_tier", "") or "").upper()
+            if "APPROVED" in scored_tier or "CLEAR" in scored_tier:
+                osint_label = "LOW"
+            elif "ELEVATED" in scored_tier or "CONDITIONAL" in scored_tier:
+                osint_label = "MEDIUM"
+            elif "HARD_STOP" in scored_tier or "DENIED" in scored_tier:
+                osint_label = "CRITICAL"
+
         story.append(Paragraph(
-            f"<b>Overall Risk:</b> {enrichment.get('overall_risk', 'UNKNOWN')} | "
+            f"<b>Overall Risk:</b> {osint_label} | "
             f"<b>Connectors:</b> {summary.get('connectors_run', 0)} ran "
             f"({summary.get('connectors_with_data', 0)} with data) | "
             f"<b>Findings:</b> {summary.get('findings_total', 0)} total",
@@ -348,11 +359,12 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "") -> bytes:
 
         story.append(Spacer(1, 0.08*inch))
 
-        # Findings breakdown
+        # Findings breakdown -- use Paragraph objects for text wrapping
         findings = enrichment.get("findings", [])
         if findings:
             story.append(Paragraph("TOP FINDINGS", subheading_style))
 
+            cell_style = ParagraphStyle('CellWrap', parent=normal_style, fontSize=7, wordWrap='CJK')
             findings_data = [
                 ["Severity", "Source", "Title", "Detail"],
             ]
@@ -360,12 +372,12 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "") -> bytes:
             for finding in findings[:15]:  # Top 15 findings
                 findings_data.append([
                     finding.get("severity", "LOW").upper(),
-                    finding.get("source", "")[:20],
-                    finding.get("title", "")[:30],
-                    finding.get("detail", "")[:40],
+                    Paragraph(finding.get("source", ""), cell_style),
+                    Paragraph(finding.get("title", ""), cell_style),
+                    Paragraph(finding.get("detail", ""), cell_style),
                 ])
 
-            findings_table = Table(findings_data, colWidths=[1*inch, 1.5*inch, 2*inch, 3*inch])
+            findings_table = Table(findings_data, colWidths=[0.7*inch, 1.3*inch, 2.2*inch, 3.3*inch])
             findings_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), HexColor("#1F2937")),
                 ('TEXTCOLOR', (0, 0), (-1, 0), HexColor("#FFFFFF")),

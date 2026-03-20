@@ -113,14 +113,31 @@ def _generate_executive_summary(vendor: dict, score: dict, enrichment: Optional[
 
     enrichment_info = ""
     if enrichment:
+        # Use the scored tier if available, not the raw enrichment overall_risk
+        # The enrichment labels any single CRITICAL finding as "CRITICAL" overall,
+        # even when the FGAMLogit score is 10% APPROVED. Use the scored result.
+        osint_risk_label = enrichment.get('overall_risk', 'LOW')
+        if score:
+            cal = score.get("calibrated", {})
+            scored_tier = cal.get("calibrated_tier", "")
+            if "APPROVED" in scored_tier or "CLEAR" in scored_tier:
+                osint_risk_label = "LOW"
+            elif "ELEVATED" in scored_tier or "CONDITIONAL" in scored_tier:
+                osint_risk_label = "MEDIUM"
+            elif "HARD_STOP" in scored_tier or "DENIED" in scored_tier:
+                osint_risk_label = "CRITICAL"
+
+        findings_count = enrichment.get('summary', {}).get('findings_total', 0)
+        connectors_run = enrichment.get('summary', {}).get('connectors_run', 0)
+        connectors_data = enrichment.get('summary', {}).get('connectors_with_data', 0)
         enrichment_info = f"""
         <tr>
             <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-weight: 600;">
-                OSINT Risk
+                OSINT Enrichment
             </td>
             <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">
-                {_severity_badge(enrichment.get('overall_risk', 'LOW').lower())}
-                ({enrichment.get('summary', {}).get('findings_total', 0)} findings)
+                {_severity_badge(osint_risk_label.lower())}
+                {findings_count} findings from {connectors_data}/{connectors_run} sources
             </td>
         </tr>
         """

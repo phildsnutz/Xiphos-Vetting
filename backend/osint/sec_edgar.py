@@ -104,7 +104,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 result.identifiers["cik"] = cik
 
             # Create finding for company/filing
-            title_text = f"{company_name or 'Unknown'} - {form_type} ({file_date})"
+            display_name = company_name or (display_names[0] if display_names else "") or vendor_name
+            title_text = f"{display_name} - {form_type} ({file_date})"
             detail_parts = [
                 f"CIK: {cik}",
                 f"Company: {company_name}",
