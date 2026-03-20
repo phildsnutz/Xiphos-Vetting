@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { T, FS, tierBand, TIER_BANDS, BAND_META, parseTier } from "@/lib/tokens";
-import { AlertTriangle, AlertCircle } from "lucide-react";
+import { AlertTriangle, AlertCircle, TrendingUp, TrendingDown, Activity, Shield } from "lucide-react";
 import { CaseRow } from "./case-row";
+import { fetchPortfolioAnomalies, fetchPortfolioSnapshot } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 
 interface PortfolioScreenProps {
@@ -14,6 +15,13 @@ type SortBy = "score" | "name" | "date";
 export function PortfolioScreen({ cases, onSelect }: PortfolioScreenProps) {
   const [sortBy, setSortBy] = useState<SortBy>("score");
   const [renderNow] = useState(() => Date.now());
+  const [anomalies, setAnomalies] = useState<Record<string, unknown>[]>([]);
+  const [snapshot, setSnapshot] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    fetchPortfolioAnomalies(20).then((r) => setAnomalies(r.anomalies ?? [])).catch(() => {});
+    fetchPortfolioSnapshot().then((r) => setSnapshot(r)).catch(() => {});
+  }, []);
 
   // Compute portfolio metrics
   const metrics = useMemo(() => {
@@ -222,6 +230,69 @@ export function PortfolioScreen({ cases, onSelect }: PortfolioScreenProps) {
           })}
         </div>
       </div>
+
+      {/* Intelligence Feed (Phase 4) */}
+      {(anomalies.length > 0 || (snapshot && (snapshot.anomaly_count as number) > 0)) && (
+        <div className="rounded-lg p-3 shrink-0" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Activity size={14} color={T.accent} />
+            <span className="font-semibold" style={{ fontSize: FS.sm, color: T.text }}>
+              Intelligence Feed
+            </span>
+            {anomalies.length > 0 && (
+              <span className="rounded-full px-2 py-0.5" style={{
+                fontSize: 11, background: T.dRedBg, color: T.dRed, fontWeight: 600
+              }}>
+                {anomalies.length} active
+              </span>
+            )}
+          </div>
+          <div className="space-y-2" style={{ maxHeight: 180, overflow: "auto" }}>
+            {anomalies.slice(0, 5).map((a, i) => {
+              const sev = (a.severity as string) || "medium";
+              const sevColor = sev === "critical" ? T.dRed : sev === "high" ? T.red : T.amber;
+              const sevBg = sev === "critical" ? T.dRedBg : sev === "high" ? "rgba(239,68,68,0.1)" : T.amberBg;
+              return (
+                <div key={i} className="rounded p-2 flex items-start gap-2" style={{ background: sevBg }}>
+                  <Shield size={12} color={sevColor} className="mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate" style={{ fontSize: FS.sm, color: sevColor }}>
+                      {(a.title as string) || "Anomaly detected"}
+                    </div>
+                    <div className="truncate" style={{ fontSize: 11, color: T.muted }}>
+                      {(a.entity_name as string) || ""} {a.created_at ? `\u00b7 ${(a.created_at as string).slice(0, 10)}` : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {snapshot && (
+            <div className="flex items-center gap-4 mt-3 pt-2" style={{ borderTop: `1px solid ${T.border}` }}>
+              <div className="flex items-center gap-1">
+                <TrendingDown size={12} color={T.green} />
+                <span style={{ fontSize: 11, color: T.muted }}>
+                  Avg risk: {(snapshot.avg_score as number)?.toFixed(1) ?? "0"}%
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <TrendingUp size={12} color={T.red} />
+                <span style={{ fontSize: 11, color: T.muted }}>
+                  Peak: {(snapshot.max_score as number)?.toFixed(1) ?? "0"}%
+                </span>
+              </div>
+              {(snapshot.hard_stop_count as number) > 0 && (
+                <div className="flex items-center gap-1">
+                  <AlertTriangle size={12} color={T.dRed} />
+                  <span style={{ fontSize: 11, color: T.dRed }}>
+                    {String(snapshot.hard_stop_count)} hard stops
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* All vendors list */}
       <div className="flex-1 min-h-0 flex flex-col rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>

@@ -660,6 +660,32 @@ def get_recent_risk_changes(limit: int = 20) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_all_monitoring_history(limit: int = 500) -> list[dict]:
+    """Get monitoring history across all vendors (for portfolio trend)."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT vendor_id, previous_risk, current_risk, risk_changed,
+                   new_findings_count, resolved_findings_count, checked_at
+            FROM monitoring_log
+            ORDER BY checked_at DESC LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_anomaly(vendor_id: str, entity_name: str, detector: str,
+                 severity: str, title: str, detail: str = "",
+                 evidence: str = "") -> int:
+    """Save an anomaly as an alert with detector metadata."""
+    with get_conn() as conn:
+        cursor = conn.execute("""
+            INSERT INTO alerts (vendor_id, entity_name, severity, title,
+                                description)
+            VALUES (?, ?, ?, ?, ?)
+        """, (vendor_id, entity_name, severity,
+              f"[{detector.upper()}] {title}", f"{detail}\n\n{evidence}".strip()))
+        return cursor.lastrowid
+
+
 # ---- Stats ----
 
 def get_stats() -> dict:

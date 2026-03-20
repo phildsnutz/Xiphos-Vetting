@@ -2086,6 +2086,86 @@ def api_monitor_changes():
         return jsonify({"changes": [], "note": "Monitoring log table not initialized"})
 
 
+# ---- Portfolio Intelligence (Phase 4) ----
+
+try:
+    from portfolio_intelligence import (
+        ScoreDriftDetector, AnomalyDetectorBank, PortfolioAnalytics
+    )
+    HAS_PORTFOLIO_INTEL = True
+except ImportError:
+    HAS_PORTFOLIO_INTEL = False
+
+
+@app.route("/api/portfolio/snapshot")
+@require_auth("portfolio:read")
+def api_portfolio_snapshot():
+    """Get current portfolio risk posture snapshot."""
+    if not HAS_PORTFOLIO_INTEL:
+        return jsonify({"error": "Portfolio intelligence module not available"}), 501
+    try:
+        from dataclasses import asdict
+        snapshot = PortfolioAnalytics.current_snapshot()
+        return jsonify(asdict(snapshot))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/portfolio/trend")
+@require_auth("portfolio:read")
+def api_portfolio_trend():
+    """Get portfolio risk trend over time."""
+    if not HAS_PORTFOLIO_INTEL:
+        return jsonify({"error": "Portfolio intelligence module not available"}), 501
+    days = request.args.get("days", 30, type=int)
+    try:
+        trend = PortfolioAnalytics.portfolio_trend(days=days)
+        return jsonify({"trend": trend, "days": days})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/cases/<case_id>/drift", methods=["POST"])
+@require_auth("monitor:run")
+def api_check_drift(case_id):
+    """Run score drift detection on a specific vendor."""
+    if not HAS_PORTFOLIO_INTEL:
+        return jsonify({"error": "Portfolio intelligence module not available"}), 501
+    try:
+        from dataclasses import asdict
+        detector = ScoreDriftDetector()
+        result = detector.check(case_id)
+        if not result:
+            return jsonify({"error": "No baseline score to compare against"}), 404
+        # Fire alert if threshold exceeded
+        if abs(result.delta_pp) >= detector.ALERT_THRESHOLD_PP:
+            direction = "increased" if result.delta_pp > 0 else "decreased"
+            db.save_alert(
+                case_id, result.vendor_name, result.severity,
+                f"Score drift: {result.previous_score}% -> {result.current_score}% "
+                f"({direction} {abs(result.delta_pp):.1f}pp)",
+                f"Tier: {result.previous_tier} -> {result.current_tier}. "
+                f"Top factor changes: {', '.join(f['factor'] for f in result.factors_changed[:3])}"
+            )
+        return jsonify(asdict(result))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/portfolio/anomalies")
+@require_auth("portfolio:read")
+def api_portfolio_anomalies():
+    """Get recent anomaly alerts."""
+    limit = request.args.get("limit", 50, type=int)
+    alerts = db.list_alerts(limit=limit, unresolved_only=True)
+    anomaly_alerts = [a for a in alerts if any(
+        tag in a.get("title", "").upper()
+        for tag in ["SANCTIONS_HIT", "OWNERSHIP_CHANGE", "MEDIA_SPIKE",
+                     "FINANCIAL_DOWNGRADE", "DEBARMENT", "SCORE DRIFT"]
+    )]
+    return jsonify({"anomalies": anomaly_alerts, "total": len(anomaly_alerts)})
+
+
 # ---- Entity Resolution / Knowledge Graph ----
 
 @app.route("/api/cases/<case_id>/graph")

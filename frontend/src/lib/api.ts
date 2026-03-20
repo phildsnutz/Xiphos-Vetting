@@ -934,3 +934,25 @@ export async function downloadBatchReport(batchId: string): Promise<void> {
   a.remove();
   window.URL.revokeObjectURL(url);
 }
+
+// ---- Phase 4: Portfolio Intelligence ----
+
+export async function fetchPortfolioSnapshot(): Promise<Record<string, unknown>> {
+  return json("/api/portfolio/snapshot");
+}
+
+export async function fetchPortfolioTrend(days = 30): Promise<{ trend: Record<string, unknown>[] }> {
+  return json(`/api/portfolio/trend?days=${days}`);
+}
+
+export async function fetchPortfolioAnomalies(limit = 50): Promise<{ anomalies: Record<string, unknown>[]; total: number }> {
+  return json(`/api/portfolio/anomalies?limit=${limit}`);
+}
+
+export async function fetchScoreHistory(caseId: string, limit = 30): Promise<{ history: Record<string, unknown>[] }> {
+  return json(`/api/cases/${caseId}/score-history?limit=${limit}`);
+}
+
+export async function runDriftCheck(caseId: string): Promise<Record<string, unknown>> {
+  return json(`/api/cases/${caseId}/drift`, { method: "POST" });
+}

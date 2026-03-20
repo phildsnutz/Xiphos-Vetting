@@ -25,6 +25,12 @@ try:
 except ImportError:
     HAS_OSINT = False
 
+try:
+    from portfolio_intelligence import ScoreDriftDetector, AnomalyDetectorBank
+    HAS_PORTFOLIO_INTEL = True
+except ImportError:
+    HAS_PORTFOLIO_INTEL = False
+
 
 @dataclass
 class MonitoringResult:
@@ -165,6 +171,49 @@ class VendorMonitor:
             new_risk_signals=new_signals,
             elapsed_ms=elapsed_ms
         )
+
+        # Run anomaly detectors (Phase 4)
+        anomalies = []
+        if HAS_PORTFOLIO_INTEL:
+            try:
+                bank = AnomalyDetectorBank()
+                vendor_data = vendor.get("data", vendor)
+                if isinstance(vendor_data, str):
+                    import json as _json
+                    vendor_data = _json.loads(vendor_data)
+                prev_data = {}
+                if previous:
+                    prev_data = previous.get("vendor_data", {})
+                anomalies = bank.run_all(
+                    vendor_id, new_findings, old_findings,
+                    current_data=vendor_data, prev_data=prev_data
+                )
+                for a in anomalies:
+                    db.save_anomaly(
+                        vendor_id, vendor["name"], a.detector,
+                        a.severity, a.title, a.detail,
+                        str(a.evidence) if a.evidence else ""
+                    )
+            except Exception as e:
+                print(f"[monitor] anomaly detection error for {vendor_id}: {e}")
+
+        # Run score drift detection (Phase 4)
+        drift_result = None
+        if HAS_PORTFOLIO_INTEL:
+            try:
+                drift = ScoreDriftDetector()
+                drift_result = drift.check(vendor_id)
+                if drift_result and abs(drift_result.delta_pp) >= drift.ALERT_THRESHOLD_PP:
+                    direction = "increased" if drift_result.delta_pp > 0 else "decreased"
+                    db.save_alert(
+                        vendor_id, vendor["name"], drift_result.severity,
+                        f"Score drift: {drift_result.previous_score}% -> "
+                        f"{drift_result.current_score}% "
+                        f"({direction} {abs(drift_result.delta_pp):.1f}pp)",
+                        f"Tier: {drift_result.previous_tier} -> {drift_result.current_tier}"
+                    )
+            except Exception as e:
+                print(f"[monitor] drift detection error for {vendor_id}: {e}")
 
         # Save new enrichment to DB
         db.save_enrichment(vendor_id, current_report)
