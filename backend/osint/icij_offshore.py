@@ -176,13 +176,17 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             combined = match["_xiphos_combined_score"]
             match_types = match.get("types", [])
 
-            # Severity based on combined score
+            # Severity based on combined score.
+            # ICIJ offshore leaks are informational (corporate structure exposure),
+            # NOT enforcement actions. Cap at HIGH -- only sanctions/debarment
+            # warrant CRITICAL. A Fortune 500 in the Paradise Papers is expected,
+            # not alarming.
             if combined >= 0.85:
-                severity = "critical"
-            elif combined >= 0.70:
                 severity = "high"
-            else:
+            elif combined >= 0.70:
                 severity = "medium"
+            else:
+                severity = "low"
 
             investigation = _parse_investigation(description)
 
