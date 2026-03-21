@@ -8,7 +8,7 @@ import { EnrichmentPanel } from "./enrichment-panel";
 import { EnrichmentStream } from "./enrichment-stream";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { ActionPanel } from "./action-panel";
-import { fetchEnrichment, downloadDossierPDF } from "@/lib/api";
+import { fetchEnrichment } from "@/lib/api";
 import { getUser, getToken } from "@/lib/auth";
 import type { EnrichmentReport } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot, Calibration } from "@/lib/types";
@@ -277,8 +277,22 @@ export function CaseDetail({ c, onBack, onRescore, onDossier }: CaseDetailProps)
     setGenerating(true);
     setError(null);
     try {
-      await downloadDossierPDF(c.id);
+      // Generate the rich HTML dossier (with AI narrative, graphs, full layout)
+      const resp = await fetch(`/api/cases/${c.id}/dossier`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sessionStorage.getItem("xiphos_token") || localStorage.getItem("xiphos_token") || ""}`,
+        },
+      });
+      if (!resp.ok) throw new Error(`Dossier failed: ${resp.status}`);
+      const data = await resp.json();
+      const url = data.download_url || `/api/dossiers/dossier-${c.id}.html`;
+      // Open the HTML dossier in a new tab (user can print to PDF from browser)
+      const token = sessionStorage.getItem("xiphos_token") || localStorage.getItem("xiphos_token") || "";
+      window.open(`${url}?token=${encodeURIComponent(token)}`, "_blank");
     } catch (e) {
+      // Fallback to client-side dossier
       if (onDossier) {
         try {
           await onDossier(c.id);

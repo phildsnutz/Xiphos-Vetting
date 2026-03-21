@@ -146,8 +146,8 @@ REMOTE_DELETE_FILES = [
     "frontend/src/components/xiphos/profile-compare.tsx",
 ]
 
-BUNDLE_MUST_HAVE = ["27 OSINT", "dod_classified", "DoD / IC", "CONTRACT TYPE"]
-BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "standard_industrial"]
+BUNDLE_MUST_HAVE = ["Helios | Xiphos", "What do you want to assess?", "Create draft cases", "Begin Assessment"]
+BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "xiphos-dashboard"]
 
 
 def step(msg: str) -> None:

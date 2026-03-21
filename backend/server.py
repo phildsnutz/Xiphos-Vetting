@@ -1648,12 +1648,11 @@ def api_generate_dossier_pdf(case_id):
     v = db.get_vendor(case_id)
     if not v:
         return jsonify({"error": "Case not found"}), 404
-    
     try:
         pdf_bytes = generate_pdf_dossier(case_id, user_id=_current_user_id())
         log_audit("dossier_pdf_generated", "case", case_id,
                   detail=f"PDF dossier generated for {v['name']}")
-        return pdf_bytes, 200, {"Content-Type": "application/pdf", 
+        return pdf_bytes, 200, {"Content-Type": "application/pdf",
                                "Content-Disposition": f"attachment; filename=dossier-{case_id}.pdf"}
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
