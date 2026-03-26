@@ -96,3 +96,17 @@ Stop the run if any of these happen:
 2. Pull `/api/portfolio/snapshot` and confirm vendor count growth.
 3. Sample `10` new anchor cases and `10` replay cases for graph density and dossier quality.
 4. If the overnight run is clean, rebuild any public portal or graph showcase assets from the updated data.
+
+## Morning Audit Commands
+
+Capture baseline before the run:
+
+```bash
+cd "/Users/tyegonzalez/Desktop/Helios-Package Merged" && HELIOS_BASE_URL="http://24.199.122.225:8080" HELIOS_EMAIL="tye.gonzalez@gmail.com" HELIOS_PASSWORD="helios2026" python3 scripts/run_training_morning_audit.py capture-baseline --output docs/reports/helios-training-baseline-20260326.json
+```
+
+Generate the morning delta report:
+
+```bash
+cd "/Users/tyegonzalez/Desktop/Helios-Package Merged" && HELIOS_BASE_URL="http://24.199.122.225:8080" HELIOS_EMAIL="tye.gonzalez@gmail.com" HELIOS_PASSWORD="helios2026" python3 scripts/run_training_morning_audit.py compare --baseline docs/reports/helios-training-baseline-20260326.json --results-file docs/reports/helios-training-cohort-run-20260326-full.json --output-json docs/reports/helios-training-audit-20260327.json --output-md docs/reports/HELIOS_TRAINING_AUDIT_2026-03-27.md
+```
