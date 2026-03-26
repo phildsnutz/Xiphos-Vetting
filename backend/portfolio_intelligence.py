@@ -19,7 +19,8 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Optional
 
 import db
@@ -112,12 +113,15 @@ class ScoreDriftDetector:
         if not prev_score_row:
             return None  # no baseline to compare against
 
-        prev_full = prev_score_row.get("full_result", {})
-        if isinstance(prev_full, str):
+        # get_latest_score() returns the parsed full_result dict directly.
+        # The dict structure is: {"composite_score": N, "is_hard_stop": bool,
+        #   "calibrated": {"calibrated_probability": ..., "calibrated_tier": ..., ...}}
+        # Navigate into "calibrated" sub-dict, falling back to top-level keys.
+        prev_cal = prev_score_row.get("calibrated", prev_score_row)
+        if isinstance(prev_cal, str):
             import json
-            prev_full = json.loads(prev_full)
+            prev_cal = json.loads(prev_cal)
 
-        prev_cal = prev_full.get("calibrated", prev_full)
         prev_prob = prev_cal.get("calibrated_probability", 0)
         prev_tier = prev_cal.get("calibrated_tier", "UNKNOWN")
         prev_contributions = {
@@ -404,6 +408,30 @@ class PortfolioAnalytics:
     """Aggregate portfolio risk posture and trend calculations."""
 
     @staticmethod
+    def _coerce_timestamp(value) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return None
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                try:
+                    dt = parsedate_to_datetime(raw)
+                except (TypeError, ValueError):
+                    return None
+        else:
+            return None
+
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    @staticmethod
     def current_snapshot() -> PortfolioSnapshot:
         """Generate a point-in-time snapshot of portfolio risk posture."""
         vendors = db.list_vendors(limit=10000)
@@ -416,12 +444,10 @@ class PortfolioAnalytics:
             if not latest:
                 continue
 
-            full = latest.get("full_result", {})
-            if isinstance(full, str):
+            cal = latest.get("calibrated", latest)
+            if isinstance(cal, str):
                 import json
-                full = json.loads(full)
-
-            cal = full.get("calibrated", full)
+                cal = json.loads(cal)
             prob = cal.get("calibrated_probability", 0)
             tier = cal.get("calibrated_tier", "UNKNOWN")
             is_stop = latest.get("is_hard_stop", False)
@@ -443,9 +469,9 @@ class PortfolioAnalytics:
 
         # Count recent anomalies (last 7 days)
         recent_alerts = db.list_alerts(limit=500, unresolved_only=True)
-        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        week_ago = datetime.utcnow() - timedelta(days=7)
         recent_anomalies = sum(1 for a in recent_alerts
-                               if a.get("created_at", "") >= week_ago)
+                               if (PortfolioAnalytics._coerce_timestamp(a.get("created_at")) or datetime.min) >= week_ago)
 
         return PortfolioSnapshot(
             timestamp=datetime.utcnow().isoformat(),

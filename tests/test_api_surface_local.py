@@ -3,6 +3,7 @@ import io
 import os
 import sys
 import time
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -185,6 +186,53 @@ def test_graph_runtime_reports_active_database_paths(client, tmp_path):
     assert payload["main_db"]["path"] == str((tmp_path / "xiphos-test.db").resolve())
     assert payload["kg_db"]["path"] == str((tmp_path / "knowledge-graph.db").resolve())
     assert payload["kg_db"]["tables"]["kg_entities"] == 0
+
+
+def test_portfolio_snapshot_handles_mixed_alert_timestamp_types(client, monkeypatch):
+    server = sys.modules["server"]
+    recent_dt = datetime.utcnow() - timedelta(days=1)
+    stale_str = (datetime.utcnow() - timedelta(days=20)).isoformat()
+
+    monkeypatch.setattr(
+        server.db,
+        "list_alerts",
+        lambda limit=500, unresolved_only=True: [
+            {"created_at": recent_dt},
+            {"created_at": stale_str},
+        ],
+    )
+
+    response = client.get("/api/portfolio/snapshot")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["anomaly_count"] == 1
+
+
+def test_dossier_pdf_handles_datetime_decision_timestamps(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Datetime PDF Vendor")
+
+    decision_response = client.post(
+        f"/api/cases/{case_id}/decision",
+        json={"decision": "approve", "reason": "datetime regression"},
+    )
+    assert decision_response.status_code == 201
+
+    original_get_decisions = server.db.get_decisions
+
+    def _get_decisions_with_datetime(vendor_id, limit=10):
+        decisions = original_get_decisions(vendor_id, limit=limit)
+        if decisions:
+            decisions[0]["created_at"] = datetime.utcnow()
+        return decisions
+
+    monkeypatch.setattr(server.db, "get_decisions", _get_decisions_with_datetime)
+
+    response = client.post(f"/api/cases/{case_id}/dossier-pdf", json={})
+
+    assert response.status_code == 200
+    assert response.headers["Content-Type"].startswith("application/pdf")
 
 
 def test_server_entrypoint_is_after_last_route_definition():
