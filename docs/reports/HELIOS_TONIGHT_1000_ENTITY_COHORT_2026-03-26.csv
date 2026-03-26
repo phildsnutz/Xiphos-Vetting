@@ -1,0 +1,1001 @@
+sequence,action,bucket,name,country,priority,sources,reason
+1,create,create_us_anchor,Boeing,US,32,sof_raw;ausa_2025;mdm_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, mdm_2025, afa_2025"
+2,create,create_us_anchor,Amazon Web Services,US,22,ausa_2025;mdm_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025, afa_2025"
+3,create,create_us_anchor,"B.E. Meyers & Co., Inc.",US,22,sof_raw;ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, mdm_2025"
+4,create,create_us_anchor,Bastille,US,22,sof_raw;ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, mdm_2025"
+5,create,create_us_anchor,BlueHalo,US,22,sof_raw;ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, mdm_2025"
+6,create,create_us_anchor,BlueSky Innovations,US,22,sof_raw;ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, mdm_2025"
+7,create,create_us_anchor,L3Harris Technologies,US,22,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+8,create,create_us_anchor,Babel Street,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+9,create,create_us_anchor,Esri,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+10,create,create_us_anchor,"Glenair, Inc.",US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+11,create,create_us_anchor,Leidos,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+12,create,create_us_anchor,MBDA Inc.,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+13,create,create_us_anchor,Panasonic Connect,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+14,create,create_us_anchor,Red Hat,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+15,create,create_us_anchor,Rolls-Royce,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+16,create,create_us_anchor,RTX,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+17,create,create_us_anchor,Shield AI,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+18,create,create_us_anchor,Shift5,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+19,create,create_us_anchor,TurbineOne,US,21,sof_raw;ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025, afa_2025"
+20,create,create_us_anchor,"ADS, Inc.",US,19,ausa_2025;mdm_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025, afa_2025"
+21,create,create_us_anchor,General Dynamics Mission Systems,US,16,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+22,create,create_us_anchor,Nammo Defense Systems Inc.,US,16,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+23,create,create_us_anchor,Anduril,US,15,ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025"
+24,create,create_us_anchor,Auterion Government Solutions,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+25,create,create_us_anchor,Edge Autonomy,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+26,create,create_us_anchor,IEC Infrared Systems / Precision Remotes,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+27,create,create_us_anchor,"Intellisense Systems, Inc.",US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+28,create,create_us_anchor,LMT Defense,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+29,create,create_us_anchor,Pendulum Intelligence,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+30,create,create_us_anchor,Quantum Systems,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+31,create,create_us_anchor,SimCentric Technologies,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+32,create,create_us_anchor,Skyborne Technologies,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+33,create,create_us_anchor,TeamWorks Tactical,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+34,create,create_us_anchor,Trakka Systems,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+35,create,create_us_anchor,TRX Systems,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+36,create,create_us_anchor,TYR Tactical,US,15,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+37,create,create_us_anchor,Axon,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+38,create,create_us_anchor,Axonius,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+39,create,create_us_anchor,EarlyBirds,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+40,create,create_us_anchor,Fivecast,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+41,create,create_us_anchor,Flashpoint,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+42,create,create_us_anchor,"Glock, Inc.",US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+43,create,create_us_anchor,"Golight, Inc.",US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+44,create,create_us_anchor,GORE-TEX Professional,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+45,create,create_us_anchor,Hexagon US Federal,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+46,create,create_us_anchor,Ivanti,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+47,create,create_us_anchor,J3Seven,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+48,create,create_us_anchor,Janes,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+49,create,create_us_anchor,"Laser Shot, Inc.",US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+50,create,create_us_anchor,Marathon Targets,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+51,create,create_us_anchor,Maris-Tech,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+52,create,create_us_anchor,Mistral Group,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+53,create,create_us_anchor,Noble,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+54,create,create_us_anchor,"NovAtel, Inc.",US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+55,create,create_us_anchor,OnTime Networks,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+56,create,create_us_anchor,Operator XR,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+57,create,create_us_anchor,Phantom Products Inc.,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+58,create,create_us_anchor,Raider Targetry,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+59,create,create_us_anchor,Reveal Technology,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+60,create,create_us_anchor,"SCI Technology, Inc.",US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+61,create,create_us_anchor,ServiceNow,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+62,create,create_us_anchor,Skydio,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+63,create,create_us_anchor,SourceAmerica,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+64,create,create_us_anchor,TenCate Protective Fabrics,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+65,create,create_us_anchor,Trexon,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+66,create,create_us_anchor,Trillium Engineering,US,14,sof_raw;ausa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, ausa_2025"
+67,create,create_us_anchor,Advanced Technology Systems Company,US,13,ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025"
+68,create,create_us_anchor,American Rheinmetall Defense,US,13,ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025"
+69,create,create_us_anchor,Elbit Systems of America,US,13,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+70,create,create_us_anchor,GE Aerospace,US,13,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+71,create,create_us_anchor,"Persistent Systems, LLC",US,13,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+72,create,create_us_anchor,Silvus Technologies,US,13,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+73,create,create_us_anchor,4C North America,US,12,ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025"
+74,create,create_us_anchor,AeroGlow LLC.,US,12,ausa_2025;mdm_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, mdm_2025"
+75,create,create_us_anchor,Albers Aerospace,US,12,mdm_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: mdm_2025, afa_2025"
+76,create,create_us_anchor,BOH Solutions,US,12,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+77,create,create_us_anchor,"CTG, a Division of Blue Raven Solutions",US,12,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+78,create,create_us_anchor,Enveil,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+79,create,create_us_anchor,"Highland Engineering, Inc",US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+80,create,create_us_anchor,"Hypori, Inc",US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+81,create,create_us_anchor,Mass Virtual,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+82,create,create_us_anchor,Mattermost,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+83,create,create_us_anchor,Maxar,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+84,create,create_us_anchor,Mercury Systems,US,12,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+85,create,create_us_anchor,Metrea,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+86,create,create_us_anchor,OneBrief,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+87,create,create_us_anchor,Palantir Technologies,US,12,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+88,create,create_us_anchor,Parsons,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+89,create,create_us_anchor,Primer AI,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+90,create,create_us_anchor,Raft,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+91,create,create_us_anchor,Recorded Future,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+92,create,create_us_anchor,Rise8,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+93,create,create_us_anchor,SandboxAQ,US,12,sof_raw;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw, afa_2025"
+94,create,create_us_anchor,UTS Systems,US,12,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+95,create,create_us_anchor,Vector Solutions,US,12,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+96,create,create_us_anchor,Advanced Technology International,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+97,create,create_us_anchor,Amazon Business,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+98,create,create_us_anchor,Amentum,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+99,create,create_us_anchor,Ansys,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+100,create,create_us_anchor,Applied Intuition,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+101,create,create_us_anchor,ASRC Federal,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+102,create,create_us_anchor,Bren-Tronics,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+103,create,create_us_anchor,CMG Networks,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+104,create,create_us_anchor,"Crystal Group, Inc.",US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+105,create,create_us_anchor,Dataminr,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+106,create,create_us_anchor,Decision Lens,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+107,create,create_us_anchor,Deloitte,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+108,create,create_us_anchor,DroneShield,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+109,create,create_us_anchor,Epirus,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+110,create,create_us_anchor,Govini,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+111,create,create_us_anchor,Guaranteed Rate,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+112,create,create_us_anchor,IT Cadre,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+113,create,create_us_anchor,ITI Engineering,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+114,create,create_us_anchor,MANTECH,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+115,create,create_us_anchor,Marotta Controls,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+116,create,create_us_anchor,Oklahoma Department of Commerce,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+117,create,create_us_anchor,"SRC, Inc.",US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+118,create,create_us_anchor,Ultra I&C,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+119,create,create_us_anchor,USAA,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+120,create,create_us_anchor,Veterans Healthcare,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+121,create,create_us_anchor,Veterans United Home Loans,US,11,ausa_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025, afa_2025"
+122,create,create_us_anchor,BeaverFit,US,10,mdm_2025;afa_2025,"new US exhibitor or prime-style anchor for graph expansion; source overlap: mdm_2025, afa_2025"
+123,create,create_us_anchor,Boeing Defense Space & Security,US,10,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+124,create,create_us_anchor,Dewey Electronics Corp / INI Power Systems,US,8,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+125,create,create_us_anchor,APEX Space & Defense Systems,US,7,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+126,create,create_us_anchor,Astronics Test Systems Inc,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+127,create,create_us_anchor,Black Signal Technologies,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+128,create,create_us_anchor,Crane Aerospace & Electronics,US,7,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+129,create,create_us_anchor,DOMO Tactical Communications US,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+130,create,create_us_anchor,DRS Defense Solutions,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+131,create,create_us_anchor,Exail Defense Systems Inc,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+132,create,create_us_anchor,Honeywell Aerospace Technologies,US,7,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+133,create,create_us_anchor,Kongsberg Defense & Aerospace,US,7,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+134,create,create_us_anchor,MAG Aerospace,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+135,create,create_us_anchor,Michigan Office of Defense & Aerospace Innovation,US,7,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+136,create,create_us_anchor,Optex Systems Inc (Applied Optics Center),US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+137,create,create_us_anchor,Sigma Defense Systems LLC,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+138,create,create_us_anchor,Theissen Training Systems Inc,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+139,create,create_us_anchor,Tilt Aerospace,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+140,create,create_us_anchor,Ultra Intelligence and Communications,US,7,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+141,create,create_us_anchor,Airborne Systems,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+142,create,create_us_anchor,Amphenol Military and Aerospace Operations,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+143,create,create_us_anchor,"ARKA - Danbury Mission Technologies, LLC",US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+144,create,create_us_anchor,Athena Artificial Intelligence,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+145,create,create_us_anchor,Atlantic Signal,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+146,create,create_us_anchor,AVI Systems,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+147,create,create_us_anchor,AVL Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+148,create,create_us_anchor,Bale Defence Engineering Systems,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+149,create,create_us_anchor,Beretta Defense Technologies,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+150,create,create_us_anchor,Berry Aviation Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+151,create,create_us_anchor,Black Sky Aerospace,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+152,create,create_us_anchor,BlackSea Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+153,create,create_us_anchor,Blue Fusion Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+154,create,create_us_anchor,BlueVoyant Government Solutions,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+155,create,create_us_anchor,Delta 3 Solutions LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+156,create,create_us_anchor,Deployable Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+157,create,create_us_anchor,Digital Force Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+158,create,create_us_anchor,Drone Aviation,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+159,create,create_us_anchor,DT Research,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+160,create,create_us_anchor,DZYNE Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+161,create,create_us_anchor,Echelon 1 Solutions,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+162,create,create_us_anchor,Elder Research,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+163,create,create_us_anchor,EOS Defense Systems USA,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+164,create,create_us_anchor,Epiq Solutions,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+165,create,create_us_anchor,Excelitas Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+166,create,create_us_anchor,Faraday Defense Corporation,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+167,create,create_us_anchor,FedData Technology Solutions LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+168,create,create_us_anchor,FLAIM Systems,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+169,create,create_us_anchor,Freedom Defense Group,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+170,create,create_us_anchor,Gantz Mountain Intelligence Automation System,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+171,create,create_us_anchor,Gemstar Manufacturing,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+172,create,create_us_anchor,General Dynamics Ordnance and Tactical Systems,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+173,create,create_us_anchor,HAVIK Solutions LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+174,create,create_us_anchor,High Ground Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+175,create,create_us_anchor,Human Systems Integration Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+176,create,create_us_anchor,IERUS Technologies Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+177,create,create_us_anchor,iGov Technologies Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+178,create,create_us_anchor,Infinite Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+179,create,create_us_anchor,INT Research Ltd,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+180,create,create_us_anchor,Iron Bow Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+181,create,create_us_anchor,"Kratos Defense & Security Solutions, Inc.",US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+182,create,create_us_anchor,Kraus Hamdani Aerospace,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+183,create,create_us_anchor,Landguard Systems Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+184,create,create_us_anchor,Law Tactical LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+185,create,create_us_anchor,LINC Research Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+186,create,create_us_anchor,LKD Aerospace,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+187,create,create_us_anchor,Maxim Defense Industries,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+188,create,create_us_anchor,Mission Essential,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+189,create,create_us_anchor,Motorola Solutions / Applied Technology,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+190,create,create_us_anchor,Munro Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+191,create,create_us_anchor,Nakoa Analytic Solutions LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+192,create,create_us_anchor,Nexus Training Solutions,US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+193,create,create_us_anchor,Nighthawk Aircraft LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+194,create,create_us_anchor,O.P. Tactical Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+195,create,create_us_anchor,Origin Robotics,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+196,create,create_us_anchor,OSI Federal Technologies Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+197,create,create_us_anchor,PAR Government Systems Corporation / Samsung,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+198,create,create_us_anchor,Paragon Cyber Solutions,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+199,create,create_us_anchor,Polaris Government & Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+200,create,create_us_anchor,PRG Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+201,create,create_us_anchor,Pro Shot Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+202,create,create_us_anchor,"Quickset Defense Technologies, LLC",US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+203,create,create_us_anchor,Radical Defense,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+204,create,create_us_anchor,Rapid Imaging Solutions,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+205,create,create_us_anchor,Reach Power Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+206,create,create_us_anchor,ReconRobotics Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+207,create,create_us_anchor,S.O. Tech (Special Operations Technologies),US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+208,create,create_us_anchor,"Safran Defense & Space, Inc.",US,6,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+209,create,create_us_anchor,Safran Optics 1,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+210,create,create_us_anchor,Sentient Vision Systems,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+211,create,create_us_anchor,Shark Marine Technologies Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+212,create,create_us_anchor,SIX15 Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+213,create,create_us_anchor,SkyBridge Tactical,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+214,create,create_us_anchor,Snowbird Technologies Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+215,create,create_us_anchor,SoftAct Solutions LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+216,create,create_us_anchor,Spathe Systems LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+217,create,create_us_anchor,Squarehead Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+218,create,create_us_anchor,SR Technologies Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+219,create,create_us_anchor,Stucan Solutions Corp,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+220,create,create_us_anchor,SWIR Vision Systems Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+221,create,create_us_anchor,Systems Technology Inc (STI),US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+222,create,create_us_anchor,T2S Solutions (T2S) LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+223,create,create_us_anchor,Tactical Revolution LLC,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+224,create,create_us_anchor,Teel Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+225,create,create_us_anchor,Textron Aviation Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+226,create,create_us_anchor,The Maritime and Defense Technology Hub,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+227,create,create_us_anchor,Torque Systems Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+228,create,create_us_anchor,Trace Systems,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+229,create,create_us_anchor,TrellisWare Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+230,create,create_us_anchor,Tricom Research Inc,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+231,create,create_us_anchor,Two Six Technologies,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+232,create,create_us_anchor,Ultimate Training Munitions,US,6,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+233,create,create_us_anchor,"Accurate Energetic Systems, LLC",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+234,create,create_us_anchor,Accusonic Voice Systems,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+235,create,create_us_anchor,"Advanced Cooling Technologies, Inc.",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+236,create,create_us_anchor,Allient Defense,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+237,create,create_us_anchor,Allison Transmission,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+238,create,create_us_anchor,Amerex Defense,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+239,create,create_us_anchor,Amprius Technologies,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+240,create,create_us_anchor,"Antenna Research Associates, Inc",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+241,create,create_us_anchor,"Applied Research Associates, Inc.",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+242,create,create_us_anchor,Arrow Electronics,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+243,create,create_us_anchor,Aspen Water Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+244,create,create_us_anchor,Atlantic Diving Supply Inc (ADS Inc),US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+245,create,create_us_anchor,"Atlantic Signal, LLC",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+246,create,create_us_anchor,Atlas Devices LLC,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+247,create,create_us_anchor,"AUSA Human Performance Pavilion, powered by BeaverFit",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+248,create,create_us_anchor,Autonodyne LLC,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+249,create,create_us_anchor,Avalon Holographics,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+250,create,create_us_anchor,AVI,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+251,create,create_us_anchor,Avon Protection,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+252,create,create_us_anchor,Aware Custom Biometric Wearables,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+253,create,create_us_anchor,Axnes Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+254,create,create_us_anchor,Azak Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+255,create,create_us_anchor,Azimuth Incorporated,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+256,create,create_us_anchor,B4C LLC (DBA Rook Armor),US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+257,create,create_us_anchor,Badger Ordnance,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+258,create,create_us_anchor,Bakcou,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+259,create,create_us_anchor,Bank of America,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+260,create,create_us_anchor,Barrett Firearms,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+261,create,create_us_anchor,"Barrett Firearms Manufacturing, Inc.",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+262,create,create_us_anchor,"Bascom Hunter Technologies, Inc.",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+263,create,create_us_anchor,BCI,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+264,create,create_us_anchor,Beretta USA Corp,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+265,create,create_us_anchor,Black Cape,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+266,create,create_us_anchor,Black Diamond Advanced Technology (BDATECH),US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+267,create,create_us_anchor,BlackHays Group / MustWants,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+268,create,create_us_anchor,Blue Star Families,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+269,create,create_us_anchor,Bluescape,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+270,create,create_us_anchor,Bluestaq,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+271,create,create_us_anchor,Bohemia Interactive Simulations US,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+272,create,create_us_anchor,Choctaw Defense,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+273,create,create_us_anchor,Cinch Connectivity Solutions,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+274,create,create_us_anchor,Colt's Manufacturing Company LLC,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+275,create,create_us_anchor,Continental Electronics,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+276,create,create_us_anchor,Critical Infrastructure Technologies,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+277,create,create_us_anchor,Custom Wheel Solutions LLC,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+278,create,create_us_anchor,Darley Defense,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+279,create,create_us_anchor,Defense News/Army Times,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+280,create,create_us_anchor,Defense Security Cooperation Agency,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+281,create,create_us_anchor,Denodo,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+282,create,create_us_anchor,Dewey Electronics & INI Power Systems,US,5,afa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: afa_2025
+283,create,create_us_anchor,"DFND Technologies, Inc",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+284,create,create_us_anchor,DigitalCM LLC,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+285,create,create_us_anchor,Dillon Aero Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+286,create,create_us_anchor,Domino Data,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+287,create,create_us_anchor,Door Kickers Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+288,create,create_us_anchor,Dr. Diesel Technologies,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+289,create,create_us_anchor,Draeger,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+290,create,create_us_anchor,DreamHammer Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+291,create,create_us_anchor,DTRA OSB and DTRA R&D,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+292,create,create_us_anchor,Duality Tech,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+293,create,create_us_anchor,Dynatrace,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+294,create,create_us_anchor,East Coast Foils,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+295,create,create_us_anchor,EchoWave,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+296,create,create_us_anchor,EIZO Rugged Solutions,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+297,create,create_us_anchor,Elastic,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+298,create,create_us_anchor,Elemental Cognition,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+299,create,create_us_anchor,Elistair,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+300,create,create_us_anchor,EMC ATI,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+301,create,create_us_anchor,Emergent,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+302,create,create_us_anchor,Emesent,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+303,create,create_us_anchor,Engineering Design Team (EDT) Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+304,create,create_us_anchor,Eolian VR,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+305,create,create_us_anchor,Equipto Electronics Corporation,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+306,create,create_us_anchor,Equitus AI,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+307,create,create_us_anchor,Equitus Federal Security Corporation,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+308,create,create_us_anchor,eSOF,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+309,create,create_us_anchor,"ESS (Eye Safety Systems, Inc)",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+310,create,create_us_anchor,EUC,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+311,create,create_us_anchor,Exos,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+312,create,create_us_anchor,Exovera,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+313,create,create_us_anchor,Fairwinds Technologies LLC,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+314,create,create_us_anchor,Falcom LLC,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+315,create,create_us_anchor,Faraday Defense Corp,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+316,create,create_us_anchor,FAUN Trackway / Command Holdings Group,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+317,create,create_us_anchor,Federal Contracts Corp,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+318,create,create_us_anchor,FIONSYSTEMS INC.,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+319,create,create_us_anchor,Firestorm Labs,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+320,create,create_us_anchor,FirstSpear,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+321,create,create_us_anchor,Fisher Space Pen,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+322,create,create_us_anchor,Fix It Sticks,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+323,create,create_us_anchor,Flare Bright,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+324,create,create_us_anchor,Flex Force Enterprises,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+325,create,create_us_anchor,"Flyer Defense, LLC.",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+326,create,create_us_anchor,FN America,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+327,create,create_us_anchor,FNA Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+328,create,create_us_anchor,Forescout,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+329,create,create_us_anchor,Fortinet Federal,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+330,create,create_us_anchor,Forward Networks,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+331,create,create_us_anchor,foster+freeman USA,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+332,create,create_us_anchor,Fraym,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+333,create,create_us_anchor,Freedom Atlantic Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+334,create,create_us_anchor,Fuel Safe Systems,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+335,create,create_us_anchor,GaardTech,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+336,create,create_us_anchor,Galvion Inc,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+337,create,create_us_anchor,GameStrat,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+338,create,create_us_anchor,Garrison,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+339,create,create_us_anchor,Gatorz Eyewear,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+340,create,create_us_anchor,GDIT,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+341,create,create_us_anchor,Geissele Automatics,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+342,create,create_us_anchor,GemaSecure,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+343,create,create_us_anchor,GENERAL DIRECTORATE FOR DEFENSE INVESTMENTS AND ARMAMENTS (GDDIA),US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+344,create,create_us_anchor,General Dynamics Land Systems,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+345,create,create_us_anchor,"General Micro Systems, Inc.",US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+346,create,create_us_anchor,Georgia Tech Research Institute,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+347,create,create_us_anchor,Getac,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+348,create,create_us_anchor,Gevasol Octal Solutions,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+349,create,create_us_anchor,Ghost Robotics,US,5,ausa_2025,new US exhibitor or prime-style anchor for graph expansion; source overlap: ausa_2025
+350,create,create_us_anchor,Ghostworks Marine,US,5,sof_raw,new US exhibitor or prime-style anchor for graph expansion; source overlap: sof_raw
+351,create,create_us_supplier,GitLab Federal LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+352,create,create_us_supplier,Gladiator Technologies,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+353,create,create_us_supplier,Glasswall,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+354,create,create_us_supplier,Global Forensic and Justice Center at Florida,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+355,create,create_us_supplier,Global Ordnance LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+356,create,create_us_supplier,Global Technical Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+357,create,create_us_supplier,Globalstar,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+358,create,create_us_supplier,GM Defense,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+359,create,create_us_supplier,goTenna,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+360,create,create_us_supplier,GovSmart Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+361,create,create_us_supplier,Graphika,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+362,create,create_us_supplier,Greensea IQ,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+363,create,create_us_supplier,Gulf Coast Underwriters,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+364,create,create_us_supplier,Haivision,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+365,create,create_us_supplier,Haley Strategic Partners LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+366,create,create_us_supplier,Hanwha Defense USA,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+367,create,create_us_supplier,Hascall-Denke,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+368,create,create_us_supplier,HawkEye 360 Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+369,create,create_us_supplier,Heckler & Koch Defense,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+370,create,create_us_supplier,Hefring Marine,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+371,create,create_us_supplier,HELLENIC DEFENCE SYSTEMS SA,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+372,create,create_us_supplier,HighCom Armor,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+373,create,create_us_supplier,HII,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+374,create,create_us_supplier,Hoffman Engineering,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+375,create,create_us_supplier,Holosun Technologies Inc,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+376,create,create_us_supplier,Holtec Security International,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+377,create,create_us_supplier,HPE,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+378,create,create_us_supplier,HTL / Herrick Technology Laboratories Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+379,create,create_us_supplier,Hui Huliau,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+380,create,create_us_supplier,IAI North America,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+381,create,create_us_supplier,IBM,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+382,create,create_us_supplier,iDirect Government,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+383,create,create_us_supplier,Illumio,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+384,create,create_us_supplier,Immersive Wisdom Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+385,create,create_us_supplier,Inertial Labs,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+386,create,create_us_supplier,"Inertial Labs, a VIAVI Solutions Company",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+387,create,create_us_supplier,InSiTec,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+388,create,create_us_supplier,Instant Connect Software LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+389,create,create_us_supplier,Integrated Procurement Technologies (IPT),US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+390,create,create_us_supplier,Intelligent Devices LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+391,create,create_us_supplier,Intelligent Waves,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+392,create,create_us_supplier,IntelliGRC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+393,create,create_us_supplier,Intelsat US LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+394,create,create_us_supplier,Intracom Defense S.A. (IDE),US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+395,create,create_us_supplier,Inventus Power,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+396,create,create_us_supplier,"Iridium Communications, Inc.",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+397,create,create_us_supplier,Iris Technology Corporation,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+398,create,create_us_supplier,Jabil,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+399,create,create_us_supplier,Jacobs,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+400,create,create_us_supplier,"JENOPTIK Optical Systems, LLC",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+401,create,create_us_supplier,JFD Ltd,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+402,create,create_us_supplier,Juggernaut Case,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+403,create,create_us_supplier,KAC (Knights Armament),US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+404,create,create_us_supplier,Kharon,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+405,create,create_us_supplier,KLAS Government,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+406,create,create_us_supplier,Kord Defence,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+407,create,create_us_supplier,Korea Defense Industry Corp.,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+408,create,create_us_supplier,Kraka Jet Board by SOAL Marine Group,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+409,create,create_us_supplier,Lakota Software,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+410,create,create_us_supplier,Latent AI Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+411,create,create_us_supplier,LC Industries (LCI),US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+412,create,create_us_supplier,LCR Embedded Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+413,create,create_us_supplier,Legacy Innovations,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+414,create,create_us_supplier,Lenco Armored Vehicles,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+415,create,create_us_supplier,LiquidPiston,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+416,create,create_us_supplier,"LiteFighter Systems, LLC",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+417,create,create_us_supplier,Lithium Battery Co,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+418,create,create_us_supplier,LiveAction,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+419,create,create_us_supplier,LOWA Boots,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+420,create,create_us_supplier,Lyten,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+421,create,create_us_supplier,MACH Industries Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+422,create,create_us_supplier,"Mack Defense, LLC",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+423,create,create_us_supplier,Magam Safety Ltd,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+424,create,create_us_supplier,Magnet Forensics,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+425,create,create_us_supplier,Mainsail Industries,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+426,create,create_us_supplier,ManTech International Corp,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+427,create,create_us_supplier,Marvin Land Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+428,create,create_us_supplier,MaxVision,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+429,create,create_us_supplier,MedVanta,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+430,create,create_us_supplier,Meltwater,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+431,create,create_us_supplier,Micro Ant LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+432,create,create_us_supplier,Miltope Corporation,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+433,create,create_us_supplier,Moffitt,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+434,create,create_us_supplier,MOHOC Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+435,create,create_us_supplier,MOORI Technologies Co.,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+436,create,create_us_supplier,Motorola Solutions,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+437,create,create_us_supplier,Mountain Horse Solutions,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+438,create,create_us_supplier,MSAB Incorporated,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+439,create,create_us_supplier,MustWants / BlackHays Group,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+440,create,create_us_supplier,Nantenna,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+441,create,create_us_supplier,National Defense Corporation,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+442,create,create_us_supplier,Navanti,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+443,create,create_us_supplier,Nebula Compute Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+444,create,create_us_supplier,Nevada Automotive Test Center,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+445,create,create_us_supplier,Northern Diver International Ltd,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+446,create,create_us_supplier,NTrepid LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+447,create,create_us_supplier,Numerica Corporation,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+448,create,create_us_supplier,Nutanix,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+449,create,create_us_supplier,NV5 Geospatial,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+450,create,create_us_supplier,NVTS Night Vision Technology Solutions Inc,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+451,create,create_us_supplier,Oceaneering,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+452,create,create_us_supplier,Oceus,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+453,create,create_us_supplier,Octane Wireless,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+454,create,create_us_supplier,ODU USA,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+455,create,create_us_supplier,Offroad Autonomy,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+456,create,create_us_supplier,OffSec,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+457,create,create_us_supplier,Olin Winchester LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+458,create,create_us_supplier,Ombra,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+459,create,create_us_supplier,Omnetics Connector Corporation,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+460,create,create_us_supplier,One Stop Systems (OSS),US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+461,create,create_us_supplier,Operation Healing Forces,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+462,create,create_us_supplier,OPTIA,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+463,create,create_us_supplier,Oracle,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+464,create,create_us_supplier,Oshkosh Defense,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+465,create,create_us_supplier,OSI Optoelectronics,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+466,create,create_us_supplier,Otis Technology,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+467,create,create_us_supplier,Out of the Box Manufacturing,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+468,create,create_us_supplier,Outdoor Vitals,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+469,create,create_us_supplier,Pacific Defense,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+470,create,create_us_supplier,Pacific Dive Supply,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+471,create,create_us_supplier,Pacific Northwest Defense Coalition (PNDC),US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+472,create,create_us_supplier,Palo Alto Networks,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+473,create,create_us_supplier,Patriot3 Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+474,create,create_us_supplier,PDW,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+475,create,create_us_supplier,PenLink,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+476,create,create_us_supplier,Peraton,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+477,create,create_us_supplier,Percipient AI,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+478,create,create_us_supplier,Persistent Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+479,create,create_us_supplier,Petzl,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+480,create,create_us_supplier,Phoenix Defence,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+481,create,create_us_supplier,Pixels on Target LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+482,create,create_us_supplier,Planar,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+483,create,create_us_supplier,Powell Electronics,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+484,create,create_us_supplier,Power Device Corporation,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+485,create,create_us_supplier,Primary Arms Optics,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+486,create,create_us_supplier,Primordial Labs,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+487,create,create_us_supplier,Princeton Tec,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+488,create,create_us_supplier,Project Hosts,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+489,create,create_us_supplier,PTS Expeditionary Communications,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+490,create,create_us_supplier,PUBLIC SAFETY TRAINING & RESPONSE GROUP,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+491,create,create_us_supplier,PVP Advanced EO Systems Inc.,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+492,create,create_us_supplier,QinetiQ US,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+493,create,create_us_supplier,QSecure,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+494,create,create_us_supplier,Quantifind,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+495,create,create_us_supplier,Raider Outboards Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+496,create,create_us_supplier,Ranger Industries LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+497,create,create_us_supplier,Rapid Composites,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+498,create,create_us_supplier,Rapid Deployable Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+499,create,create_us_supplier,Raptor Photonics,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+500,create,create_us_supplier,Raven Advisory LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+501,create,create_us_supplier,Really Right Stuff LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+502,create,create_us_supplier,Red Cat Holdings,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+503,create,create_us_supplier,Ridgeline International Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+504,create,create_us_supplier,Rite in the Rain,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+505,create,create_us_supplier,Rocket.Chat,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+506,create,create_us_supplier,Rubrik,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+507,create,create_us_supplier,SABRN Tech,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+508,create,create_us_supplier,Sagetech Avionics Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+509,create,create_us_supplier,Salomon,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+510,create,create_us_supplier,Samsung Electronics America,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+511,create,create_us_supplier,SAPA Transmission,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+512,create,create_us_supplier,SAS,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+513,create,create_us_supplier,Satcom Direct,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+514,create,create_us_supplier,SatCube,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+515,create,create_us_supplier,Savox,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+516,create,create_us_supplier,SBG Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+517,create,create_us_supplier,Scale AI,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+518,create,create_us_supplier,Scepter Canada Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+519,create,create_us_supplier,Schaefer Electronics Inc,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+520,create,create_us_supplier,"Sealevel Systems, Inc.",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+521,create,create_us_supplier,Security Compass,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+522,create,create_us_supplier,Seerist,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+523,create,create_us_supplier,Seiler Precision Manufacturing,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+524,create,create_us_supplier,Sekai Electronics Inc,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+525,create,create_us_supplier,Selectron / EOST,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+526,create,create_us_supplier,"Sentry View Systems, Inc.",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+527,create,create_us_supplier,SentryCS,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+528,create,create_us_supplier,Shaw Concepts LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+529,create,create_us_supplier,Shojiki Consulting,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+530,create,create_us_supplier,SIG Sauer Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+531,create,create_us_supplier,Sightline Intelligence,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+532,create,create_us_supplier,Silentium Defence,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+533,create,create_us_supplier,Silentium Defense,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+534,create,create_us_supplier,"Silvus Technologies, Inc.",US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+535,create,create_us_supplier,SIMLAT,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+536,create,create_us_supplier,Sinab,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+537,create,create_us_supplier,SiOnyx,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+538,create,create_us_supplier,Six Robotics,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+539,create,create_us_supplier,Skopenow Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+540,create,create_us_supplier,Skyfront Corporation,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+541,create,create_us_supplier,Skylotec,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+542,create,create_us_supplier,SLNT,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+543,create,create_us_supplier,SMX (Premier Sponsor),US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+544,create,create_us_supplier,Socialgist,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+545,create,create_us_supplier,SOCO SofCast,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+546,create,create_us_supplier,SolarWinds,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+547,create,create_us_supplier,Somewear Labs,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+548,create,create_us_supplier,Sonatype,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+549,create,create_us_supplier,SOS Group,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+550,create,create_us_supplier,Sound Off,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+551,create,create_us_supplier,Southern Cross Small Arms,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+552,create,create_us_supplier,Southwest Research Institute,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+553,create,create_us_supplier,Spanalytics,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+554,create,create_us_supplier,Special Services Group LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+555,create,create_us_supplier,Spectra Group US Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+556,create,create_us_supplier,Spectro Cloud,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+557,create,create_us_supplier,SpeedData,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+558,create,create_us_supplier,SPIRIT AERONAUTICAL SYSTEMS SA,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+559,create,create_us_supplier,Splunk,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+560,create,create_us_supplier,Spyderco Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+561,create,create_us_supplier,SRG Government Services,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+562,create,create_us_supplier,StartGuides,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+563,create,create_us_supplier,Steadicopter,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+564,create,create_us_supplier,SteelCloud,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+565,create,create_us_supplier,STI-CO Industries LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+566,create,create_us_supplier,Structural Composites Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+567,create,create_us_supplier,SubSalve USA,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+568,create,create_us_supplier,SupplyCore Inc,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+569,create,create_us_supplier,SURVICE Engineering Company,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+570,create,create_us_supplier,Swish Data,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+571,create,create_us_supplier,Synopsys,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+572,create,create_us_supplier,SYPAQ Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+573,create,create_us_supplier,System Innovation Group,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+574,create,create_us_supplier,Sytech Corporation,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+575,create,create_us_supplier,TACO Antenna,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+576,create,create_us_supplier,Take2 Consulting,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+577,create,create_us_supplier,Tampa Microwave,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+578,create,create_us_supplier,Tangent,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+579,create,create_us_supplier,Tanium,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+580,create,create_us_supplier,TapHere Technology,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+581,create,create_us_supplier,TEA Headsets,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+582,create,create_us_supplier,Teledyne FLIR Defense,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+583,create,create_us_supplier,Teledyne FLIR LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+584,create,create_us_supplier,Teleplan Globe,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+585,create,create_us_supplier,"Textron - Bell, Textron Aviation Defense and Textron Systems",US,5,afa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: afa_2025
+586,create,create_us_supplier,Textron Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+587,create,create_us_supplier,The Safariland Group,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+588,create,create_us_supplier,TheIncLab,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+589,create,create_us_supplier,Thermal Beacon Ltd,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+590,create,create_us_supplier,Theta Informatics LLC,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+591,create,create_us_supplier,Thomas Global Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+592,create,create_us_supplier,Thresher Group,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+593,create,create_us_supplier,TigerConnect,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+594,create,create_us_supplier,Times Microwave Systems,US,5,ausa_2025,new US supplier or sub-tier defense company for graph edge growth; source overlap: ausa_2025
+595,create,create_us_supplier,Titus Tekform,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+596,create,create_us_supplier,TLP Holdings,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+597,create,create_us_supplier,TraceLink,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+598,create,create_us_supplier,Tracker Networks,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+599,create,create_us_supplier,TransPerfect,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+600,create,create_us_supplier,Trend Micro,US,5,sof_raw,new US supplier or sub-tier defense company for graph edge growth; source overlap: sof_raw
+601,replay,replay_high_risk_foreign,NORINCO,CN,999,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Land, Naval, Missiles"
+602,replay,replay_high_risk_foreign,AVIC,CN,998,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Defense"
+603,replay,replay_high_risk_foreign,CASIC,CN,997,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles, Aerospace"
+604,replay,replay_high_risk_foreign,CATIC,CN,996,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Air, Electronics"
+605,replay,replay_high_risk_foreign,CETC,CN,995,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics, Radar"
+606,replay,replay_high_risk_foreign,Chengdu Radar,CN,994,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Radar, Electronics"
+607,replay,replay_high_risk_foreign,China Academy of Space Technology,CN,993,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Satellites"
+608,replay,replay_high_risk_foreign,China Aerospace Science and Industry Corporation,CN,992,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles, Aerospace"
+609,replay,replay_high_risk_foreign,China North Industries Group,CN,991,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Land, Naval"
+610,replay,replay_high_risk_foreign,China Ordnance Industry Group,CN,990,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Munitions, Artillery"
+611,replay,replay_high_risk_foreign,Poly Technologies,CN,989,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles, Naval"
+612,replay,replay_high_risk_foreign,Shanghai Spaceflight Control Technology,CN,988,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Space, Control Systems"
+613,replay,replay_high_risk_foreign,Beijing Precision Machinery Institute,CN,987,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Precision Instruments
+614,replay,replay_high_risk_foreign,Chengdu Aircraft Corporation,CN,986,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aircraft
+615,replay,replay_high_risk_foreign,China Aerospace Science and Technology Corporation,CN,985,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace
+616,replay,replay_high_risk_foreign,China National Aero-Technology,CN,984,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace
+617,replay,replay_high_risk_foreign,China North Electronic Equipment Research Institute,CN,983,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics
+618,replay,replay_high_risk_foreign,China North Navigation Control Technology,CN,982,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Navigation Systems
+619,replay,replay_high_risk_foreign,China State Shipbuilding Corporation,CN,981,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+620,replay,replay_high_risk_foreign,China Weapons Industrial Group,CN,980,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Weapons Systems
+621,replay,replay_high_risk_foreign,Harbin Aviation Industry Group,CN,979,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace
+622,replay,replay_high_risk_foreign,Shenyang Aircraft Corporation,CN,978,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aircraft
+623,replay,replay_high_risk_foreign,Shenyang Liming Engine Corporation,CN,977,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Engines
+624,replay,replay_high_risk_foreign,Wuhan Marine Electric,CN,976,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval Electronics
+625,replay,replay_high_risk_foreign,Xi'an Changqing Electronics,CN,975,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics
+626,replay,replay_high_risk_foreign,Xian Aircraft Industrial Corporation,CN,974,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aircraft
+627,replay,replay_high_risk_foreign,Rostec,RU,973,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics, Aerospace, Land"
+628,replay,replay_high_risk_foreign,Almaz-Antey,RU,972,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Air Defense, Missiles"
+629,replay,replay_high_risk_foreign,Concern Radio-Electronic Technologies,RU,971,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics, Radar"
+630,replay,replay_high_risk_foreign,Ilyushin,RU,970,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Aircraft"
+631,replay,replay_high_risk_foreign,Kalashnikov Concern,RU,969,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Small Arms, Land"
+632,replay,replay_high_risk_foreign,MiG,RU,968,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Aircraft"
+633,replay,replay_high_risk_foreign,NPO Machinery,RU,967,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles, Artillery"
+634,replay,replay_high_risk_foreign,Shvabe,RU,966,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Optics, Electronics"
+635,replay,replay_high_risk_foreign,Sukhoi,RU,965,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Aircraft"
+636,replay,replay_high_risk_foreign,Tupolev,RU,964,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Aircraft"
+637,replay,replay_high_risk_foreign,Uralvagonzavod,RU,963,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Land Vehicles, Tanks"
+638,replay,replay_high_risk_foreign,Burevestnik,RU,962,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics
+639,replay,replay_high_risk_foreign,Izhmash,RU,961,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Small Arms
+640,replay,replay_high_risk_foreign,Kamov,RU,960,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Helicopters
+641,replay,replay_high_risk_foreign,Mil Moscow Helicopter Plant,RU,959,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Helicopters
+642,replay,replay_high_risk_foreign,Novator Design Bureau,RU,958,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles
+643,replay,replay_high_risk_foreign,Rosoboronexport,RU,957,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Multi-domain
+644,replay,replay_high_risk_foreign,Russian Helicopters,RU,956,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Rotorcraft
+645,replay,replay_high_risk_foreign,Severstal-MetallyRGK,RU,955,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Armor Plate
+646,replay,replay_high_risk_foreign,Tactical Missiles Corporation,RU,954,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles
+647,replay,replay_high_risk_foreign,Teknodinamika,RU,953,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace Systems
+648,replay,replay_high_risk_foreign,Tulamashzavod,RU,952,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Munitions
+649,replay,replay_high_risk_foreign,United Engine Corporation,RU,951,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Engines
+650,replay,replay_high_risk_foreign,United Shipbuilding Corporation,RU,950,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+651,replay,replay_high_risk_foreign,VSMPO-AVISMA,RU,949,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace Materials
+652,replay,replay_high_risk_foreign,Minsk Tractor Works,BY,948,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Land Vehicles
+653,replay,replay_high_risk_foreign,ASELSAN,TR,947,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics, Radar"
+654,replay,replay_high_risk_foreign,HAVELSAN,TR,946,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: C4ISR, Software"
+655,replay,replay_high_risk_foreign,Meteksan Defence,TR,945,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics, Radar"
+656,replay,replay_high_risk_foreign,Roketsan,TR,944,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles, Rockets"
+657,replay,replay_high_risk_foreign,Savunma Teknolojileri Muhendislik,TR,943,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval, Electronics"
+658,replay,replay_high_risk_foreign,Turkish Aerospace Industries,TR,942,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Aircraft"
+659,replay,replay_high_risk_foreign,Acibadem Defence,TR,941,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Defense Systems
+660,replay,replay_high_risk_foreign,Ada Defence,TR,940,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+661,replay,replay_high_risk_foreign,Argun,TR,939,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval Systems
+662,replay,replay_high_risk_foreign,Baykar,TR,938,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Unmanned Systems
+663,replay,replay_high_risk_foreign,Kalekalıp,TR,937,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Munitions
+664,replay,replay_high_risk_foreign,Nurol Makine ve Elektrik,TR,936,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Armored Vehicles
+665,replay,replay_high_risk_foreign,Otokar,TR,935,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Land Vehicles
+666,replay,replay_high_risk_foreign,SARSIL,TR,934,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Munitions
+667,replay,replay_high_risk_foreign,Tanin Electronics,TR,933,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics
+668,replay,replay_high_risk_foreign,ADASI,AE,932,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace
+669,replay,replay_high_risk_foreign,EDGE Group,AE,931,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Multi-domain
+670,replay,replay_high_risk_foreign,Emirates Defence Industries,AE,930,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Multi-domain
+671,replay,replay_high_risk_foreign,L&T Arabia,AE,929,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Defense
+672,replay,replay_high_risk_foreign,NIMR Automotive,AE,928,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Armored Vehicles
+673,replay,replay_high_risk_foreign,Orbit Communications,AE,927,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Satellite
+674,replay,replay_high_risk_foreign,Tawazun Economic Council,AE,926,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Defense Industrial
+675,replay,replay_high_risk_foreign,Thuraya,AE,925,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Satellite Communications
+676,replay,replay_high_risk_foreign,Yugoimport-SDPR,RS,924,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Multi-domain
+677,replay,replay_high_risk_foreign,Adani Defence and Aerospace,IN,923,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Defense"
+678,replay,replay_high_risk_foreign,Bharat Electronics Limited,IN,922,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics, Radar"
+679,replay,replay_high_risk_foreign,DRDO,IN,921,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: R&D, Multi-domain"
+680,replay,replay_high_risk_foreign,Godrej & Boyce Defence,IN,920,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval, Land"
+681,replay,replay_high_risk_foreign,Hindustan Aeronautics Limited,IN,919,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Aircraft"
+682,replay,replay_high_risk_foreign,Hindustan Machine Tools,IN,918,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Machine Tools, Defense"
+683,replay,replay_high_risk_foreign,Hindustan Nirmitee Automation Limited,IN,917,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Automation, Defense"
+684,replay,replay_high_risk_foreign,Tata Advanced Systems Limited,IN,916,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace, Defense"
+685,replay,replay_high_risk_foreign,Vikram Sarabhai Space Centre,IN,915,world_defense_exhibitors_2026,"existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Space, Missiles"
+686,replay,replay_high_risk_foreign,Bharat Dynamics Limited,IN,914,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Missiles
+687,replay,replay_high_risk_foreign,Cochin Shipyard Limited,IN,913,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+688,replay,replay_high_risk_foreign,Garden Reach Shipbuilders,IN,912,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+689,replay,replay_high_risk_foreign,Goa Shipyard Limited,IN,911,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+690,replay,replay_high_risk_foreign,India Ltd. Shipyards,IN,910,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+691,replay,replay_high_risk_foreign,L&T Defence,IN,909,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Multi-domain
+692,replay,replay_high_risk_foreign,Mazagon Dock Shipbuilders,IN,908,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Naval
+693,replay,replay_high_risk_foreign,Ordnance Factories Group,IN,907,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Munitions
+694,replay,replay_high_risk_foreign,Walchandnagar Industries,IN,906,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Defense Engineering
+695,replay,replay_high_risk_foreign,Heavy Industries Taxila,PK,905,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Land Vehicles
+696,replay,replay_high_risk_foreign,Pakistan Aeronautical Complex,PK,904,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Aerospace
+697,replay,replay_high_risk_foreign,Pakistan Ordinance Factories,PK,903,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Munitions
+698,replay,replay_high_risk_foreign,Advanced Electronics Company,SA,902,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Electronics
+699,replay,replay_high_risk_foreign,Alibi Defense,SA,901,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Defense Systems
+700,replay,replay_high_risk_foreign,International Turnkey,SA,900,world_defense_exhibitors_2026,existing high-risk foreign defense entity replay to stress sanctions and network-risk paths; sectors: Defense Industrial
+701,replay,replay_allied_partner_foreign,Thales Australia,AU,999,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Naval"
+702,replay,replay_allied_partner_foreign,Argosy Holdings,AU,998,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Support
+703,replay,replay_allied_partner_foreign,ASC (Australian Submarine Corporation),AU,997,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+704,replay,replay_allied_partner_foreign,BAE Systems Australia,AU,996,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+705,replay,replay_allied_partner_foreign,Hanwha Australia,AU,995,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Systems
+706,replay,replay_allied_partner_foreign,FN Herstal,BE,994,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Small Arms
+707,replay,replay_allied_partner_foreign,Mecar,BE,993,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+708,replay,replay_allied_partner_foreign,Nexter Belgium,BE,992,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Systems
+709,replay,replay_allied_partner_foreign,Techspace Aero,BE,991,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+710,replay,replay_allied_partner_foreign,Avibras,BR,990,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles, Rockets"
+711,replay,replay_allied_partner_foreign,Embraer Defence & Security,BR,989,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Aircraft"
+712,replay,replay_allied_partner_foreign,Marinha do Brasil Estaleiro,BR,988,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+713,replay,replay_allied_partner_foreign,Odebrecht Defence & Technology,BR,987,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+714,replay,replay_allied_partner_foreign,CAE,CA,986,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Simulation, Training"
+715,replay,replay_allied_partner_foreign,Bombardier Defence,CA,985,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+716,replay,replay_allied_partner_foreign,General Dynamics Land Systems-Canada,CA,984,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+717,replay,replay_allied_partner_foreign,L-3 Technologies Canada,CA,983,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+718,replay,replay_allied_partner_foreign,Magellan Aerospace,CA,982,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+719,replay,replay_allied_partner_foreign,Contraves,CH,981,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Systems
+720,replay,replay_allied_partner_foreign,Mowag,CH,980,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+721,replay,replay_allied_partner_foreign,RUAG Defence,CH,979,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+722,replay,replay_allied_partner_foreign,Aero Vodochody,CZ,978,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+723,replay,replay_allied_partner_foreign,Ceska Zbrojovka,CZ,977,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Small Arms
+724,replay,replay_allied_partner_foreign,Omnipol,CZ,976,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Trade
+725,replay,replay_allied_partner_foreign,Tatra Trucks,CZ,975,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+726,replay,replay_allied_partner_foreign,Rheinmetall,DE,974,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land, Munitions, Naval"
+727,replay,replay_allied_partner_foreign,Diehl Defence,DE,973,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles, Munitions"
+728,replay,replay_allied_partner_foreign,Hensoldt,DE,972,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Sensors, Electronics"
+729,replay,replay_allied_partner_foreign,ADS Advanced Defense Solutions,DE,971,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+730,replay,replay_allied_partner_foreign,Blohm + Voss,DE,970,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+731,replay,replay_allied_partner_foreign,Diehl Stiftung,DE,969,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Systems
+732,replay,replay_allied_partner_foreign,Heckler & Koch,DE,968,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Small Arms
+733,replay,replay_allied_partner_foreign,IAV Automotive Engineering,DE,967,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+734,replay,replay_allied_partner_foreign,Krauss-Maffei Wegmann,DE,966,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+735,replay,replay_allied_partner_foreign,Mauser,DE,965,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Small Arms
+736,replay,replay_allied_partner_foreign,Rheinmetall Air Defence,DE,964,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Air Defense
+737,replay,replay_allied_partner_foreign,ThyssenKrupp Marine Systems,DE,963,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+738,replay,replay_allied_partner_foreign,EADS España,ES,962,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Defense"
+739,replay,replay_allied_partner_foreign,Indra,ES,961,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, C4ISR"
+740,replay,replay_allied_partner_foreign,Airbus Defence and Space Spain,ES,960,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+741,replay,replay_allied_partner_foreign,Navantia,ES,959,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+742,replay,replay_allied_partner_foreign,Santa Bárbara,ES,958,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+743,replay,replay_allied_partner_foreign,Patria,FI,957,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land, Aerospace"
+744,replay,replay_allied_partner_foreign,MBDA Finland,FI,956,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles
+745,replay,replay_allied_partner_foreign,Valmet Defence Solutions,FI,955,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Systems Integration
+746,replay,replay_allied_partner_foreign,Thales,FR,954,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Aerospace, Naval"
+747,replay,replay_allied_partner_foreign,Airbus Defence and Space,FR,953,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Space"
+748,replay,replay_allied_partner_foreign,Dassault Aviation,FR,952,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Aircraft"
+749,replay,replay_allied_partner_foreign,EADS France,FR,951,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Defense"
+750,replay,replay_allied_partner_foreign,Expal Systems,FR,950,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions, Artillery"
+751,replay,replay_allied_partner_foreign,Nexter Systems,FR,949,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land, Artillery"
+752,replay,replay_allied_partner_foreign,Safran,FR,948,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Engines, Aerospace"
+753,replay,replay_allied_partner_foreign,Arquus,FR,947,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+754,replay,replay_allied_partner_foreign,Lacroix Group,FR,946,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Systems
+755,replay,replay_allied_partner_foreign,MBDA,FR,945,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles
+756,replay,replay_allied_partner_foreign,Naval Group,FR,944,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+757,replay,replay_allied_partner_foreign,Renault Trucks Defence,FR,943,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+758,replay,replay_allied_partner_foreign,Torped Defense,FR,942,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval Weapons
+759,replay,replay_allied_partner_foreign,Babcock International,GB,941,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval, Infrastructure"
+760,replay,replay_allied_partner_foreign,Chemring Group,GB,940,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions, Countermeasures"
+761,replay,replay_allied_partner_foreign,Cobham,GB,939,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Defense"
+762,replay,replay_allied_partner_foreign,Meggitt,GB,938,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Defense"
+763,replay,replay_allied_partner_foreign,Rolls-Royce Defence,GB,937,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Engines, Naval"
+764,replay,replay_allied_partner_foreign,Rolls-Royce plc,GB,936,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Engines, Aerospace"
+765,replay,replay_allied_partner_foreign,Thales UK,GB,935,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Radar"
+766,replay,replay_allied_partner_foreign,Ultra Electronics,GB,934,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Naval"
+767,replay,replay_allied_partner_foreign,BAE Systems,GB,933,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+768,replay,replay_allied_partner_foreign,GKN Aerospace,GB,932,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+769,replay,replay_allied_partner_foreign,Leonardo UK,GB,931,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+770,replay,replay_allied_partner_foreign,QinetiQ,GB,930,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Technology
+771,replay,replay_allied_partner_foreign,Serco Group,GB,929,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Services
+772,replay,replay_allied_partner_foreign,Elbit Systems,IL,928,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Aerospace"
+773,replay,replay_allied_partner_foreign,IMI System,IL,927,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions, Artillery"
+774,replay,replay_allied_partner_foreign,Israel Aerospace Industries,IL,926,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Aircraft"
+775,replay,replay_allied_partner_foreign,Rada Electronic Industries,IL,925,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Radar, Electronics"
+776,replay,replay_allied_partner_foreign,Rafael Advanced Defense Systems,IL,924,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles, Electronics"
+777,replay,replay_allied_partner_foreign,Aeronautics,IL,923,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Unmanned Systems
+778,replay,replay_allied_partner_foreign,Carbine,IL,922,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Small Arms
+779,replay,replay_allied_partner_foreign,Hatzor Aviation Service,IL,921,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace Maintenance
+780,replay,replay_allied_partner_foreign,Magal Security Systems,IL,920,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Border Security
+781,replay,replay_allied_partner_foreign,UVision,IL,919,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Loitering Munitions
+782,replay,replay_allied_partner_foreign,Whitehead Alenia Sistemi Subacquei,IT,918,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval, Torpedoes"
+783,replay,replay_allied_partner_foreign,Beretta,IT,917,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Small Arms
+784,replay,replay_allied_partner_foreign,Fincantieri,IT,916,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+785,replay,replay_allied_partner_foreign,IVECO,IT,915,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+786,replay,replay_allied_partner_foreign,Leonardo,IT,914,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+787,replay,replay_allied_partner_foreign,OTO Melara,IT,913,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval Systems
+788,replay,replay_allied_partner_foreign,Fuji Heavy Industries,JP,912,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Land Vehicles"
+789,replay,replay_allied_partner_foreign,IHI Corporation,JP,911,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Engines"
+790,replay,replay_allied_partner_foreign,Kawasaki Heavy Industries,JP,910,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Naval"
+791,replay,replay_allied_partner_foreign,Japan Marine United,JP,909,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+792,replay,replay_allied_partner_foreign,Mitsubishi Heavy Industries,JP,908,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+793,replay,replay_allied_partner_foreign,Sumitomo Heavy Industries,JP,907,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+794,replay,replay_allied_partner_foreign,Hanwha Aerospace,KR,906,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Missiles"
+795,replay,replay_allied_partner_foreign,Hyundai Rotem,KR,905,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles, Artillery"
+796,replay,replay_allied_partner_foreign,Korea Aerospace Industries,KR,904,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Aircraft"
+797,replay,replay_allied_partner_foreign,LIG Nex1,KR,903,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles, Electronics"
+798,replay,replay_allied_partner_foreign,Samsung Techwin,KR,902,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval, Land"
+799,replay,replay_allied_partner_foreign,Daewoo Shipbuilding & Marine Engineering,KR,901,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+800,replay,replay_allied_partner_foreign,Firstec,KR,900,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Electronics
+801,replay,replay_allied_partner_foreign,Huneed Technologies,KR,899,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+802,replay,replay_allied_partner_foreign,Hyundai Motor Company (Defense),KR,898,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+803,replay,replay_allied_partner_foreign,Poongsan Corporation,KR,897,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+804,replay,replay_allied_partner_foreign,Dutch Space,NL,896,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Space, Aerospace"
+805,replay,replay_allied_partner_foreign,Thales Netherlands,NL,895,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Naval"
+806,replay,replay_allied_partner_foreign,Airborne Support,NL,894,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+807,replay,replay_allied_partner_foreign,DAF Trucks Defence,NL,893,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+808,replay,replay_allied_partner_foreign,Koninklijke Schelde,NL,892,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+809,replay,replay_allied_partner_foreign,Kongsberg Maritime,NO,891,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval, Electronics"
+810,replay,replay_allied_partner_foreign,Andøy Rocket Range,NO,890,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Launch Facilities
+811,replay,replay_allied_partner_foreign,Kongsberg Defence & Aerospace,NO,889,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+812,replay,replay_allied_partner_foreign,Nammo,NO,888,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+813,replay,replay_allied_partner_foreign,Bumar,PL,887,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land, Munitions"
+814,replay,replay_allied_partner_foreign,PGZ,PL,886,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+815,replay,replay_allied_partner_foreign,Rosomak,PL,885,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+816,replay,replay_allied_partner_foreign,WB Electronics,PL,884,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+817,replay,replay_allied_partner_foreign,Zeamet,PL,883,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+818,replay,replay_allied_partner_foreign,Aerostar,RO,882,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+819,replay,replay_allied_partner_foreign,Romtehnica,RO,881,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Industrial
+820,replay,replay_allied_partner_foreign,Uzina Mecanica Bucuresti,RO,880,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+821,replay,replay_allied_partner_foreign,Saab,SE,879,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Multi-domain"
+822,replay,replay_allied_partner_foreign,Saab Bofors Dynamics,SE,878,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles
+823,replay,replay_allied_partner_foreign,Saab Dynamics,SE,877,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Weapons Systems
+824,replay,replay_allied_partner_foreign,Volvo CE Defence,SE,876,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+825,replay,replay_allied_partner_foreign,Armscor,ZA,875,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Industrial
+826,replay,replay_allied_partner_foreign,Denel,ZA,874,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Multi-domain
+827,replay,replay_allied_partner_foreign,Optimal Energy,ZA,873,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defence Systems
+828,replay,replay_allied_partner_foreign,Reutech Defence,ZA,872,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+829,replay,replay_allied_partner_foreign,Fabricaciones Militares,AR,871,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions, Aerospace"
+830,replay,replay_allied_partner_foreign,Tandanor,AR,870,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+831,replay,replay_allied_partner_foreign,OMV Defence,AT,869,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Industrial
+832,replay,replay_allied_partner_foreign,Bulgarian Defence Industries,BG,868,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+833,replay,replay_allied_partner_foreign,Terma,DK,867,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics, Aerospace"
+834,replay,replay_allied_partner_foreign,Danish Shipyards,DK,866,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval
+835,replay,replay_allied_partner_foreign,Estonian Defence Procurement,EE,865,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Systems
+836,replay,replay_allied_partner_foreign,Egyptian Advanced Factories Company,EG,864,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Industrial
+837,replay,replay_allied_partner_foreign,Hellenic Aerospace Industry,GR,863,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+838,replay,replay_allied_partner_foreign,Hellenic Defence Systems,GR,862,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Missiles
+839,replay,replay_allied_partner_foreign,Đuro Đaković Defence,HR,861,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Vehicles
+840,replay,replay_allied_partner_foreign,Hungarian Defence Industries,HU,860,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Munitions
+841,replay,replay_allied_partner_foreign,PT Pindad,ID,859,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land, Munitions"
+842,replay,replay_allied_partner_foreign,PT Dirgantara Indonesia,ID,858,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace
+843,replay,replay_allied_partner_foreign,Vilnius Defence Technology,LT,857,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Systems
+844,replay,replay_allied_partner_foreign,Latvian Defence Systems,LV,856,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Electronics
+845,replay,replay_allied_partner_foreign,Serco Morocco,MA,855,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense Services
+846,replay,replay_allied_partner_foreign,Grupo Safran Mexico,MX,854,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Aerospace, Engines"
+847,replay,replay_allied_partner_foreign,Malaysia Weapons Development,MY,853,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Weapons Systems
+848,replay,replay_allied_partner_foreign,New Zealand Defence,NZ,852,world_defense_exhibitors_2026,"existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Naval, Maintenance"
+849,replay,replay_allied_partner_foreign,Portuguese Defence Industries,PT,851,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Defense
+850,replay,replay_allied_partner_foreign,Slovenian Weapons Systems,SI,850,world_defense_exhibitors_2026,existing allied or partner foreign defense replay to deepen cross-border graph context; sectors: Land Systems
+851,create,create_us_reserve,Trenton Systems,US,5,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+852,create,create_us_reserve,Tritech International Ltd,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+853,create,create_us_reserve,TRM Labs,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+854,create,create_us_reserve,Tyonek Native Corporation,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+855,create,create_us_reserve,UberEther,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+856,create,create_us_reserve,UiPath,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+857,create,create_us_reserve,Ullman Dynamics USA,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+858,create,create_us_reserve,Ultisat,US,5,sof_raw,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: sof_raw
+859,create,create_us_reserve,"Yakshna Solutions, Inc. (YSI)",US,5,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+860,create,create_us_reserve,2Serve Together,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+861,create,create_us_reserve,A.W. Bell,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+862,create,create_us_reserve,Accenture,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+863,create,create_us_reserve,"Advanced Government Logistics, Inc.",US,4,mdm_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: mdm_2025
+864,create,create_us_reserve,Advanced Navigation,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+865,create,create_us_reserve,Advantech,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+866,create,create_us_reserve,"Aeronix, Inc",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+867,create,create_us_reserve,Aeroservices S.A.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+868,create,create_us_reserve,Alta Ares,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+869,create,create_us_reserve,AMETEK,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+870,create,create_us_reserve,AMS AERO,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+871,create,create_us_reserve,Analysis SA,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+872,create,create_us_reserve,Antenna Research Associates,US,4,mdm_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: mdm_2025
+873,create,create_us_reserve,APPI,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+874,create,create_us_reserve,Appian,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+875,create,create_us_reserve,Applied Companies,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+876,create,create_us_reserve,ARESIA,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+877,create,create_us_reserve,Arete,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+878,create,create_us_reserve,ARIES DEFENSE LLC,US,4,mdm_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: mdm_2025
+879,create,create_us_reserve,"Arion Communication Co., Ltd",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+880,create,create_us_reserve,Armed Forces Mutual,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+881,create,create_us_reserve,ArmorWorks Enterprises,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+882,create,create_us_reserve,ASDAM,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+883,create,create_us_reserve,Astronautics Corporation of America,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+884,create,create_us_reserve,Astronics,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+885,create,create_us_reserve,ATI,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+886,create,create_us_reserve,"Atrenne, A Celestica Company",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+887,create,create_us_reserve,Aurizn,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+888,create,create_us_reserve,AUSA Affinity Partners Pavilion,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+889,create,create_us_reserve,Ausco Group,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+890,create,create_us_reserve,"AV, Inc.",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+891,create,create_us_reserve,Avalon Action Alliance,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+892,create,create_us_reserve,Avalon Holographic Inc.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+893,create,create_us_reserve,Avon Protection | Team Wendy Ceradyne | Team Wendy,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+894,create,create_us_reserve,AVX Aircraft Company,US,4,mdm_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: mdm_2025
+895,create,create_us_reserve,Axnes,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+896,create,create_us_reserve,Bale Defence,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+897,create,create_us_reserve,"Battlespace Simulations, Inc.",US,4,mdm_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: mdm_2025
+898,create,create_us_reserve,BDSV Exhibitions e.V.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+899,create,create_us_reserve,Bell,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+900,create,create_us_reserve,BERNIER Connect S.A.S,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+901,create,create_us_reserve,Big Top Manufacturing LLC,US,4,mdm_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: mdm_2025
+902,create,create_us_reserve,Bigbear.ai,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+903,create,create_us_reserve,Bisalloy Steels,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+904,create,create_us_reserve,Black6,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+905,create,create_us_reserve,Blue Summit,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+906,create,create_us_reserve,BlueRoom Simulations,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+907,create,create_us_reserve,"BlueWaveTel Co., Ltd.",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+908,create,create_us_reserve,Bodd,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+909,create,create_us_reserve,Boresight USA,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+910,create,create_us_reserve,Brassets Group,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+911,create,create_us_reserve,Breaker,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+912,create,create_us_reserve,C.E. Niehoff & Co.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+913,create,create_us_reserve,Callington,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+914,create,create_us_reserve,Capgemini,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+915,create,create_us_reserve,Carmenta Inc.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+916,create,create_us_reserve,Caterpillar Inc.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+917,create,create_us_reserve,CDC Data Centres,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+918,create,create_us_reserve,CEIA USA,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+919,create,create_us_reserve,Celestica,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+920,create,create_us_reserve,"Chenega Corporation, MIOS SBU",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+921,create,create_us_reserve,Cherokee Federal,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+922,create,create_us_reserve,Clear Align,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+923,create,create_us_reserve,Cloudflare,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+924,create,create_us_reserve,Club Beyond/Military Community Youth Ministries,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+925,create,create_us_reserve,Cocoon Inc,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+926,create,create_us_reserve,"Codemettle, LLC",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+927,create,create_us_reserve,COGES,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+928,create,create_us_reserve,Compaero,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+929,create,create_us_reserve,Comrod Inc,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+930,create,create_us_reserve,Concept2 Inc,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+931,create,create_us_reserve,Conflict Kinetics,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+932,create,create_us_reserve,Contact Corporation,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+933,create,create_us_reserve,Coursera,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+934,create,create_us_reserve,Critical Objectives LLC,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+935,create,create_us_reserve,Cummins,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+936,create,create_us_reserve,Cyalume Light Technology,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+937,create,create_us_reserve,Cypher,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+938,create,create_us_reserve,CZ,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+939,create,create_us_reserve,D'Aniello Institute For Veterans and Military Families at Syracuse,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+940,create,create_us_reserve,"Dabeeo, Inc",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+941,create,create_us_reserve,Dalfin AI,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+942,create,create_us_reserve,Danner,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+943,create,create_us_reserve,Day & Zimmermann,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+944,create,create_us_reserve,DCS Corporation,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+945,create,create_us_reserve,Decavo,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+946,create,create_us_reserve,DEFEA - Defence Exhibition Athens,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+947,create,create_us_reserve,Delian Alliance Industries,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+948,create,create_us_reserve,Denmark Pavilion,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+949,create,create_us_reserve,Deschamps,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+950,create,create_us_reserve,Don Kyatt Spare Parts / Terrain Tamer,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+951,create,create_us_reserve,"Donaldson Company, Inc.",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+952,create,create_us_reserve,Dongin Optical,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+953,create,create_us_reserve,Doodle Labs,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+954,create,create_us_reserve,DripDrop ORS,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+955,create,create_us_reserve,DTC,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+956,create,create_us_reserve,Ducommun Incorporated,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+957,create,create_us_reserve,Dynamit Nobel Defence,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+958,create,create_us_reserve,DZYNE,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+959,create,create_us_reserve,Echodyne,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+960,create,create_us_reserve,ECU Corporation,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+961,create,create_us_reserve,EdgeRunner,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+962,create,create_us_reserve,Elbit America,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+963,create,create_us_reserve,Electromet Rugged Enclosures,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+964,create,create_us_reserve,ELFON LTD,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+965,create,create_us_reserve,Elika Team,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+966,create,create_us_reserve,Elma Electronic Inc.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+967,create,create_us_reserve,ELMON,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+968,create,create_us_reserve,Emcor Enclosures,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+969,create,create_us_reserve,Enduraphin,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+970,create,create_us_reserve,Enercon,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+971,create,create_us_reserve,"EnerSys, Inc",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+972,create,create_us_reserve,Enterprise Greece,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+973,create,create_us_reserve,Equanostic,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+974,create,create_us_reserve,"ETL Co., Ltd.",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+975,create,create_us_reserve,EURENCO,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+976,create,create_us_reserve,Excitus Medical,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+977,create,create_us_reserve,Exia Labs,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+978,create,create_us_reserve,EY,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+979,create,create_us_reserve,F5,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+980,create,create_us_reserve,Falck-Schmidt corp,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+981,create,create_us_reserve,FalCom,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+982,create,create_us_reserve,"FAUN Trackway USA, Inc.",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+983,create,create_us_reserve,FDH Aero,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+984,create,create_us_reserve,Ferra,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+985,create,create_us_reserve,Fibrotex USA. Inc.,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+986,create,create_us_reserve,"Fischer Connectors, Inc.",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+987,create,create_us_reserve,Fischer Panda Generators,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+988,create,create_us_reserve,Fluor,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+989,create,create_us_reserve,"FN America, LLC",US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+990,create,create_us_reserve,Forterra - goTenna,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+991,create,create_us_reserve,G.W. Lisk Company,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+992,create,create_us_reserve,Galvion,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+993,create,create_us_reserve,Game Ready/Avanos Medical Sales,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+994,create,create_us_reserve,Gemstar Protective Hard Cases,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+995,create,create_us_reserve,General Digital,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+996,create,create_us_reserve,General Dynamics Information Technology,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+997,create,create_us_reserve,Genesis Arms,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+998,create,create_us_reserve,Gentex Corporation / Ops-Core,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+999,create,create_us_reserve,GICAT,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
+1000,create,create_us_reserve,Global Military Products,US,4,ausa_2025,new US reserve slot to fill the overnight queue with vetted defense exhibitors; source overlap: ausa_2025
