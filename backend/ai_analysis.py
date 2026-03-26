@@ -39,6 +39,7 @@ _PROMPT_DIRECTIVE_RE = re.compile(
 _WHITESPACE_RE = re.compile(r"\s+")
 _CODE_FENCE_RE = re.compile(r"`{3,}")
 _ANALYSIS_PROMPT_VERSION = os.environ.get("XIPHOS_AI_PROMPT_VERSION", "ai-analysis-2026-03-19")
+_LOCAL_FALLBACK_MODEL = "heuristic-v1"
 
 
 def _sanitize_prompt_fragment(value: object, max_len: int = 160) -> str:
@@ -48,6 +49,149 @@ def _sanitize_prompt_fragment(value: object, max_len: int = 160) -> str:
     text = _CODE_FENCE_RE.sub("", text)
     text = _WHITESPACE_RE.sub(" ", text).strip()
     return text[:max_len]
+
+
+def _local_fallback_enabled() -> bool:
+    return os.environ.get("XIPHOS_LOCAL_AI_FALLBACK", "true").lower() != "false"
+
+
+def _analysis_verdict_for_tier(tier: str) -> str:
+    normalized = str(tier or "").upper()
+    if normalized.startswith("TIER_1"):
+        return "REJECT"
+    if normalized in {"TIER_2_CONDITIONAL_ACCEPTABLE", "TIER_3_CONDITIONAL"}:
+        return "CONDITIONAL_APPROVE"
+    if normalized.startswith("TIER_2") or normalized.startswith("TIER_3"):
+        return "ENHANCED_DUE_DILIGENCE"
+    return "APPROVE"
+
+
+def _build_local_fallback_analysis(
+    vendor_data: dict,
+    score_data: dict,
+    enrichment_data: Optional[dict] = None,
+) -> dict:
+    """Build a deterministic narrative when no external AI provider is configured."""
+    vendor_name = str(vendor_data.get("name") or "Unknown vendor")
+    country = str(vendor_data.get("country") or "unknown")
+    calibrated = score_data.get("calibrated") or {}
+    tier = str(
+        calibrated.get("calibrated_tier")
+        or score_data.get("tier")
+        or score_data.get("calibrated_tier")
+        or "UNSCORED"
+    )
+    probability = float(calibrated.get("calibrated_probability") or 0.0)
+    composite_score = int(score_data.get("composite_score") or 0)
+    verdict = _analysis_verdict_for_tier(tier)
+
+    hard_stops = score_data.get("hard_stop_decisions") or []
+    soft_flags = score_data.get("soft_flags") or []
+    findings = (enrichment_data or {}).get("findings") or []
+
+    critical_concerns: list[str] = []
+    for stop in hard_stops[:3]:
+        trigger = _sanitize_prompt_fragment(stop.get("trigger") or "Hard stop", max_len=120)
+        explanation = _sanitize_prompt_fragment(stop.get("explanation") or "", max_len=220)
+        critical_concerns.append(f"{trigger}: {explanation}".strip(": "))
+
+    if not critical_concerns:
+        for flag in soft_flags[:3]:
+            trigger = _sanitize_prompt_fragment(flag.get("trigger") or "Risk flag", max_len=120)
+            explanation = _sanitize_prompt_fragment(flag.get("explanation") or "", max_len=220)
+            critical_concerns.append(f"{trigger}: {explanation}".strip(": "))
+
+    if len(critical_concerns) < 3:
+        for finding in findings:
+            severity = str(finding.get("severity") or "").lower()
+            if severity not in {"critical", "high", "medium"}:
+                continue
+            title = _sanitize_prompt_fragment(finding.get("title") or finding.get("signal") or "Material finding", max_len=140)
+            detail = _sanitize_prompt_fragment(finding.get("detail") or "", max_len=220)
+            item = f"{title}: {detail}".strip(": ")
+            if item and item not in critical_concerns:
+                critical_concerns.append(item)
+            if len(critical_concerns) >= 3:
+                break
+
+    mitigating_factors: list[str] = []
+    ownership = vendor_data.get("ownership") or {}
+    data_quality = vendor_data.get("data_quality") or {}
+    exec_profile = vendor_data.get("exec") or {}
+    if ownership.get("beneficial_owner_known"):
+        mitigating_factors.append("Beneficial ownership is resolved in the submitted case data.")
+    if ownership.get("publicly_traded"):
+        mitigating_factors.append("Public-company status improves transparency and external verification.")
+    if int(data_quality.get("years_of_records") or 0) >= 5:
+        mitigating_factors.append("Operating history is long enough to support baseline diligence review.")
+    if bool(data_quality.get("has_lei")) and bool(data_quality.get("has_cage")):
+        mitigating_factors.append("Core corporate identifiers are present for follow-on verification.")
+    if int(exec_profile.get("adverse_media") or 0) == 0:
+        mitigating_factors.append("No adverse-media signal is present in the structured executive profile.")
+
+    recommended_actions: list[str] = []
+    if verdict == "REJECT":
+        recommended_actions.append("Do not proceed until the blocking hard-stop signals are resolved by counsel or compliance leadership.")
+    elif verdict == "ENHANCED_DUE_DILIGENCE":
+        recommended_actions.append("Escalate for analyst review and document why the current risk posture is acceptable or not.")
+    else:
+        recommended_actions.append("Proceed only after confirming the current score and evidence package remain fresh.")
+
+    export_auth = vendor_data.get("export_authorization") or {}
+    if export_auth:
+        recommended_actions.append(
+            f"Validate {str(export_auth.get('jurisdiction_guess') or 'export').upper()} handling for "
+            f"{_sanitize_prompt_fragment(export_auth.get('destination_country') or 'the destination', max_len=32)} "
+            "before release or access."
+        )
+    if findings:
+        recommended_actions.append("Review the highest-severity enrichment findings and capture disposition notes in the case record.")
+    if not findings:
+        recommended_actions.append("Run fresh enrichment before relying on this narrative for an external-facing decision.")
+
+    recommended_actions = recommended_actions[:4]
+    critical_concerns = critical_concerns[:5]
+    mitigating_factors = mitigating_factors[:5]
+
+    regulatory_bits = [f"Tier {tier}", f"country {country}", f"composite score {composite_score}"]
+    if export_auth:
+        jurisdiction = str(export_auth.get("jurisdiction_guess") or "").upper()
+        classification = _sanitize_prompt_fragment(export_auth.get("classification_guess") or "", max_len=40)
+        destination = _sanitize_prompt_fragment(export_auth.get("destination_country") or "", max_len=32)
+        if jurisdiction:
+            regulatory_bits.append(f"jurisdiction {jurisdiction}")
+        if classification:
+            regulatory_bits.append(f"classification {classification}")
+        if destination:
+            regulatory_bits.append(f"destination {destination}")
+
+    summary_open = (
+        f"{vendor_name} currently sits at {tier} with calibrated probability {probability:.1%} "
+        f"and composite score {composite_score}."
+    )
+    if critical_concerns:
+        summary_open += f" Primary analyst attention areas are {critical_concerns[0].lower()}."
+    else:
+        summary_open += " No material critical concerns were surfaced beyond the deterministic model inputs."
+
+    return {
+        "executive_summary": summary_open,
+        "risk_narrative": (
+            f"Local fallback narrative generated because no external AI provider is configured. "
+            f"This case is assessed for {vendor_name} in {country} using the deterministic scoring engine and "
+            f"the current evidence package, which places the matter in {tier} with verdict {verdict.replace('_', ' ').title()}."
+        ),
+        "critical_concerns": critical_concerns,
+        "mitigating_factors": mitigating_factors,
+        "recommended_actions": recommended_actions,
+        "regulatory_exposure": "; ".join(regulatory_bits) + ".",
+        "confidence_assessment": (
+            "Moderate. This is a deterministic local fallback narrative built from the current case, score, "
+            "and enrichment data because no external AI provider is configured."
+        ),
+        "verdict": verdict,
+        "_fallback": True,
+    }
 
 
 # ---- Provider Configuration ----
@@ -103,9 +247,26 @@ def _get_cipher_key() -> bytes:
     return hashlib.pbkdf2_hmac("sha256", secret.encode(), b"xiphos-ai-keys", 100_000)
 
 
+def _get_fernet():
+    """Get a Fernet instance derived from the cipher key."""
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        return None
+    raw_key = _get_cipher_key()
+    # Fernet requires a 32-byte url-safe base64 key
+    fernet_key = base64.urlsafe_b64encode(raw_key[:32])
+    return Fernet(fernet_key)
+
+
 def _encrypt_key(api_key: str) -> str:
-    """Simple XOR encryption of API key. Not military-grade but prevents
-    plaintext storage. For production, use Fernet or AWS KMS."""
+    """Encrypt API key using Fernet (authenticated encryption).
+    Falls back to XOR if cryptography library is unavailable."""
+    fernet = _get_fernet()
+    if fernet:
+        token = fernet.encrypt(api_key.encode("utf-8"))
+        return "fernet:" + token.decode("utf-8")
+    # Fallback: XOR (legacy, will be migrated on next save)
     cipher = _get_cipher_key()
     key_bytes = api_key.encode("utf-8")
     encrypted = bytes(b ^ cipher[i % len(cipher)] for i, b in enumerate(key_bytes))
@@ -113,7 +274,14 @@ def _encrypt_key(api_key: str) -> str:
 
 
 def _decrypt_key(encrypted: str) -> str:
-    """Decrypt an API key."""
+    """Decrypt an API key. Supports both Fernet and legacy XOR format."""
+    if encrypted.startswith("fernet:"):
+        fernet = _get_fernet()
+        if not fernet:
+            raise RuntimeError("cryptography library required to decrypt Fernet-encrypted keys")
+        token = encrypted[7:].encode("utf-8")
+        return fernet.decrypt(token).decode("utf-8")
+    # Legacy XOR decryption (backward compatible)
     cipher = _get_cipher_key()
     encrypted_bytes = base64.b64decode(encrypted)
     decrypted = bytes(b ^ cipher[i % len(cipher)] for i, b in enumerate(encrypted_bytes))
@@ -407,11 +575,16 @@ def _sanitize_enrichment_data(enrichment_data: Optional[dict]) -> Optional[dict]
         sanitized['findings'] = []
         for f in findings[:10]:
             if isinstance(f, dict):
-                sanitized['findings'].append({
+                item = {
                     'title': _sanitize_prompt_fragment(f.get('title', 'Unknown'), 100),
                     'severity': _sanitize_prompt_fragment(f.get('severity', 'info'), 20),
                     'source': _sanitize_prompt_fragment(f.get('source', 'Unknown'), 50),
-                })
+                }
+                if f.get("source_class"):
+                    item["source_class"] = _sanitize_prompt_fragment(f.get("source_class", ""), 32)
+                if f.get("authority_level"):
+                    item["authority_level"] = _sanitize_prompt_fragment(f.get("authority_level", ""), 32)
+                sanitized['findings'].append(item)
 
         return sanitized
     except Exception:
@@ -675,11 +848,44 @@ def analyze_vendor(
     if score_data.get("composite_score") is None:
         raise ValueError("score_data must contain 'composite_score' field. Score the vendor first.")
 
+    input_hash = compute_analysis_fingerprint(vendor_data, score_data, enrichment_data)
     config = get_ai_config(user_id)
     if not config:
-        raise ValueError(
-            "No AI provider configured. Set up your API key in Settings > AI Provider."
-        )
+        if not _local_fallback_enabled():
+            raise ValueError(
+                "No AI provider configured. Set up your API key in Settings > AI Provider."
+            )
+
+        analysis = _build_local_fallback_analysis(vendor_data, score_data, enrichment_data)
+        vendor_id = vendor_data.get("id", "unknown")
+        analysis_id = None
+        try:
+            analysis_id = save_analysis(
+                vendor_id=vendor_id,
+                provider="local_fallback",
+                model=_LOCAL_FALLBACK_MODEL,
+                analysis=analysis,
+                prompt_tokens=0,
+                completion_tokens=0,
+                elapsed_ms=0,
+                created_by=user_id,
+                input_hash=input_hash,
+                prompt_version=_ANALYSIS_PROMPT_VERSION,
+            )
+        except Exception as e:
+            print(f"Warning: Failed to persist local fallback AI analysis for {vendor_id}: {str(e)}")
+
+        return {
+            "analysis": analysis,
+            "provider": "local_fallback",
+            "model": _LOCAL_FALLBACK_MODEL,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "elapsed_ms": 0,
+            "analysis_id": analysis_id,
+            "input_hash": input_hash,
+            "prompt_version": _ANALYSIS_PROMPT_VERSION,
+        }
 
     provider = config["provider"]
     model = config["model"]
@@ -717,7 +923,6 @@ def analyze_vendor(
 
     # Persist the analysis
     vendor_id = vendor_data.get("id", "unknown")
-    input_hash = compute_analysis_fingerprint(vendor_data, score_data, enrichment_data)
     analysis_id = None
     try:
         analysis_id = save_analysis(

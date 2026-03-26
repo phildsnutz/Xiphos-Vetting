@@ -11,7 +11,7 @@ import threading
 from functools import wraps
 from collections import defaultdict
 
-from flask import request, jsonify
+from flask import g, jsonify, request
 
 
 # =============================================================================
@@ -64,6 +64,18 @@ class RateLimiter:
 _limiter = RateLimiter()
 
 
+def _default_rate_limit_key() -> str:
+    user = getattr(g, "user", None) or {}
+    identity = ""
+    if isinstance(user, dict):
+        identity = str(user.get("sub") or user.get("email") or "").strip()
+
+    actor = f"user:{identity}" if identity else f"ip:{request.remote_addr or 'unknown'}"
+    route = request.endpoint or request.path or "unknown"
+    method = request.method or "GET"
+    return f"{actor}:{method}:{route}"
+
+
 def rate_limit(max_requests: int = 10, window_seconds: int = 60, key_func=None):
     """
     Decorator to rate-limit a Flask route.
@@ -80,7 +92,7 @@ def rate_limit(max_requests: int = 10, window_seconds: int = 60, key_func=None):
             if key_func:
                 key = key_func()
             else:
-                key = request.remote_addr or "unknown"
+                key = _default_rate_limit_key()
 
             if not _limiter.is_allowed(key, max_requests, window_seconds):
                 remaining = _limiter.remaining(key, max_requests, window_seconds)
