@@ -845,6 +845,7 @@ def _render_ownership_control_summary(ownership: dict) -> str:
     oci = ownership.get("oci") if isinstance(ownership.get("oci"), dict) else {}
     if not oci:
         return ""
+    analyst_readout = str(ownership.get("analyst_readout") or "").strip()
     named_owner = str(oci.get("named_beneficial_owner") or "Unknown")
     owner_class = str(oci.get("owner_class") or "Unknown")
     controlling_parent = str(oci.get("controlling_parent") or "Unknown")
@@ -870,6 +871,8 @@ def _render_ownership_control_summary(ownership: dict) -> str:
         ]
     )
     notes: list[str] = []
+    if analyst_readout:
+        notes.append(analyst_readout)
     if oci.get("descriptor_only"):
         notes.append("Descriptor-only evidence was captured without inventing a named owner.")
     rejected = oci.get("rejected_descriptor_relationships") if isinstance(oci.get("rejected_descriptor_relationships"), list) else []

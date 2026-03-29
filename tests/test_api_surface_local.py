@@ -716,6 +716,10 @@ def test_supplier_passport_prefers_scored_ownership_snapshot_over_raw_vendor_inp
     passport = supplier_passport.build_supplier_passport(case_id)
 
     assert passport is not None
+    assert passport["ownership"]["analyst_readout"] == (
+        "Descriptor-only ownership evidence. No named beneficial owner resolved. "
+        "Owner class: Service-Disabled Veteran."
+    )
     assert passport["ownership"]["profile"]["ownership_pct_resolved"] == pytest.approx(0.55)
     assert passport["ownership"]["profile"]["control_resolution_pct"] == pytest.approx(0.35)
     assert passport["ownership"]["profile"]["named_beneficial_owner_known"] is False

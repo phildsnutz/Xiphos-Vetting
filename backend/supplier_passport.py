@@ -956,6 +956,22 @@ def _resolved_ownership_profile(vendor_input: dict, score: dict | None) -> dict:
     }
 
 
+def _ownership_analyst_readout(oci: dict | None) -> str:
+    data = oci if isinstance(oci, dict) else {}
+    if not data:
+        return "Ownership / control evidence not yet resolved."
+    if data.get("named_beneficial_owner_known"):
+        owner = str(data.get("named_beneficial_owner") or "named beneficial owner").strip()
+        return f"Named beneficial owner resolved: {owner}."
+    if data.get("descriptor_only"):
+        owner_class = str(data.get("owner_class") or "owner class").strip()
+        return f"Descriptor-only ownership evidence. No named beneficial owner resolved. Owner class: {owner_class}."
+    if data.get("controlling_parent_known"):
+        parent = str(data.get("controlling_parent") or "controlling parent").strip()
+        return f"Controlling parent resolved: {parent}. Named beneficial owner still unknown."
+    return "Named beneficial owner not resolved from current evidence."
+
+
 def build_supplier_passport(
     case_id: str,
     *,
@@ -1105,6 +1121,7 @@ def build_supplier_passport(
         "ownership": {
             "profile": ownership_profile,
             "oci": ownership_oci_summary,
+            "analyst_readout": _ownership_analyst_readout(ownership_oci_summary),
             "foci_summary": foci_summary,
             "workflow_control": workflow_control,
         },

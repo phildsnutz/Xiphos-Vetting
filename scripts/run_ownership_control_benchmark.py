@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,10 @@ CONTROL_PATH_REL_TYPES = OWNERSHIP_REL_TYPES | INTERMEDIARY_REL_TYPES
 
 def utc_slug() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+
+def _emit_progress(message: str):
+    print(message, file=sys.stderr, flush=True)
 
 
 def login(base_url: str, email: str, password: str, token: str = "") -> dict[str, str]:
@@ -615,11 +620,16 @@ def run_benchmark(base_url: str, email: str, password: str, token: str = "") -> 
     cases = load_cases(base_url, headers)
     case_index = index_cases(cases)
     rows: list[dict[str, Any]] = []
+    total_cases = sum(len(names) for names in BENCHMARK_GROUPS.values())
+    current_case = 0
     for group, names in BENCHMARK_GROUPS.items():
         for name in names:
+            current_case += 1
+            _emit_progress(f"[{current_case}/{total_cases}] {group}: {name}")
             case = choose_case(case_index, name)
             if not case:
                 rows.append({"group": group, "name": name, "status": "missing_case", "detail": "No matching case found"})
+                _emit_progress("  -> missing_case")
                 continue
             case_id = str(case.get("id") or "")
             try:
@@ -651,6 +661,7 @@ def run_benchmark(base_url: str, email: str, password: str, token: str = "") -> 
                                 "evaluation": evaluate_passport(proxy_passport),
                             }
                         )
+                        _emit_progress(f"  -> proxy_ok ({case_id})")
                         continue
                     except Exception as fallback_exc:
                         rows.append(
@@ -663,8 +674,10 @@ def run_benchmark(base_url: str, email: str, password: str, token: str = "") -> 
                                 "detail": f"{exc}; fallback failed: {fallback_exc}",
                             }
                         )
+                        _emit_progress(f"  -> proxy_error ({case_id})")
                         continue
                 rows.append({"group": group, "name": name, "case_id": case_id, "status": "passport_error", "detail": str(exc)})
+                _emit_progress(f"  -> passport_error ({case_id})")
                 continue
             rows.append(
                 {
@@ -676,6 +689,7 @@ def run_benchmark(base_url: str, email: str, password: str, token: str = "") -> 
                     "evaluation": evaluate_passport(passport if isinstance(passport, dict) else {}),
                 }
             )
+            _emit_progress(f"  -> ok ({case_id})")
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
