@@ -54,6 +54,7 @@ def _signal_packet(
     workflow_lane: str | None,
     ownership_profile: dict | None,
     ownership_summary: dict | None,
+    graph_intelligence: dict | None,
 ) -> dict[str, Any]:
     calibrated = (score or {}).get("calibrated") or {}
     latest_decision_value = str((latest_decision or {}).get("decision") or "").lower()
@@ -134,6 +135,16 @@ def _signal_packet(
     coverage_level = str(official.get("coverage_level") or "").lower()
     blocked_connector_count = int(official.get("blocked_connector_count") or 0)
     official_coverage_thin = coverage_level in {"public_only", "missing"} or blocked_connector_count > 0
+    graph_intelligence = graph_intelligence or {}
+    graph_thin = bool(graph_intelligence.get("thin_graph"))
+    graph_missing_required_edge_family_count = len(graph_intelligence.get("missing_required_edge_families") or [])
+    graph_claim_coverage_pct = float(graph_intelligence.get("claim_coverage_pct") or 0.0)
+    graph_evidence_coverage_pct = float(graph_intelligence.get("evidence_coverage_pct") or 0.0)
+    graph_contradicted_edge_count = int(graph_intelligence.get("contradicted_edge_count") or 0)
+    graph_stale_edge_count = int(graph_intelligence.get("stale_edge_count") or 0)
+    graph_legacy_unscoped_edge_count = int(graph_intelligence.get("legacy_unscoped_edge_count") or 0)
+    graph_official_edge_count = int(graph_intelligence.get("official_or_modeled_edge_count") or 0)
+    graph_public_only_edge_count = int(graph_intelligence.get("third_party_public_only_edge_count") or 0)
 
     ownership_profile = ownership_profile or {}
     ownership_summary = ownership_summary or {}
@@ -228,6 +239,15 @@ def _signal_packet(
         "mitigated_foreign_interest": mitigated_foreign_interest,
         "official_coverage_thin": official_coverage_thin,
         "blocked_official_connectors": blocked_connector_count,
+        "graph_thin": graph_thin,
+        "graph_missing_required_edge_family_count": graph_missing_required_edge_family_count,
+        "graph_claim_coverage_pct": graph_claim_coverage_pct,
+        "graph_evidence_coverage_pct": graph_evidence_coverage_pct,
+        "graph_contradicted_edge_count": graph_contradicted_edge_count,
+        "graph_stale_edge_count": graph_stale_edge_count,
+        "graph_legacy_unscoped_edge_count": graph_legacy_unscoped_edge_count,
+        "graph_official_edge_count": graph_official_edge_count,
+        "graph_public_only_edge_count": graph_public_only_edge_count,
         "ownership_resolution_pct": ownership_resolution_pct,
         "control_resolution_pct": control_resolution_pct,
         "named_owner_known": named_owner_known,
@@ -305,6 +325,14 @@ def _compose_view(
         add(signals["contradicted_path_count"] == 0, 0.04, "No contradictory ownership or intermediary claims are present.", "no_contradictions")
         add(signals["stale_path_count"] == 0, 0.03, "Control-path evidence is fresh.", "fresh_control_paths")
         add(signals["corroborated_path_count"] > 0, 0.04, "Control-path evidence is corroborated by multiple signals.", "corroborated_paths")
+        add(
+            not signals["graph_thin"]
+            and signals["graph_missing_required_edge_family_count"] == 0
+            and signals["graph_claim_coverage_pct"] >= 0.6,
+            0.06,
+            "Graph coverage is strong enough for the lane Helios is evaluating.",
+            "graph_lane_coverage",
+        )
         score -= 0.35 if signals["hard_stop"] else 0.0
         score -= 0.18 if signals["export_prohibited"] else 0.0
         score -= 0.12 if signals["foreign_control_risk"] else 0.0
@@ -319,6 +347,11 @@ def _compose_view(
         score -= 0.12 if signals["cyber_evidence_missing"] else 0.0
         score -= 0.1 if signals["export_evidence_missing"] else 0.0
         score -= 0.08 if signals["export_route_ambiguity"] else 0.0
+        score -= 0.12 if signals["graph_thin"] else 0.0
+        score -= min(signals["graph_missing_required_edge_family_count"], 2) * 0.07
+        score -= 0.06 if signals["graph_claim_coverage_pct"] < 0.5 and signals["control_path_count"] > 0 else 0.0
+        score -= 0.05 if signals["graph_legacy_unscoped_edge_count"] > 0 else 0.0
+        score -= 0.04 if signals["graph_public_only_edge_count"] > 0 and signals["graph_official_edge_count"] == 0 else 0.0
     elif stance == "watch":
         score = 0.2
         add(posture in {"review", "pending"}, 0.24, "Current posture already requires conditions or analyst review.", "review_posture")
@@ -355,6 +388,31 @@ def _compose_view(
         add(signals["cyber_evidence_missing"], 0.14, "Cyber-lane evidence is missing, so approval would overstate certainty.", "missing_cyber_evidence")
         add(signals["export_evidence_missing"], 0.12, "Export-lane evidence is missing, so approval would overstate certainty.", "missing_export_evidence")
         add(signals["export_route_ambiguity"], 0.1, "Export routing or end-user ambiguity still needs review.", "export_route_ambiguity")
+        add(signals["graph_thin"], 0.14, "The graph is still too thin to treat silence as comfort.", "graph_thin")
+        add(
+            signals["graph_missing_required_edge_family_count"] > 0,
+            0.14,
+            "Required graph edge families for this lane are still missing.",
+            "missing_graph_edge_families",
+        )
+        add(
+            signals["graph_claim_coverage_pct"] < 0.5 and signals["control_path_count"] > 0,
+            0.08,
+            "Graph edges are present but too many are not backed by scoped claim records.",
+            "graph_claim_coverage_thin",
+        )
+        add(
+            signals["graph_legacy_unscoped_edge_count"] > 0,
+            0.08,
+            "Legacy unscoped graph edges are still present and lower confidence.",
+            "legacy_graph_edges",
+        )
+        add(
+            signals["graph_stale_edge_count"] > 0,
+            0.06,
+            "Some graph evidence is stale enough to weaken approval confidence.",
+            "stale_graph_edges",
+        )
         score -= 0.32 if signals["foreign_control_risk"] and signals["cyber_gap"] and network_level in {"high", "critical"} else 0.0
         score -= 0.12 if signals["foreign_control_risk"] and signals["ownership_path_count"] > 0 and signals["intermediary_path_count"] > 0 else 0.0
         score -= 0.18 if signals["hard_stop"] else 0.0
@@ -375,6 +433,15 @@ def _compose_view(
             0.1,
             "Ownership and export signals compound into a higher-control concern.",
             "compound_export_control",
+        )
+        add(
+            signals["foreign_control_risk"]
+            and signals["export_review_required"]
+            and signals["cyber_gap"]
+            and network_level in {"high", "critical"},
+            0.16,
+            "Ownership, export, cyber, and network pressure align into a hostile-case deny posture.",
+            "compound_hostile_case",
         )
         add(
             network_level in {"high", "critical"} or network_score >= 2.5,
@@ -406,6 +473,12 @@ def _compose_view(
             0.08,
             "PEP-linked ownership uncertainty raises the chance of concealed control.",
             "pep_owned_uncertainty",
+        )
+        add(
+            signals["graph_thin"] and signals["graph_missing_required_edge_family_count"] > 0,
+            0.06,
+            "Graph thinness compounds the hostile-case interpretation because required edge families are missing.",
+            "graph_thin_compound",
         )
         score += 0.12 if signals["foreign_control_risk"] and signals["cyber_gap"] and network_level in {"high", "critical"} else 0.0
         score -= 0.16 if posture == "approved" else 0.0
@@ -454,6 +527,15 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
         "mitigated_foreign_interest": bool(signal_packet.get("mitigated_foreign_interest")),
         "official_coverage_thin": bool(signal_packet.get("official_coverage_thin")),
         "blocked_official_connectors": int(signal_packet.get("blocked_official_connectors") or 0),
+        "graph_thin": bool(signal_packet.get("graph_thin")),
+        "graph_missing_required_edge_family_count": int(signal_packet.get("graph_missing_required_edge_family_count") or 0),
+        "graph_claim_coverage_pct": float(signal_packet.get("graph_claim_coverage_pct") or 0.0),
+        "graph_evidence_coverage_pct": float(signal_packet.get("graph_evidence_coverage_pct") or 0.0),
+        "graph_contradicted_edge_count": int(signal_packet.get("graph_contradicted_edge_count") or 0),
+        "graph_stale_edge_count": int(signal_packet.get("graph_stale_edge_count") or 0),
+        "graph_legacy_unscoped_edge_count": int(signal_packet.get("graph_legacy_unscoped_edge_count") or 0),
+        "graph_official_edge_count": int(signal_packet.get("graph_official_edge_count") or 0),
+        "graph_public_only_edge_count": int(signal_packet.get("graph_public_only_edge_count") or 0),
         "ownership_resolution_pct": float(signal_packet.get("ownership_resolution_pct") or 0.0),
         "control_resolution_pct": float(signal_packet.get("control_resolution_pct") or 0.0),
         "named_owner_known": bool(signal_packet.get("named_owner_known")),
@@ -489,7 +571,7 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
     consensus = "strong" if gap >= 0.2 else "moderate" if gap >= 0.1 else "contested"
 
     return {
-        "version": "decision-tribunal-v2",
+        "version": "decision-tribunal-v3",
         "generated_at": _utc_now_iso(),
         "recommended_view": recommended["stance"],
         "recommended_label": recommended["label"],
@@ -516,6 +598,7 @@ def build_decision_tribunal(
     workflow_lane: str | None = None,
     ownership_profile: dict | None = None,
     ownership_summary: dict | None = None,
+    graph_intelligence: dict | None = None,
 ) -> dict[str, Any]:
     signals = _signal_packet(
         posture=posture,
@@ -532,5 +615,6 @@ def build_decision_tribunal(
         workflow_lane=workflow_lane,
         ownership_profile=ownership_profile,
         ownership_summary=ownership_summary,
+        graph_intelligence=graph_intelligence,
     )
     return build_decision_tribunal_from_signals(signals)

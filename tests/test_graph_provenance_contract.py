@@ -21,6 +21,14 @@ def _reload_kg():
     return sys.modules["knowledge_graph"]
 
 
+def _reload_graph_ingest():
+    if "graph_ingest" in sys.modules:
+        importlib.reload(sys.modules["graph_ingest"])
+    else:
+        importlib.import_module("graph_ingest")
+    return sys.modules["graph_ingest"]
+
+
 def _entity(entity_id: str, name: str, entity_type: str = "company") -> ResolvedEntity:
     return ResolvedEntity(
         id=entity_id,
@@ -224,3 +232,80 @@ def test_clear_vendor_graph_state_removes_stale_vendor_relationships(tmp_path, m
     assert claim_count == 0
     assert rel_count == 0
     assert vendor_link_count == 0
+
+
+def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
+    graph_ingest = _reload_graph_ingest()
+
+    summary = graph_ingest.build_graph_intelligence_summary(
+        {
+            "entity_count": 4,
+            "relationship_count": 3,
+            "relationships": [
+                {
+                    "source_entity_id": "entity:vendor",
+                    "target_entity_id": "entity:owner",
+                    "rel_type": "beneficially_owned_by",
+                    "confidence": 0.93,
+                    "corroboration_count": 2,
+                    "last_seen_at": "2026-03-28T12:00:00Z",
+                    "claim_records": [
+                        {
+                            "contradiction_state": "unreviewed",
+                            "structured_fields": {"authority_level": "official_registry"},
+                            "evidence_records": [
+                                {
+                                    "authority_level": "official_registry",
+                                    "url": "https://example.test/ownership",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "source_entity_id": "entity:vendor",
+                    "target_entity_id": "bank:1",
+                    "rel_type": "routes_payment_through",
+                    "confidence": 0.61,
+                    "corroboration_count": 1,
+                    "last_seen_at": "2024-01-01T12:00:00Z",
+                    "legacy_unscoped": True,
+                    "claim_records": [
+                        {
+                            "contradiction_state": "contradicted",
+                            "evidence_records": [
+                                {
+                                    "authority_level": "third_party_public",
+                                    "url": "https://example.test/route",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "source_entity_id": "entity:vendor",
+                    "target_entity_id": "msp:1",
+                    "rel_type": "depends_on_service",
+                    "confidence": 0.58,
+                    "corroboration_count": 1,
+                    "last_seen_at": "2026-03-20T12:00:00Z",
+                    "claim_records": [],
+                },
+            ],
+        },
+        workflow_lane="supplier_cyber_trust",
+    )
+
+    assert summary["thin_graph"] is False
+    assert summary["edge_family_counts"]["ownership_control"] == 1
+    assert summary["edge_family_counts"]["cyber_supply_chain"] == 1
+    assert summary["edge_family_counts"]["trade_and_logistics"] == 1
+    assert summary["required_edge_families"] == ["ownership_control", "cyber_supply_chain"]
+    assert summary["missing_required_edge_families"] == []
+    assert summary["official_or_modeled_edge_count"] == 1
+    assert summary["third_party_public_only_edge_count"] == 1
+    assert summary["legacy_unscoped_edge_count"] == 1
+    assert summary["contradicted_edge_count"] == 1
+    assert summary["stale_edge_count"] >= 1
+    assert summary["claim_coverage_pct"] == 0.6667
+    assert summary["evidence_coverage_pct"] == 0.6667

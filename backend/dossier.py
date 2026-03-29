@@ -526,6 +526,7 @@ def _generate_graph_provenance_section(graph_summary: Optional[dict]) -> str:
 
     relationships = graph_summary.get("relationships") or []
     entities = graph_summary.get("entities") or []
+    intelligence = graph_summary.get("intelligence") if isinstance(graph_summary.get("intelligence"), dict) else {}
     if not isinstance(relationships, list) or not relationships:
         return ""
 
@@ -559,11 +560,14 @@ def _generate_graph_provenance_section(graph_summary: Optional[dict]) -> str:
         reverse=True,
     )[:6]
 
+    claim_coverage = float(intelligence.get("claim_coverage_pct") or 0.0)
+    missing_families = intelligence.get("missing_required_edge_families") if isinstance(intelligence.get("missing_required_edge_families"), list) else []
+    edge_family_counts = intelligence.get("edge_family_counts") if isinstance(intelligence.get("edge_family_counts"), dict) else {}
     metric_cards = [
         ("Relationships", graph_summary.get("relationship_count") or len(relationships)),
         ("Corroborated", corroborated_count),
-        ("Connectors", len(source_counts)),
-        ("Control-path edges", control_path_count),
+        ("Edge families", len(edge_family_counts)),
+        ("Claim-backed", f"{round(claim_coverage * 100)}%"),
     ]
     metric_html = "".join(
         f"""
@@ -582,6 +586,46 @@ def _generate_graph_provenance_section(graph_summary: Optional[dict]) -> str:
             for source, count in top_sources
         )
         source_html = f'<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px;">{source_html}</div>'
+
+    graph_health_parts: list[str] = []
+    if intelligence:
+        if intelligence.get("workflow_lane"):
+            graph_health_parts.append(f"Lane: {str(intelligence.get('workflow_lane') or '').replace('_', ' ')}")
+        if intelligence.get("thin_graph"):
+            graph_health_parts.append("Graph is thin enough that silence should not be treated as comfort.")
+        if missing_families:
+            graph_health_parts.append(
+                "Missing lane edge families: "
+                + ", ".join(str(family).replace("_", " ") for family in missing_families)
+            )
+        if int(intelligence.get("legacy_unscoped_edge_count") or 0) > 0:
+            graph_health_parts.append(
+                f"{int(intelligence.get('legacy_unscoped_edge_count') or 0)} legacy unscoped edge(s) are still visible."
+            )
+        if int(intelligence.get("stale_edge_count") or 0) > 0:
+            graph_health_parts.append(
+                f"{int(intelligence.get('stale_edge_count') or 0)} stale edge(s) need refresh."
+            )
+        if int(intelligence.get("contradicted_edge_count") or 0) > 0:
+            graph_health_parts.append(
+                f"{int(intelligence.get('contradicted_edge_count') or 0)} contradicted edge(s) are present."
+            )
+    graph_health_html = (
+        f'<div style="margin-top:10px; font-size:12px; color:#475569; line-height:1.55;">{"<br/>".join(escape(part) for part in graph_health_parts)}</div>'
+        if graph_health_parts
+        else ""
+    )
+    family_html = ""
+    if edge_family_counts:
+        family_html = "".join(
+            f'<span style="display:inline-flex; padding:4px 8px; border-radius:999px; background:#f8fafc; color:#0f172a; border:1px solid #dbe4ee; font-size:11px; font-weight:700;">{escape(str(family).replace("_", " "))} · {count}</span>'
+            for family, count in sorted(edge_family_counts.items(), key=lambda item: (-int(item[1]), item[0]))[:6]
+        )
+        family_html = (
+            '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px;">'
+            + family_html
+            + '</div>'
+        )
 
     rows_html = ""
     for rel in highlighted_relationships:
@@ -628,6 +672,8 @@ def _generate_graph_provenance_section(graph_summary: Optional[dict]) -> str:
             {metric_html}
         </div>
         {source_html}
+        {family_html}
+        {graph_health_html}
         <div style=\"display:grid; gap:10px; margin-top: 14px;\">
             {rows_html}
         </div>

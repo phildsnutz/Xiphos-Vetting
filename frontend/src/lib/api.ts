@@ -449,6 +449,35 @@ export interface CyberEvidenceSummary extends ThreatIntelSummary {
   open_source_sources?: string[];
 }
 
+export interface SupplierPassportGraphIntelligence {
+  version?: string;
+  workflow_lane?: string | null;
+  thin_graph?: boolean;
+  thin_control_paths?: boolean;
+  dominant_edge_family?: string | null;
+  edge_family_counts?: Record<string, number>;
+  required_edge_families?: string[];
+  present_required_edge_families?: string[];
+  missing_required_edge_families?: string[];
+  claim_coverage_pct?: number;
+  evidence_coverage_pct?: number;
+  corroborated_edge_pct?: number;
+  official_or_modeled_edge_count?: number;
+  first_party_edge_count?: number;
+  third_party_public_only_edge_count?: number;
+  contradicted_edge_count?: number;
+  legacy_unscoped_edge_count?: number;
+  low_confidence_edge_count?: number;
+  control_path_count?: number;
+  intermediary_edge_count?: number;
+  recent_edge_count?: number;
+  stale_edge_count?: number;
+  observed_edge_count?: number;
+  avg_edge_age_days?: number | null;
+  freshest_observation_at?: string | null;
+  stalest_observation_at?: string | null;
+}
+
 export interface SupplierPassport {
   passport_version: string;
   generated_at: string;
@@ -506,6 +535,7 @@ export interface SupplierPassport {
     relationship_type_distribution: Record<string, number>;
     control_paths: SupplierPassportControlPath[];
     claim_health: SupplierPassportClaimHealth;
+    intelligence?: SupplierPassportGraphIntelligence;
   };
   network_risk?: Record<string, unknown> | null;
   monitoring: {

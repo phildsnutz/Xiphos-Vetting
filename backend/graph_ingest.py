@@ -25,7 +25,8 @@ import logging
 import re
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 
 from ownership_control_intelligence import looks_like_descriptor_owner
 
@@ -60,6 +61,51 @@ REL_OPERATES_FACILITY = "operates_facility"
 REL_SHIPS_VIA = "ships_via"
 REL_DEPENDS_ON_SERVICE = "depends_on_service"
 
+_OFFICIAL_AUTHORITY_LEVELS = {
+    "official_registry",
+    "official_program_system",
+    "official_regulatory",
+    "official_judicial_record",
+    "standards_modeled_fixture",
+    "analyst_curated_fixture",
+}
+
+_GRAPH_EDGE_FAMILIES: dict[str, tuple[str, ...]] = {
+    REL_OWNED_BY: ("ownership_control",),
+    REL_BENEFICIALLY_OWNED_BY: ("ownership_control",),
+    REL_PARENT: ("ownership_control",),
+    REL_SUBSIDIARY: ("ownership_control",),
+    REL_BACKED_BY: ("ownership_control", "intermediaries_and_services"),
+    REL_LED_BY: ("ownership_control",),
+    REL_OFFICER: ("ownership_control",),
+    REL_CONTRACTS_WITH: ("contracts_and_programs",),
+    REL_SUBCONTRACTOR: ("contracts_and_programs", "intermediaries_and_services"),
+    REL_PRIME_CONTRACTOR: ("contracts_and_programs", "intermediaries_and_services"),
+    REL_REGULATED_BY: ("official_and_regulatory",),
+    REL_FILED_WITH: ("official_and_regulatory",),
+    REL_SANCTIONED: ("sanctions_and_legal",),
+    REL_LITIGANT: ("sanctions_and_legal",),
+    REL_ALIAS: ("identity_and_alias",),
+    REL_FORMER_NAME: ("identity_and_alias",),
+    REL_MENTIONED_WITH: ("identity_and_alias",),
+    REL_RELATED: ("identity_and_alias",),
+    REL_SUPPLIES_COMPONENT_TO: ("cyber_supply_chain", "component_dependency"),
+    REL_SUPPLIES_COMPONENT: ("cyber_supply_chain", "component_dependency"),
+    REL_INTEGRATED_INTO: ("cyber_supply_chain", "component_dependency"),
+    REL_DEPENDS_ON_NETWORK: ("cyber_supply_chain", "intermediaries_and_services"),
+    REL_DEPENDS_ON_SERVICE: ("cyber_supply_chain", "intermediaries_and_services"),
+    REL_DISTRIBUTED_BY: ("trade_and_logistics", "intermediaries_and_services"),
+    REL_OPERATES_FACILITY: ("trade_and_logistics", "intermediaries_and_services"),
+    REL_SHIPS_VIA: ("trade_and_logistics", "intermediaries_and_services"),
+    REL_ROUTES_PAYMENT_THROUGH: ("trade_and_logistics", "finance_intermediary"),
+}
+
+_REQUIRED_EDGE_FAMILIES_BY_LANE: dict[str, tuple[str, ...]] = {
+    "defense_counterparty_trust": ("ownership_control",),
+    "supplier_cyber_trust": ("ownership_control", "cyber_supply_chain"),
+    "export_authorization": ("ownership_control", "trade_and_logistics"),
+}
+
 # ---------------------------------------------------------------------------
 # Relationship confidence scoring (Q3)
 # Higher = stronger evidence supporting the relationship's existence
@@ -72,6 +118,192 @@ CONFIDENCE = {
     "co_occurrence":    0.50,  # Co-occurrence in same enrichment report
     "news_mention":     0.40,  # Co-mentioned in news articles
 }
+
+
+def _parse_graph_timestamp(value: object) -> datetime | None:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    try:
+        return datetime.fromisoformat(candidate.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _relationship_edge_families(rel_type: str) -> tuple[str, ...]:
+    normalized = str(rel_type or "").strip().lower()
+    if normalized in _GRAPH_EDGE_FAMILIES:
+        return _GRAPH_EDGE_FAMILIES[normalized]
+    families: list[str] = []
+    if "own" in normalized or normalized.endswith("_parent") or normalized.endswith("_subsidiary"):
+        families.append("ownership_control")
+    if "ship" in normalized or "route" in normalized or "distribut" in normalized or "facility" in normalized:
+        families.append("trade_and_logistics")
+    if "depend" in normalized or "component" in normalized or "integrated" in normalized:
+        families.append("cyber_supply_chain")
+    if "regulat" in normalized or "filed" in normalized:
+        families.append("official_and_regulatory")
+    if "sanction" in normalized or "litig" in normalized:
+        families.append("sanctions_and_legal")
+    if "alias" in normalized or "former" in normalized or "mention" in normalized or "related" in normalized:
+        families.append("identity_and_alias")
+    return tuple(dict.fromkeys(families)) or ("other",)
+
+
+def _relationship_authority_bucket(rel: dict[str, Any]) -> str:
+    authority_levels: set[str] = set()
+    claim_records = rel.get("claim_records") or []
+    for claim_record in claim_records:
+        if not isinstance(claim_record, dict):
+            continue
+        structured = claim_record.get("structured_fields") if isinstance(claim_record.get("structured_fields"), dict) else {}
+        claim_authority = str(structured.get("authority_level") or "").strip().lower()
+        if claim_authority:
+            authority_levels.add(claim_authority)
+        for evidence_record in claim_record.get("evidence_records") or []:
+            if not isinstance(evidence_record, dict):
+                continue
+            authority = str(evidence_record.get("authority_level") or "").strip().lower()
+            if authority:
+                authority_levels.add(authority)
+
+    if any(level in _OFFICIAL_AUTHORITY_LEVELS for level in authority_levels):
+        return "official_or_modeled"
+    if "first_party_self_disclosed" in authority_levels:
+        return "first_party"
+    if authority_levels and authority_levels <= {"third_party_public", "public_registry_aggregator"}:
+        return "third_party_public_only"
+    return "unspecified"
+
+
+def build_graph_intelligence_summary(
+    graph_summary: dict[str, Any] | None,
+    *,
+    workflow_lane: str | None = None,
+) -> dict[str, Any]:
+    relationships = (
+        [rel for rel in (graph_summary or {}).get("relationships", []) if isinstance(rel, dict)]
+        if isinstance(graph_summary, dict)
+        else []
+    )
+    entity_count = int((graph_summary or {}).get("entity_count") or 0) if isinstance(graph_summary, dict) else 0
+    relationship_count = len(relationships)
+    edge_family_counts: dict[str, int] = {}
+    official_edge_count = 0
+    first_party_edge_count = 0
+    public_only_edge_count = 0
+    claim_backed_edges = 0
+    evidence_backed_edges = 0
+    contradicted_edges = 0
+    legacy_unscoped_edges = 0
+    low_confidence_edges = 0
+    corroborated_edges = 0
+    recent_edges = 0
+    stale_edges = 0
+    observed_edges = 0
+    freshest_observation: datetime | None = None
+    stalest_observation: datetime | None = None
+    cumulative_age_days = 0.0
+    control_path_count = 0
+    intermediary_edge_count = 0
+
+    for rel in relationships:
+        rel_type = str(rel.get("rel_type") or "").strip().lower()
+        families = _relationship_edge_families(rel_type)
+        for family in families:
+            edge_family_counts[family] = edge_family_counts.get(family, 0) + 1
+        if "ownership_control" in families:
+            control_path_count += 1
+        if "intermediaries_and_services" in families or "trade_and_logistics" in families or "finance_intermediary" in families:
+            intermediary_edge_count += 1
+
+        claim_records = [row for row in (rel.get("claim_records") or []) if isinstance(row, dict)]
+        if claim_records:
+            claim_backed_edges += 1
+        if any((row.get("evidence_records") or []) for row in claim_records):
+            evidence_backed_edges += 1
+        if any(str(row.get("contradiction_state") or "").strip().lower() in {"contradicted", "disputed", "challenged"} for row in claim_records):
+            contradicted_edges += 1
+        if bool(rel.get("legacy_unscoped")):
+            legacy_unscoped_edges += 1
+        if float(rel.get("confidence") or 0.0) < 0.65:
+            low_confidence_edges += 1
+        if int(rel.get("corroboration_count") or 0) > 1:
+            corroborated_edges += 1
+
+        authority_bucket = _relationship_authority_bucket(rel)
+        if authority_bucket == "official_or_modeled":
+            official_edge_count += 1
+        elif authority_bucket == "first_party":
+            first_party_edge_count += 1
+        elif authority_bucket == "third_party_public_only":
+            public_only_edge_count += 1
+
+        edge_timestamp = _parse_graph_timestamp(rel.get("last_seen_at") or rel.get("created_at"))
+        if edge_timestamp is None:
+            for claim_record in claim_records:
+                edge_timestamp = _parse_graph_timestamp(
+                    claim_record.get("last_observed_at")
+                    or claim_record.get("observed_at")
+                    or claim_record.get("updated_at")
+                )
+                if edge_timestamp is not None:
+                    break
+        if edge_timestamp is None:
+            continue
+        observed_edges += 1
+        if freshest_observation is None or edge_timestamp > freshest_observation:
+            freshest_observation = edge_timestamp
+        if stalest_observation is None or edge_timestamp < stalest_observation:
+            stalest_observation = edge_timestamp
+        age_days = max((datetime.now(timezone.utc) - edge_timestamp).total_seconds() / 86400.0, 0.0)
+        cumulative_age_days += age_days
+        if age_days <= 90:
+            recent_edges += 1
+        if age_days >= 365:
+            stale_edges += 1
+
+    required_edge_families = list(_REQUIRED_EDGE_FAMILIES_BY_LANE.get(str(workflow_lane or "").strip().lower(), ()))
+    present_required_edge_families = [
+        family for family in required_edge_families if edge_family_counts.get(family, 0) > 0
+    ]
+    missing_required_edge_families = [
+        family for family in required_edge_families if edge_family_counts.get(family, 0) <= 0
+    ]
+    dominant_edge_family = max(edge_family_counts.items(), key=lambda item: (item[1], item[0]))[0] if edge_family_counts else None
+    claim_coverage_pct = round(claim_backed_edges / relationship_count, 4) if relationship_count else 0.0
+    evidence_coverage_pct = round(evidence_backed_edges / relationship_count, 4) if relationship_count else 0.0
+    corroboration_pct = round(corroborated_edges / relationship_count, 4) if relationship_count else 0.0
+    avg_edge_age_days = round(cumulative_age_days / observed_edges, 1) if observed_edges else None
+
+    return {
+        "version": "graph-intelligence-v1",
+        "workflow_lane": str(workflow_lane or "").strip().lower() or None,
+        "thin_graph": entity_count <= 1 or relationship_count == 0,
+        "thin_control_paths": control_path_count == 0,
+        "dominant_edge_family": dominant_edge_family,
+        "edge_family_counts": dict(sorted(edge_family_counts.items())),
+        "required_edge_families": required_edge_families,
+        "present_required_edge_families": present_required_edge_families,
+        "missing_required_edge_families": missing_required_edge_families,
+        "claim_coverage_pct": claim_coverage_pct,
+        "evidence_coverage_pct": evidence_coverage_pct,
+        "corroborated_edge_pct": corroboration_pct,
+        "official_or_modeled_edge_count": official_edge_count,
+        "first_party_edge_count": first_party_edge_count,
+        "third_party_public_only_edge_count": public_only_edge_count,
+        "contradicted_edge_count": contradicted_edges,
+        "legacy_unscoped_edge_count": legacy_unscoped_edges,
+        "low_confidence_edge_count": low_confidence_edges,
+        "control_path_count": control_path_count,
+        "intermediary_edge_count": intermediary_edge_count,
+        "recent_edge_count": recent_edges,
+        "stale_edge_count": stale_edges,
+        "observed_edge_count": observed_edges,
+        "avg_edge_age_days": avg_edge_age_days,
+        "freshest_observation_at": freshest_observation.isoformat().replace("+00:00", "Z") if freshest_observation else None,
+        "stalest_observation_at": stalest_observation.isoformat().replace("+00:00", "Z") if stalest_observation else None,
+    }
 
 
 def _safe_import_kg():
@@ -1254,7 +1486,7 @@ def get_vendor_graph_summary(
 
         if not entities:
             root_entity = _vendor_root_fallback(vendor_id)
-            return {
+            summary = {
                 "vendor_id": vendor_id,
                 "graph_depth": depth,
                 "root_entity_id": root_entity["id"] if root_entity else None,
@@ -1264,6 +1496,8 @@ def get_vendor_graph_summary(
                 "entities": [root_entity] if root_entity else [],
                 "relationships": [],
             }
+            summary["intelligence"] = build_graph_intelligence_summary(summary)
+            return summary
 
         # Get the full network for each entity
         all_entities = {}
@@ -1324,7 +1558,7 @@ def get_vendor_graph_summary(
             t = r.get("rel_type", "unknown")
             rel_dist[t] = rel_dist.get(t, 0) + 1
 
-        return {
+        summary = {
             "vendor_id": vendor_id,
             "root_entity_id": root_entity_id,
             "root_entity_ids": [entity.id for entity in entities],
@@ -1336,6 +1570,8 @@ def get_vendor_graph_summary(
             "entities": list(all_entities.values()),
             "relationships": unique_rels,
         }
+        summary["intelligence"] = build_graph_intelligence_summary(summary)
+        return summary
 
     except Exception as e:
         logger.warning("Graph summary failed for vendor %s: %s", vendor_id, e)

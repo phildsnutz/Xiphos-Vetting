@@ -43,9 +43,10 @@ except ImportError:
     HAS_FOCI_SUMMARY = False
 
 try:
-    from graph_ingest import get_vendor_graph_summary
+    from graph_ingest import build_graph_intelligence_summary, get_vendor_graph_summary
     HAS_GRAPH_SUMMARY = True
 except ImportError:
+    build_graph_intelligence_summary = None
     get_vendor_graph_summary = None
     HAS_GRAPH_SUMMARY = False
 
@@ -1012,6 +1013,7 @@ def build_supplier_passport(
         if export_summary is not None
         else get_export_evidence_summary(case_id, export_input) if callable(get_export_evidence_summary) and export_input else None
     )
+    workflow_lane = _workflow_lane(vendor, cyber_summary=cyber_summary, export_summary=export_summary)
     oci_adjudicator_key = get_oci_adjudicator_cache_key()
 
     cache_key = _supplier_passport_cache_key(
@@ -1093,8 +1095,12 @@ def build_supplier_passport(
         "enriched_at": (enrichment or {}).get("enriched_at"),
     }
 
-    workflow_lane = _workflow_lane(vendor, cyber_summary=cyber_summary, export_summary=export_summary)
     posture = _passport_posture(score, latest_decision=latest_decision)
+    graph_intelligence = (
+        build_graph_intelligence_summary(graph_summary, workflow_lane=workflow_lane)
+        if callable(build_graph_intelligence_summary)
+        else ((graph_summary or {}).get("intelligence") if isinstance(graph_summary, dict) else None)
+    )
     passport = {
         "passport_version": "supplier-passport-v1",
         "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -1138,6 +1144,7 @@ def build_supplier_passport(
             "relationship_type_distribution": (graph_summary or {}).get("relationship_type_distribution", {}),
             "control_paths": control_paths,
             "claim_health": claim_health,
+            "intelligence": graph_intelligence or {},
         },
         "network_risk": network_risk,
         "monitoring": _monitoring_summary(case_id),
@@ -1157,6 +1164,7 @@ def build_supplier_passport(
             workflow_lane=workflow_lane,
             ownership_profile=ownership_profile,
             ownership_summary=ownership_oci_summary,
+            graph_intelligence=graph_intelligence,
         ) if mode_settings["include_tribunal"] else {
             "recommended_view": None,
             "recommended_label": "Skipped",

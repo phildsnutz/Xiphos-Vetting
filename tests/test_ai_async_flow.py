@@ -511,6 +511,18 @@ def test_dossier_includes_graph_provenance_section(client, monkeypatch):
                     "last_seen_at": "2026-03-26T08:45:00Z",
                 },
             ],
+            "intelligence": {
+                "workflow_lane": "export_authorization",
+                "edge_family_counts": {
+                    "ownership_control": 1,
+                    "trade_and_logistics": 1,
+                },
+                "claim_coverage_pct": 1.0,
+                "missing_required_edge_families": [],
+                "legacy_unscoped_edge_count": 0,
+                "stale_edge_count": 0,
+                "contradicted_edge_count": 0,
+            },
         },
         raising=False,
     )
@@ -521,7 +533,9 @@ def test_dossier_includes_graph_provenance_section(client, monkeypatch):
     assert "Frontier Holdings" in html
     assert "Alpha Trade Bank" in html
     assert "Corporate Registry (OpenCorporates)" in html
-    assert "Control-path edges" in html
+    assert "Edge families" in html
+    assert "Claim-backed" in html
+    assert "trade and logistics" in html
 
 
 def test_dossier_includes_supplier_passport_section(client, monkeypatch):

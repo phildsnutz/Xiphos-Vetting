@@ -420,7 +420,13 @@ def test_supplier_passport_builder_combines_case_graph_and_control_paths(client,
     assert passport["graph"]["control_paths"][0]["evidence_refs"][0]["url"] == "https://example.test/ownership"
     assert len(passport["graph"]["control_paths"]) == 1
     assert passport["graph"]["claim_health"]["corroborated_paths"] == 1
+    assert passport["graph"]["intelligence"]["workflow_lane"] == "export_authorization"
+    assert passport["graph"]["intelligence"]["edge_family_counts"]["ownership_control"] == 2
+    assert passport["graph"]["intelligence"]["edge_family_counts"]["contracts_and_programs"] == 1
+    assert passport["graph"]["intelligence"]["missing_required_edge_families"] == ["trade_and_logistics"]
+    assert passport["graph"]["intelligence"]["claim_coverage_pct"] == pytest.approx(1 / 3, rel=1e-3)
     assert passport["tribunal"]["recommended_view"] == "watch"
+    assert passport["tribunal"]["signal_snapshot"]["graph_missing_required_edge_family_count"] == 1
     assert passport["tribunal"]["views"][0]["stance"] == "watch"
     assert passport["network_risk"]["level"] == "medium"
 

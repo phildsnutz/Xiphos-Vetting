@@ -128,3 +128,41 @@ def test_decision_tribunal_prefers_watch_for_shell_layered_counterparty():
     watch_view = next(view for view in tribunal["views"] if view["stance"] == "watch")
     assert "layered_shells" in watch_view["signal_keys"]
     assert "pep_connection" in watch_view["signal_keys"]
+
+
+def test_decision_tribunal_prefers_watch_when_graph_is_thin_for_lane():
+    tribunal = build_decision_tribunal_from_signals(
+        {
+            "posture": "approved",
+            "latest_decision": "",
+            "workflow_lane": "supplier_cyber_trust",
+            "connector_coverage": 4,
+            "identifier_count": 2,
+            "control_path_count": 0,
+            "ownership_path_count": 0,
+            "intermediary_path_count": 0,
+            "contradicted_path_count": 0,
+            "stale_path_count": 0,
+            "corroborated_path_count": 0,
+            "network_score": 0.1,
+            "network_level": "low",
+            "official_coverage_thin": False,
+            "ownership_resolution_pct": 0.4,
+            "control_resolution_pct": 0.0,
+            "named_owner_known": False,
+            "descriptor_only": False,
+            "ownership_evidence_thin": True,
+            "control_evidence_thin": True,
+            "shell_layers": 1,
+            "pep_connection": False,
+            "graph_thin": True,
+            "graph_missing_required_edge_family_count": 1,
+            "graph_claim_coverage_pct": 0.0,
+            "graph_evidence_coverage_pct": 0.0,
+        }
+    )
+
+    assert tribunal["recommended_view"] == "watch"
+    watch_view = next(view for view in tribunal["views"] if view["stance"] == "watch")
+    assert "graph_thin" in watch_view["signal_keys"]
+    assert "missing_graph_edge_families" in watch_view["signal_keys"]
