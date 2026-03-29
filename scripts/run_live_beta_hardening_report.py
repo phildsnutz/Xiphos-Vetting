@@ -399,7 +399,13 @@ def run_query_to_dossier(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
-def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_dir: Path, stamp: str) -> dict[str, Any]:
+def run_prime_time(
+    args: argparse.Namespace,
+    readiness: dict[str, Any],
+    query_to_dossier: dict[str, Any],
+    report_dir: Path,
+    stamp: str,
+) -> dict[str, Any]:
     if args.skip_prime_time:
         return {
             "prime_time_verdict": "SKIPPED",
@@ -409,6 +415,9 @@ def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_d
     readiness_json = readiness.get("report_json")
     if not readiness_json:
         raise RuntimeError("prime-time evaluation requires readiness report_json")
+    query_to_dossier_json = query_to_dossier.get("report_json")
+    if not query_to_dossier_json:
+        raise RuntimeError("prime-time evaluation requires query-to-dossier report_json")
     output_json = report_dir / f"helios-live-prime-time-{stamp}.json"
     output_md = report_dir / f"helios-live-prime-time-{stamp}.md"
     command = [
@@ -416,6 +425,8 @@ def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_d
         str(ROOT / "scripts" / "evaluate_prime_time_readiness.py"),
         "--readiness-summary",
         str(readiness_json),
+        "--query-to-dossier-summary",
+        str(query_to_dossier_json),
         "--output-json",
         str(output_json),
         "--output-md",
@@ -483,7 +494,7 @@ def main() -> int:
         "readiness": run_readiness(args),
         "cases": results,
     }
-    summary["prime_time"] = run_prime_time(args, summary["readiness"], report_dir, stamp)
+    summary["prime_time"] = run_prime_time(args, summary["readiness"], summary["query_to_dossier"], report_dir, stamp)
     summary["overall_verdict"] = _overall_verdict(summary)
 
     json_path = report_dir / f"helios-live-beta-hardening-report-{stamp}.json"

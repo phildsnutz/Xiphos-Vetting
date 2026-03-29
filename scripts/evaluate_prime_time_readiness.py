@@ -15,6 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_READINESS_DIR = ROOT / "docs" / "reports" / "helios_readiness"
 DEFAULT_GATE_DIR = ROOT / "docs" / "reports" / "customer_demo_gate"
+DEFAULT_QUERY_TO_DOSSIER_DIR = ROOT / "docs" / "reports" / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"
 DEFAULT_ACCEPTANCE_SET = ROOT / "fixtures" / "customer_demo" / "counterparty_acceptance_set.json"
 DEFAULT_STABLE_CANARY_PACK = ROOT / "fixtures" / "customer_demo" / "counterparty_canary_pack.json"
 DEFAULT_CRITERIA = ROOT / "fixtures" / "customer_demo" / "prime_time_exit_criteria.json"
@@ -31,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--criteria", default=str(DEFAULT_CRITERIA))
     parser.add_argument("--readiness-summary", default="")
     parser.add_argument("--readiness-dir", default=str(DEFAULT_READINESS_DIR))
+    parser.add_argument("--query-to-dossier-summary", default="")
+    parser.add_argument("--query-to-dossier-dir", default=str(DEFAULT_QUERY_TO_DOSSIER_DIR))
     parser.add_argument("--acceptance-set", default=str(DEFAULT_ACCEPTANCE_SET))
     parser.add_argument("--stable-canary-pack", default=str(DEFAULT_STABLE_CANARY_PACK))
     parser.add_argument("--customer-demo-gate-dir", default=str(DEFAULT_GATE_DIR))
@@ -43,6 +46,11 @@ def parse_args() -> argparse.Namespace:
 def _latest_summary_json(base_dir: Path, *, prefix: str | None = None) -> Path | None:
     pattern = "summary.json" if prefix is None else f"{prefix}-*/summary.json"
     candidates = sorted(base_dir.glob(pattern))
+    return candidates[-1] if candidates else None
+
+
+def _latest_nested_summary_json(base_dir: Path) -> Path | None:
+    candidates = sorted(base_dir.glob("*/summary.json"))
     return candidates[-1] if candidates else None
 
 
@@ -69,6 +77,14 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     if readiness_path is None:
         raise SystemExit("no readiness summary found")
     readiness = _read_json(readiness_path)
+    query_to_dossier_path = (
+        Path(args.query_to_dossier_summary)
+        if args.query_to_dossier_summary
+        else _latest_nested_summary_json(Path(args.query_to_dossier_dir))
+    )
+    if query_to_dossier_path is None:
+        raise SystemExit("no query-to-dossier summary found")
+    query_to_dossier = _read_json(query_to_dossier_path)
 
     acceptance_set = json.loads(Path(args.acceptance_set).read_text(encoding="utf-8"))
     stable_pack = json.loads(Path(args.stable_canary_pack).read_text(encoding="utf-8"))
@@ -130,6 +146,18 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         )
     )
 
+    required_gauntlet_verdict = str(criteria.get("required_query_to_dossier_verdict") or "PASS")
+    gauntlet_actual = str(query_to_dossier.get("overall_verdict") or "UNKNOWN")
+    checks.append(
+        _criterion(
+            "query_to_dossier",
+            gauntlet_actual == required_gauntlet_verdict,
+            f"query-to-dossier gauntlet is {gauntlet_actual}",
+            actual=gauntlet_actual,
+            expected=required_gauntlet_verdict,
+        )
+    )
+
     max_counterparty_seconds = float(criteria.get("max_counterparty_readiness_seconds") or 0.0)
     counterparty_elapsed = (
         float(counterparty_step.get("elapsed_seconds") or 0.0)
@@ -180,6 +208,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "prime_time_verdict": overall,
         "criteria_path": str(Path(args.criteria)),
         "readiness_summary": str(readiness_path),
+        "query_to_dossier_summary": str(query_to_dossier_path),
         "checks": checks,
         "flagships": flagship_results,
     }
@@ -193,6 +222,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Generated: {summary['generated_at']}",
         f"- Criteria: {summary['criteria_path']}",
         f"- Readiness summary: {summary['readiness_summary']}",
+        f"- Query-to-dossier summary: {summary['query_to_dossier_summary']}",
         "",
         "## Checks",
         "",

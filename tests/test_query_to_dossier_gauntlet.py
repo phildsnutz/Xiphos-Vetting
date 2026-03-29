@@ -31,9 +31,15 @@ def test_fixture_flow_passes_end_to_end():
         "assistant_plan",
         "assistant_execute",
         "dossier_html",
+        "browser_dossier_access",
         "dossier_pdf",
     ]
     assert all(step["status"] == "PASS" for step in result["steps"])
+    browser_step = next(step for step in result["steps"] if step["step"] == "browser_dossier_access")
+    assert browser_step["details"]["permission"] == "cases:dossier"
+    assert browser_step["details"]["reopen_html_bytes"] > 0
+    pdf_step = next(step for step in result["steps"] if step["step"] == "dossier_pdf")
+    assert pdf_step["details"]["content_disposition"].startswith("attachment; filename=dossier-")
 
 
 def test_render_markdown_includes_flow_table():

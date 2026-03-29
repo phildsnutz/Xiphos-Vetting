@@ -99,6 +99,25 @@ class BaseClient:
     def request_bytes(self, method: str, path: str, payload: bytes | None = None, headers: dict[str, str] | None = None, timeout: int = 60) -> tuple[int, dict[str, str], bytes]:
         raise NotImplementedError
 
+    def request_json_unauthenticated(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 60,
+    ) -> tuple[int, dict[str, str], Any]:
+        raise NotImplementedError
+
+    def request_bytes_unauthenticated(
+        self,
+        method: str,
+        path: str,
+        payload: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 60,
+    ) -> tuple[int, dict[str, str], bytes]:
+        raise NotImplementedError
+
 
 class HttpGauntletClient(BaseClient):
     def __init__(self, base_url: str, headers: dict[str, str] | None = None):
@@ -131,6 +150,40 @@ class HttpGauntletClient(BaseClient):
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, dict(resp.headers), resp.read()
 
+    def request_json_unauthenticated(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 60,
+    ) -> tuple[int, dict[str, str], Any]:
+        data = None
+        headers: dict[str, str] = {}
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read()
+            return resp.status, dict(resp.headers), json.loads(body.decode("utf-8")) if body else None
+
+    def request_bytes_unauthenticated(
+        self,
+        method: str,
+        path: str,
+        payload: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 60,
+    ) -> tuple[int, dict[str, str], bytes]:
+        req = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=payload,
+            headers=headers or {},
+            method=method,
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, dict(resp.headers), resp.read()
+
 
 class FlaskGauntletClient(BaseClient):
     def __init__(self, client, headers: dict[str, str] | None = None):
@@ -153,6 +206,27 @@ class FlaskGauntletClient(BaseClient):
         if headers:
             req_headers.update(headers)
         response = self.client.open(path, method=method, data=payload, headers=req_headers)
+        return response.status_code, dict(response.headers), response.get_data()
+
+    def request_json_unauthenticated(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 60,
+    ) -> tuple[int, dict[str, str], Any]:
+        response = self.client.open(path, method=method, json=payload)
+        return response.status_code, dict(response.headers), response.get_json(silent=True)
+
+    def request_bytes_unauthenticated(
+        self,
+        method: str,
+        path: str,
+        payload: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 60,
+    ) -> tuple[int, dict[str, str], bytes]:
+        response = self.client.open(path, method=method, data=payload, headers=headers or {})
         return response.status_code, dict(response.headers), response.get_data()
 
 
@@ -333,6 +407,7 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
     )
     _run_step(results, "assistant_execute", lambda: _step_assistant_execute(client, case_id, plan))
     dossier_html = _run_step(results, "dossier_html", lambda: _step_dossier_html(client, case_id))
+    _run_step(results, "browser_dossier_access", lambda: _step_browser_dossier_access(client, dossier_html["download_url"]))
     _run_step(results, "dossier_pdf", lambda: _step_dossier_pdf(client, case_id))
 
     total_ms = sum(item.duration_ms for item in results)
@@ -480,6 +555,48 @@ def _step_dossier_html(client: BaseClient, case_id: str) -> dict[str, Any]:
     return {"download_url": download_url, "html_bytes": len(html_bytes)}
 
 
+def _step_browser_dossier_access(client: BaseClient, download_url: str) -> dict[str, Any]:
+    status, _, ticket_body = client.request_json(
+        "POST",
+        "/api/auth/access-ticket",
+        payload={"path": download_url},
+        timeout=30,
+    )
+    _assert(status == 200 and isinstance(ticket_body, dict), f"/api/auth/access-ticket returned {status}")
+    access_ticket = str(ticket_body.get("access_ticket") or "")
+    _assert(access_ticket, "browser access ticket missing")
+    _assert(ticket_body.get("path") == download_url, "browser access ticket path mismatch")
+
+    separator = "&" if "?" in download_url else "?"
+    protected_path = f"{download_url}{separator}access_ticket={access_ticket}"
+    html_status, html_headers, html_bytes = client.request_bytes_unauthenticated("GET", protected_path, timeout=90)
+    html_text = html_bytes.decode("utf-8", errors="replace")
+    _assert(html_status == 200, f"browser dossier access returned {html_status}")
+    _assert(
+        "text/html" in _normalize_headers(html_headers).get("Content-Type", ""),
+        "browser dossier access did not return html",
+    )
+    for marker in HTML_MARKERS:
+        _assert(marker.lower() in html_text.lower(), f"browser dossier html missing marker: {marker}")
+
+    reopen_status, reopen_headers, reopen_bytes = client.request_bytes_unauthenticated("GET", protected_path, timeout=90)
+    reopen_text = reopen_bytes.decode("utf-8", errors="replace")
+    _assert(reopen_status == 200, f"browser dossier reopen returned {reopen_status}")
+    _assert(
+        "text/html" in _normalize_headers(reopen_headers).get("Content-Type", ""),
+        "browser dossier reopen did not return html",
+    )
+    for marker in HTML_MARKERS:
+        _assert(marker.lower() in reopen_text.lower(), f"browser dossier reopen missing marker: {marker}")
+
+    return {
+        "permission": ticket_body.get("permission"),
+        "expires_in": int(ticket_body.get("expires_in") or 0),
+        "html_bytes": len(html_bytes),
+        "reopen_html_bytes": len(reopen_bytes),
+    }
+
+
 def _step_dossier_pdf(client: BaseClient, case_id: str) -> dict[str, Any]:
     status, headers, pdf_bytes = client.request_bytes(
         "POST",
@@ -491,8 +608,16 @@ def _step_dossier_pdf(client: BaseClient, case_id: str) -> dict[str, Any]:
     normalized_headers = _normalize_headers(headers)
     _assert(status == 200, f"/api/cases/{case_id}/dossier-pdf returned {status}")
     _assert(normalized_headers.get("Content-Type", "").startswith("application/pdf"), "dossier pdf did not return application/pdf")
+    _assert(
+        normalized_headers.get("Content-Disposition", "").startswith("attachment; filename=dossier-"),
+        "dossier pdf missing download filename",
+    )
     _assert(len(pdf_bytes) > 0, "dossier pdf was empty")
-    return {"pdf_bytes": len(pdf_bytes)}
+    _assert(pdf_bytes.startswith(b"%PDF-"), "dossier pdf bytes missing pdf header")
+    return {
+        "pdf_bytes": len(pdf_bytes),
+        "content_disposition": normalized_headers.get("Content-Disposition", ""),
+    }
 
 
 def render_markdown(summary: dict[str, Any]) -> str:

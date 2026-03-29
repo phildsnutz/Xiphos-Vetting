@@ -170,9 +170,11 @@ def test_run_prime_time_parses_subprocess_payload(monkeypatch, tmp_path):
 
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: FakeProc())
     readiness = {"report_json": str(tmp_path / "readiness.json")}
+    query_to_dossier = {"report_json": str(tmp_path / "query-to-dossier.json")}
     payload = module.run_prime_time(
         module.argparse.Namespace(skip_prime_time=False),
         readiness,
+        query_to_dossier,
         tmp_path,
         "20260329-010101",
     )
