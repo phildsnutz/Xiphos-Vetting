@@ -1,0 +1,123 @@
+[
+  {
+    "flow_name": "briefing_yorktown_descriptor_only",
+    "enabled_modes": ["local-auth"],
+    "preserve_case_name": true,
+    "run_enrich_and_score": true,
+    "expected_workflow_lane": "counterparty",
+    "compare_payload": {
+      "name": "Yorktown Systems Group",
+      "country": "US"
+    },
+    "case_payload": {
+      "name": "Yorktown Systems Group",
+      "country": "US",
+      "profile": "defense_acquisition",
+      "program": "dod_unclassified"
+    },
+    "expected_oci": {
+      "named_beneficial_owner_known": false,
+      "owner_class_known": true,
+      "owner_class": "Service-Disabled Veteran",
+      "descriptor_only": true,
+      "ownership_gap": "descriptor_only_owner_class",
+      "min_ownership_resolution_pct": 0.5,
+      "min_control_resolution_pct": 0.3,
+      "require_owner_class_evidence": true
+    },
+    "expected_dossier_fragments": [
+      "Descriptor-only ownership evidence. No named beneficial owner resolved.",
+      "Owner class: Service-Disabled Veteran.",
+      "Descriptor-only evidence was captured without inventing a named owner.",
+      "Owner-class evidence"
+    ]
+  },
+  {
+    "flow_name": "briefing_hidden_owner_counterparty",
+    "enabled_modes": ["fixture", "local-auth"],
+    "preserve_case_name": true,
+    "expected_workflow_lane": "counterparty",
+    "case_payload": {
+      "name": "Harbor Beacon Holdings",
+      "country": "US",
+      "profile": "defense_acquisition",
+      "program": "dod_unclassified",
+      "ownership": {
+        "publicly_traded": false,
+        "state_owned": false,
+        "beneficial_owner_known": false,
+        "named_beneficial_owner_known": false,
+        "ownership_pct_resolved": 0.25,
+        "shell_layers": 3,
+        "pep_connection": true
+      },
+      "data_quality": {
+        "has_lei": false,
+        "has_cage": true,
+        "has_duns": true,
+        "has_tax_id": true,
+        "has_audited_financials": false,
+        "years_of_records": 2
+      },
+      "exec": {
+        "known_execs": 1,
+        "adverse_media": 1,
+        "pep_execs": 1,
+        "litigation_history": 1
+      }
+    },
+    "expected_dossier_fragments": [
+      "Defense counterparty trust",
+      "Ownership / control intelligence",
+      "Ownership resolved",
+      "25%"
+    ]
+  },
+  {
+    "flow_name": "briefing_cyber_supply_chain_review",
+    "enabled_modes": ["fixture", "local-auth"],
+    "preserve_case_name": true,
+    "expected_workflow_lane": "cyber",
+    "case_payload": {
+      "name": "Vector Mission Software",
+      "country": "US",
+      "profile": "supplier_cyber_trust",
+      "program": "dod_unclassified",
+      "seed_metadata": {
+        "product_terms": ["mission firmware", "remote update service", "telemetry gateway"]
+      }
+    },
+    "expected_dossier_fragments": [
+      "Supply chain assurance",
+      "SPRS / CMMC",
+      "Readiness posture",
+      "Attach SPRS exports, OSCAL artifacts, SBOM or VEX evidence"
+    ]
+  },
+  {
+    "flow_name": "briefing_export_transshipment_review",
+    "enabled_modes": ["fixture", "local-auth"],
+    "preserve_case_name": true,
+    "expected_workflow_lane": "export",
+    "case_payload": {
+      "name": "Northern Channel Partners",
+      "country": "CA",
+      "profile": "trade_compliance",
+      "program": "regulated_commercial",
+      "export_authorization": {
+        "request_type": "item_transfer",
+        "destination_country": "AE",
+        "destination_company": "Desert Trade Hub",
+        "classification_guess": "EAR99",
+        "item_or_data_summary": "Commercial edge compute gateway",
+        "end_use_summary": "Regional distributor support with onward delivery not yet resolved"
+      }
+    },
+    "expected_dossier_fragments": [
+      "Export authorization",
+      "Export Evidence Summary",
+      "Item transfer",
+      "EAR99"
+    ]
+  }
+]

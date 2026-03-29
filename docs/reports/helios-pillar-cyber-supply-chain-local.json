@@ -1,0 +1,665 @@
+{
+  "scenario_count": 3,
+  "passed_count": 3,
+  "failed_count": 0,
+  "pass_rate": 1.0,
+  "deterministic_baseline_accuracy": 0.3333,
+  "hybrid_posture_accuracy": 1.0,
+  "disagreement_accuracy": 1.0,
+  "hybrid_outperformed_count": 2,
+  "no_regression_count": 3,
+  "overall_score": 0.9733,
+  "posture_distribution": {
+    "blocked": 1,
+    "review": 2
+  },
+  "results": [
+    {
+      "scenario_id": "kev_active_mission_firmware_path",
+      "title": "KEV-rich product in a sensitive environment",
+      "description": "Active exploitation on a mission firmware path should push the hybrid layer into a blocked posture.",
+      "passed": true,
+      "score": 1.0,
+      "minimum_score": 0.88,
+      "deterministic_posture": "review",
+      "expected_deterministic_posture": "review",
+      "deterministic_ok": true,
+      "deterministic_tier": "HIGH",
+      "hybrid_posture": "blocked",
+      "expected_hybrid_posture": "blocked",
+      "expected_ai_disagreement": true,
+      "actual_ai_disagreement": true,
+      "disagreement_ok": true,
+      "ambiguity_hits": [
+        "mission_critical_dependency",
+        "firmware_or_ot_exposure"
+      ],
+      "ambiguity_misses": [],
+      "missing_fact_hits": [
+        "firmware_update_path"
+      ],
+      "missing_fact_misses": [],
+      "explanation_hits": [
+        "mission critical dependency",
+        "before clearance"
+      ],
+      "explanation_misses": [],
+      "safe_behavior": "elevate",
+      "safe_behavior_ok": true,
+      "deterministic_result": {
+        "case_id": "kev_active_mission_firmware_path",
+        "vendor_name": "Vector Mission Software",
+        "cyber_risk_score": 0.6,
+        "cyber_risk_tier": "HIGH",
+        "dimensions": {
+          "cmmc_readiness": {
+            "score": 0.25000000000000006,
+            "weight": 0.25,
+            "factors": [
+              {
+                "factor": "cmmc_level_2",
+                "impact": -0.09999999999999998,
+                "detail": "Current CMMC level: 2"
+              },
+              {
+                "factor": "recent_assessment",
+                "impact": -0.1,
+                "detail": "Assessment status indicates recent evaluation"
+              },
+              {
+                "factor": "poam_active",
+                "impact": 0.05,
+                "detail": "Plan of Action and Milestones is active (remediation in progress)"
+              }
+            ],
+            "confidence": 0.85
+          },
+          "vulnerability_exposure": {
+            "score": 0.7,
+            "weight": 0.3,
+            "factors": [
+              {
+                "factor": "critical_cves_1",
+                "impact": 0.25,
+                "detail": "1 critical CVEs found"
+              },
+              {
+                "factor": "high_cves_1",
+                "impact": 0.1,
+                "detail": "1 high-severity CVEs found"
+              },
+              {
+                "factor": "kev_count_1",
+                "impact": 0.35,
+                "detail": "1 CVEs in CISA KEV (actively exploited)"
+              }
+            ],
+            "confidence": 0.85
+          },
+          "remediation_posture": {
+            "score": 0.19999999999999996,
+            "weight": 0.2,
+            "factors": [
+              {
+                "factor": "poam_active",
+                "impact": -0.2,
+                "detail": "Active remediation plan in place"
+              },
+              {
+                "factor": "open_items_4",
+                "impact": -0.1,
+                "detail": "4 open remediation items (manageable)"
+              }
+            ],
+            "confidence": 0.75
+          },
+          "supply_chain_propagation": {
+            "score": 0.6,
+            "weight": 0.15,
+            "factors": [
+              {
+                "factor": "critical_entities_1",
+                "impact": 0.15,
+                "detail": "1 critical entities in supply chain"
+              },
+              {
+                "factor": "moderate_connectivity",
+                "impact": 0.15,
+                "detail": "Moderate network connectivity"
+              }
+            ],
+            "confidence": 0.6
+          },
+          "compliance_maturity": {
+            "score": 0.04999999999999996,
+            "weight": 0.1,
+            "factors": [
+              {
+                "factor": "control_implementation",
+                "impact": -0.30000000000000004,
+                "detail": "80.0% of controls (72/90) implemented"
+              },
+              {
+                "factor": "system_documented",
+                "impact": -0.15,
+                "detail": "System documented: Vector Firmware Delivery Service"
+              }
+            ],
+            "confidence": 0.75
+          }
+        },
+        "top_findings": [
+          {
+            "dimension": "vulnerability_exposure",
+            "factor": "kev_count_1",
+            "impact": 0.35,
+            "detail": "1 CVEs in CISA KEV (actively exploited)"
+          },
+          {
+            "dimension": "compliance_maturity",
+            "factor": "control_implementation",
+            "impact": -0.30000000000000004,
+            "detail": "80.0% of controls (72/90) implemented"
+          },
+          {
+            "dimension": "vulnerability_exposure",
+            "factor": "critical_cves_1",
+            "impact": 0.25,
+            "detail": "1 critical CVEs found"
+          },
+          {
+            "dimension": "remediation_posture",
+            "factor": "poam_active",
+            "impact": -0.2,
+            "detail": "Active remediation plan in place"
+          },
+          {
+            "dimension": "supply_chain_propagation",
+            "factor": "critical_entities_1",
+            "impact": 0.15,
+            "detail": "1 critical entities in supply chain"
+          }
+        ],
+        "recommended_actions": [
+          "URGENT: 1 CVEs in CISA KEV catalog (actively exploited). Prioritize patching and vulnerability remediation immediately.",
+          "Multiple critical CVEs detected. Require detailed remediation timeline and evidence of patching plans."
+        ],
+        "confidence": 0.76,
+        "data_sources": {
+          "has_sprs": true,
+          "has_nvd": true,
+          "has_oscal": true,
+          "has_graph": true
+        }
+      },
+      "ai_assessment": {
+        "provider": "local_challenge_model",
+        "mode": "heuristic_v1",
+        "deterministic_posture": "review",
+        "deterministic_tier": "HIGH",
+        "proposed_posture": "blocked",
+        "disagrees_with_deterministic": true,
+        "ambiguity_flags": [
+          "mission_critical_dependency",
+          "firmware_or_ot_exposure"
+        ],
+        "missing_facts": [
+          "firmware_update_path"
+        ],
+        "recommended_questions": [
+          "How are firmware updates signed, distributed, and rolled back in the field?"
+        ],
+        "explanation": "Supply chain assurance ambiguity detected across mission critical dependency, firmware or ot exposure. Helios should verify firmware update path before clearance.",
+        "context_text": "active exploitation on a mission firmware path should push the hybrid layer into a blocked posture. firmware supplier for escape-system telemetry stack. embedded firmware image supports flight-safety logic in fielded systems. field updates depend on a vulnerable distribution service. "
+      },
+      "assurance_context": {
+        "sbom_present": true,
+        "sbom_fresh_days": 75,
+        "vex_status": "affected",
+        "secure_by_design_evidence": "audited",
+        "provenance_attested": true,
+        "mission_critical": true,
+        "firmware_or_ot": true,
+        "federal_scope": true,
+        "fourth_party_concentration": "balanced"
+      }
+    },
+    {
+      "scenario_id": "secure_by_design_marketing_only",
+      "title": "Secure-by-design marketing without artifact proof",
+      "description": "Supplier claims secure-by-design posture but provides no SBOM, VEX, or provenance evidence for a mission system.",
+      "passed": true,
+      "score": 0.92,
+      "minimum_score": 0.92,
+      "deterministic_posture": "qualified",
+      "expected_deterministic_posture": "qualified",
+      "deterministic_ok": true,
+      "deterministic_tier": "LOW",
+      "hybrid_posture": "review",
+      "expected_hybrid_posture": "review",
+      "expected_ai_disagreement": true,
+      "actual_ai_disagreement": true,
+      "disagreement_ok": true,
+      "ambiguity_hits": [
+        "sbom_vex_gap",
+        "marketing_without_artifacts",
+        "mission_critical_dependency",
+        "provenance_gap"
+      ],
+      "ambiguity_misses": [
+        "cmmc_evidence_gap"
+      ],
+      "missing_fact_hits": [
+        "fresh_sbom",
+        "vex_assertion",
+        "secure_by_design_artifacts",
+        "provenance_attestation"
+      ],
+      "missing_fact_misses": [
+        "current_cmmc_evidence"
+      ],
+      "explanation_hits": [
+        "sbom vex gap",
+        "before clearance"
+      ],
+      "explanation_misses": [],
+      "safe_behavior": "elevate",
+      "safe_behavior_ok": true,
+      "deterministic_result": {
+        "case_id": "secure_by_design_marketing_only",
+        "vendor_name": "Signal Harbor Systems",
+        "cyber_risk_score": 0.07764705882352943,
+        "cyber_risk_tier": "LOW",
+        "dimensions": {
+          "cmmc_readiness": {
+            "score": 0.15000000000000002,
+            "weight": 0.25,
+            "factors": [
+              {
+                "factor": "cmmc_level_2",
+                "impact": -0.09999999999999998,
+                "detail": "Current CMMC level: 2"
+              },
+              {
+                "factor": "recent_assessment",
+                "impact": -0.1,
+                "detail": "Assessment status indicates recent evaluation"
+              },
+              {
+                "factor": "poam_inactive",
+                "impact": -0.05,
+                "detail": "No active POA&M (concerning or assessment complete)"
+              }
+            ],
+            "confidence": 0.85
+          },
+          "vulnerability_exposure": {
+            "score": -0.25,
+            "weight": 0.3,
+            "factors": [
+              {
+                "factor": "critical_cves_0",
+                "impact": 0.0,
+                "detail": "0 critical CVEs found"
+              },
+              {
+                "factor": "high_cves_0",
+                "impact": 0.0,
+                "detail": "0 high-severity CVEs found"
+              },
+              {
+                "factor": "no_cves",
+                "impact": -0.25,
+                "detail": "No CVEs detected (positive signal)"
+              }
+            ],
+            "confidence": 0.5
+          },
+          "remediation_posture": {
+            "score": 0.44999999999999996,
+            "weight": 0.2,
+            "factors": [
+              {
+                "factor": "poam_inactive",
+                "impact": 0.15,
+                "detail": "No active remediation plan"
+              },
+              {
+                "factor": "no_open_items",
+                "impact": -0.2,
+                "detail": "No open remediation items"
+              }
+            ],
+            "confidence": 0.5
+          },
+          "supply_chain_propagation": {
+            "score": 0.15,
+            "weight": 0.15,
+            "factors": [
+              {
+                "factor": "isolated_entity",
+                "impact": -0.15,
+                "detail": "No related entities in graph (low propagation risk)"
+              }
+            ],
+            "confidence": 0.3
+          },
+          "compliance_maturity": {
+            "score": 0.026470588235294162,
+            "weight": 0.1,
+            "factors": [
+              {
+                "factor": "control_implementation",
+                "impact": -0.32352941176470584,
+                "detail": "82.4% of controls (84/102) implemented"
+              },
+              {
+                "factor": "system_documented",
+                "impact": -0.15,
+                "detail": "System documented: Signal Harbor Control Plane"
+              }
+            ],
+            "confidence": 0.75
+          }
+        },
+        "top_findings": [
+          {
+            "dimension": "compliance_maturity",
+            "factor": "control_implementation",
+            "impact": -0.32352941176470584,
+            "detail": "82.4% of controls (84/102) implemented"
+          },
+          {
+            "dimension": "vulnerability_exposure",
+            "factor": "no_cves",
+            "impact": -0.25,
+            "detail": "No CVEs detected (positive signal)"
+          },
+          {
+            "dimension": "remediation_posture",
+            "factor": "no_open_items",
+            "impact": -0.2,
+            "detail": "No open remediation items"
+          },
+          {
+            "dimension": "remediation_posture",
+            "factor": "poam_inactive",
+            "impact": 0.15,
+            "detail": "No active remediation plan"
+          },
+          {
+            "dimension": "supply_chain_propagation",
+            "factor": "isolated_entity",
+            "impact": -0.15,
+            "detail": "No related entities in graph (low propagation risk)"
+          }
+        ],
+        "recommended_actions": [
+          "Continue monitoring vendor security posture. Schedule periodic reassessments."
+        ],
+        "confidence": 0.58,
+        "data_sources": {
+          "has_sprs": true,
+          "has_nvd": true,
+          "has_oscal": true,
+          "has_graph": true
+        }
+      },
+      "ai_assessment": {
+        "provider": "local_challenge_model",
+        "mode": "heuristic_v1",
+        "deterministic_posture": "qualified",
+        "deterministic_tier": "LOW",
+        "proposed_posture": "review",
+        "disagrees_with_deterministic": true,
+        "ambiguity_flags": [
+          "sbom_vex_gap",
+          "marketing_without_artifacts",
+          "mission_critical_dependency",
+          "provenance_gap"
+        ],
+        "missing_facts": [
+          "fresh_sbom",
+          "vex_assertion",
+          "secure_by_design_artifacts",
+          "provenance_attestation"
+        ],
+        "recommended_questions": [
+          "Can the supplier provide a fresh SBOM for the deployed build?",
+          "Is there a VEX assertion that separates affected from exploitable components?",
+          "Is there signed provenance or build-attestation evidence for the current release?"
+        ],
+        "explanation": "Supply chain assurance ambiguity detected across sbom vex gap, marketing without artifacts, mission critical dependency, provenance gap. Helios should verify fresh sbom, vex assertion, secure by design artifacts, provenance attestation before clearance.",
+        "context_text": "supplier claims secure-by-design posture but provides no sbom, vex, or provenance evidence for a mission system. secure-by-design supplier marketing for a mission networking kit. mission networking appliance for cui-sensitive deployments. no artifact package attached. "
+      },
+      "assurance_context": {
+        "sbom_present": false,
+        "sbom_fresh_days": 999,
+        "vex_status": "missing",
+        "secure_by_design_evidence": "marketing_only",
+        "provenance_attested": false,
+        "mission_critical": true,
+        "firmware_or_ot": false,
+        "federal_scope": true,
+        "fourth_party_concentration": "unknown"
+      }
+    },
+    {
+      "scenario_id": "shared_signing_service_monoculture",
+      "title": "Compromised update / signing / MSP path",
+      "description": "Supplier looks decent on direct evidence, but the dependency stack is concentrated behind a single signing and telecom path.",
+      "passed": true,
+      "score": 1.0,
+      "minimum_score": 0.88,
+      "deterministic_posture": "review",
+      "expected_deterministic_posture": "review",
+      "deterministic_ok": true,
+      "deterministic_tier": "MODERATE",
+      "hybrid_posture": "review",
+      "expected_hybrid_posture": "review",
+      "expected_ai_disagreement": false,
+      "actual_ai_disagreement": false,
+      "disagreement_ok": true,
+      "ambiguity_hits": [
+        "sbom_vex_gap",
+        "fourth_party_concentration",
+        "mission_critical_dependency",
+        "firmware_or_ot_exposure"
+      ],
+      "ambiguity_misses": [],
+      "missing_fact_hits": [
+        "fresh_sbom",
+        "fourth_party_dependency_map",
+        "firmware_update_path"
+      ],
+      "missing_fact_misses": [],
+      "explanation_hits": [
+        "fourth party concentration",
+        "before clearance"
+      ],
+      "explanation_misses": [],
+      "safe_behavior": "hold",
+      "safe_behavior_ok": true,
+      "deterministic_result": {
+        "case_id": "shared_signing_service_monoculture",
+        "vendor_name": "North Ridge Avionics",
+        "cyber_risk_score": 0.22328947368421057,
+        "cyber_risk_tier": "MODERATE",
+        "dimensions": {
+          "cmmc_readiness": {
+            "score": 0.15000000000000002,
+            "weight": 0.25,
+            "factors": [
+              {
+                "factor": "cmmc_level_2",
+                "impact": -0.09999999999999998,
+                "detail": "Current CMMC level: 2"
+              },
+              {
+                "factor": "recent_assessment",
+                "impact": -0.1,
+                "detail": "Assessment status indicates recent evaluation"
+              },
+              {
+                "factor": "poam_inactive",
+                "impact": -0.05,
+                "detail": "No active POA&M (concerning or assessment complete)"
+              }
+            ],
+            "confidence": 0.85
+          },
+          "vulnerability_exposure": {
+            "score": 0.0,
+            "weight": 0.3,
+            "factors": [
+              {
+                "factor": "critical_cves_0",
+                "impact": 0.0,
+                "detail": "0 critical CVEs found"
+              },
+              {
+                "factor": "high_cves_0",
+                "impact": 0.0,
+                "detail": "0 high-severity CVEs found"
+              }
+            ],
+            "confidence": 0.5
+          },
+          "remediation_posture": {
+            "score": 0.55,
+            "weight": 0.2,
+            "factors": [
+              {
+                "factor": "poam_inactive",
+                "impact": 0.15,
+                "detail": "No active remediation plan"
+              },
+              {
+                "factor": "open_items_2",
+                "impact": -0.1,
+                "detail": "2 open remediation items (manageable)"
+              }
+            ],
+            "confidence": 0.5
+          },
+          "supply_chain_propagation": {
+            "score": 0.5,
+            "weight": 0.15,
+            "factors": [
+              {
+                "factor": "high_entities_1",
+                "impact": 0.05,
+                "detail": "1 high-risk entities in supply chain"
+              },
+              {
+                "factor": "moderate_connectivity",
+                "impact": 0.15,
+                "detail": "Moderate network connectivity"
+              }
+            ],
+            "confidence": 0.6
+          },
+          "compliance_maturity": {
+            "score": 0.007894736842105315,
+            "weight": 0.1,
+            "factors": [
+              {
+                "factor": "control_implementation",
+                "impact": -0.3421052631578947,
+                "detail": "84.2% of controls (80/95) implemented"
+              },
+              {
+                "factor": "system_documented",
+                "impact": -0.15,
+                "detail": "System documented: North Ridge Update Service"
+              }
+            ],
+            "confidence": 0.75
+          }
+        },
+        "top_findings": [
+          {
+            "dimension": "compliance_maturity",
+            "factor": "control_implementation",
+            "impact": -0.3421052631578947,
+            "detail": "84.2% of controls (80/95) implemented"
+          },
+          {
+            "dimension": "remediation_posture",
+            "factor": "poam_inactive",
+            "impact": 0.15,
+            "detail": "No active remediation plan"
+          },
+          {
+            "dimension": "supply_chain_propagation",
+            "factor": "moderate_connectivity",
+            "impact": 0.15,
+            "detail": "Moderate network connectivity"
+          },
+          {
+            "dimension": "compliance_maturity",
+            "factor": "system_documented",
+            "impact": -0.15,
+            "detail": "System documented: North Ridge Update Service"
+          },
+          {
+            "dimension": "cmmc_readiness",
+            "factor": "recent_assessment",
+            "impact": -0.1,
+            "detail": "Assessment status indicates recent evaluation"
+          }
+        ],
+        "recommended_actions": [
+          "Continue monitoring vendor security posture. Schedule periodic reassessments."
+        ],
+        "confidence": 0.64,
+        "data_sources": {
+          "has_sprs": true,
+          "has_nvd": true,
+          "has_oscal": true,
+          "has_graph": true
+        }
+      },
+      "ai_assessment": {
+        "provider": "local_challenge_model",
+        "mode": "heuristic_v1",
+        "deterministic_posture": "review",
+        "deterministic_tier": "MODERATE",
+        "proposed_posture": "review",
+        "disagrees_with_deterministic": false,
+        "ambiguity_flags": [
+          "sbom_vex_gap",
+          "fourth_party_concentration",
+          "mission_critical_dependency",
+          "firmware_or_ot_exposure"
+        ],
+        "missing_facts": [
+          "fresh_sbom",
+          "fourth_party_dependency_map",
+          "firmware_update_path"
+        ],
+        "recommended_questions": [
+          "Can the supplier provide a fresh SBOM for the deployed build?",
+          "What fourth-party providers or shared services sit behind this supplier?",
+          "How are firmware updates signed, distributed, and rolled back in the field?"
+        ],
+        "explanation": "Supply chain assurance ambiguity detected across sbom vex gap, fourth party concentration, mission critical dependency, firmware or ot exposure. Helios should verify fresh sbom, fourth party dependency map, firmware update path before clearance.",
+        "context_text": "supplier looks decent on direct evidence, but the dependency stack is concentrated behind a single signing and telecom path. supplier supports mission avionics with a shared firmware signing pipeline. flight-line update package distributed through a common signing stack. single telecom and signing provider supports all field updates. "
+      },
+      "assurance_context": {
+        "sbom_present": true,
+        "sbom_fresh_days": 240,
+        "vex_status": "affected",
+        "secure_by_design_evidence": "audited",
+        "provenance_attested": true,
+        "mission_critical": true,
+        "firmware_or_ot": true,
+        "federal_scope": true,
+        "fourth_party_concentration": "single_provider",
+        "shared_signing_service": true,
+        "shared_telecom": true
+      }
+    }
+  ],
+  "failed_scenarios": []
+}

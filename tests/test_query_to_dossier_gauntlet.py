@@ -94,6 +94,14 @@ def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
                         "descriptor_only": True,
                         "owner_class": "Service-Disabled Veteran",
                     },
+                    "expected_dossier_fragments": [
+                        "Descriptor-only ownership evidence",
+                        "Owner class: Service-Disabled Veteran",
+                    ],
+                    "forbidden_dossier_fragments": [
+                        "Invalid Date",
+                        "Traceback",
+                    ],
                 }
             ]
         ),
@@ -113,6 +121,8 @@ def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
     assert specs[0]["case_payload"]["export_authorization"]["destination_country"] == "AE"
     assert specs[0]["compare_payload"]["name"] == "Boeing"
     assert specs[0]["expected_oci"]["owner_class"] == "Service-Disabled Veteran"
+    assert specs[0]["expected_dossier_fragments"][0] == "Descriptor-only ownership evidence"
+    assert specs[0]["forbidden_dossier_fragments"] == ["Invalid Date", "Traceback"]
 
 
 def test_step_supplier_passport_validates_expected_oci():
@@ -164,6 +174,54 @@ def test_step_supplier_passport_validates_expected_oci():
     assert details["oci_passed"] is True
     assert details["oci"]["descriptor_only"] is True
     assert details["oci"]["owner_class_evidence_count"] == 1
+
+
+def test_step_dossier_html_validates_expected_and_forbidden_fragments():
+    class FakeClient(module.BaseClient):
+        def request_json(self, method, path, payload=None, timeout=60):
+            assert path == "/api/cases/c-123/dossier"
+            return 200, {}, {
+                "case_id": "c-123",
+                "download_url": "/api/dossiers/dossier-c-123.html",
+            }
+
+        def request_bytes(self, method, path, payload=None, headers=None, timeout=60):
+            assert path == "/api/dossiers/dossier-c-123.html"
+            html = """
+            <html>
+              <body>
+                <h1>Supplier passport</h1>
+                <h2>Risk Storyline</h2>
+                <p>Descriptor-only ownership evidence. No named beneficial owner resolved.</p>
+                <p>Owner class: Service-Disabled Veteran.</p>
+              </body>
+            </html>
+            """
+            return 200, {"Content-Type": "text/html; charset=utf-8"}, html.encode("utf-8")
+
+        def request_json_unauthenticated(self, method, path, payload=None, timeout=60):
+            raise AssertionError("unused")
+
+        def request_bytes_unauthenticated(self, method, path, payload=None, headers=None, timeout=60):
+            raise AssertionError("unused")
+
+    details = module._step_dossier_html(
+        FakeClient(),
+        "c-123",
+        expected_fragments=[
+            "Descriptor-only ownership evidence",
+            "Owner class: Service-Disabled Veteran",
+        ],
+        forbidden_fragments=[
+            "Invalid Date",
+            "Traceback",
+        ],
+    )
+
+    assert details["expected_fragments_checked"] == 2
+    assert len(details["matched_expected_fragments"]) == 2
+    assert details["forbidden_fragments_checked"] == 2
+    assert "Descriptor-only ownership evidence" in details["expected_fragment_contexts"]
 
 
 def test_main_fixture_mode_prints_json(monkeypatch, tmp_path, capsys):

@@ -1,0 +1,258 @@
+{
+  "scenario_count": 3,
+  "passed_count": 3,
+  "failed_count": 0,
+  "pass_rate": 1.0,
+  "deterministic_baseline_accuracy": 0.0,
+  "hybrid_posture_accuracy": 1.0,
+  "disagreement_accuracy": 1.0,
+  "hybrid_outperformed_count": 3,
+  "no_regression_count": 3,
+  "overall_score": 0.981,
+  "posture_distribution": {
+    "escalate": 3
+  },
+  "results": [
+    {
+      "scenario_id": "canada_reseller_unknown_end_user",
+      "title": "Third-country transshipment to hide end user or origin",
+      "description": "Rules alone leave this as low-friction, but the intermediary chain is too vague to clear.",
+      "passed": true,
+      "score": 1.0,
+      "minimum_score": 0.9,
+      "deterministic_posture": "likely_nlr",
+      "expected_deterministic_posture": "likely_nlr",
+      "deterministic_ok": true,
+      "ai_proposed_posture": "escalate",
+      "hybrid_posture": "escalate",
+      "expected_hybrid_posture": "escalate",
+      "expected_ai_disagreement": true,
+      "actual_ai_disagreement": true,
+      "disagreement_ok": true,
+      "ambiguity_hits": [
+        "transshipment_or_intermediary",
+        "integration_ambiguity"
+      ],
+      "ambiguity_misses": [],
+      "unexpected_ambiguity_flags": [],
+      "missing_fact_hits": [
+        "final_end_use",
+        "operational_scope",
+        "final_end_user",
+        "final_country",
+        "intermediary_role"
+      ],
+      "missing_fact_misses": [],
+      "explanation_hits": [
+        "transshipment or intermediary",
+        "final_country",
+        "before clearance"
+      ],
+      "explanation_misses": [],
+      "safe_behavior": "elevate",
+      "safe_behavior_ok": true,
+      "recommended_next_step": "Transaction may proceed under NLR. Document classification basis and retain for 5 years per EAR Part 762.",
+      "ai_assessment": {
+        "provider": "local_challenge_model",
+        "mode": "heuristic_v1",
+        "deterministic_posture": "likely_nlr",
+        "proposed_posture": "escalate",
+        "disagrees_with_deterministic": true,
+        "ambiguity_flags": [
+          "transshipment_or_intermediary",
+          "integration_ambiguity"
+        ],
+        "missing_facts": [
+          "final_end_use",
+          "operational_scope",
+          "final_end_user",
+          "final_country",
+          "intermediary_role"
+        ],
+        "recommended_questions": [
+          "What is the final operational end use?",
+          "What is the final country of use after the intermediary?"
+        ],
+        "explanation": "Ambiguous end-use narrative detected with transshipment or intermediary, integration ambiguity. Helios should verify final_end_use, operational_scope, final_end_user, final_country before clearance."
+      },
+      "transaction_input": {
+        "jurisdiction_guess": "ear",
+        "request_type": "item_transfer",
+        "classification_guess": "EAR99",
+        "item_or_data_summary": "Commercial edge compute gateway",
+        "destination_country": "CA",
+        "destination_company": "Northern Channel Partners",
+        "end_use_summary": "Evaluation support for maritime analytics customer",
+        "end_user_name": "Northern Channel Partners",
+        "access_context": "Reseller staging before onward delivery",
+        "notes": "Channel partner will ship onward to final customer in another jurisdiction"
+      }
+    },
+    {
+      "scenario_id": "foreign_person_repo_access_without_ttcp",
+      "title": "Deemed export inside U.S. operations",
+      "description": "The shipment story looks manageable, but the real risk is remote technical-data access by a foreign national.",
+      "passed": true,
+      "score": 0.9429,
+      "minimum_score": 0.9,
+      "deterministic_posture": "likely_exception_or_exemption",
+      "expected_deterministic_posture": "likely_license_required",
+      "deterministic_ok": false,
+      "ai_proposed_posture": "escalate",
+      "hybrid_posture": "escalate",
+      "expected_hybrid_posture": "escalate",
+      "expected_ai_disagreement": true,
+      "actual_ai_disagreement": true,
+      "disagreement_ok": true,
+      "ambiguity_hits": [
+        "foreign_person_access",
+        "remote_access_to_technical_data",
+        "agreement_scope_or_proviso_gap"
+      ],
+      "ambiguity_misses": [],
+      "unexpected_ambiguity_flags": [],
+      "missing_fact_hits": [
+        "remote_access_scope",
+        "ttcp_or_tcp",
+        "taa_mla_wda_reference",
+        "proviso_scope",
+        "proviso_acceptance"
+      ],
+      "missing_fact_misses": [
+        "authorized_person_list",
+        "access_location"
+      ],
+      "explanation_hits": [
+        "foreign person access",
+        "before clearance"
+      ],
+      "explanation_misses": [],
+      "safe_behavior": "elevate",
+      "safe_behavior_ok": true,
+      "recommended_next_step": "Document the applicable license exception/exemption. Maintain records per EAR Part 762.",
+      "ai_assessment": {
+        "provider": "local_challenge_model",
+        "mode": "heuristic_v1",
+        "deterministic_posture": "likely_exception_or_exemption",
+        "proposed_posture": "escalate",
+        "disagrees_with_deterministic": true,
+        "ambiguity_flags": [
+          "remote_access_to_technical_data",
+          "foreign_person_access",
+          "agreement_scope_or_proviso_gap"
+        ],
+        "missing_facts": [
+          "remote_access_scope",
+          "ttcp_or_tcp",
+          "taa_mla_wda_reference",
+          "proviso_scope",
+          "proviso_acceptance"
+        ],
+        "recommended_questions": [
+          "What TAA, MLA, WDA, or other authorization covers this service or release?",
+          "Is there an approved TTCP or TCP covering remote access and controlled data handling?",
+          "What provisos apply, and has the customer accepted the current scope without drift?"
+        ],
+        "explanation": "Ambiguous end-use narrative detected with remote access to technical data, foreign person access, agreement scope or proviso gap. Helios should verify remote_access_scope, ttcp_or_tcp, taa_mla_wda_reference, proviso_scope before clearance."
+      },
+      "transaction_input": {
+        "jurisdiction_guess": "ear",
+        "request_type": "foreign_person_access",
+        "classification_guess": "3E001",
+        "item_or_data_summary": "Flight-control source code and tuning notes",
+        "destination_country": "US",
+        "destination_company": "Falcon Embedded Systems",
+        "end_use_summary": "Temporary software support for avionics sustainment",
+        "end_user_name": "Falcon Embedded Systems",
+        "access_context": "VPN source code access and remote repository support",
+        "persons": [
+          {
+            "name": "Arjun Rao",
+            "nationalities": [
+              "IN"
+            ],
+            "employer": "Falcon Embedded Systems",
+            "role": "software engineer",
+            "item_classification": "3E001",
+            "access_level": "controlled_repo"
+          }
+        ],
+        "notes": "Program office wants quick access for one engineer. No TTCP, no named-person authorization memo."
+      }
+    },
+    {
+      "scenario_id": "ally_special_project_black_box",
+      "title": "Dual-use component in a sensitive end use",
+      "description": "Rules alone treat this as low-friction, but the narrative is too opaque to clear without escalation.",
+      "passed": true,
+      "score": 1.0,
+      "minimum_score": 0.9,
+      "deterministic_posture": "likely_nlr",
+      "expected_deterministic_posture": "likely_nlr",
+      "deterministic_ok": true,
+      "ai_proposed_posture": "escalate",
+      "hybrid_posture": "escalate",
+      "expected_hybrid_posture": "escalate",
+      "expected_ai_disagreement": true,
+      "actual_ai_disagreement": true,
+      "disagreement_ok": true,
+      "ambiguity_hits": [
+        "special_project",
+        "integration_ambiguity"
+      ],
+      "ambiguity_misses": [],
+      "unexpected_ambiguity_flags": [],
+      "missing_fact_hits": [
+        "final_end_use",
+        "operational_scope",
+        "program_name",
+        "sponsoring_customer"
+      ],
+      "missing_fact_misses": [],
+      "explanation_hits": [
+        "special project",
+        "program_name",
+        "before clearance"
+      ],
+      "explanation_misses": [],
+      "safe_behavior": "elevate",
+      "safe_behavior_ok": true,
+      "recommended_next_step": "Transaction may proceed under NLR. Document classification basis and retain for 5 years per EAR Part 762.",
+      "ai_assessment": {
+        "provider": "local_challenge_model",
+        "mode": "heuristic_v1",
+        "deterministic_posture": "likely_nlr",
+        "proposed_posture": "escalate",
+        "disagrees_with_deterministic": true,
+        "ambiguity_flags": [
+          "special_project",
+          "integration_ambiguity"
+        ],
+        "missing_facts": [
+          "final_end_use",
+          "operational_scope",
+          "program_name",
+          "sponsoring_customer"
+        ],
+        "recommended_questions": [
+          "What is the final operational end use?",
+          "What program or project is this tied to?"
+        ],
+        "explanation": "Ambiguous end-use narrative detected with special project, integration ambiguity. Helios should verify final_end_use, operational_scope, program_name, sponsoring_customer before clearance."
+      },
+      "transaction_input": {
+        "jurisdiction_guess": "ear",
+        "request_type": "item_transfer",
+        "classification_guess": "EAR99",
+        "item_or_data_summary": "Rugged networking kit for mission systems special project",
+        "destination_country": "GB",
+        "destination_company": "Allied Integrator Ltd",
+        "end_use_summary": "Evaluation support for confidential customer mission systems program",
+        "end_user_name": "Allied Integrator Ltd",
+        "access_context": "Field integration support",
+        "notes": "Customer directed special project"
+      }
+    }
+  ],
+  "failed_scenarios": []
+}

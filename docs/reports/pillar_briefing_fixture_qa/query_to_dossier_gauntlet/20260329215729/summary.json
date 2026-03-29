@@ -1,0 +1,754 @@
+{
+  "generated_at": "2026-03-29T21:57:29Z",
+  "mode": "fixture",
+  "overall_verdict": "PASS",
+  "flows": [
+    {
+      "flow_verdict": "PASS",
+      "case_id": "c-bb5b22b2",
+      "vendor_name": "Harbor Beacon Holdings",
+      "health": {
+        "osint_connectors": 49,
+        "osint_enabled": true
+      },
+      "download_url": "/api/dossiers/dossier-c-bb5b22b2-20260329215729.html",
+      "oci_required": false,
+      "oci_passed": false,
+      "oci_details": null,
+      "warning_count": 0,
+      "warnings": [],
+      "steps": [
+        {
+          "step": "health",
+          "status": "PASS",
+          "duration_ms": 6,
+          "details": {
+            "osint_connectors": 49,
+            "osint_enabled": true
+          }
+        },
+        {
+          "step": "ai_providers",
+          "status": "PASS",
+          "duration_ms": 0,
+          "details": {
+            "provider_count": 3
+          }
+        },
+        {
+          "step": "compare",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "comparison_count": 2
+          }
+        },
+        {
+          "step": "create_case",
+          "status": "PASS",
+          "duration_ms": 11,
+          "details": {
+            "case_id": "c-bb5b22b2",
+            "vendor_name": "Harbor Beacon Holdings"
+          }
+        },
+        {
+          "step": "case_detail",
+          "status": "PASS",
+          "duration_ms": 22,
+          "details": {
+            "has_storyline": true,
+            "workflow_lane": "counterparty"
+          }
+        },
+        {
+          "step": "graph",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "entity_count": 1,
+            "relationship_count": 0
+          }
+        },
+        {
+          "step": "supplier_passport",
+          "status": "PASS",
+          "duration_ms": 13,
+          "details": {
+            "passport_version": "supplier-passport-v1",
+            "posture": "review",
+            "oci_required": false,
+            "oci_passed": false,
+            "oci": null
+          }
+        },
+        {
+          "step": "assistant_plan",
+          "status": "PASS",
+          "duration_ms": 23,
+          "details": {
+            "analyst_prompt": "Trace the strongest control path and explain the current risk posture.",
+            "anomalies": [
+              {
+                "code": "missing_core_identifiers",
+                "message": "Core identity anchors missing: CAGE, UEI, LEI",
+                "severity": "high"
+              },
+              {
+                "code": "thin_identity_coverage",
+                "message": "Connector coverage is thin enough that identity certainty may be overstated.",
+                "severity": "medium"
+              },
+              {
+                "code": "thin_graph",
+                "message": "Graph density is still thin and may miss hidden-control paths.",
+                "severity": "medium"
+              },
+              {
+                "code": "no_control_paths",
+                "message": "No control-path edges are captured yet.",
+                "severity": "medium"
+              }
+            ],
+            "case_id": "c-bb5b22b2",
+            "consensus_level": "moderate",
+            "context_snapshot": {
+              "contradicted_claims": 0,
+              "control_path_count": 0,
+              "findings_total": 0,
+              "tier": "TIER_2_ELEVATED"
+            },
+            "current_posture": "review",
+            "generated_at": "2026-03-29T21:57:29Z",
+            "guardrails": [
+              "Show the analyst the plan before any live mutation or rerun.",
+              "Never suppress missing-data or connector-gap warnings from the analyst.",
+              "Do not auto-rerun live sources or mutate case state without explicit analyst approval.",
+              "Cowork may diagnose and propose a fix, but production mutation remains human-gated."
+            ],
+            "objective": "trace_control_path",
+            "plan": [
+              {
+                "description": "Load the current case, score, and workflow posture.",
+                "label": "Case snapshot",
+                "mode": "read",
+                "reason": "Load the current case before any deeper branch.",
+                "required": true,
+                "surface": "case_detail",
+                "tool_id": "case_snapshot"
+              },
+              {
+                "description": "Inspect control paths, identifiers, tribunal views, and provenance health.",
+                "label": "Supplier passport",
+                "mode": "read",
+                "reason": "Pull the trust artifact with tribunal, control paths, and provenance health.",
+                "required": true,
+                "surface": "supplier_passport",
+                "tool_id": "supplier_passport"
+              },
+              {
+                "description": "Inspect graph density, relationship mix, and control-path reach.",
+                "label": "Graph probe",
+                "mode": "read",
+                "reason": "Inspect ownership, intermediary, and subsystem adjacency.",
+                "required": true,
+                "surface": "graph",
+                "tool_id": "graph_probe"
+              },
+              {
+                "description": "Measure downstream exposure from linked entities.",
+                "label": "Network risk",
+                "mode": "read",
+                "reason": "Measure whether the path materially changes disposition.",
+                "required": true,
+                "surface": "graph",
+                "tool_id": "network_risk"
+              },
+              {
+                "description": "Inspect raw findings, connector returns, and discovered identifiers.",
+                "label": "Enrichment findings",
+                "mode": "read",
+                "reason": "Cross-check the raw evidence behind the graph path.",
+                "required": false,
+                "surface": "enrichment",
+                "tool_id": "enrichment_findings"
+              },
+              {
+                "description": "Check for missing or weak identifiers before trusting the case.",
+                "label": "Identity repair",
+                "mode": "review",
+                "reason": "Missing core identifiers should be checked before treating the answer as final.",
+                "required": false,
+                "surface": "identity",
+                "tool_id": "identity_repair"
+              }
+            ],
+            "recommended_view": "approve",
+            "storyline_available": true,
+            "suggested_followups": [
+              "Why is this case blocked right now?",
+              "Show the strongest control path with evidence.",
+              "Tell me which missing identifiers would most change the decision."
+            ],
+            "vendor_name": "Harbor Beacon Holdings",
+            "version": "ai-control-plane-v1"
+          }
+        },
+        {
+          "step": "assistant_execute",
+          "status": "PASS",
+          "duration_ms": 23,
+          "details": {
+            "executed_steps": 4
+          }
+        },
+        {
+          "step": "dossier_html",
+          "status": "PASS",
+          "duration_ms": 38,
+          "details": {
+            "download_url": "/api/dossiers/dossier-c-bb5b22b2-20260329215729.html",
+            "html_bytes": 79590,
+            "expected_fragments_checked": 4,
+            "matched_expected_fragments": [
+              "Defense counterparty trust",
+              "Ownership / control intelligence",
+              "Ownership resolved",
+              "25%"
+            ],
+            "forbidden_fragments_checked": 10,
+            "expected_fragment_contexts": {
+              "Defense counterparty trust": "ss=\"hero-section\"> <div class=\"hero-panel\"> <div class=\"hero-topline\">Defense counterparty trust dossier</div> <div class=\"hero-head\"> <div>",
+              "Ownership / control intelligence": "yle=\"font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.06em;\">Ownership / control intelligence</div> <div style=\"display:grid; grid-template-columns: repeat(3, minmax(0, 1f",
+              "Ownership resolved": "yle=\"font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.06em;\">Ownership resolved</div> <div style=\"font-size: 14px; font-weight: 700; color: #1a1f36; margin-top:",
+              "25%": "height: 24px; overflow: hidden; margin: 8px 0;\"> <div style=\"width: 45.25%; background-color: #C4A052; height: 100%; transition: width 0.3s ease"
+            }
+          }
+        },
+        {
+          "step": "browser_dossier_access",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "permission": "cases:dossier",
+            "expires_in": 120,
+            "html_bytes": 79590,
+            "reopen_html_bytes": 79590
+          }
+        },
+        {
+          "step": "dossier_pdf",
+          "status": "PASS",
+          "duration_ms": 29,
+          "details": {
+            "pdf_bytes": 13230,
+            "content_disposition": "attachment; filename=dossier-c-bb5b22b2.pdf"
+          }
+        }
+      ],
+      "total_ms": 177,
+      "flow_name": "fixture:briefing_hidden_owner_counterparty"
+    },
+    {
+      "flow_verdict": "PASS",
+      "case_id": "c-442e65a5",
+      "vendor_name": "Vector Mission Software",
+      "health": {
+        "osint_connectors": 49,
+        "osint_enabled": true
+      },
+      "download_url": "/api/dossiers/dossier-c-442e65a5-20260329215729.html",
+      "oci_required": false,
+      "oci_passed": false,
+      "oci_details": null,
+      "warning_count": 0,
+      "warnings": [],
+      "steps": [
+        {
+          "step": "health",
+          "status": "PASS",
+          "duration_ms": 5,
+          "details": {
+            "osint_connectors": 49,
+            "osint_enabled": true
+          }
+        },
+        {
+          "step": "ai_providers",
+          "status": "PASS",
+          "duration_ms": 0,
+          "details": {
+            "provider_count": 3
+          }
+        },
+        {
+          "step": "compare",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "comparison_count": 2
+          }
+        },
+        {
+          "step": "create_case",
+          "status": "PASS",
+          "duration_ms": 11,
+          "details": {
+            "case_id": "c-442e65a5",
+            "vendor_name": "Vector Mission Software"
+          }
+        },
+        {
+          "step": "case_detail",
+          "status": "PASS",
+          "duration_ms": 19,
+          "details": {
+            "has_storyline": true,
+            "workflow_lane": "cyber"
+          }
+        },
+        {
+          "step": "graph",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "entity_count": 1,
+            "relationship_count": 0
+          }
+        },
+        {
+          "step": "supplier_passport",
+          "status": "PASS",
+          "duration_ms": 13,
+          "details": {
+            "passport_version": "supplier-passport-v1",
+            "posture": "approved",
+            "oci_required": false,
+            "oci_passed": false,
+            "oci": null
+          }
+        },
+        {
+          "step": "assistant_plan",
+          "status": "PASS",
+          "duration_ms": 40,
+          "details": {
+            "analyst_prompt": "Trace the strongest control path and explain the current risk posture.",
+            "anomalies": [
+              {
+                "code": "missing_core_identifiers",
+                "message": "Core identity anchors missing: CAGE, UEI, LEI",
+                "severity": "high"
+              },
+              {
+                "code": "thin_identity_coverage",
+                "message": "Connector coverage is thin enough that identity certainty may be overstated.",
+                "severity": "medium"
+              },
+              {
+                "code": "thin_graph",
+                "message": "Graph density is still thin and may miss hidden-control paths.",
+                "severity": "medium"
+              },
+              {
+                "code": "no_control_paths",
+                "message": "No control-path edges are captured yet.",
+                "severity": "medium"
+              }
+            ],
+            "case_id": "c-442e65a5",
+            "consensus_level": "strong",
+            "context_snapshot": {
+              "contradicted_claims": 0,
+              "control_path_count": 0,
+              "findings_total": 0,
+              "tier": "TIER_4_APPROVED"
+            },
+            "current_posture": "approved",
+            "generated_at": "2026-03-29T21:57:29Z",
+            "guardrails": [
+              "Show the analyst the plan before any live mutation or rerun.",
+              "Never suppress missing-data or connector-gap warnings from the analyst.",
+              "Do not auto-rerun live sources or mutate case state without explicit analyst approval.",
+              "Cowork may diagnose and propose a fix, but production mutation remains human-gated."
+            ],
+            "objective": "trace_control_path",
+            "plan": [
+              {
+                "description": "Load the current case, score, and workflow posture.",
+                "label": "Case snapshot",
+                "mode": "read",
+                "reason": "Load the current case before any deeper branch.",
+                "required": true,
+                "surface": "case_detail",
+                "tool_id": "case_snapshot"
+              },
+              {
+                "description": "Inspect control paths, identifiers, tribunal views, and provenance health.",
+                "label": "Supplier passport",
+                "mode": "read",
+                "reason": "Pull the trust artifact with tribunal, control paths, and provenance health.",
+                "required": true,
+                "surface": "supplier_passport",
+                "tool_id": "supplier_passport"
+              },
+              {
+                "description": "Inspect graph density, relationship mix, and control-path reach.",
+                "label": "Graph probe",
+                "mode": "read",
+                "reason": "Inspect ownership, intermediary, and subsystem adjacency.",
+                "required": true,
+                "surface": "graph",
+                "tool_id": "graph_probe"
+              },
+              {
+                "description": "Measure downstream exposure from linked entities.",
+                "label": "Network risk",
+                "mode": "read",
+                "reason": "Measure whether the path materially changes disposition.",
+                "required": true,
+                "surface": "graph",
+                "tool_id": "network_risk"
+              },
+              {
+                "description": "Inspect raw findings, connector returns, and discovered identifiers.",
+                "label": "Enrichment findings",
+                "mode": "read",
+                "reason": "Cross-check the raw evidence behind the graph path.",
+                "required": false,
+                "surface": "enrichment",
+                "tool_id": "enrichment_findings"
+              },
+              {
+                "description": "Check for missing or weak identifiers before trusting the case.",
+                "label": "Identity repair",
+                "mode": "review",
+                "reason": "Missing core identifiers should be checked before treating the answer as final.",
+                "required": false,
+                "surface": "identity",
+                "tool_id": "identity_repair"
+              }
+            ],
+            "recommended_view": "approve",
+            "storyline_available": true,
+            "suggested_followups": [
+              "Why is this case blocked right now?",
+              "Show the strongest control path with evidence.",
+              "Tell me which missing identifiers would most change the decision."
+            ],
+            "vendor_name": "Vector Mission Software",
+            "version": "ai-control-plane-v1"
+          }
+        },
+        {
+          "step": "assistant_execute",
+          "status": "PASS",
+          "duration_ms": 26,
+          "details": {
+            "executed_steps": 4
+          }
+        },
+        {
+          "step": "dossier_html",
+          "status": "PASS",
+          "duration_ms": 43,
+          "details": {
+            "download_url": "/api/dossiers/dossier-c-442e65a5-20260329215729.html",
+            "html_bytes": 78132,
+            "expected_fragments_checked": 4,
+            "matched_expected_fragments": [
+              "Supply chain assurance",
+              "SPRS / CMMC",
+              "Readiness posture",
+              "Attach SPRS exports, OSCAL artifacts, SBOM or VEX evidence"
+            ],
+            "forbidden_fragments_checked": 10,
+            "expected_fragment_contexts": {
+              "Supply chain assurance": "ss=\"hero-section\"> <div class=\"hero-panel\"> <div class=\"hero-topline\">Supply chain assurance dossier</div> <div class=\"hero-head\"> <div>",
+              "SPRS / CMMC": "tats\"> <div class=\"hero-lane-stat\"> <div class=\"hero-lane-stat-label\">SPRS / CMMC</div> <div class=\"hero-lane-stat-value\">Unknown</div> </div>",
+              "Readiness posture": "<div class=\"hero-lane-stat\"> <div class=\"hero-lane-stat-label\">Readiness posture</div> <div class=\"hero-lane-stat-value\">Awaiting evidence</div> </div",
+              "Attach SPRS exports, OSCAL artifacts, SBOM or VEX evidence": "ection-label\">Immediate next action</div> <div class=\"hero-lane-copy\">Attach SPRS exports, OSCAL artifacts, SBOM or VEX evidence, and product references to ground supply chain assurance.</div> </div>"
+            }
+          }
+        },
+        {
+          "step": "browser_dossier_access",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "permission": "cases:dossier",
+            "expires_in": 120,
+            "html_bytes": 78132,
+            "reopen_html_bytes": 78132
+          }
+        },
+        {
+          "step": "dossier_pdf",
+          "status": "PASS",
+          "duration_ms": 31,
+          "details": {
+            "pdf_bytes": 12247,
+            "content_disposition": "attachment; filename=dossier-c-442e65a5.pdf"
+          }
+        }
+      ],
+      "total_ms": 200,
+      "flow_name": "fixture:briefing_cyber_supply_chain_review"
+    },
+    {
+      "flow_verdict": "PASS",
+      "case_id": "c-458fff4c",
+      "vendor_name": "Northern Channel Partners",
+      "health": {
+        "osint_connectors": 49,
+        "osint_enabled": true
+      },
+      "download_url": "/api/dossiers/dossier-c-458fff4c-20260329215729.html",
+      "oci_required": false,
+      "oci_passed": false,
+      "oci_details": null,
+      "warning_count": 0,
+      "warnings": [],
+      "steps": [
+        {
+          "step": "health",
+          "status": "PASS",
+          "duration_ms": 5,
+          "details": {
+            "osint_connectors": 49,
+            "osint_enabled": true
+          }
+        },
+        {
+          "step": "ai_providers",
+          "status": "PASS",
+          "duration_ms": 0,
+          "details": {
+            "provider_count": 3
+          }
+        },
+        {
+          "step": "compare",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "comparison_count": 2
+          }
+        },
+        {
+          "step": "create_case",
+          "status": "PASS",
+          "duration_ms": 12,
+          "details": {
+            "case_id": "c-458fff4c",
+            "vendor_name": "Northern Channel Partners"
+          }
+        },
+        {
+          "step": "case_detail",
+          "status": "PASS",
+          "duration_ms": 19,
+          "details": {
+            "has_storyline": true,
+            "workflow_lane": "export"
+          }
+        },
+        {
+          "step": "graph",
+          "status": "PASS",
+          "duration_ms": 4,
+          "details": {
+            "entity_count": 1,
+            "relationship_count": 0
+          }
+        },
+        {
+          "step": "supplier_passport",
+          "status": "PASS",
+          "duration_ms": 13,
+          "details": {
+            "passport_version": "supplier-passport-v1",
+            "posture": "approved",
+            "oci_required": false,
+            "oci_passed": false,
+            "oci": null
+          }
+        },
+        {
+          "step": "assistant_plan",
+          "status": "PASS",
+          "duration_ms": 27,
+          "details": {
+            "analyst_prompt": "Trace the strongest control path and explain the current risk posture.",
+            "anomalies": [
+              {
+                "code": "missing_core_identifiers",
+                "message": "Core identity anchors missing: CAGE, UEI, LEI",
+                "severity": "high"
+              },
+              {
+                "code": "thin_identity_coverage",
+                "message": "Connector coverage is thin enough that identity certainty may be overstated.",
+                "severity": "medium"
+              },
+              {
+                "code": "thin_graph",
+                "message": "Graph density is still thin and may miss hidden-control paths.",
+                "severity": "medium"
+              },
+              {
+                "code": "no_control_paths",
+                "message": "No control-path edges are captured yet.",
+                "severity": "medium"
+              }
+            ],
+            "case_id": "c-458fff4c",
+            "consensus_level": "strong",
+            "context_snapshot": {
+              "contradicted_claims": 0,
+              "control_path_count": 0,
+              "findings_total": 0,
+              "tier": "TIER_4_APPROVED"
+            },
+            "current_posture": "approved",
+            "generated_at": "2026-03-29T21:57:29Z",
+            "guardrails": [
+              "Show the analyst the plan before any live mutation or rerun.",
+              "Never suppress missing-data or connector-gap warnings from the analyst.",
+              "Do not auto-rerun live sources or mutate case state without explicit analyst approval.",
+              "Cowork may diagnose and propose a fix, but production mutation remains human-gated."
+            ],
+            "objective": "trace_control_path",
+            "plan": [
+              {
+                "description": "Load the current case, score, and workflow posture.",
+                "label": "Case snapshot",
+                "mode": "read",
+                "reason": "Load the current case before any deeper branch.",
+                "required": true,
+                "surface": "case_detail",
+                "tool_id": "case_snapshot"
+              },
+              {
+                "description": "Inspect control paths, identifiers, tribunal views, and provenance health.",
+                "label": "Supplier passport",
+                "mode": "read",
+                "reason": "Pull the trust artifact with tribunal, control paths, and provenance health.",
+                "required": true,
+                "surface": "supplier_passport",
+                "tool_id": "supplier_passport"
+              },
+              {
+                "description": "Inspect graph density, relationship mix, and control-path reach.",
+                "label": "Graph probe",
+                "mode": "read",
+                "reason": "Inspect ownership, intermediary, and subsystem adjacency.",
+                "required": true,
+                "surface": "graph",
+                "tool_id": "graph_probe"
+              },
+              {
+                "description": "Measure downstream exposure from linked entities.",
+                "label": "Network risk",
+                "mode": "read",
+                "reason": "Measure whether the path materially changes disposition.",
+                "required": true,
+                "surface": "graph",
+                "tool_id": "network_risk"
+              },
+              {
+                "description": "Inspect raw findings, connector returns, and discovered identifiers.",
+                "label": "Enrichment findings",
+                "mode": "read",
+                "reason": "Cross-check the raw evidence behind the graph path.",
+                "required": false,
+                "surface": "enrichment",
+                "tool_id": "enrichment_findings"
+              },
+              {
+                "description": "Check for missing or weak identifiers before trusting the case.",
+                "label": "Identity repair",
+                "mode": "review",
+                "reason": "Missing core identifiers should be checked before treating the answer as final.",
+                "required": false,
+                "surface": "identity",
+                "tool_id": "identity_repair"
+              }
+            ],
+            "recommended_view": "approve",
+            "storyline_available": true,
+            "suggested_followups": [
+              "Why is this case blocked right now?",
+              "Show the strongest control path with evidence.",
+              "Tell me which missing identifiers would most change the decision."
+            ],
+            "vendor_name": "Northern Channel Partners",
+            "version": "ai-control-plane-v1"
+          }
+        },
+        {
+          "step": "assistant_execute",
+          "status": "PASS",
+          "duration_ms": 21,
+          "details": {
+            "executed_steps": 4
+          }
+        },
+        {
+          "step": "dossier_html",
+          "status": "PASS",
+          "duration_ms": 37,
+          "details": {
+            "download_url": "/api/dossiers/dossier-c-458fff4c-20260329215729.html",
+            "html_bytes": 80804,
+            "expected_fragments_checked": 4,
+            "matched_expected_fragments": [
+              "Export authorization",
+              "Export Evidence Summary",
+              "Item transfer",
+              "EAR99"
+            ],
+            "forbidden_fragments_checked": 10,
+            "expected_fragment_contexts": {
+              "Export authorization": "ss=\"hero-section\"> <div class=\"hero-panel\"> <div class=\"hero-topline\">Export authorization dossier</div> <div class=\"hero-head\"> <div>",
+              "Export Evidence Summary": "<div class=\"storyline-topline\">Export authorization evidence</div> <h2>Export Evidence Summary</h2> <p class=\"storyline-intro\"> Helios combines cust",
+              "Item transfer": "s=\"hero-lane-stat-label\">Request type</div> <div class=\"hero-lane-stat-value\">Item transfer</div> </div> <div class=\"hero-lane-stat\"> <div class",
+              "EAR99": "\"hero-lane-stat-label\">Classification</div> <div class=\"hero-lane-stat-value\">EAR99</div> </div> </div> <div class=\"hero-lane-section-lab"
+            }
+          }
+        },
+        {
+          "step": "browser_dossier_access",
+          "status": "PASS",
+          "duration_ms": 3,
+          "details": {
+            "permission": "cases:dossier",
+            "expires_in": 120,
+            "html_bytes": 80804,
+            "reopen_html_bytes": 80804
+          }
+        },
+        {
+          "step": "dossier_pdf",
+          "status": "PASS",
+          "duration_ms": 29,
+          "details": {
+            "pdf_bytes": 13241,
+            "content_disposition": "attachment; filename=dossier-c-458fff4c.pdf"
+          }
+        }
+      ],
+      "total_ms": 174,
+      "flow_name": "fixture:briefing_export_transshipment_review"
+    }
+  ],
+  "oci_summary": {
+    "required_flows": 0,
+    "passed_flows": 0,
+    "descriptor_only_passed_flows": 0,
+    "failed_flows": []
+  },
+  "failures": [],
+  "report_md": "docs/reports/pillar_briefing_fixture_qa/query_to_dossier_gauntlet/20260329215729/summary.md",
+  "report_json": "docs/reports/pillar_briefing_fixture_qa/query_to_dossier_gauntlet/20260329215729/summary.json"
+}

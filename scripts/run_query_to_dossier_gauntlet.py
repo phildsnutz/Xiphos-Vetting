@@ -72,6 +72,18 @@ DEFAULT_CASE_PAYLOAD = {
 
 ASSISTANT_PROMPT = "Trace the strongest control path and explain the current risk posture."
 HTML_MARKERS = ("<html", "Supplier passport", "Risk Storyline")
+DEFAULT_FORBIDDEN_DOSSIER_FRAGMENTS = [
+    "Invalid Date",
+    "Traceback (most recent call last)",
+    "No such file or directory",
+    "/Users/tyegonzalez/",
+    "/app/backend",
+    "ModuleNotFoundError",
+    "ImportError:",
+    "KeyError:",
+    "TypeError:",
+    "jinja2.exceptions",
+]
 DEFAULT_SPECS = [
     {
         "flow_name": "counterparty_defense",
@@ -310,6 +322,15 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+def _normalize_fragment_list(raw: Any, *, field_name: str) -> list[str]:
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list):
+        raise SystemExit(f"gauntlet spec {field_name} must be a JSON list when provided")
+    items = [str(item).strip() for item in raw if str(item).strip()]
+    return items
+
+
 def load_specs(spec_file: str) -> list[dict[str, Any]]:
     if not spec_file:
         payload = DEFAULT_SPECS
@@ -330,6 +351,14 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
         expected_oci = entry.get("expected_oci") or {}
         if expected_oci and not isinstance(expected_oci, dict):
             raise SystemExit("gauntlet spec expected_oci must be a JSON object when provided")
+        expected_dossier_fragments = _normalize_fragment_list(
+            entry.get("expected_dossier_fragments"),
+            field_name="expected_dossier_fragments",
+        )
+        forbidden_dossier_fragments = _normalize_fragment_list(
+            entry.get("forbidden_dossier_fragments"),
+            field_name="forbidden_dossier_fragments",
+        )
         specs.append(
             {
                 "flow_name": str(entry.get("flow_name") or f"flow_{index + 1}"),
@@ -341,6 +370,8 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
                 "enabled_modes": enabled_modes,
                 "preserve_case_name": bool(entry.get("preserve_case_name")),
                 "run_enrich_and_score": bool(entry.get("run_enrich_and_score")),
+                "expected_dossier_fragments": expected_dossier_fragments,
+                "forbidden_dossier_fragments": forbidden_dossier_fragments or list(DEFAULT_FORBIDDEN_DOSSIER_FRAGMENTS),
             }
         )
     return specs
@@ -435,7 +466,16 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
         lambda: _step_assistant_plan(client, case_id, spec["assistant_prompt"]),
     )
     _run_step(results, "assistant_execute", lambda: _step_assistant_execute(client, case_id, plan))
-    dossier_html = _run_step(results, "dossier_html", lambda: _step_dossier_html(client, case_id))
+    dossier_html = _run_step(
+        results,
+        "dossier_html",
+        lambda: _step_dossier_html(
+            client,
+            case_id,
+            expected_fragments=spec.get("expected_dossier_fragments") or [],
+            forbidden_fragments=spec.get("forbidden_dossier_fragments") or [],
+        ),
+    )
     _run_step(results, "browser_dossier_access", lambda: _step_browser_dossier_access(client, dossier_html["download_url"]))
     _run_step(results, "dossier_pdf", lambda: _step_dossier_pdf(client, case_id))
 
@@ -646,7 +686,25 @@ def _step_assistant_execute(client: BaseClient, case_id: str, plan_body: dict[st
     return {"executed_steps": len(executed_steps)}
 
 
-def _step_dossier_html(client: BaseClient, case_id: str) -> dict[str, Any]:
+def _find_fragment_context(text: str, fragment: str, *, radius: int = 90) -> str:
+    lower_text = text.lower()
+    lower_fragment = fragment.lower()
+    index = lower_text.find(lower_fragment)
+    if index < 0:
+        return ""
+    start = max(0, index - radius)
+    end = min(len(text), index + len(fragment) + radius)
+    snippet = text[start:end].replace("\n", " ").replace("\r", " ")
+    return " ".join(snippet.split())
+
+
+def _step_dossier_html(
+    client: BaseClient,
+    case_id: str,
+    *,
+    expected_fragments: list[str] | None = None,
+    forbidden_fragments: list[str] | None = None,
+) -> dict[str, Any]:
     status, _, body = client.request_json(
         "POST",
         f"/api/cases/{case_id}/dossier",
@@ -664,7 +722,31 @@ def _step_dossier_html(client: BaseClient, case_id: str) -> dict[str, Any]:
     _assert("text/html" in _normalize_headers(html_headers).get("Content-Type", ""), "dossier download did not return html")
     for marker in HTML_MARKERS:
         _assert(marker.lower() in html_text.lower(), f"dossier html missing marker: {marker}")
-    return {"download_url": download_url, "html_bytes": len(html_bytes)}
+    expected_fragments = expected_fragments or []
+    forbidden_fragments = forbidden_fragments or []
+
+    matched_expected: list[str] = []
+    missing_expected: list[str] = []
+    expected_contexts: dict[str, str] = {}
+    for fragment in expected_fragments:
+        if fragment.lower() in html_text.lower():
+            matched_expected.append(fragment)
+            expected_contexts[fragment] = _find_fragment_context(html_text, fragment)
+        else:
+            missing_expected.append(fragment)
+    _assert(not missing_expected, f"dossier html missing expected fragments: {', '.join(missing_expected)}")
+
+    forbidden_hits = [fragment for fragment in forbidden_fragments if fragment.lower() in html_text.lower()]
+    _assert(not forbidden_hits, f"dossier html contains forbidden fragments: {', '.join(forbidden_hits)}")
+
+    return {
+        "download_url": download_url,
+        "html_bytes": len(html_bytes),
+        "expected_fragments_checked": len(expected_fragments),
+        "matched_expected_fragments": matched_expected,
+        "forbidden_fragments_checked": len(forbidden_fragments),
+        "expected_fragment_contexts": expected_contexts,
+    }
 
 
 def _step_browser_dossier_access(client: BaseClient, download_url: str) -> dict[str, Any]:

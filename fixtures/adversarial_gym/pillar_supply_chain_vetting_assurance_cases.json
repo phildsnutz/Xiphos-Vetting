@@ -1,0 +1,101 @@
+[
+  {
+    "scenario_id": "hidden_foreign_influence_domestic_supplier",
+    "title": "Hidden foreign influence in a domestic defense supplier",
+    "description": "A nominally domestic supplier carries layered ownership and network pressure that should push the tribunal into a deny view.",
+    "signal_packet": {
+      "posture": "review",
+      "hard_stop": false,
+      "latest_decision": "escalate",
+      "connector_coverage": 6,
+      "identifier_count": 3,
+      "control_path_count": 5,
+      "ownership_path_count": 2,
+      "intermediary_path_count": 2,
+      "contradicted_path_count": 0,
+      "stale_path_count": 0,
+      "corroborated_path_count": 3,
+      "network_score": 2.8,
+      "network_level": "high",
+      "foreign_control_risk": true,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": true,
+      "cyber_gap": true,
+      "critical_cves": 2,
+      "kev_count": 1,
+      "workflow_owner": "Compliance review"
+    },
+    "expected": {
+      "recommended_view": "deny",
+      "minimum_score": 0.55,
+      "required_signal_keys": ["foreign_control_risk", "network_pressure", "cyber_gap"]
+    }
+  },
+  {
+    "scenario_id": "shell_nominee_pass_through_subcontractor",
+    "title": "Shell / nominee pass-through subcontractor",
+    "description": "Payments and routing intermediaries are visible, but the chain still lacks enough certainty for a clean deny or approve posture.",
+    "signal_packet": {
+      "posture": "review",
+      "hard_stop": false,
+      "latest_decision": "",
+      "connector_coverage": 5,
+      "identifier_count": 2,
+      "control_path_count": 4,
+      "ownership_path_count": 1,
+      "intermediary_path_count": 3,
+      "contradicted_path_count": 0,
+      "stale_path_count": 1,
+      "corroborated_path_count": 2,
+      "network_score": 1.8,
+      "network_level": "medium",
+      "foreign_control_risk": true,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": false,
+      "cyber_gap": false,
+      "critical_cves": 0,
+      "kev_count": 0,
+      "workflow_owner": "Analyst review"
+    },
+    "expected": {
+      "recommended_view": "watch",
+      "minimum_score": 0.45,
+      "required_signal_keys": ["foreign_control_context", "intermediary_paths"]
+    }
+  },
+  {
+    "scenario_id": "lower_tier_supplier_concealed_dependency",
+    "title": "Lower-tier supplier with concealed dependency",
+    "description": "The prime is not the problem. The lower-tier dependency chain is stale, partially contradictory, and still risky enough to keep the case in watch.",
+    "signal_packet": {
+      "posture": "pending",
+      "hard_stop": false,
+      "latest_decision": "",
+      "connector_coverage": 4,
+      "identifier_count": 2,
+      "control_path_count": 3,
+      "ownership_path_count": 0,
+      "intermediary_path_count": 1,
+      "contradicted_path_count": 2,
+      "stale_path_count": 2,
+      "corroborated_path_count": 1,
+      "network_score": 1.1,
+      "network_level": "medium",
+      "foreign_control_risk": false,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": false,
+      "cyber_gap": false,
+      "critical_cves": 0,
+      "kev_count": 0,
+      "workflow_owner": "Program review"
+    },
+    "expected": {
+      "recommended_view": "watch",
+      "minimum_score": 0.45,
+      "required_signal_keys": ["contradictory_claims", "stale_claims", "thin_control_paths"]
+    }
+  }
+]

@@ -1,0 +1,339 @@
+{
+  "scenario_count": 3,
+  "passed_count": 3,
+  "failed_count": 0,
+  "pass_rate": 1.0,
+  "rows": [
+    {
+      "scenario_id": "hidden_foreign_influence_domestic_supplier",
+      "title": "Hidden foreign influence in a domestic defense supplier",
+      "description": "A nominally domestic supplier carries layered ownership and network pressure that should push the tribunal into a deny view.",
+      "recommended_view": "deny",
+      "expected_view": "deny",
+      "consensus_level": "contested",
+      "decision_gap": 0.01,
+      "required_signal_keys": [
+        "foreign_control_risk",
+        "network_pressure",
+        "cyber_gap"
+      ],
+      "signal_gaps": [],
+      "minimum_score": 0.55,
+      "target_score": 0.71,
+      "passed": true,
+      "tribunal": {
+        "version": "decision-tribunal-v1",
+        "generated_at": "2026-03-29T21:57:16Z",
+        "recommended_view": "deny",
+        "recommended_label": "Deny / Block",
+        "consensus_level": "contested",
+        "decision_gap": 0.01,
+        "signal_snapshot": {
+          "posture": "review",
+          "tier_band": "clear",
+          "hard_stop": false,
+          "latest_decision": "escalate",
+          "connector_coverage": 6,
+          "identifier_count": 3,
+          "control_path_count": 5,
+          "ownership_path_count": 2,
+          "intermediary_path_count": 2,
+          "contradicted_path_count": 0,
+          "stale_path_count": 0,
+          "corroborated_path_count": 3,
+          "network_score": 2.8,
+          "network_level": "high",
+          "foreign_control_risk": true,
+          "mitigated_foreign_interest": false,
+          "export_prohibited": false,
+          "export_review_required": true,
+          "cyber_gap": true,
+          "critical_cves": 2,
+          "kev_count": 1,
+          "workflow_owner": "Compliance review",
+          "workflow_basis": ""
+        },
+        "views": [
+          {
+            "stance": "deny",
+            "label": "Deny / Block",
+            "owner": "Compliance lead",
+            "score": 0.71,
+            "summary": "Foreign-control evidence is unresolved and unmitigated.",
+            "reasons": [
+              "Foreign-control evidence is unresolved and unmitigated.",
+              "Ownership and export signals compound into a higher-control concern.",
+              "Network pressure is high enough to justify a deny posture.",
+              "Cyber evidence shows exploitable supplier pressure alongside unresolved controls."
+            ],
+            "signal_keys": [
+              "foreign_control_risk",
+              "compound_export_control",
+              "network_pressure",
+              "cyber_gap",
+              "compound_control_path"
+            ]
+          },
+          {
+            "stance": "watch",
+            "label": "Watch / Conditional",
+            "owner": "Compliance review",
+            "score": 0.7,
+            "summary": "Current posture already requires conditions or analyst review.",
+            "reasons": [
+              "Current posture already requires conditions or analyst review.",
+              "Latest analyst decision says escalate rather than clear.",
+              "Export rules still require formal review.",
+              "Cyber evidence shows unresolved readiness or vulnerability pressure."
+            ],
+            "signal_keys": [
+              "review_posture",
+              "analyst_escalate",
+              "export_review",
+              "cyber_gap",
+              "network_pressure",
+              "foreign_control_context",
+              "intermediary_paths"
+            ]
+          },
+          {
+            "stance": "approve",
+            "label": "Approve / Proceed",
+            "owner": "Program / procurement",
+            "score": 0.15,
+            "summary": "No hard-stop is active.",
+            "reasons": [
+              "No hard-stop is active.",
+              "Identifier anchors are strong enough to trust the entity match.",
+              "Connector coverage is broad enough to support a cleaner decision.",
+              "No contradictory ownership or intermediary claims are present."
+            ],
+            "signal_keys": [
+              "no_hard_stop",
+              "identifier_depth",
+              "coverage_depth",
+              "no_contradictions",
+              "fresh_control_paths"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "shell_nominee_pass_through_subcontractor",
+      "title": "Shell / nominee pass-through subcontractor",
+      "description": "Payments and routing intermediaries are visible, but the chain still lacks enough certainty for a clean deny or approve posture.",
+      "recommended_view": "watch",
+      "expected_view": "watch",
+      "consensus_level": "strong",
+      "decision_gap": 0.24,
+      "required_signal_keys": [
+        "foreign_control_context",
+        "intermediary_paths"
+      ],
+      "signal_gaps": [],
+      "minimum_score": 0.45,
+      "target_score": 0.66,
+      "passed": true,
+      "tribunal": {
+        "version": "decision-tribunal-v1",
+        "generated_at": "2026-03-29T21:57:16Z",
+        "recommended_view": "watch",
+        "recommended_label": "Watch / Conditional",
+        "consensus_level": "strong",
+        "decision_gap": 0.24,
+        "signal_snapshot": {
+          "posture": "review",
+          "tier_band": "clear",
+          "hard_stop": false,
+          "latest_decision": "",
+          "connector_coverage": 5,
+          "identifier_count": 2,
+          "control_path_count": 4,
+          "ownership_path_count": 1,
+          "intermediary_path_count": 3,
+          "contradicted_path_count": 0,
+          "stale_path_count": 1,
+          "corroborated_path_count": 2,
+          "network_score": 1.8,
+          "network_level": "medium",
+          "foreign_control_risk": true,
+          "mitigated_foreign_interest": false,
+          "export_prohibited": false,
+          "export_review_required": false,
+          "cyber_gap": false,
+          "critical_cves": 0,
+          "kev_count": 0,
+          "workflow_owner": "Analyst review",
+          "workflow_basis": ""
+        },
+        "views": [
+          {
+            "stance": "watch",
+            "label": "Watch / Conditional",
+            "owner": "Analyst review",
+            "score": 0.66,
+            "summary": "Current posture already requires conditions or analyst review.",
+            "reasons": [
+              "Current posture already requires conditions or analyst review.",
+              "Network risk adds meaningful downstream pressure.",
+              "Foreign-control evidence is present and still matters operationally.",
+              "Some control-path evidence is stale and should be refreshed."
+            ],
+            "signal_keys": [
+              "review_posture",
+              "network_pressure",
+              "foreign_control_context",
+              "stale_claims",
+              "intermediary_paths"
+            ]
+          },
+          {
+            "stance": "approve",
+            "label": "Approve / Proceed",
+            "owner": "Program / procurement",
+            "score": 0.42,
+            "summary": "No hard-stop is active.",
+            "reasons": [
+              "No hard-stop is active.",
+              "Export lane does not currently force additional review.",
+              "Cyber evidence does not show an active readiness gap.",
+              "Identifier anchors are strong enough to trust the entity match."
+            ],
+            "signal_keys": [
+              "no_hard_stop",
+              "export_clear",
+              "cyber_clear",
+              "identifier_depth",
+              "coverage_depth",
+              "no_contradictions"
+            ]
+          },
+          {
+            "stance": "deny",
+            "label": "Deny / Block",
+            "owner": "Compliance lead",
+            "score": 0.23,
+            "summary": "Foreign-control evidence is unresolved and unmitigated.",
+            "reasons": [
+              "Foreign-control evidence is unresolved and unmitigated.",
+              "Both control and intermediary paths are present, increasing hidden-control concern."
+            ],
+            "signal_keys": [
+              "foreign_control_risk",
+              "compound_control_path"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "lower_tier_supplier_concealed_dependency",
+      "title": "Lower-tier supplier with concealed dependency",
+      "description": "The prime is not the problem. The lower-tier dependency chain is stale, partially contradictory, and still risky enough to keep the case in watch.",
+      "recommended_view": "watch",
+      "expected_view": "watch",
+      "consensus_level": "strong",
+      "decision_gap": 0.26,
+      "required_signal_keys": [
+        "contradictory_claims",
+        "stale_claims",
+        "thin_control_paths"
+      ],
+      "signal_gaps": [],
+      "minimum_score": 0.45,
+      "target_score": 0.84,
+      "passed": true,
+      "tribunal": {
+        "version": "decision-tribunal-v1",
+        "generated_at": "2026-03-29T21:57:16Z",
+        "recommended_view": "watch",
+        "recommended_label": "Watch / Conditional",
+        "consensus_level": "strong",
+        "decision_gap": 0.26,
+        "signal_snapshot": {
+          "posture": "pending",
+          "tier_band": "clear",
+          "hard_stop": false,
+          "latest_decision": "",
+          "connector_coverage": 4,
+          "identifier_count": 2,
+          "control_path_count": 3,
+          "ownership_path_count": 0,
+          "intermediary_path_count": 1,
+          "contradicted_path_count": 2,
+          "stale_path_count": 2,
+          "corroborated_path_count": 1,
+          "network_score": 1.1,
+          "network_level": "medium",
+          "foreign_control_risk": false,
+          "mitigated_foreign_interest": false,
+          "export_prohibited": false,
+          "export_review_required": false,
+          "cyber_gap": false,
+          "critical_cves": 0,
+          "kev_count": 0,
+          "workflow_owner": "Program review",
+          "workflow_basis": ""
+        },
+        "views": [
+          {
+            "stance": "watch",
+            "label": "Watch / Conditional",
+            "owner": "Program review",
+            "score": 0.84,
+            "summary": "Current posture already requires conditions or analyst review.",
+            "reasons": [
+              "Current posture already requires conditions or analyst review.",
+              "Network risk adds meaningful downstream pressure.",
+              "Control-path coverage is still thin and should be improved before a clean decision.",
+              "Some ownership or intermediary claims are contradictory."
+            ],
+            "signal_keys": [
+              "review_posture",
+              "network_pressure",
+              "thin_control_paths",
+              "contradictory_claims",
+              "stale_claims",
+              "intermediary_paths"
+            ]
+          },
+          {
+            "stance": "approve",
+            "label": "Approve / Proceed",
+            "owner": "Program / procurement",
+            "score": 0.58,
+            "summary": "No hard-stop is active.",
+            "reasons": [
+              "No hard-stop is active.",
+              "Export lane does not currently force additional review.",
+              "Cyber evidence does not show an active readiness gap.",
+              "Identifier anchors are strong enough to trust the entity match."
+            ],
+            "signal_keys": [
+              "no_hard_stop",
+              "export_clear",
+              "cyber_clear",
+              "identifier_depth",
+              "coverage_depth",
+              "ownership_clear"
+            ]
+          },
+          {
+            "stance": "deny",
+            "label": "Deny / Block",
+            "owner": "Compliance lead",
+            "score": 0.09,
+            "summary": "Contradictory control-path evidence lowers trust in the case.",
+            "reasons": [
+              "Contradictory control-path evidence lowers trust in the case."
+            ],
+            "signal_keys": [
+              "contradictory_claims"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
