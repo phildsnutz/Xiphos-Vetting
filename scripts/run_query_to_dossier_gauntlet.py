@@ -72,6 +72,12 @@ DEFAULT_CASE_PAYLOAD = {
 
 ASSISTANT_PROMPT = "Trace the strongest control path and explain the current risk posture."
 HTML_MARKERS = ("<html", "Supplier passport", "Risk Storyline")
+DEFAULT_SPECS = [
+    {
+        "flow_name": "counterparty_defense",
+        "expected_workflow_lane": "counterparty",
+    }
+]
 
 
 @dataclass
@@ -219,6 +225,39 @@ def _assert(condition: bool, message: str):
         raise GauntletFailure(message)
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_specs(spec_file: str) -> list[dict[str, Any]]:
+    if not spec_file:
+        payload = DEFAULT_SPECS
+    else:
+        payload = json.loads(Path(spec_file).read_text(encoding="utf-8"))
+    if not isinstance(payload, list) or not payload:
+        raise SystemExit("gauntlet spec file must contain a non-empty JSON list")
+    specs: list[dict[str, Any]] = []
+    for index, entry in enumerate(payload):
+        if not isinstance(entry, dict):
+            raise SystemExit("gauntlet spec entries must be JSON objects")
+        specs.append(
+            {
+                "flow_name": str(entry.get("flow_name") or f"flow_{index + 1}"),
+                "compare_payload": _deep_merge(DEFAULT_COMPARE_PAYLOAD, entry.get("compare_payload") or {}),
+                "case_payload": _deep_merge(DEFAULT_CASE_PAYLOAD, entry.get("case_payload") or {}),
+                "assistant_prompt": str(entry.get("assistant_prompt") or ASSISTANT_PROMPT),
+                "expected_workflow_lane": str(entry.get("expected_workflow_lane") or "").strip(),
+            }
+        )
+    return specs
+
+
 def _normalize_headers(headers: dict[str, Any]) -> dict[str, str]:
     return {str(key): str(value) for key, value in headers.items()}
 
@@ -263,7 +302,7 @@ def login_http(base_url: str, email: str, password: str) -> dict[str, Any]:
         return json.loads(body.decode("utf-8"))
 
 
-def run_query_to_dossier_flow(client: BaseClient, *, case_name_prefix: str = "Gauntlet Vendor") -> dict[str, Any]:
+def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[str, Any]:
     results: list[StepResult] = []
     warnings: list[str] = []
 
@@ -273,13 +312,25 @@ def run_query_to_dossier_flow(client: BaseClient, *, case_name_prefix: str = "Ga
         lambda: _step_health(client),
     )
     _run_step(results, "ai_providers", lambda: _step_ai_providers(client))
-    _run_step(results, "compare", lambda: _step_compare(client))
-    created = _run_step(results, "create_case", lambda: _step_create_case(client, case_name_prefix=case_name_prefix))
+    _run_step(results, "compare", lambda: _step_compare(client, spec["compare_payload"]))
+    created = _run_step(
+        results,
+        "create_case",
+        lambda: _step_create_case(client, flow_name=spec["flow_name"], case_payload=spec["case_payload"]),
+    )
     case_id = created["case_id"]
-    _run_step(results, "case_detail", lambda: _step_case_detail(client, case_id))
+    _run_step(
+        results,
+        "case_detail",
+        lambda: _step_case_detail(client, case_id, expected_workflow_lane=spec.get("expected_workflow_lane", "")),
+    )
     _run_step(results, "graph", lambda: _step_graph(client, case_id))
     _run_step(results, "supplier_passport", lambda: _step_supplier_passport(client, case_id))
-    plan = _run_step(results, "assistant_plan", lambda: _step_assistant_plan(client, case_id))
+    plan = _run_step(
+        results,
+        "assistant_plan",
+        lambda: _step_assistant_plan(client, case_id, spec["assistant_prompt"]),
+    )
     _run_step(results, "assistant_execute", lambda: _step_assistant_execute(client, case_id, plan))
     dossier_html = _run_step(results, "dossier_html", lambda: _step_dossier_html(client, case_id))
     _run_step(results, "dossier_pdf", lambda: _step_dossier_pdf(client, case_id))
@@ -295,6 +346,7 @@ def run_query_to_dossier_flow(client: BaseClient, *, case_name_prefix: str = "Ga
         "warnings": warnings,
         "steps": [asdict(item) for item in results],
         "total_ms": total_ms,
+        "flow_name": spec["flow_name"],
     }
 
 
@@ -315,20 +367,20 @@ def _step_ai_providers(client: BaseClient) -> dict[str, Any]:
     return {"provider_count": len(providers)}
 
 
-def _step_compare(client: BaseClient) -> dict[str, Any]:
-    status, _, body = client.request_json("POST", "/api/compare", payload=DEFAULT_COMPARE_PAYLOAD, timeout=45)
+def _step_compare(client: BaseClient, compare_payload: dict[str, Any]) -> dict[str, Any]:
+    status, _, body = client.request_json("POST", "/api/compare", payload=compare_payload, timeout=45)
     _assert(status == 200 and isinstance(body, dict), f"/api/compare returned {status}")
     comparisons = body.get("comparisons") or []
     entity = body.get("entity") or {}
-    _assert(entity.get("name") == DEFAULT_COMPARE_PAYLOAD["name"], "compare entity name mismatch")
+    _assert(entity.get("name") == compare_payload["name"], "compare entity name mismatch")
     _assert(len(comparisons) >= 1, "compare returned no profile comparisons")
     _assert(all("tier" in item for item in comparisons), "compare response missing tier")
     return {"comparison_count": len(comparisons)}
 
 
-def _step_create_case(client: BaseClient, *, case_name_prefix: str) -> dict[str, Any]:
-    payload = dict(DEFAULT_CASE_PAYLOAD)
-    payload["name"] = f"{case_name_prefix} {int(time.time())}"
+def _step_create_case(client: BaseClient, *, flow_name: str, case_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = _deep_merge(DEFAULT_CASE_PAYLOAD, case_payload)
+    payload["name"] = f"{flow_name} {int(time.time())}"
     status, _, body = client.request_json("POST", "/api/cases", payload=payload, timeout=45)
     _assert(status == 201 and isinstance(body, dict), f"/api/cases returned {status}")
     case_id = body.get("case_id")
@@ -336,12 +388,17 @@ def _step_create_case(client: BaseClient, *, case_name_prefix: str) -> dict[str,
     return {"case_id": case_id, "vendor_name": payload["name"]}
 
 
-def _step_case_detail(client: BaseClient, case_id: str) -> dict[str, Any]:
+def _step_case_detail(client: BaseClient, case_id: str, *, expected_workflow_lane: str = "") -> dict[str, Any]:
     status, _, body = client.request_json("GET", f"/api/cases/{case_id}", timeout=45)
     _assert(status == 200 and isinstance(body, dict), f"/api/cases/{case_id} returned {status}")
     _assert(body.get("id") == case_id, "case detail id mismatch")
     _assert("storyline" in body, "case detail missing storyline field")
-    return {"has_storyline": body.get("storyline") is not None}
+    if expected_workflow_lane:
+        _assert(body.get("workflow_lane") == expected_workflow_lane, "workflow lane mismatch")
+    return {
+        "has_storyline": body.get("storyline") is not None,
+        "workflow_lane": body.get("workflow_lane"),
+    }
 
 
 def _step_graph(client: BaseClient, case_id: str) -> dict[str, Any]:
@@ -367,11 +424,11 @@ def _step_supplier_passport(client: BaseClient, case_id: str) -> dict[str, Any]:
     }
 
 
-def _step_assistant_plan(client: BaseClient, case_id: str) -> dict[str, Any]:
+def _step_assistant_plan(client: BaseClient, case_id: str, assistant_prompt: str) -> dict[str, Any]:
     status, _, body = client.request_json(
         "POST",
         f"/api/cases/{case_id}/assistant-plan",
-        payload={"prompt": ASSISTANT_PROMPT},
+        payload={"prompt": assistant_prompt},
         timeout=60,
     )
     _assert(status == 200 and isinstance(body, dict), f"/api/cases/{case_id}/assistant-plan returned {status}")
@@ -486,17 +543,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--email", default="")
     parser.add_argument("--password", default="")
     parser.add_argument("--token", default="")
+    parser.add_argument("--spec-file", default="")
     parser.add_argument("--report-dir", default=str(ROOT / "docs" / "reports"))
     parser.add_argument("--print-json", action="store_true")
     return parser.parse_args()
 
 
 def run_fixture_flow() -> dict[str, Any]:
+    return run_fixture_flows()[0]
+
+
+def run_fixture_flows(specs: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    specs = specs or load_specs("")
     with fixture_client_context() as client:
-        return run_query_to_dossier_flow(client, case_name_prefix="Fixture Gauntlet Vendor")
+        return [run_query_to_dossier_flow(client, spec) for spec in specs]
 
 
 def run_local_auth_flow(base_url: str, email: str, password: str, token: str) -> dict[str, Any]:
+    return run_local_auth_flows(base_url, email, password, token)[0]
+
+
+def run_local_auth_flows(
+    base_url: str,
+    email: str,
+    password: str,
+    token: str,
+    specs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    specs = specs or load_specs("")
     headers: dict[str, str] = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -506,27 +580,30 @@ def run_local_auth_flow(base_url: str, email: str, password: str, token: str) ->
     else:
         raise SystemExit("local-auth mode requires --token or --email/--password")
     client = HttpGauntletClient(base_url, headers=headers)
-    return run_query_to_dossier_flow(client, case_name_prefix="Local Auth Gauntlet Vendor")
+    return [run_query_to_dossier_flow(client, spec) for spec in specs]
 
 
 def main() -> int:
     args = parse_args()
+    specs = load_specs(args.spec_file)
     flows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
 
     if args.mode in {"fixture", "both"}:
         try:
-            flow = run_fixture_flow()
-            flow["flow_name"] = "fixture"
-            flows.append(flow)
+            fixture_flows = run_fixture_flows(specs)
+            for flow in fixture_flows:
+                flow["flow_name"] = f"fixture:{flow['flow_name']}"
+            flows.extend(fixture_flows)
         except Exception as exc:
             failures.append({"flow_name": "fixture", "error": str(exc)})
 
     if args.mode in {"local-auth", "both"}:
         try:
-            flow = run_local_auth_flow(args.base_url, args.email, args.password, args.token)
-            flow["flow_name"] = "local-auth"
-            flows.append(flow)
+            local_auth_flows = run_local_auth_flows(args.base_url, args.email, args.password, args.token, specs)
+            for flow in local_auth_flows:
+                flow["flow_name"] = f"local-auth:{flow['flow_name']}"
+            flows.extend(local_auth_flows)
         except Exception as exc:
             failures.append({"flow_name": "local-auth", "error": str(exc)})
 

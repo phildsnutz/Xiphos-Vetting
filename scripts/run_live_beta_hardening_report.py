@@ -70,6 +70,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skip-readiness", action="store_true")
     parser.add_argument("--skip-prime-time", action="store_true")
+    parser.add_argument("--skip-query-to-dossier", action="store_true")
+    parser.add_argument(
+        "--gauntlet-spec-file",
+        default=str(ROOT / "fixtures" / "customer_demo" / "query_to_dossier_canary_pack.json"),
+    )
     parser.add_argument("--readiness-base-url", default="http://24.199.122.225:8080")
     parser.add_argument("--readiness-email", default="")
     parser.add_argument("--readiness-password", default="")
@@ -273,6 +278,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Cases with failures: {summary['cases_with_failures']}",
         f"- Warning count: {summary['warning_count']}",
         "",
+        "## Query To Dossier",
+        "",
+        f"- Gauntlet verdict: **{summary['query_to_dossier']['overall_verdict']}**",
+        f"- Gauntlet report: {summary['query_to_dossier']['report_md']}",
+        "",
         "## Readiness",
         "",
         f"- Readiness verdict: **{summary['readiness']['overall_verdict']}**",
@@ -350,6 +360,45 @@ def run_readiness(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def run_query_to_dossier(args: argparse.Namespace) -> dict[str, Any]:
+    if args.skip_query_to_dossier:
+        return {
+            "overall_verdict": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+            "flows": [],
+        }
+    if not args.readiness_token and not (args.readiness_email and args.readiness_password):
+        raise SystemExit("live beta hardening query-to-dossier now requires readiness auth or --skip-query-to-dossier")
+
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_live_query_to_dossier_canary.py"),
+        "--base-url",
+        args.readiness_base_url,
+        "--spec-file",
+        args.gauntlet_spec_file,
+        "--report-dir",
+        str(Path(args.report_dir) / "query-to-dossier"),
+        "--print-json",
+    ]
+    if args.readiness_token:
+        command.extend(["--token", args.readiness_token])
+    else:
+        command.extend(["--email", args.readiness_email, "--password", args.readiness_password])
+
+    proc = subprocess.run(command, text=True, capture_output=True)
+    if proc.returncode not in {0, 1}:
+        stderr = proc.stderr.strip() or "unknown gauntlet error"
+        raise RuntimeError(f"live query-to-dossier gauntlet failed: {stderr}")
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, dict):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "live query-to-dossier gauntlet did not emit JSON"
+        raise RuntimeError(f"live query-to-dossier gauntlet failed: {detail}")
+    payload["returncode"] = proc.returncode
+    return payload
+
+
 def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_dir: Path, stamp: str) -> dict[str, Any]:
     if args.skip_prime_time:
         return {
@@ -394,11 +443,12 @@ def _gate_success(verdict: str, success_values: set[str]) -> bool:
 def _overall_verdict(summary: dict[str, Any]) -> str:
     if summary["cases_with_failures"] > 0:
         return "FAIL"
+    gauntlet_verdict = str(summary["query_to_dossier"]["overall_verdict"])
     readiness_verdict = str(summary["readiness"]["overall_verdict"])
     prime_time_verdict = str(summary["prime_time"]["prime_time_verdict"])
-    if readiness_verdict == "GO" and prime_time_verdict == "READY":
+    if gauntlet_verdict == "PASS" and readiness_verdict == "GO" and prime_time_verdict == "READY":
         return "PASS"
-    if _gate_success(readiness_verdict, {"GO"}) and _gate_success(prime_time_verdict, {"READY"}):
+    if _gate_success(gauntlet_verdict, {"PASS"}) and _gate_success(readiness_verdict, {"GO"}) and _gate_success(prime_time_verdict, {"READY"}):
         return "PASS_WITH_SKIPS"
     return "FAIL"
 
@@ -429,6 +479,7 @@ def main() -> int:
         "cases_checked": len(results),
         "cases_with_failures": sum(1 for result in results if result["failures"]),
         "warning_count": sum(len(result["warnings"]) for result in results),
+        "query_to_dossier": run_query_to_dossier(args),
         "readiness": run_readiness(args),
         "cases": results,
     }

@@ -93,6 +93,12 @@ def test_render_markdown_includes_readiness_section():
         "monitoring_missing": 0,
         "warning_count": 0,
         "tiers": {"TIER_4_CLEAR": 1},
+        "query_to_dossier": {
+            "overall_verdict": "PASS",
+            "report_md": "/tmp/gauntlet.md",
+            "report_json": "/tmp/gauntlet.json",
+            "flows": [],
+        },
         "readiness": {
             "overall_verdict": "GO",
             "report_md": "/tmp/readiness.md",
@@ -127,6 +133,8 @@ def test_render_markdown_includes_readiness_section():
         ],
     }
     markdown = module.render_markdown(summary)
+    assert "## Query To Dossier" in markdown
+    assert "Gauntlet verdict: **PASS**" in markdown
     assert "## Readiness" in markdown
     assert "Readiness verdict: **GO**" in markdown
     assert "## Prime Time" in markdown
@@ -170,6 +178,28 @@ def test_run_prime_time_parses_subprocess_payload(monkeypatch, tmp_path):
     )
     assert payload["prime_time_verdict"] == "READY"
     assert payload["report_json"].endswith(".json")
+    assert payload["returncode"] == 0
+
+
+def test_run_query_to_dossier_parses_subprocess_payload(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"overall_verdict": "PASS", "report_md": "/tmp/g.md", "report_json": "/tmp/g.json", "flows": []})
+        stderr = ""
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: FakeProc())
+    args = module.argparse.Namespace(
+        skip_query_to_dossier=False,
+        gauntlet_mode="fixture",
+        gauntlet_base_url="http://127.0.0.1:8080",
+        gauntlet_email="",
+        gauntlet_password="",
+        gauntlet_token="",
+        gauntlet_spec_file="",
+        report_dir="/tmp/reports",
+    )
+    payload = module.run_query_to_dossier(args)
+    assert payload["overall_verdict"] == "PASS"
     assert payload["returncode"] == 0
 
 

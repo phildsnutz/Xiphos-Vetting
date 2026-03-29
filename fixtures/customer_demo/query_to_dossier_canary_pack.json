@@ -1,0 +1,28 @@
+[
+  {
+    "flow_name": "counterparty_defense",
+    "expected_workflow_lane": "counterparty"
+  },
+  {
+    "flow_name": "export_trade_compliance",
+    "expected_workflow_lane": "export",
+    "case_payload": {
+      "profile": "trade_compliance",
+      "export_authorization": {
+        "request_type": "item_transfer",
+        "destination_country": "AE",
+        "classification_guess": "EAR99"
+      }
+    }
+  },
+  {
+    "flow_name": "cyber_supplier_review",
+    "expected_workflow_lane": "cyber",
+    "case_payload": {
+      "profile": "supplier_cyber_trust",
+      "seed_metadata": {
+        "product_terms": ["network appliance firmware", "satellite modem"]
+      }
+    }
+  }
+]

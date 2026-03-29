@@ -23,6 +23,12 @@ def test_render_markdown_includes_readiness_section():
         "cases_checked": 1,
         "cases_with_failures": 0,
         "warning_count": 0,
+        "query_to_dossier": {
+            "overall_verdict": "PASS",
+            "report_md": "/tmp/gauntlet.md",
+            "report_json": "/tmp/gauntlet.json",
+            "flows": [],
+        },
         "readiness": {
             "overall_verdict": "GO",
             "report_md": "/tmp/readiness.md",
@@ -50,6 +56,8 @@ def test_render_markdown_includes_readiness_section():
         ],
     }
     markdown = module.render_markdown(summary)
+    assert "## Query To Dossier" in markdown
+    assert "Gauntlet verdict: **PASS**" in markdown
     assert "## Readiness" in markdown
     assert "Readiness verdict: **GO**" in markdown
     assert "## Prime Time" in markdown
@@ -110,6 +118,45 @@ def test_run_prime_time_parses_subprocess_payload(monkeypatch, tmp_path):
     payload = module.run_prime_time(args, readiness, tmp_path, "20260329-010101")
     assert payload["prime_time_verdict"] == "READY"
     assert payload["report_md"].endswith(".md")
+    assert payload["returncode"] == 0
+
+
+def test_run_query_to_dossier_requires_auth_without_skip():
+    args = module.argparse.Namespace(
+        skip_query_to_dossier=False,
+        readiness_base_url="http://127.0.0.1:8080",
+        readiness_email="",
+        readiness_password="",
+        readiness_token="",
+        gauntlet_spec_file="/tmp/spec.json",
+        report_dir="/tmp/reports",
+    )
+    try:
+        module.run_query_to_dossier(args)
+    except SystemExit as exc:
+        assert "requires readiness auth" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_run_query_to_dossier_parses_subprocess_payload(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"overall_verdict": "PASS", "report_md": "/tmp/g.md", "report_json": "/tmp/g.json", "flows": []})
+        stderr = ""
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: FakeProc())
+    args = module.argparse.Namespace(
+        skip_query_to_dossier=False,
+        readiness_base_url="http://127.0.0.1:8080",
+        readiness_email="ops@example.com",
+        readiness_password="secret",
+        readiness_token="",
+        gauntlet_spec_file="/tmp/spec.json",
+        report_dir="/tmp/reports",
+    )
+    payload = module.run_query_to_dossier(args)
+    assert payload["overall_verdict"] == "PASS"
     assert payload["returncode"] == 0
 
 

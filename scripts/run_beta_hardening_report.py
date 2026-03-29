@@ -104,6 +104,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--readiness-company", action="append", default=[])
     parser.add_argument("--skip-readiness", action="store_true")
     parser.add_argument("--skip-prime-time", action="store_true")
+    parser.add_argument("--skip-query-to-dossier", action="store_true")
+    parser.add_argument("--gauntlet-mode", choices=("fixture", "local-auth", "both"), default="fixture")
+    parser.add_argument("--gauntlet-base-url", default="http://127.0.0.1:8080")
+    parser.add_argument("--gauntlet-email", default="")
+    parser.add_argument("--gauntlet-password", default="")
+    parser.add_argument("--gauntlet-token", default="")
+    parser.add_argument(
+        "--gauntlet-spec-file",
+        default=str(ROOT / "fixtures" / "customer_demo" / "query_to_dossier_canary_pack.json"),
+    )
     parser.add_argument("--warm-monitoring", action="store_true", help="Attempt one local monitoring pass before warning")
     parser.add_argument("--print-json", action="store_true", help="Print the JSON summary to stdout")
     return parser.parse_args()
@@ -348,11 +358,12 @@ def _gate_success(verdict: str, success_values: set[str]) -> bool:
 def _overall_verdict(summary: dict[str, Any]) -> str:
     if summary["cases_with_failures"] > 0:
         return "FAIL"
+    gauntlet_verdict = str(summary["query_to_dossier"]["overall_verdict"])
     readiness_verdict = str(summary["readiness"]["overall_verdict"])
     prime_time_verdict = str(summary["prime_time"]["prime_time_verdict"])
-    if readiness_verdict == "GO" and prime_time_verdict == "READY":
+    if gauntlet_verdict == "PASS" and readiness_verdict == "GO" and prime_time_verdict == "READY":
         return "PASS"
-    if _gate_success(readiness_verdict, {"GO"}) and _gate_success(prime_time_verdict, {"READY"}):
+    if _gate_success(gauntlet_verdict, {"PASS"}) and _gate_success(readiness_verdict, {"GO"}) and _gate_success(prime_time_verdict, {"READY"}):
         return "PASS_WITH_SKIPS"
     return "FAIL"
 
@@ -375,6 +386,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Cases without warmed AI yet: {summary['ai_not_warmed']}",
         f"- Cases missing monitoring history: {summary['monitoring_missing']}",
         f"- Total warnings: {summary['warning_count']}",
+        "",
+        "## Query To Dossier",
+        "",
+        f"- Gauntlet verdict: **{summary['query_to_dossier']['overall_verdict']}**",
+        f"- Gauntlet report: {summary['query_to_dossier']['report_md']}",
         "",
         "## Readiness",
         "",
@@ -458,6 +474,48 @@ def run_readiness(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def run_query_to_dossier(args: argparse.Namespace) -> dict[str, Any]:
+    if args.skip_query_to_dossier:
+        return {
+            "overall_verdict": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+            "flows": [],
+        }
+
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_query_to_dossier_gauntlet.py"),
+        "--mode",
+        args.gauntlet_mode,
+        "--report-dir",
+        str(Path(args.report_dir) / "query-to-dossier"),
+        "--base-url",
+        args.gauntlet_base_url,
+        "--print-json",
+    ]
+    if args.gauntlet_spec_file:
+        command.extend(["--spec-file", args.gauntlet_spec_file])
+    if args.gauntlet_token:
+        command.extend(["--token", args.gauntlet_token])
+    else:
+        if args.gauntlet_email:
+            command.extend(["--email", args.gauntlet_email])
+        if args.gauntlet_password:
+            command.extend(["--password", args.gauntlet_password])
+
+    proc = subprocess.run(command, text=True, capture_output=True, cwd=ROOT)
+    if proc.returncode not in {0, 1}:
+        stderr = proc.stderr.strip() or "unknown gauntlet error"
+        raise RuntimeError(f"query-to-dossier gauntlet failed: {stderr}")
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, dict):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "query-to-dossier gauntlet did not emit JSON"
+        raise RuntimeError(f"query-to-dossier gauntlet failed: {detail}")
+    payload["returncode"] = proc.returncode
+    return payload
+
+
 def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_dir: Path, stamp: str) -> dict[str, Any]:
     if args.skip_prime_time:
         return {
@@ -510,6 +568,7 @@ def main() -> int:
 
     results = [run_case(vendor, args.graph_depth, warm_monitoring=args.warm_monitoring) for vendor in vendors]
     summary = build_summary(results, args.graph_depth)
+    summary["query_to_dossier"] = run_query_to_dossier(args)
     summary["readiness"] = run_readiness(args)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -68,6 +68,34 @@ def test_render_markdown_includes_flow_table():
     assert "| `compare` | `PASS` | `12` |" in markdown
 
 
+def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
+    spec_file = tmp_path / "gauntlet-pack.json"
+    spec_file.write_text(
+        json.dumps(
+            [
+                {
+                    "flow_name": "export_trade",
+                    "expected_workflow_lane": "export",
+                    "case_payload": {
+                        "profile": "trade_compliance",
+                        "export_authorization": {"destination_country": "AE"},
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    specs = module.load_specs(str(spec_file))
+
+    assert len(specs) == 1
+    assert specs[0]["flow_name"] == "export_trade"
+    assert specs[0]["expected_workflow_lane"] == "export"
+    assert specs[0]["case_payload"]["profile"] == "trade_compliance"
+    assert specs[0]["case_payload"]["export_authorization"]["destination_country"] == "AE"
+    assert specs[0]["compare_payload"]["name"] == "Boeing"
+
+
 def test_main_fixture_mode_prints_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(module, "parse_args", lambda: module.argparse.Namespace(
         mode="fixture",
@@ -75,6 +103,7 @@ def test_main_fixture_mode_prints_json(monkeypatch, tmp_path, capsys):
         email="",
         password="",
         token="",
+        spec_file="",
         report_dir=str(tmp_path),
         print_json=True,
     ))

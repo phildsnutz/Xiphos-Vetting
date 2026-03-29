@@ -5,6 +5,9 @@
 #   ./helios-check.sh              # Run safe suite (skip live_db)
 #   ./helios-check.sh --full       # Run full suite (all tests)
 #   ./helios-check.sh --smoke      # Quick smoke test (imports + screen_name only)
+#   ./helios-check.sh --gauntlet-fixture
+#   ./helios-check.sh --gauntlet-local-auth
+#   ./helios-check.sh --gauntlet-both
 #
 # Install as alias:
 #   echo 'alias helios-check="~/Desktop/Helios-Package\ Merged/helios-check.sh"' >> ~/.zshrc
@@ -16,6 +19,7 @@ SSH_KEY="${SSH_KEY:-$HOME/.ssh/xiphos_do}"
 CONTAINER="xiphos-xiphos-1"
 SSH_OPTS="-i ${SSH_KEY} -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
 MODE="${1:---safe}"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Colors
 GREEN='\033[0;32m'
@@ -32,6 +36,32 @@ warn()   { echo -e "${YELLOW}WARN${NC} $1"; }
 run_remote() {
     ssh ${SSH_OPTS} ${VPS} "docker exec ${CONTAINER} $1"
 }
+
+run_gauntlet_mode() {
+    local GAUNTLET_MODE="$1"
+    local BASE_URL="${HELIOS_BASE_URL:-http://127.0.0.1:8080}"
+    local SPEC_FILE="${HELIOS_GAUNTLET_SPEC_FILE:-${REPO_DIR}/fixtures/customer_demo/query_to_dossier_canary_pack.json}"
+    local CMD=(python3 "${REPO_DIR}/scripts/run_query_to_dossier_gauntlet.py" --mode "${GAUNTLET_MODE}" --base-url "${BASE_URL}" --spec-file "${SPEC_FILE}")
+    [ -n "${HELIOS_TOKEN:-}" ] && CMD+=(--token "${HELIOS_TOKEN}")
+    [ -n "${HELIOS_EMAIL:-}" ] && CMD+=(--email "${HELIOS_EMAIL}")
+    [ -n "${HELIOS_PASSWORD:-}" ] && CMD+=(--password "${HELIOS_PASSWORD}")
+    "${CMD[@]}"
+}
+
+if [ "${MODE}" = "--gauntlet-fixture" ]; then
+    run_gauntlet_mode fixture
+    exit $?
+fi
+
+if [ "${MODE}" = "--gauntlet-local-auth" ]; then
+    run_gauntlet_mode local-auth
+    exit $?
+fi
+
+if [ "${MODE}" = "--gauntlet-both" ]; then
+    run_gauntlet_mode both
+    exit $?
+fi
 
 # ── Pre-flight ──
 header "Helios Health Check ($(date '+%Y-%m-%d %H:%M:%S %Z'))"
