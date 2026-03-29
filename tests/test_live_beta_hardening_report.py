@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+
+MODULE_PATH = Path("/Users/tyegonzalez/Desktop/Helios-Package Merged/scripts/run_live_beta_hardening_report.py")
+spec = importlib.util.spec_from_file_location("live_beta_hardening_report", MODULE_PATH)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+
+def test_render_markdown_includes_readiness_section():
+    summary = {
+        "generated_at": "2026-03-27T12:00:00",
+        "host": "root@example",
+        "user_id": "demo",
+        "graph_depth": 3,
+        "cases_checked": 1,
+        "cases_with_failures": 0,
+        "warning_count": 0,
+        "readiness": {
+            "overall_verdict": "GO",
+            "report_md": "/tmp/readiness.md",
+            "report_json": "/tmp/readiness.json",
+            "steps": [],
+        },
+        "prime_time": {
+            "prime_time_verdict": "READY",
+            "report_md": "/tmp/prime-time.md",
+            "report_json": "/tmp/prime-time.json",
+        },
+        "cases": [
+            {
+                "vendor_name": "Demo Vendor",
+                "case_id": "c-1",
+                "tier": "TIER_4_CLEAR",
+                "monitoring_ready": True,
+                "graph": {"entity_count": 1, "relationship_count": 1, "corroborated_edges": 0},
+                "ai_expected": True,
+                "html_markers": {"executive_strip": True},
+                "pdf_markers": {"executive_strip": True},
+                "failures": [],
+                "warnings": [],
+            }
+        ],
+    }
+    markdown = module.render_markdown(summary)
+    assert "## Readiness" in markdown
+    assert "Readiness verdict: **GO**" in markdown
+    assert "## Prime Time" in markdown
+    assert "Prime-time verdict: **READY**" in markdown
+
+
+def test_run_readiness_requires_auth_without_skip():
+    args = module.argparse.Namespace(
+        skip_readiness=False,
+        readiness_base_url="http://127.0.0.1:8080",
+        readiness_email="",
+        readiness_password="",
+        readiness_token="",
+        readiness_company=[],
+        report_dir="/tmp/reports",
+    )
+    try:
+        module.run_readiness(args)
+    except SystemExit as exc:
+        assert "requires readiness auth" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_run_readiness_parses_subprocess_payload(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"overall_verdict": "GO", "report_md": "/tmp/a.md", "report_json": "/tmp/a.json", "steps": []})
+        stderr = ""
+
+    def fake_run(*args, **kwargs):
+        return FakeProc()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    args = module.argparse.Namespace(
+        skip_readiness=False,
+        readiness_base_url="http://127.0.0.1:8080",
+        readiness_email="ops@example.com",
+        readiness_password="secret",
+        readiness_token="",
+        readiness_company=["Yorktown Systems Group"],
+        report_dir="/tmp/reports",
+    )
+    payload = module.run_readiness(args)
+    assert payload["overall_verdict"] == "GO"
+    assert payload["returncode"] == 0
+
+
+def test_run_prime_time_parses_subprocess_payload(monkeypatch, tmp_path):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"prime_time_verdict": "READY", "checks": [], "flagships": []})
+        stderr = ""
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: FakeProc())
+    readiness = {"report_json": str(tmp_path / "readiness.json")}
+    args = module.argparse.Namespace(skip_prime_time=False)
+    payload = module.run_prime_time(args, readiness, tmp_path, "20260329-010101")
+    assert payload["prime_time_verdict"] == "READY"
+    assert payload["report_md"].endswith(".md")
+    assert payload["returncode"] == 0
+
+
+def test_remote_collect_uses_ssh_key_when_provided(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "[]"
+        stderr = ""
+
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        return FakeProc()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    payload = module.remote_collect(
+        "root@example",
+        "xiphos-xiphos-1",
+        ["case-1"],
+        3,
+        "demo",
+        ssh_key="/tmp/id_ed25519",
+    )
+
+    assert payload == []
+    assert captured["command"][:4] == ["ssh", "-o", "BatchMode=yes", "-i"]
+    assert "/tmp/id_ed25519" in captured["command"]
+    assert "default=str" in captured["command"][-1]

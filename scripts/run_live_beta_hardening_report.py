@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""
+Run the beta hardening report against the live VPS-backed Helios instance.
+
+This script executes inside the running container via SSH, collects:
+  - dossier HTML markers
+  - PDF bytes
+  - graph integrity stats
+  - monitoring history presence
+  - AI brief presence
+
+It then validates the PDF locally and writes Markdown + JSON reports.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import io
+import json
+import shlex
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+try:
+    from pypdf import PdfReader  # type: ignore
+except Exception as exc:  # pragma: no cover
+    raise SystemExit(f"pypdf is required for live hardening reports: {exc}")
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+HTML_SECTION_CHECKS = {
+    "executive_strip": "Recent change",
+    "risk_storyline": "Risk Storyline",
+    "supplier_passport": "Supplier passport",
+    "ai_brief": "AI Narrative Brief",
+    "executive_judgment": "Executive judgment",
+}
+
+PDF_SECTION_CHECKS = {
+    "executive_strip": "RECENT CHANGE",
+    "risk_storyline": "RISK STORYLINE",
+    "supplier_passport": "SUPPLIER PASSPORT",
+    "ai_brief": "AI NARRATIVE BRIEF",
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the Helios beta hardening report against the live host.")
+    parser.add_argument("--host", default="root@209.38.141.101")
+    parser.add_argument("--ssh-key", default="")
+    parser.add_argument("--container", default="xiphos-xiphos-1")
+    parser.add_argument(
+        "--user-id",
+        default="",
+        help="AI analysis user scope to validate. Leave blank to use org-default/global scope.",
+    )
+    parser.add_argument(
+        "--cohort-file",
+        default=str(ROOT / "docs" / "reports" / "helios-dense-case-replay-cohort-20260323.json"),
+    )
+    parser.add_argument("--graph-depth", type=int, default=3)
+    parser.add_argument(
+        "--report-dir",
+        default=str(ROOT / "docs" / "reports"),
+    )
+    parser.add_argument("--skip-readiness", action="store_true")
+    parser.add_argument("--skip-prime-time", action="store_true")
+    parser.add_argument("--readiness-base-url", default="http://24.199.122.225:8080")
+    parser.add_argument("--readiness-email", default="")
+    parser.add_argument("--readiness-password", default="")
+    parser.add_argument("--readiness-token", default="")
+    parser.add_argument("--readiness-company", action="append", default=[])
+    parser.add_argument("--print-json", action="store_true")
+    return parser.parse_args()
+
+
+def load_cohort(path: str) -> list[dict[str, Any]]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise SystemExit("Cohort file must contain a JSON list")
+    return payload
+
+
+def remote_collect(
+    host: str,
+    container: str,
+    case_ids: list[str],
+    graph_depth: int,
+    user_id: str,
+    *,
+    ssh_key: str = "",
+) -> list[dict[str, Any]]:
+    payload = json.dumps({"case_ids": case_ids, "graph_depth": graph_depth, "user_id": user_id})
+    remote_script = r"""
+import base64
+import io
+import json
+import sys
+import db
+from ai_analysis import compute_analysis_fingerprint, get_latest_analysis
+from dossier import generate_dossier
+from dossier_pdf import generate_pdf_dossier
+from graph_ingest import get_vendor_graph_summary
+
+request = json.loads(sys.stdin.read())
+results = []
+for case_id in request["case_ids"]:
+    user_id = request.get("user_id", "")
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        results.append({"case_id": case_id, "error": "vendor not found"})
+        continue
+
+    score = db.get_latest_score(case_id) or {}
+    enrichment = db.get_latest_enrichment(case_id)
+    html = generate_dossier(case_id, user_id=user_id, hydrate_ai=False)
+    pdf = generate_pdf_dossier(case_id, user_id=user_id, hydrate_ai=False)
+    graph = get_vendor_graph_summary(case_id, depth=request["graph_depth"])
+    monitoring = db.get_monitoring_history(case_id, limit=1)
+    fingerprint = compute_analysis_fingerprint(vendor, score, enrichment) if score else ""
+    cached = get_latest_analysis(case_id, user_id=user_id, input_hash=fingerprint) if fingerprint else None
+
+    latest_tier = (
+        score.get("calibrated", {}).get("calibrated_tier")
+        or score.get("tier")
+        or score.get("calibrated_tier")
+        or "unknown"
+    )
+
+    results.append({
+        "case_id": case_id,
+        "vendor_name": vendor.get("name"),
+        "tier": latest_tier,
+        "html_markers": {k: (v in html) for k, v in {
+            "executive_strip": "Recent change",
+            "risk_storyline": "Risk Storyline",
+            "ai_brief": "AI Narrative Brief",
+            "executive_judgment": "Executive judgment",
+        }.items()},
+        "ai_expected": bool(cached),
+        "monitoring_ready": bool(monitoring),
+        "monitoring_latest": monitoring[0] if monitoring else None,
+        "graph": {
+            "entity_count": graph.get("entity_count", 0),
+            "relationship_count": graph.get("relationship_count", 0),
+            "root_entity_id": graph.get("root_entity_id"),
+            "error": graph.get("error"),
+            "missing_endpoints": sum(
+                1
+                for rel in graph.get("relationships", [])
+                if rel.get("source_entity_id") not in {e.get("id") for e in graph.get("entities", [])}
+                or rel.get("target_entity_id") not in {e.get("id") for e in graph.get("entities", [])}
+            ),
+            "corroborated_edges": sum(
+                1 for rel in graph.get("relationships", []) if int(rel.get("corroboration_count") or 0) > 1
+            ),
+        },
+        "pdf_base64": base64.b64encode(pdf).decode("ascii"),
+    })
+
+print(json.dumps(results, default=str))
+"""
+    remote_command = (
+        f"docker exec -i -w /app/backend {shlex.quote(container)} "
+        f"python3 -c {shlex.quote(remote_script)}"
+    )
+    ssh_command = ["ssh", "-o", "BatchMode=yes"]
+    if ssh_key:
+        ssh_command.extend(["-i", ssh_key, "-o", "IdentitiesOnly=yes"])
+    ssh_command.extend([host, remote_command])
+    proc = subprocess.run(
+        ssh_command,
+        input=payload,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        stderr = proc.stderr.strip() or "unknown remote error"
+        raise RuntimeError(f"live hardening remote collect failed: {stderr}")
+    return json.loads(proc.stdout)
+
+
+def extract_pdf_text(pdf_base64: str) -> str:
+    pdf_bytes = base64.b64decode(pdf_base64)
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    return "".join(page.extract_text() or "" for page in reader.pages)
+
+
+def validate_result(case: dict[str, Any]) -> dict[str, Any]:
+    failures: list[str] = []
+    warnings: list[str] = []
+
+    if case.get("error"):
+        failures.append(case["error"])
+        return {
+            **case,
+            "failures": failures,
+            "warnings": warnings,
+            "pdf_markers": {},
+        }
+
+    html_markers = case["html_markers"]
+    if not html_markers["executive_strip"]:
+        failures.append("html dossier missing recent change strip")
+    if not html_markers["risk_storyline"]:
+        failures.append("html dossier missing risk storyline")
+    if case["ai_expected"]:
+        if not html_markers["ai_brief"]:
+            failures.append("html dossier missing AI brief")
+        if not html_markers["executive_judgment"]:
+            failures.append("html dossier missing executive judgment")
+    elif not html_markers["ai_brief"]:
+        warnings.append("ai brief not warmed yet")
+
+    pdf_text = extract_pdf_text(case["pdf_base64"]).upper()
+    pdf_markers = {name: marker in pdf_text for name, marker in PDF_SECTION_CHECKS.items()}
+    if not pdf_markers["executive_strip"]:
+        failures.append("pdf dossier missing recent change strip")
+    if not pdf_markers["risk_storyline"]:
+        failures.append("pdf dossier missing risk storyline")
+    if case["ai_expected"] and not pdf_markers["ai_brief"]:
+        failures.append("pdf dossier missing AI brief")
+
+    graph = case["graph"]
+    if graph.get("error"):
+        failures.append(f"graph error: {graph['error']}")
+    if graph.get("missing_endpoints"):
+        failures.append(f"graph missing endpoints for {graph['missing_endpoints']} relationships")
+    if not graph.get("root_entity_id"):
+        warnings.append("graph root entity id missing")
+    if not case.get("monitoring_ready"):
+        warnings.append("no monitoring history yet")
+
+    return {
+        **case,
+        "pdf_markers": pdf_markers,
+        "failures": failures,
+        "warnings": warnings,
+    }
+
+
+def render_markdown(summary: dict[str, Any]) -> str:
+    lines = [
+        "# Helios Live Beta Hardening Report",
+        "",
+        f"Generated: {summary['generated_at']}",
+        f"Host: {summary['host']}",
+        f"User scope: {summary['user_id'] or 'org-default/global'}",
+        f"Graph depth: {summary['graph_depth']}",
+        "",
+        "## Summary",
+        "",
+        f"- Cases checked: {summary['cases_checked']}",
+        f"- Cases with failures: {summary['cases_with_failures']}",
+        f"- Warning count: {summary['warning_count']}",
+        "",
+        "## Readiness",
+        "",
+        f"- Readiness verdict: **{summary['readiness']['overall_verdict']}**",
+        f"- Readiness report: {summary['readiness']['report_md']}",
+        "",
+        "## Prime Time",
+        "",
+        f"- Prime-time verdict: **{summary['prime_time']['prime_time_verdict']}**",
+        f"- Prime-time report: {summary['prime_time']['report_md']}",
+        "",
+        "## Cohort Results",
+        "",
+    ]
+
+    for case in summary["cases"]:
+        lines.extend([
+            f"### {case['vendor_name']} ({case['case_id']})",
+            "",
+            f"- Tier: {case['tier']}",
+            f"- Monitoring history: {'present' if case['monitoring_ready'] else 'missing'}",
+            f"- Graph: {case['graph']['entity_count']} entities, {case['graph']['relationship_count']} relationships, {case['graph']['corroborated_edges']} corroborated edges",
+            f"- AI expected: {'yes' if case['ai_expected'] else 'no'}",
+            f"- HTML markers: {', '.join(name for name, ok in case['html_markers'].items() if ok) or 'none'}",
+            f"- PDF markers: {', '.join(name for name, ok in case['pdf_markers'].items() if ok) or 'none'}",
+        ])
+        if case["failures"]:
+            lines.append("- Failures:")
+            for failure in case["failures"]:
+                lines.append(f"  - {failure}")
+        if case["warnings"]:
+            lines.append("- Warnings:")
+            for warning in case["warnings"]:
+                lines.append(f"  - {warning}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def run_readiness(args: argparse.Namespace) -> dict[str, Any]:
+    if args.skip_readiness:
+        return {
+            "overall_verdict": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+            "steps": [],
+        }
+    if not args.readiness_token and not (args.readiness_email and args.readiness_password):
+        raise SystemExit("live beta hardening now requires readiness auth or --skip-readiness")
+
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_helios_readiness_report.py"),
+        "--report-dir",
+        str(Path(args.report_dir) / "readiness"),
+        "--print-json",
+        "--base-url",
+        args.readiness_base_url,
+    ]
+    if args.readiness_token:
+        command.extend(["--token", args.readiness_token])
+    else:
+        command.extend(["--email", args.readiness_email, "--password", args.readiness_password])
+    for company in args.readiness_company:
+        command.extend(["--company", company])
+
+    proc = subprocess.run(command, text=True, capture_output=True)
+    if proc.returncode not in {0, 1, 2}:
+        stderr = proc.stderr.strip() or "unknown readiness error"
+        raise RuntimeError(f"counterparty readiness failed: {stderr}")
+    payload = json.loads(proc.stdout)
+    payload["returncode"] = proc.returncode
+    return payload
+
+
+def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_dir: Path, stamp: str) -> dict[str, Any]:
+    if args.skip_prime_time:
+        return {
+            "prime_time_verdict": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+        }
+    readiness_json = readiness.get("report_json")
+    if not readiness_json:
+        raise RuntimeError("prime-time evaluation requires readiness report_json")
+    output_json = report_dir / f"helios-live-prime-time-{stamp}.json"
+    output_md = report_dir / f"helios-live-prime-time-{stamp}.md"
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "evaluate_prime_time_readiness.py"),
+        "--readiness-summary",
+        str(readiness_json),
+        "--output-json",
+        str(output_json),
+        "--output-md",
+        str(output_md),
+        "--print-json",
+    ]
+    proc = subprocess.run(command, text=True, capture_output=True)
+    if proc.returncode not in {0, 1}:
+        stderr = proc.stderr.strip() or "unknown prime-time error"
+        raise RuntimeError(f"prime-time evaluation failed: {stderr}")
+    payload = json.loads(proc.stdout)
+    payload["returncode"] = proc.returncode
+    payload["report_json"] = str(output_json)
+    payload["report_md"] = str(output_md)
+    return payload
+
+
+def main() -> int:
+    args = parse_args()
+    cohort = load_cohort(args.cohort_file)
+    case_ids = [entry["id"] for entry in cohort]
+    raw_results = remote_collect(
+        args.host,
+        args.container,
+        case_ids,
+        args.graph_depth,
+        args.user_id,
+        ssh_key=args.ssh_key,
+    )
+    results = [validate_result(result) for result in raw_results]
+
+    report_dir = Path(args.report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    summary = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "host": args.host,
+        "user_id": args.user_id,
+        "graph_depth": args.graph_depth,
+        "cases_checked": len(results),
+        "cases_with_failures": sum(1 for result in results if result["failures"]),
+        "warning_count": sum(len(result["warnings"]) for result in results),
+        "readiness": run_readiness(args),
+        "cases": results,
+    }
+    summary["prime_time"] = run_prime_time(args, summary["readiness"], report_dir, stamp)
+
+    json_path = report_dir / f"helios-live-beta-hardening-report-{stamp}.json"
+    md_path = report_dir / f"helios-live-beta-hardening-report-{stamp}.md"
+    json_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    md_path.write_text(render_markdown(summary), encoding="utf-8")
+
+    print(f"Wrote {md_path}")
+    print(f"Wrote {json_path}")
+    if args.print_json:
+        print(json.dumps(summary, indent=2))
+    if summary["cases_with_failures"] > 0:
+        return 1
+    if summary["readiness"]["overall_verdict"] != "GO":
+        return 1
+    if summary["prime_time"]["prime_time_verdict"] != "READY":
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
