@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import types
 from pathlib import Path
 
 
@@ -170,3 +171,25 @@ def test_run_prime_time_parses_subprocess_payload(monkeypatch, tmp_path):
     assert payload["prime_time_verdict"] == "READY"
     assert payload["report_json"].endswith(".json")
     assert payload["returncode"] == 0
+
+
+def test_warm_monitoring_history_returns_true_when_history_appears(monkeypatch):
+    class FakeMonitor:
+        def __init__(self, check_interval=0):
+            self.check_interval = check_interval
+
+        def check_vendor(self, case_id):
+            return {"vendor_id": case_id}
+
+    calls = {"count": 0}
+
+    def fake_get_history(case_id, limit=1):
+        calls["count"] += 1
+        return [{"vendor_id": case_id}]
+
+    fake_monitor_module = types.ModuleType("monitor")
+    fake_monitor_module.VendorMonitor = FakeMonitor
+    monkeypatch.setitem(sys.modules, "monitor", fake_monitor_module)
+    monkeypatch.setattr(module.db, "get_monitoring_history", fake_get_history)
+
+    assert module._warm_monitoring_history("case-1") is True

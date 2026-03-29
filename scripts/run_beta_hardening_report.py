@@ -104,6 +104,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--readiness-company", action="append", default=[])
     parser.add_argument("--skip-readiness", action="store_true")
     parser.add_argument("--skip-prime-time", action="store_true")
+    parser.add_argument("--warm-monitoring", action="store_true", help="Attempt one local monitoring pass before warning")
     parser.add_argument("--print-json", action="store_true", help="Print the JSON summary to stdout")
     return parser.parse_args()
 
@@ -217,7 +218,22 @@ def resolve_cached_analysis(case_id: str, input_hash: str) -> tuple[dict[str, An
     return None, "dev"
 
 
-def run_case(vendor: dict[str, Any], graph_depth: int) -> CaseResult:
+def _warm_monitoring_history(case_id: str) -> bool:
+    try:
+        from monitor import VendorMonitor
+    except Exception:
+        return False
+
+    try:
+        monitor = VendorMonitor(check_interval=0)
+        monitor.check_vendor(case_id)
+    except Exception:
+        return False
+
+    return bool(db.get_monitoring_history(case_id, limit=1))
+
+
+def run_case(vendor: dict[str, Any], graph_depth: int, *, warm_monitoring: bool = False) -> CaseResult:
     case_id = vendor["id"]
     vendor_name = vendor.get("name") or "Unknown"
     latest_score = vendor.get("latest_score") or db.get_latest_score(case_id) or {}
@@ -265,6 +281,8 @@ def run_case(vendor: dict[str, Any], graph_depth: int) -> CaseResult:
 
     monitoring_history = db.get_monitoring_history(case_id, limit=1)
     monitoring_ready = bool(monitoring_history)
+    if not monitoring_ready and warm_monitoring:
+        monitoring_ready = _warm_monitoring_history(case_id)
     if not monitoring_ready:
         warnings.append("no monitoring history yet")
 
@@ -490,7 +508,7 @@ def main() -> int:
     if not vendors:
         raise SystemExit("No scored cases found for hardening report")
 
-    results = [run_case(vendor, args.graph_depth) for vendor in vendors]
+    results = [run_case(vendor, args.graph_depth, warm_monitoring=args.warm_monitoring) for vendor in vendors]
     summary = build_summary(results, args.graph_depth)
     summary["readiness"] = run_readiness(args)
 
