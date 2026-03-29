@@ -92,6 +92,16 @@ def _safe_import_er():
         return None
 
 
+def _safe_import_db():
+    """Safely import main database module."""
+    try:
+        import db
+        return db
+    except ImportError:
+        logger.debug("Database module not available")
+        return None
+
+
 def _generate_graph_entity_id(er, name: str, identifiers: dict, entity_type: str) -> str:
     """Mint type-aware IDs for non-company graph nodes to avoid entity-type collisions."""
     if identifiers:
@@ -1173,6 +1183,45 @@ def _hydrate_missing_graph_entities(kg, all_entities: dict, relationships: list[
     return all_entities
 
 
+def _vendor_root_fallback(vendor_id: str) -> dict | None:
+    """Build a stable synthetic vendor root when a case has no graph entities yet."""
+    db_mod = _safe_import_db()
+    if not db_mod:
+        return None
+
+    vendor = db_mod.get_vendor(vendor_id)
+    if not vendor:
+        return None
+
+    er = _safe_import_er()
+    vendor_name = str(vendor.get("name") or vendor_id)
+    identifiers = {
+        key: value
+        for key in ("lei", "cage", "uei", "duns", "ein")
+        if (value := vendor.get(key))
+    }
+    root_entity_id = (
+        _generate_graph_entity_id(er, vendor_name, identifiers, "company")
+        if er
+        else f"vendor:{vendor_id}"
+    )
+
+    return _normalize_graph_entity_payload(
+        {
+            "id": root_entity_id,
+            "canonical_name": vendor_name,
+            "entity_type": "company",
+            "aliases": [],
+            "identifiers": identifiers,
+            "country": vendor.get("country") or "",
+            "sources": ["vendor_record_fallback"],
+            "confidence": 0.35,
+            "last_updated": vendor.get("updated_at") or "",
+            "synthetic": True,
+        }
+    )
+
+
 def get_vendor_graph_summary(
     vendor_id: str,
     depth: int = 3,
@@ -1195,12 +1244,15 @@ def get_vendor_graph_summary(
         entities = kg.get_vendor_entities(vendor_id)
 
         if not entities:
+            root_entity = _vendor_root_fallback(vendor_id)
             return {
                 "vendor_id": vendor_id,
                 "graph_depth": depth,
-                "entity_count": 0,
+                "root_entity_id": root_entity["id"] if root_entity else None,
+                "root_entity_ids": [root_entity["id"]] if root_entity else [],
+                "entity_count": 1 if root_entity else 0,
                 "relationship_count": 0,
-                "entities": [],
+                "entities": [root_entity] if root_entity else [],
                 "relationships": [],
             }
 

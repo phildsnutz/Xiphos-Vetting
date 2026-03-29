@@ -153,13 +153,23 @@ def preferred_summary_json(*candidates: Path | None) -> Path | None:
     return max(valid, key=lambda path: (path.parent.name, path.stat().st_mtime))
 
 
+def _decode_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
+    text = stdout.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
 def run_live_readiness(command: list[str]) -> dict[str, Any]:
     proc = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
     if proc.returncode != 0:
         raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or f"readiness command failed: {proc.returncode}")
-    payload = json.loads(proc.stdout)
+    payload = _decode_json_from_stdout(proc.stdout)
     if not isinstance(payload, dict):
-        raise SystemExit("live readiness did not return a JSON object")
+        raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "live readiness did not return a JSON object")
     return payload
 
 

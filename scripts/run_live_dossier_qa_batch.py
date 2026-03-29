@@ -91,6 +91,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _decode_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
+    text = stdout.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
 def is_synthetic_vendor(vendor: dict[str, Any]) -> bool:
     name = str(vendor.get("name") or "").strip()
     return any(pattern.search(name) for pattern in SYNTHETIC_PATTERNS)
@@ -165,7 +175,11 @@ print(json.dumps(out))
     proc = subprocess.run(["ssh", host, remote_command], text=True, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "failed to list live scored cases")
-    return json.loads(proc.stdout)
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, list):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "failed to list live scored cases"
+        raise RuntimeError(detail)
+    return payload
 
 
 def warm_and_collect(host: str, container: str, case_ids: list[str], graph_depth: int,
@@ -323,7 +337,11 @@ print(json.dumps(results))
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "live dossier QA collect failed")
-    return json.loads(proc.stdout)
+    payload_obj = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload_obj, list):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "live dossier QA collect failed"
+        raise RuntimeError(detail)
+    return payload_obj
 
 
 def validate_result(case: dict[str, Any]) -> dict[str, Any]:

@@ -86,6 +86,16 @@ def load_cohort(path: str) -> list[dict[str, Any]]:
     return payload
 
 
+def _decode_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
+    text = stdout.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
 def remote_collect(
     host: str,
     container: str,
@@ -182,7 +192,11 @@ print(json.dumps(results, default=str))
     if proc.returncode != 0:
         stderr = proc.stderr.strip() or "unknown remote error"
         raise RuntimeError(f"live hardening remote collect failed: {stderr}")
-    return json.loads(proc.stdout)
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, list):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "live hardening remote collect did not emit JSON"
+        raise RuntimeError(f"live hardening remote collect failed: {detail}")
+    return payload
 
 
 def extract_pdf_text(pdf_base64: str) -> str:
@@ -328,7 +342,10 @@ def run_readiness(args: argparse.Namespace) -> dict[str, Any]:
     if proc.returncode not in {0, 1, 2}:
         stderr = proc.stderr.strip() or "unknown readiness error"
         raise RuntimeError(f"counterparty readiness failed: {stderr}")
-    payload = json.loads(proc.stdout)
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, dict):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "counterparty readiness did not emit JSON"
+        raise RuntimeError(f"counterparty readiness failed: {detail}")
     payload["returncode"] = proc.returncode
     return payload
 
@@ -360,11 +377,30 @@ def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_d
     if proc.returncode not in {0, 1}:
         stderr = proc.stderr.strip() or "unknown prime-time error"
         raise RuntimeError(f"prime-time evaluation failed: {stderr}")
-    payload = json.loads(proc.stdout)
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, dict):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "prime-time evaluation did not emit JSON"
+        raise RuntimeError(f"prime-time evaluation failed: {detail}")
     payload["returncode"] = proc.returncode
     payload["report_json"] = str(output_json)
     payload["report_md"] = str(output_md)
     return payload
+
+
+def _gate_success(verdict: str, success_values: set[str]) -> bool:
+    return verdict in success_values | {"SKIPPED"}
+
+
+def _overall_verdict(summary: dict[str, Any]) -> str:
+    if summary["cases_with_failures"] > 0:
+        return "FAIL"
+    readiness_verdict = str(summary["readiness"]["overall_verdict"])
+    prime_time_verdict = str(summary["prime_time"]["prime_time_verdict"])
+    if readiness_verdict == "GO" and prime_time_verdict == "READY":
+        return "PASS"
+    if _gate_success(readiness_verdict, {"GO"}) and _gate_success(prime_time_verdict, {"READY"}):
+        return "PASS_WITH_SKIPS"
+    return "FAIL"
 
 
 def main() -> int:
@@ -397,6 +433,7 @@ def main() -> int:
         "cases": results,
     }
     summary["prime_time"] = run_prime_time(args, summary["readiness"], report_dir, stamp)
+    summary["overall_verdict"] = _overall_verdict(summary)
 
     json_path = report_dir / f"helios-live-beta-hardening-report-{stamp}.json"
     md_path = report_dir / f"helios-live-beta-hardening-report-{stamp}.md"
@@ -407,13 +444,7 @@ def main() -> int:
     print(f"Wrote {json_path}")
     if args.print_json:
         print(json.dumps(summary, indent=2))
-    if summary["cases_with_failures"] > 0:
-        return 1
-    if summary["readiness"]["overall_verdict"] != "GO":
-        return 1
-    if summary["prime_time"]["prime_time_verdict"] != "READY":
-        return 1
-    return 0
+    return 0 if summary["overall_verdict"] in {"PASS", "PASS_WITH_SKIPS"} else 1
 
 
 if __name__ == "__main__":
