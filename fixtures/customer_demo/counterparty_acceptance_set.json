@@ -1,0 +1,140 @@
+[
+  {
+    "company": "Berry Aviation, Inc.",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "archetype": "private_aviation_logistics",
+    "why_it_matters": "Private US aviation supplier with public identifier recovery and weak-source ownership corroboration pressure.",
+    "expected_domain": "berryaviation.com",
+    "expected_cage": "0EA28",
+    "expected_uei": "V1HATBT1N7V5",
+    "expected_duns": "131827925"
+  },
+  {
+    "company": "Columbia Helicopters, Inc.",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "archetype": "federal_heavy_lift_operator",
+    "why_it_matters": "Real federal contractor with parent-entity contamination risk and strong trust-artifact expectations.",
+    "expected_domain": "colheli.com",
+    "expected_cage": "7W206",
+    "expected_uei": "EBD3SM6LH8D3",
+    "expected_duns": "009673609"
+  },
+  {
+    "company": "Yorktown Systems Group",
+    "country": "US",
+    "bucket": "dossier_quality",
+    "archetype": "services_integrator",
+    "why_it_matters": "Services-heavy counterparty that catches operating-history, executive, and dossier-quality drift.",
+    "expected_domain": "ysginc.com",
+    "expected_cage": "4VJW9",
+    "expected_uei": "L5LMQSN59YE5",
+    "expected_duns": "801478384"
+  },
+  {
+    "company": "Boeing",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "archetype": "prime_anchor_heavy_case",
+    "why_it_matters": "Heavy enterprise case that stress-tests hosted supplier-passport and dossier runtime.",
+    "expected_domain": "boeing.com",
+    "expected_cik": "12927"
+  },
+  {
+    "company": "Mass Virtual",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "archetype": "training_software_vendor",
+    "why_it_matters": "Mid-market training software supplier that tests public identifiers, website selection, and thinner data conditions.",
+    "expected_domain": "massvirtual.com",
+    "expected_cage": "6CZ17",
+    "expected_uei": "CH34JZ4179Q3"
+  },
+  {
+    "company": "DOMO Tactical Communications US",
+    "country": "US",
+    "bucket": "control_path",
+    "archetype": "telecom_subsidiary_control",
+    "why_it_matters": "Tests whether weak public ownership evidence still yields a rooted control path instead of a blank graph.",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "Codan"
+  },
+  {
+    "company": "FAUN Trackway",
+    "country": "US",
+    "bucket": "control_path",
+    "archetype": "logistics_intermediary_control",
+    "why_it_matters": "Intermediary-heavy case that exercises parent and group-level control-path resolution.",
+    "expected_domain": "fauntrackway.com",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "KIRCHHOFF"
+  },
+  {
+    "company": "Greensea IQ",
+    "country": "US",
+    "bucket": "control_path",
+    "archetype": "thin_data_growth_vendor",
+    "why_it_matters": "Thin-data autonomy vendor that catches snippet-only control signals and path-rooting regressions.",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "FreshTracks Capital"
+  },
+  {
+    "company": "Hascall-Denke",
+    "country": "US",
+    "bucket": "control_path",
+    "archetype": "founder_owned_subtier",
+    "why_it_matters": "Small subtier manufacturer that tests owner-style prose extraction without enterprise noise.",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "Mike Hascall"
+  },
+  {
+    "company": "HELLENIC DEFENCE SYSTEMS SA",
+    "country": "GR",
+    "bucket": "control_path",
+    "archetype": "foreign_state_linked_manufacturer",
+    "why_it_matters": "Foreign defense manufacturer with ministry-linked control that exercises public-site replay and cache invalidation.",
+    "expected_domain": "eas.gr",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "Hellenic Ministry of Finance"
+  },
+  {
+    "company": "Omni Defense Technologies",
+    "country": "US",
+    "bucket": "case_creation_and_mapping",
+    "archetype": "case_mapping_gap",
+    "why_it_matters": "Exercises create-mode case generation so readiness does not silently skip unmapped suppliers."
+  },
+  {
+    "company": "Amentum",
+    "country": "US",
+    "bucket": "dossier_quality",
+    "archetype": "services_prime_rollup",
+    "why_it_matters": "Large services prime with post-merger identity and narrative pressure that tests whether dossiers stay coherent on enterprise-scale cases.",
+    "expected_domain": "amentum.com"
+  },
+  {
+    "company": "Leidos",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "archetype": "public_services_prime",
+    "why_it_matters": "Public federal-services prime that should resolve cleanly across public-market, registry, and federal-spend identifiers.",
+    "expected_domain": "leidos.com"
+  },
+  {
+    "company": "Anduril Industries",
+    "country": "US",
+    "bucket": "control_path",
+    "archetype": "venture_backed_dual_use_scaleup",
+    "why_it_matters": "Venture-backed defense scaleup that pressures control-path logic on non-public ownership with high public attention.",
+    "expected_domain": "anduril.com"
+  },
+  {
+    "company": "AeroVironment",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "archetype": "public_uas_manufacturer",
+    "why_it_matters": "Public UAS manufacturer that exercises market-identity corroboration without relying on weak ownership heuristics.",
+    "expected_domain": "avinc.com"
+  }
+]

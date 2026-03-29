@@ -1,0 +1,31 @@
+{
+  "records": [
+    {
+      "entity_name": "Southern Range Robotics Pty Ltd",
+      "country": "AU",
+      "abn": "53123456789",
+      "acn": "123456789",
+      "status": "Active",
+      "entity_type": "Australian Proprietary Company",
+      "registered_on": "2019-08-14",
+      "gst_status": "Registered",
+      "state": "QLD",
+      "business_names": [
+        "Southern Range Robotics",
+        "SRR Defence"
+      ],
+      "officeholders": [
+        {
+          "name": "Amelia Hart",
+          "role": "director",
+          "appointed_on": "2019-08-14"
+        },
+        {
+          "name": "Riley Chen",
+          "role": "secretary",
+          "appointed_on": "2021-02-01"
+        }
+      ]
+    }
+  ]
+}

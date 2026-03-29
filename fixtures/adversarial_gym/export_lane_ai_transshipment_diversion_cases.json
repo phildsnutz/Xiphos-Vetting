@@ -1,0 +1,164 @@
+[
+  {
+    "scenario_id": "canada_reseller_unknown_end_user",
+    "title": "Canadian reseller with unknown final customer and onward shipment",
+    "description": "Rules alone leave this as low-friction, but the intermediary chain is too vague to clear.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Commercial edge compute gateway",
+      "destination_country": "CA",
+      "destination_company": "Northern Channel Partners",
+      "end_use_summary": "Evaluation support for maritime analytics customer",
+      "end_user_name": "Northern Channel Partners",
+      "access_context": "Reseller staging before onward delivery",
+      "notes": "Channel partner will ship onward to final customer in another jurisdiction"
+    },
+    "expected": {
+      "deterministic_posture": "likely_nlr",
+      "hybrid_posture": "escalate",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["transshipment_or_intermediary", "integration_ambiguity"],
+      "missing_facts": ["final_end_use", "operational_scope", "final_end_user", "final_country", "intermediary_role"],
+      "explanation_fragments": ["transshipment or intermediary", "final_country", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.9
+    }
+  },
+  {
+    "scenario_id": "uae_broker_controlled_gateway",
+    "title": "Controlled gateway into UAE broker hub with final countries unresolved",
+    "description": "The classification already drives a conservative posture, so AI should add questions but not overtake it.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "5A002",
+      "item_or_data_summary": "Encrypted communications gateway",
+      "destination_country": "AE",
+      "destination_company": "Desert Trade Hub",
+      "end_use_summary": "Regional distributor support for customer deployments",
+      "end_user_name": "Desert Trade Hub",
+      "access_context": "Broker-managed onward delivery to end customers",
+      "notes": "Final countries not yet confirmed"
+    },
+    "expected": {
+      "deterministic_posture": "likely_license_required",
+      "hybrid_posture": "likely_license_required",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": ["transshipment_or_intermediary"],
+      "missing_facts": ["final_end_user", "final_country", "intermediary_role"],
+      "explanation_fragments": ["transshipment or intermediary", "before clearance"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.86
+    }
+  },
+  {
+    "scenario_id": "singapore_ftz_spares",
+    "title": "Free-trade-zone intake for spares before customer redelivery",
+    "description": "Intermediary handling is real, but the deterministic license floor is already appropriate.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "3A001",
+      "item_or_data_summary": "Radar signal processor spare module",
+      "destination_country": "SG",
+      "destination_company": "Lion Freeport Logistics",
+      "end_use_summary": "Temporary free trade zone intake before customer redelivery",
+      "end_user_name": "Lion Freeport Logistics",
+      "access_context": "Logistics hold and onward delivery",
+      "notes": "Intermediary warehouse, final operator not yet named"
+    },
+    "expected": {
+      "deterministic_posture": "likely_license_required",
+      "hybrid_posture": "likely_license_required",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": ["transshipment_or_intermediary"],
+      "missing_facts": ["final_end_user", "final_country", "intermediary_role"],
+      "explanation_fragments": ["transshipment or intermediary", "before clearance"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.86
+    }
+  },
+  {
+    "scenario_id": "direct_end_user_no_intermediary",
+    "title": "Direct allied end user with explicit no-broker language",
+    "description": "The challenge layer should avoid false positives when the narrative explicitly rules out onward delivery.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Commercial test fixture",
+      "destination_country": "DE",
+      "destination_company": "LuftWerk Technik GmbH",
+      "end_use_summary": "Direct delivery to LuftWerk for civil avionics maintenance",
+      "end_user_name": "LuftWerk Technik GmbH",
+      "access_context": "No broker or onward delivery",
+      "notes": "Direct end user and final country confirmed"
+    },
+    "expected": {
+      "deterministic_posture": "likely_nlr",
+      "hybrid_posture": "likely_nlr",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": [],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic posture should stand"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "japan_brokered_telemetry",
+    "title": "Brokered telemetry evaluation with withheld final operator",
+    "description": "Telemetry plus brokerage should force an escalation even for an allied destination.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Commercial telemetry recorder",
+      "destination_country": "JP",
+      "destination_company": "Aero Brokerage KK",
+      "end_use_summary": "Brokered support for high-altitude vehicle telemetry evaluation",
+      "end_user_name": "Aero Brokerage KK",
+      "access_context": "Broker will arrange onward transfer after in-country demonstration",
+      "notes": "Final operator withheld by customer"
+    },
+    "expected": {
+      "deterministic_posture": "likely_nlr",
+      "hybrid_posture": "escalate",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["transshipment_or_intermediary", "telemetry_or_guidance", "integration_ambiguity"],
+      "missing_facts": ["final_end_use", "operational_scope", "payload_or_platform_type", "final_end_user", "final_country", "intermediary_role"],
+      "explanation_fragments": ["telemetry or guidance", "transshipment or intermediary", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.92
+    }
+  },
+  {
+    "scenario_id": "known_final_operator_domestic_handoff",
+    "title": "Known final operator with short domestic distributor handoff",
+    "description": "The intermediary is named and bounded, so the AI layer should stay disciplined and avoid an unnecessary escalation.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "5A002",
+      "item_or_data_summary": "Encrypted communications gateway",
+      "destination_country": "NL",
+      "destination_company": "Delta Distribution BV",
+      "end_use_summary": "Domestic handoff to named telecom operator after import",
+      "end_user_name": "KPN Lab Services",
+      "access_context": "Short distributor handoff before domestic delivery",
+      "notes": "Final country confirmed as Netherlands and final operator is KPN Lab Services"
+    },
+    "expected": {
+      "deterministic_posture": "likely_exception_or_exemption",
+      "hybrid_posture": "likely_exception_or_exemption",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": [],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic posture should stand"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.84
+    }
+  }
+]

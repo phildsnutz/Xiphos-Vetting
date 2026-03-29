@@ -1,0 +1,44 @@
+{
+  "records": [
+    {
+      "entity_name": "Harbour Mission Analytics Limited",
+      "country": "NZ",
+      "nzbn": "9429041234567",
+      "nz_company_number": "9182736",
+      "status": "Registered",
+      "entity_type": "NZ Limited Company",
+      "incorporated_on": "2020-04-18",
+      "region": "Wellington",
+      "industry_description": "Defence software and analytics",
+      "trading_names": [
+        "Harbour Mission Analytics",
+        "Harbour Mission"
+      ],
+      "officeholders": [
+        {
+          "name": "Aroha Bennett",
+          "role": "director",
+          "appointed_on": "2020-04-18"
+        },
+        {
+          "name": "Liam Te Rangi",
+          "role": "director",
+          "appointed_on": "2022-02-11"
+        }
+      ],
+      "shareholdings": [
+        {
+          "name": "Southern Horizon Holdings Limited",
+          "entity_type": "holding_company",
+          "country": "NZ",
+          "share_pct": 62.5,
+          "interest_description": "Majority voting shares",
+          "identifiers": {
+            "nz_company_number": "5544332",
+            "nzbn": "9429047654321"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "dataset_id": "helios-cisa-advisory-fixture-v1",
+  "records": [
+    {
+      "record_id": "cisa-001",
+      "name": "Apex Telemetry Systems",
+      "country": "US",
+      "advisories": [
+        {
+          "advisory_id": "AA24-057A",
+          "title": "SVR Cyber Actors Adapt Tactics for Initial Cloud Access",
+          "technique_ids": [
+            "T1078",
+            "T1098"
+          ],
+          "sectors": [
+            "defense industrial base",
+            "critical infrastructure"
+          ],
+          "mitigations": [
+            "phishing-resistant MFA",
+            "conditional access review"
+          ],
+          "ioc_types": [
+            "ip_address",
+            "token_abuse"
+          ]
+        },
+        {
+          "advisory_id": "AA22-047A",
+          "title": "Russian State-Sponsored Actors Target Cleared Defense Contractors",
+          "technique_ids": [
+            "T1190",
+            "T1583"
+          ],
+          "sectors": [
+            "defense industrial base"
+          ],
+          "mitigations": [
+            "edge service hardening",
+            "internet-facing service review"
+          ],
+          "ioc_types": [
+            "domain",
+            "infrastructure"
+          ]
+        }
+      ]
+    },
+    {
+      "record_id": "cisa-002",
+      "name": "Horizon Mission Systems LLC",
+      "country": "US",
+      "advisories": [
+        {
+          "advisory_id": "AA20-258A",
+          "title": "Chinese State-Sponsored Activity Targeting Network Infrastructure",
+          "technique_ids": [
+            "T1190",
+            "T1021.001"
+          ],
+          "sectors": [
+            "telecommunications",
+            "defense industrial base"
+          ],
+          "mitigations": [
+            "administrator credential review",
+            "remote service segmentation"
+          ],
+          "ioc_types": [
+            "domain",
+            "credential"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "records": [
+    {
+      "entity_name": "Kongsberg Defence & Aerospace AS",
+      "norway_org_number": "982574145",
+      "status": "ACTIVE",
+      "entity_type": "AS",
+      "registered_on": "2000-10-13",
+      "municipality": "Kongsberg",
+      "website": "https://www.kongsberg.com",
+      "beneficial_owner_access": "Beneficial-owner data is available only to eligible users through the official Brreg API.",
+      "roles": [
+        {
+          "name": "Eirik Lie",
+          "role": "Managing Director"
+        },
+        {
+          "name": "Cecilie Aasland",
+          "role": "Board Member"
+        }
+      ],
+      "beneficial_owners": [
+        {
+          "name": "Kongsberg Gruppen ASA",
+          "entity_type": "company",
+          "country": "NO",
+          "ownership_pct": 100,
+          "control_description": "Reported parent undertaking in registry export"
+        }
+      ]
+    }
+  ]
+}

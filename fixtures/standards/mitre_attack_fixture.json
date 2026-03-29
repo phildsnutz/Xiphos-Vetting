@@ -1,0 +1,69 @@
+{
+  "dataset_id": "helios-mitre-attack-fixture-v1",
+  "records": [
+    {
+      "record_id": "attack-001",
+      "name": "Apex Telemetry Systems",
+      "country": "US",
+      "summary": {
+        "actor_families": [
+          "Volt Typhoon"
+        ],
+        "campaigns": [
+          "Edge-device access with living-off-the-land persistence"
+        ],
+        "techniques": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing Application",
+            "tactic": "Initial Access"
+          },
+          {
+            "id": "T1078",
+            "name": "Valid Accounts",
+            "tactic": "Defense Evasion"
+          },
+          {
+            "id": "T1090",
+            "name": "Proxy",
+            "tactic": "Command and Control"
+          }
+        ],
+        "references": [
+          "https://attack.mitre.org/techniques/T1190/",
+          "https://attack.mitre.org/techniques/T1078/",
+          "https://attack.mitre.org/techniques/T1090/"
+        ]
+      }
+    },
+    {
+      "record_id": "attack-002",
+      "name": "Horizon Mission Systems LLC",
+      "country": "US",
+      "summary": {
+        "actor_families": [
+          "APT29"
+        ],
+        "campaigns": [
+          "Cloud token abuse against mission-support environments"
+        ],
+        "techniques": [
+          {
+            "id": "T1195.002",
+            "name": "Compromise Software Supply Chain",
+            "tactic": "Resource Development"
+          },
+          {
+            "id": "T1552.001",
+            "name": "Credentials In Files",
+            "tactic": "Credential Access"
+          }
+        ],
+        "references": [
+          "https://attack.mitre.org/techniques/T1195/002/",
+          "https://attack.mitre.org/techniques/T1552/001/"
+        ]
+      }
+    }
+  ]
+}

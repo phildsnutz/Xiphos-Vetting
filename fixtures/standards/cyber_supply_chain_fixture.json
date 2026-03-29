@@ -1,0 +1,166 @@
+{
+  "dataset_id": "helios_cyber_supply_chain_2026",
+  "version": "2026-03-26",
+  "source_type": "analyst_fixture",
+  "standards": ["CycloneDX", "SPDX", "VEX"],
+  "records": [
+    {
+      "record_id": "cyber-fixture-001",
+      "name": "Horizon Mission Systems LLC",
+      "country": "US",
+      "observed_at": "2026-03-26T08:30:00Z",
+      "relationships": [
+        {
+          "type": "supplies_component",
+          "source_entity": "Horizon Mission Systems LLC",
+          "source_entity_type": "company",
+          "target_entity": "Sequencer Control Board",
+          "target_entity_type": "component",
+          "country": "US",
+          "evidence": "CycloneDX component listing identifies Sequencer Control Board in build set"
+        },
+        {
+          "type": "supplies_component_to",
+          "source_entity": "Horizon Mission Systems LLC",
+          "source_entity_type": "company",
+          "target_entity": "Crew Escape Sequencing Assembly",
+          "target_entity_type": "subsystem",
+          "country": "US",
+          "evidence": "SPDX package relationship ties the supplied board to the escape sequencing assembly"
+        },
+        {
+          "type": "integrated_into",
+          "source_entity": "Sequencer Control Board",
+          "source_entity_type": "component",
+          "target_entity": "Crew Escape Sequencing Assembly",
+          "target_entity_type": "subsystem",
+          "country": "US",
+          "evidence": "Standards-modeled integration path between component and subsystem"
+        },
+        {
+          "type": "depends_on_network",
+          "source_entity": "Horizon Mission Systems LLC",
+          "source_entity_type": "company",
+          "target_entity": "Orbital Mesh Telecom",
+          "target_entity_type": "telecom_provider",
+          "country": "US",
+          "evidence": "CycloneDX services list shows telecom dependency for secure update delivery"
+        },
+        {
+          "type": "depends_on_service",
+          "source_entity": "Horizon Mission Systems LLC",
+          "source_entity_type": "company",
+          "target_entity": "Mission Patch Distribution Service",
+          "target_entity_type": "service",
+          "country": "US",
+          "evidence": "SBOM service dependency modeled from standards-backed fixture"
+        },
+        {
+          "type": "operates_facility",
+          "source_entity": "Horizon Mission Systems LLC",
+          "source_entity_type": "company",
+          "target_entity": "Mesa Secure Integration Facility",
+          "target_entity_type": "facility",
+          "country": "US",
+          "evidence": "Facility node attached to component integration workflow"
+        },
+        {
+          "type": "ships_via",
+          "source_entity": "Horizon Mission Systems LLC",
+          "source_entity_type": "company",
+          "target_entity": "US MX AZ Secure Air Route",
+          "target_entity_type": "shipment_route",
+          "country": "US",
+          "evidence": "Modeled secure shipment path for subsystem delivery"
+        },
+        {
+          "type": "has_vulnerability",
+          "source_entity": "Mission Patch Distribution Service",
+          "source_entity_type": "service",
+          "target_entity": "CVE-2025-1111",
+          "target_entity_type": "cve",
+          "country": "US",
+          "evidence": "VEX assertion keeps this service marked as affected while remediation is pending"
+        }
+      ],
+      "vex_assertions": [
+        {
+          "product": "Mission Patch Distribution Service",
+          "cve": "CVE-2025-1111",
+          "status": "affected",
+          "justification": "Component remains deployed in fielded support environment"
+        }
+      ]
+    },
+    {
+      "record_id": "cyber-fixture-002",
+      "name": "Apex Control Electronics",
+      "country": "US",
+      "observed_at": "2026-03-26T08:45:00Z",
+      "relationships": [
+        {
+          "type": "supplies_component",
+          "source_entity": "Apex Control Electronics",
+          "source_entity_type": "company",
+          "target_entity": "Power Trigger Module",
+          "target_entity_type": "component",
+          "country": "US",
+          "evidence": "CycloneDX fixture identifies a power trigger module in the package tree"
+        },
+        {
+          "type": "supplies_component_to",
+          "source_entity": "Apex Control Electronics",
+          "source_entity_type": "company",
+          "target_entity": "Emergency Escape Controller",
+          "target_entity_type": "subsystem",
+          "country": "US",
+          "evidence": "SPDX dependency points the power trigger module to the escape controller subsystem"
+        },
+        {
+          "type": "integrated_into",
+          "source_entity": "Power Trigger Module",
+          "source_entity_type": "component",
+          "target_entity": "Emergency Escape Controller",
+          "target_entity_type": "subsystem",
+          "country": "US",
+          "evidence": "Modeled component integration edge"
+        },
+        {
+          "type": "depends_on_network",
+          "source_entity": "Apex Control Electronics",
+          "source_entity_type": "company",
+          "target_entity": "Vector Secure Telecom",
+          "target_entity_type": "telecom_provider",
+          "country": "US",
+          "evidence": "Secure telecom dependency recorded in standards-backed cyber fixture"
+        },
+        {
+          "type": "depends_on_service",
+          "source_entity": "Apex Control Electronics",
+          "source_entity_type": "company",
+          "target_entity": "Firmware Signing Service",
+          "target_entity_type": "service",
+          "country": "US",
+          "evidence": "Firmware signing service dependency modeled from standards-backed fixture"
+        },
+        {
+          "type": "has_vulnerability",
+          "source_entity": "Firmware Signing Service",
+          "source_entity_type": "service",
+          "target_entity": "CVE-2025-2222",
+          "target_entity_type": "cve",
+          "country": "US",
+          "evidence": "VEX assertion records an unresolved exposure in firmware signing stack"
+        }
+      ],
+      "vex_assertions": [
+        {
+          "product": "Firmware Signing Service",
+          "cve": "CVE-2025-2222",
+          "status": "affected",
+          "justification": "Signing service patch validation still in progress"
+        }
+      ]
+    }
+  ]
+}

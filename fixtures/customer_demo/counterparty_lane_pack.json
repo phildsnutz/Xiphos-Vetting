@@ -1,0 +1,46 @@
+[
+  {
+    "name": "counterparty_identity_foundation",
+    "pack_file": "fixtures/customer_demo/counterparty_identity_foundation_pack.json",
+    "connectors": [
+      "sam_gov",
+      "usaspending",
+      "gleif_lei",
+      "sec_edgar",
+      "public_search_ownership",
+      "public_html_ownership"
+    ],
+    "workers": 1,
+    "start_stagger_seconds": 2.0,
+    "transient_retries_per_company": 1,
+    "include_ai": false,
+    "check_assistant": false,
+    "require_dossier_html": false,
+    "require_dossier_pdf": false,
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 3
+  },
+  {
+    "name": "counterparty_dossier_quality",
+    "pack_file": "fixtures/customer_demo/counterparty_dossier_quality_pack.json",
+    "workers": 1,
+    "include_ai": true,
+    "check_assistant": true,
+    "require_dossier_html": true,
+    "require_dossier_pdf": true,
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 3
+  },
+  {
+    "name": "counterparty_control_paths",
+    "pack_file": "fixtures/customer_demo/counterparty_control_path_pack.json",
+    "workers": 3,
+    "start_stagger_seconds": 0.25,
+    "include_ai": false,
+    "check_assistant": false,
+    "require_dossier_html": false,
+    "require_dossier_pdf": false,
+    "minimum_official_corroboration": "missing",
+    "max_blocked_official_connectors": -1
+  }
+]

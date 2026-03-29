@@ -1,0 +1,16 @@
+{
+  "overall_readiness_verdict": "GO",
+  "required_pillars": {
+    "counterparty": "GO",
+    "export": "GO",
+    "supply_chain_assurance": "GO"
+  },
+  "min_stable_canary_companies": 10,
+  "min_acceptance_registry_companies": 15,
+  "required_flagship_companies": [
+    "Yorktown Systems Group",
+    "Berry Aviation, Inc.",
+    "Columbia Helicopters, Inc."
+  ],
+  "max_counterparty_readiness_seconds": 480.0
+}

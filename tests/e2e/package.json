@@ -1,0 +1,13 @@
+{
+  "name": "helios-e2e",
+  "version": "1.0.0",
+  "description": "Playwright end-to-end smoke tests for Helios",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.42.0"
+  }
+}

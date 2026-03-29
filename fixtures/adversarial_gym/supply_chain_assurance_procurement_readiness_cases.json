@@ -1,0 +1,131 @@
+[
+  {
+    "scenario_id": "federal_subcontractor_attest_only",
+    "title": "Federal subcontractor with attestation-only readiness evidence",
+    "description": "Current cyber data is thin, but the supplier supports federal work and cannot ride on attestation alone.",
+    "vendor_name": "Patriot Relay Works",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Subsystem supplier for CUI-bearing support work.",
+    "product_narrative": "Low-complexity comms support software with no attached artifact packet.",
+    "dependency_narrative": "Federal scope is claimed but proof is thin.",
+    "sprs_summary": {
+      "current_cmmc_level": 1,
+      "assessment_status": "assessed",
+      "poam_active": false,
+      "assessment_score": 86
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 0,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {},
+    "graph_data": {
+      "entities": [],
+      "relationships": [],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": false,
+      "sbom_fresh_days": 999,
+      "vex_status": "missing",
+      "secure_by_design_evidence": "none",
+      "provenance_attested": false,
+      "mission_critical": false,
+      "firmware_or_ot": false,
+      "federal_scope": true,
+      "fourth_party_concentration": "unknown"
+    },
+    "expected": {
+      "deterministic_posture": "review",
+      "hybrid_posture": "review",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": [
+        "sbom_vex_gap",
+        "cmmc_evidence_gap",
+        "provenance_gap"
+      ],
+      "missing_facts": [
+        "fresh_sbom",
+        "vex_assertion",
+        "provenance_attestation",
+        "current_cmmc_evidence"
+      ],
+      "explanation_fragments": [
+        "current cmmc evidence",
+        "before clearance"
+      ],
+      "safe_behavior": "hold",
+      "minimum_score": 0.9
+    }
+  },
+  {
+    "scenario_id": "mission_supplier_no_provenance_packet",
+    "title": "Mission supplier with no provenance packet",
+    "description": "Direct cyber posture looks passable, but the mission supplier has no signed provenance or dependency packet for field updates.",
+    "vendor_name": "Falcon Route Systems",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Mission routing software supplier for deployed logistics operations.",
+    "product_narrative": "Field-update service supports route-planning tablets in theater.",
+    "dependency_narrative": "Update path depends on shared package registry.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "passed",
+      "poam_active": false,
+      "assessment_score": 92
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 0,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 1,
+      "total_control_references": 88,
+      "implemented_control_count": 74,
+      "system_name": "Falcon Route Update Service"
+    },
+    "graph_data": {
+      "entities": [
+        {
+          "risk_level": "unknown"
+        }
+      ],
+      "relationships": [{}, {}, {}],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 20,
+      "vex_status": "unknown",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": false,
+      "mission_critical": true,
+      "firmware_or_ot": false,
+      "federal_scope": true,
+      "fourth_party_concentration": "balanced"
+    },
+    "expected": {
+      "deterministic_posture": "qualified",
+      "hybrid_posture": "review",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": [
+        "sbom_vex_gap",
+        "mission_critical_dependency",
+        "provenance_gap"
+      ],
+      "missing_facts": [
+        "vex_assertion",
+        "provenance_attestation"
+      ],
+      "explanation_fragments": [
+        "provenance gap",
+        "before clearance"
+      ],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.9
+    }
+  }
+]

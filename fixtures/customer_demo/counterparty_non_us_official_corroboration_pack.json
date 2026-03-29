@@ -1,0 +1,113 @@
+[
+  {
+    "company": "Northern Mission Systems Inc.",
+    "country": "CA",
+    "bucket": "non_us_official_registry",
+    "connectors": ["corporations_canada"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "ca_corporation_number": "1234567",
+      "business_number": "765432109RC0001"
+    },
+    "fixture_files": {
+      "corporations_canada_url": "fixtures/standards/corporations_canada_fixture.json"
+    },
+    "expected_ca_corporation_number": "1234567",
+    "expected_business_number": "765432109RC0001"
+  },
+  {
+    "company": "Southern Range Robotics Pty Ltd",
+    "country": "AU",
+    "bucket": "non_us_official_registry",
+    "connectors": ["australia_abn_asic"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "abn": "53123456789",
+      "acn": "123456789"
+    },
+    "fixture_files": {
+      "australia_abn_asic_url": "fixtures/standards/australia_abn_asic_fixture.json"
+    },
+    "expected_abn": "53123456789",
+    "expected_acn": "123456789"
+  },
+  {
+    "company": "Lion City Mission Systems Pte. Ltd.",
+    "country": "SG",
+    "bucket": "non_us_official_registry",
+    "connectors": ["singapore_acra"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "uen": "201912345N"
+    },
+    "fixture_files": {
+      "singapore_acra_url": "fixtures/standards/singapore_acra_fixture.json"
+    },
+    "expected_uen": "201912345N"
+  },
+  {
+    "company": "Harbour Mission Analytics Limited",
+    "country": "NZ",
+    "bucket": "non_us_official_registry",
+    "connectors": ["new_zealand_companies_office"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "nzbn": "9429041234567",
+      "nz_company_number": "9182736"
+    },
+    "fixture_files": {
+      "new_zealand_companies_office_url": "fixtures/standards/new_zealand_companies_office_fixture.json"
+    },
+    "expected_nzbn": "9429041234567",
+    "expected_nz_company_number": "9182736"
+  },
+  {
+    "company": "Kongsberg Defence & Aerospace AS",
+    "country": "NO",
+    "bucket": "non_us_official_registry",
+    "connectors": ["norway_brreg"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "norway_org_number": "982574145"
+    },
+    "fixture_files": {
+      "norway_brreg_url": "fixtures/standards/norway_brreg_fixture.json"
+    },
+    "expected_norway_org_number": "982574145"
+  },
+  {
+    "company": "Oranje Mission Analytics B.V.",
+    "country": "NL",
+    "bucket": "non_us_official_registry",
+    "connectors": ["netherlands_kvk"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "kvk_number": "68456789"
+    },
+    "fixture_files": {
+      "netherlands_kvk_url": "fixtures/standards/netherlands_kvk_fixture.json"
+    },
+    "expected_kvk_number": "68456789"
+  },
+  {
+    "company": "Hexagone Mission Systems SAS",
+    "country": "FR",
+    "bucket": "non_us_official_registry",
+    "connectors": ["france_inpi_rne"],
+    "minimum_official_corroboration": "strong",
+    "max_blocked_official_connectors": 0,
+    "seed_metadata": {
+      "fr_siren": "552100554"
+    },
+    "fixture_files": {
+      "france_inpi_rne_url": "fixtures/standards/france_inpi_rne_fixture.json"
+    },
+    "expected_fr_siren": "552100554"
+  }
+]

@@ -1,0 +1,4502 @@
+{
+  "dataset_id": "world_defense_exhibitors_2026",
+  "dataset_name": "International Defense Exhibitors 2026",
+  "version": "2026-03-25",
+  "description": "Replayable Helios collector fixture for international defense exhibitors used to seed cases and local-first graph ingest.",
+  "source_type": "analyst_fixture",
+  "provenance": {
+    "compiled_from": [
+      "World Defense Show 2026 exhibitor references",
+      "DSEI exhibitor references",
+      "Eurosatory exhibitor references",
+      "Public industry source cross-checks"
+    ],
+    "collected_at": "2026-03-25",
+    "collection_method": "manual analyst curation into replayable fixture",
+    "ingest_contract": "Helios provider-neutral enrichment report contract",
+    "notes": "Use for local-first collector development before live-source automation. Do not treat as authoritative sanctions or registry evidence."
+  },
+  "companies": [
+    {
+      "record_id": "intl-exh-2026-0001",
+      "name": "AVIC",
+      "country": "CN",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "avic",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0002",
+      "name": "Beijing Precision Machinery Institute",
+      "country": "CN",
+      "sectors": [
+        "Precision Instruments"
+      ],
+      "slug": "beijing-precision-machinery-institute",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0003",
+      "name": "CASIC",
+      "country": "CN",
+      "sectors": [
+        "Missiles",
+        "Aerospace"
+      ],
+      "slug": "casic",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0004",
+      "name": "CATIC",
+      "country": "CN",
+      "sectors": [
+        "Air",
+        "Electronics"
+      ],
+      "slug": "catic",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0005",
+      "name": "Chengdu Aircraft Corporation",
+      "country": "CN",
+      "sectors": [
+        "Aircraft"
+      ],
+      "slug": "chengdu-aircraft-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0006",
+      "name": "Chengdu Radar",
+      "country": "CN",
+      "sectors": [
+        "Radar",
+        "Electronics"
+      ],
+      "slug": "chengdu-radar",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0007",
+      "name": "China Academy of Space Technology",
+      "country": "CN",
+      "sectors": [
+        "Aerospace",
+        "Satellites"
+      ],
+      "slug": "china-academy-of-space-technology",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0008",
+      "name": "China Aerospace Science and Industry Corporation",
+      "country": "CN",
+      "sectors": [
+        "Missiles",
+        "Aerospace"
+      ],
+      "slug": "china-aerospace-science-and-industry-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0009",
+      "name": "China Aerospace Science and Technology Corporation",
+      "country": "CN",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "china-aerospace-science-and-technology-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0010",
+      "name": "China National Aero-Technology",
+      "country": "CN",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "china-national-aero-technology",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0011",
+      "name": "China North Electronic Equipment Research Institute",
+      "country": "CN",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "china-north-electronic-equipment-research-institute",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0012",
+      "name": "China North Industries Group",
+      "country": "CN",
+      "sectors": [
+        "Land",
+        "Naval"
+      ],
+      "slug": "china-north-industries-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0013",
+      "name": "China North Navigation Control Technology",
+      "country": "CN",
+      "sectors": [
+        "Navigation Systems"
+      ],
+      "slug": "china-north-navigation-control-technology",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0014",
+      "name": "China Ordnance Industry Group",
+      "country": "CN",
+      "sectors": [
+        "Munitions",
+        "Artillery"
+      ],
+      "slug": "china-ordnance-industry-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0015",
+      "name": "China State Shipbuilding Corporation",
+      "country": "CN",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "china-state-shipbuilding-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0016",
+      "name": "China Weapons Industrial Group",
+      "country": "CN",
+      "sectors": [
+        "Weapons Systems"
+      ],
+      "slug": "china-weapons-industrial-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0017",
+      "name": "CETC",
+      "country": "CN",
+      "sectors": [
+        "Electronics",
+        "Radar"
+      ],
+      "slug": "cetc",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0018",
+      "name": "Harbin Aviation Industry Group",
+      "country": "CN",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "harbin-aviation-industry-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0019",
+      "name": "NORINCO",
+      "country": "CN",
+      "sectors": [
+        "Land",
+        "Naval",
+        "Missiles"
+      ],
+      "slug": "norinco",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0020",
+      "name": "Poly Technologies",
+      "country": "CN",
+      "sectors": [
+        "Missiles",
+        "Naval"
+      ],
+      "slug": "poly-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0021",
+      "name": "Shanghai Spaceflight Control Technology",
+      "country": "CN",
+      "sectors": [
+        "Space",
+        "Control Systems"
+      ],
+      "slug": "shanghai-spaceflight-control-technology",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0022",
+      "name": "Shenyang Aircraft Corporation",
+      "country": "CN",
+      "sectors": [
+        "Aircraft"
+      ],
+      "slug": "shenyang-aircraft-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0023",
+      "name": "Shenyang Liming Engine Corporation",
+      "country": "CN",
+      "sectors": [
+        "Engines"
+      ],
+      "slug": "shenyang-liming-engine-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0024",
+      "name": "Wuhan Marine Electric",
+      "country": "CN",
+      "sectors": [
+        "Naval Electronics"
+      ],
+      "slug": "wuhan-marine-electric",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0025",
+      "name": "Xi'an Changqing Electronics",
+      "country": "CN",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "xi-an-changqing-electronics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0026",
+      "name": "Xian Aircraft Industrial Corporation",
+      "country": "CN",
+      "sectors": [
+        "Aircraft"
+      ],
+      "slug": "xian-aircraft-industrial-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0027",
+      "name": "Almaz-Antey",
+      "country": "RU",
+      "sectors": [
+        "Air Defense",
+        "Missiles"
+      ],
+      "slug": "almaz-antey",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0028",
+      "name": "Burevestnik",
+      "country": "RU",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "burevestnik",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0029",
+      "name": "Concern Radio-Electronic Technologies",
+      "country": "RU",
+      "sectors": [
+        "Electronics",
+        "Radar"
+      ],
+      "slug": "concern-radio-electronic-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0030",
+      "name": "Ilyushin",
+      "country": "RU",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "ilyushin",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0031",
+      "name": "Izhmash",
+      "country": "RU",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "izhmash",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0032",
+      "name": "Kalashnikov Concern",
+      "country": "RU",
+      "sectors": [
+        "Small Arms",
+        "Land"
+      ],
+      "slug": "kalashnikov-concern",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0033",
+      "name": "Kamov",
+      "country": "RU",
+      "sectors": [
+        "Helicopters"
+      ],
+      "slug": "kamov",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0034",
+      "name": "MiG",
+      "country": "RU",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "mig",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0035",
+      "name": "Mil Moscow Helicopter Plant",
+      "country": "RU",
+      "sectors": [
+        "Helicopters"
+      ],
+      "slug": "mil-moscow-helicopter-plant",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0036",
+      "name": "NPO Machinery",
+      "country": "RU",
+      "sectors": [
+        "Missiles",
+        "Artillery"
+      ],
+      "slug": "npo-machinery",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0037",
+      "name": "Novator Design Bureau",
+      "country": "RU",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "novator-design-bureau",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0038",
+      "name": "Rosoboronexport",
+      "country": "RU",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "rosoboronexport",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0039",
+      "name": "Rostec",
+      "country": "RU",
+      "sectors": [
+        "Electronics",
+        "Aerospace",
+        "Land"
+      ],
+      "slug": "rostec",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0040",
+      "name": "Russian Helicopters",
+      "country": "RU",
+      "sectors": [
+        "Rotorcraft"
+      ],
+      "slug": "russian-helicopters",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0041",
+      "name": "Severstal-MetallyRGK",
+      "country": "RU",
+      "sectors": [
+        "Armor Plate"
+      ],
+      "slug": "severstal-metallyrgk",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0042",
+      "name": "Shvabe",
+      "country": "RU",
+      "sectors": [
+        "Optics",
+        "Electronics"
+      ],
+      "slug": "shvabe",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0043",
+      "name": "Sukhoi",
+      "country": "RU",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "sukhoi",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0044",
+      "name": "Tactical Missiles Corporation",
+      "country": "RU",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "tactical-missiles-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0045",
+      "name": "Teknodinamika",
+      "country": "RU",
+      "sectors": [
+        "Aerospace Systems"
+      ],
+      "slug": "teknodinamika",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0046",
+      "name": "Tulamashzavod",
+      "country": "RU",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "tulamashzavod",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0047",
+      "name": "Tupolev",
+      "country": "RU",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "tupolev",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0048",
+      "name": "Uralvagonzavod",
+      "country": "RU",
+      "sectors": [
+        "Land Vehicles",
+        "Tanks"
+      ],
+      "slug": "uralvagonzavod",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0049",
+      "name": "United Engine Corporation",
+      "country": "RU",
+      "sectors": [
+        "Engines"
+      ],
+      "slug": "united-engine-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0050",
+      "name": "United Shipbuilding Corporation",
+      "country": "RU",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "united-shipbuilding-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0051",
+      "name": "VSMPO-AVISMA",
+      "country": "RU",
+      "sectors": [
+        "Aerospace Materials"
+      ],
+      "slug": "vsmpo-avisma",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0052",
+      "name": "Acibadem Defence",
+      "country": "TR",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "acibadem-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0053",
+      "name": "Ada Defence",
+      "country": "TR",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "ada-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0054",
+      "name": "Argun",
+      "country": "TR",
+      "sectors": [
+        "Naval Systems"
+      ],
+      "slug": "argun",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0055",
+      "name": "ASELSAN",
+      "country": "TR",
+      "sectors": [
+        "Electronics",
+        "Radar"
+      ],
+      "slug": "aselsan",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0056",
+      "name": "Baykar",
+      "country": "TR",
+      "sectors": [
+        "Unmanned Systems"
+      ],
+      "slug": "baykar",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0057",
+      "name": "HAVELSAN",
+      "country": "TR",
+      "sectors": [
+        "C4ISR",
+        "Software"
+      ],
+      "slug": "havelsan",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0058",
+      "name": "Kalekal\u0131p",
+      "country": "TR",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "kalekal-p",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0059",
+      "name": "Meteksan Defence",
+      "country": "TR",
+      "sectors": [
+        "Electronics",
+        "Radar"
+      ],
+      "slug": "meteksan-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0060",
+      "name": "Nurol Makine ve Elektrik",
+      "country": "TR",
+      "sectors": [
+        "Armored Vehicles"
+      ],
+      "slug": "nurol-makine-ve-elektrik",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0061",
+      "name": "Otokar",
+      "country": "TR",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "otokar",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0062",
+      "name": "Roketsan",
+      "country": "TR",
+      "sectors": [
+        "Missiles",
+        "Rockets"
+      ],
+      "slug": "roketsan",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0063",
+      "name": "SARSIL",
+      "country": "TR",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "sarsil",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0064",
+      "name": "Savunma Teknolojileri Muhendislik",
+      "country": "TR",
+      "sectors": [
+        "Naval",
+        "Electronics"
+      ],
+      "slug": "savunma-teknolojileri-muhendislik",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0065",
+      "name": "Tanin Electronics",
+      "country": "TR",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "tanin-electronics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0066",
+      "name": "Turkish Aerospace Industries",
+      "country": "TR",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "turkish-aerospace-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0067",
+      "name": "Adani Defence and Aerospace",
+      "country": "IN",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "adani-defence-and-aerospace",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0068",
+      "name": "Bharat Dynamics Limited",
+      "country": "IN",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "bharat-dynamics-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0069",
+      "name": "Bharat Electronics Limited",
+      "country": "IN",
+      "sectors": [
+        "Electronics",
+        "Radar"
+      ],
+      "slug": "bharat-electronics-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0070",
+      "name": "Cochin Shipyard Limited",
+      "country": "IN",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "cochin-shipyard-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0071",
+      "name": "DRDO",
+      "country": "IN",
+      "sectors": [
+        "R&D",
+        "Multi-domain"
+      ],
+      "slug": "drdo",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0072",
+      "name": "Garden Reach Shipbuilders",
+      "country": "IN",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "garden-reach-shipbuilders",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0073",
+      "name": "Goa Shipyard Limited",
+      "country": "IN",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "goa-shipyard-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0074",
+      "name": "Godrej & Boyce Defence",
+      "country": "IN",
+      "sectors": [
+        "Naval",
+        "Land"
+      ],
+      "slug": "godrej-boyce-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0075",
+      "name": "Hindustan Aeronautics Limited",
+      "country": "IN",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "hindustan-aeronautics-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0076",
+      "name": "Hindustan Machine Tools",
+      "country": "IN",
+      "sectors": [
+        "Machine Tools",
+        "Defense"
+      ],
+      "slug": "hindustan-machine-tools",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0077",
+      "name": "Hindustan Nirmitee Automation Limited",
+      "country": "IN",
+      "sectors": [
+        "Automation",
+        "Defense"
+      ],
+      "slug": "hindustan-nirmitee-automation-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0078",
+      "name": "India Ltd. Shipyards",
+      "country": "IN",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "india-ltd-shipyards",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0079",
+      "name": "L&T Defence",
+      "country": "IN",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "l-t-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0080",
+      "name": "Mazagon Dock Shipbuilders",
+      "country": "IN",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "mazagon-dock-shipbuilders",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0081",
+      "name": "Ordnance Factories Group",
+      "country": "IN",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "ordnance-factories-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0082",
+      "name": "Tata Advanced Systems Limited",
+      "country": "IN",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "tata-advanced-systems-limited",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0083",
+      "name": "Vikram Sarabhai Space Centre",
+      "country": "IN",
+      "sectors": [
+        "Space",
+        "Missiles"
+      ],
+      "slug": "vikram-sarabhai-space-centre",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0084",
+      "name": "Walchandnagar Industries",
+      "country": "IN",
+      "sectors": [
+        "Defense Engineering"
+      ],
+      "slug": "walchandnagar-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0085",
+      "name": "Airbus Defence and Space",
+      "country": "FR",
+      "sectors": [
+        "Aerospace",
+        "Space"
+      ],
+      "slug": "airbus-defence-and-space",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0086",
+      "name": "Arquus",
+      "country": "FR",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "arquus",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0087",
+      "name": "Dassault Aviation",
+      "country": "FR",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "dassault-aviation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0088",
+      "name": "EADS France",
+      "country": "FR",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "eads-france",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0089",
+      "name": "Expal Systems",
+      "country": "FR",
+      "sectors": [
+        "Munitions",
+        "Artillery"
+      ],
+      "slug": "expal-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0090",
+      "name": "Lacroix Group",
+      "country": "FR",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "lacroix-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0091",
+      "name": "MBDA",
+      "country": "FR",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "mbda",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0092",
+      "name": "Naval Group",
+      "country": "FR",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "naval-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0093",
+      "name": "Nexter Systems",
+      "country": "FR",
+      "sectors": [
+        "Land",
+        "Artillery"
+      ],
+      "slug": "nexter-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0094",
+      "name": "Renault Trucks Defence",
+      "country": "FR",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "renault-trucks-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0095",
+      "name": "Safran",
+      "country": "FR",
+      "sectors": [
+        "Engines",
+        "Aerospace"
+      ],
+      "slug": "safran",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0096",
+      "name": "Thales",
+      "country": "FR",
+      "sectors": [
+        "Electronics",
+        "Aerospace",
+        "Naval"
+      ],
+      "slug": "thales",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0097",
+      "name": "Torped Defense",
+      "country": "FR",
+      "sectors": [
+        "Naval Weapons"
+      ],
+      "slug": "torped-defense",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0098",
+      "name": "ADS Advanced Defense Solutions",
+      "country": "DE",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "ads-advanced-defense-solutions",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0099",
+      "name": "Blohm + Voss",
+      "country": "DE",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "blohm-voss",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0100",
+      "name": "Diehl Defence",
+      "country": "DE",
+      "sectors": [
+        "Missiles",
+        "Munitions"
+      ],
+      "slug": "diehl-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0101",
+      "name": "Diehl Stiftung",
+      "country": "DE",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "diehl-stiftung",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0102",
+      "name": "Heckler & Koch",
+      "country": "DE",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "heckler-koch",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0103",
+      "name": "Hensoldt",
+      "country": "DE",
+      "sectors": [
+        "Sensors",
+        "Electronics"
+      ],
+      "slug": "hensoldt",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0104",
+      "name": "IAV Automotive Engineering",
+      "country": "DE",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "iav-automotive-engineering",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0105",
+      "name": "Krauss-Maffei Wegmann",
+      "country": "DE",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "krauss-maffei-wegmann",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0106",
+      "name": "Mauser",
+      "country": "DE",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "mauser",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0107",
+      "name": "Rheinmetall",
+      "country": "DE",
+      "sectors": [
+        "Land",
+        "Munitions",
+        "Naval"
+      ],
+      "slug": "rheinmetall",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0108",
+      "name": "Rheinmetall Air Defence",
+      "country": "DE",
+      "sectors": [
+        "Air Defense"
+      ],
+      "slug": "rheinmetall-air-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0109",
+      "name": "ThyssenKrupp Marine Systems",
+      "country": "DE",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "thyssenkrupp-marine-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0110",
+      "name": "Babcock International",
+      "country": "GB",
+      "sectors": [
+        "Naval",
+        "Infrastructure"
+      ],
+      "slug": "babcock-international",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0111",
+      "name": "BAE Systems",
+      "country": "GB",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "bae-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0112",
+      "name": "Chemring Group",
+      "country": "GB",
+      "sectors": [
+        "Munitions",
+        "Countermeasures"
+      ],
+      "slug": "chemring-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0113",
+      "name": "Cobham",
+      "country": "GB",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "cobham",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0114",
+      "name": "GKN Aerospace",
+      "country": "GB",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "gkn-aerospace",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0115",
+      "name": "Leonardo UK",
+      "country": "GB",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "leonardo-uk",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0116",
+      "name": "Meggitt",
+      "country": "GB",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "meggitt",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0117",
+      "name": "QinetiQ",
+      "country": "GB",
+      "sectors": [
+        "Defense Technology"
+      ],
+      "slug": "qinetiq",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0118",
+      "name": "Rolls-Royce Defence",
+      "country": "GB",
+      "sectors": [
+        "Engines",
+        "Naval"
+      ],
+      "slug": "rolls-royce-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0119",
+      "name": "Rolls-Royce plc",
+      "country": "GB",
+      "sectors": [
+        "Engines",
+        "Aerospace"
+      ],
+      "slug": "rolls-royce-plc",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0120",
+      "name": "Serco Group",
+      "country": "GB",
+      "sectors": [
+        "Defense Services"
+      ],
+      "slug": "serco-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0121",
+      "name": "Thales UK",
+      "country": "GB",
+      "sectors": [
+        "Electronics",
+        "Radar"
+      ],
+      "slug": "thales-uk",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0122",
+      "name": "Ultra Electronics",
+      "country": "GB",
+      "sectors": [
+        "Electronics",
+        "Naval"
+      ],
+      "slug": "ultra-electronics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0123",
+      "name": "Daewoo Shipbuilding & Marine Engineering",
+      "country": "KR",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "daewoo-shipbuilding-marine-engineering",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0124",
+      "name": "Firstec",
+      "country": "KR",
+      "sectors": [
+        "Defense Electronics"
+      ],
+      "slug": "firstec",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0125",
+      "name": "Hanwha Aerospace",
+      "country": "KR",
+      "sectors": [
+        "Aerospace",
+        "Missiles"
+      ],
+      "slug": "hanwha-aerospace",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0126",
+      "name": "Huneed Technologies",
+      "country": "KR",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "huneed-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0127",
+      "name": "Hyundai Motor Company (Defense)",
+      "country": "KR",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "hyundai-motor-company-defense",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0128",
+      "name": "Hyundai Rotem",
+      "country": "KR",
+      "sectors": [
+        "Land Vehicles",
+        "Artillery"
+      ],
+      "slug": "hyundai-rotem",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0129",
+      "name": "Korea Aerospace Industries",
+      "country": "KR",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "korea-aerospace-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0130",
+      "name": "LIG Nex1",
+      "country": "KR",
+      "sectors": [
+        "Missiles",
+        "Electronics"
+      ],
+      "slug": "lig-nex1",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0131",
+      "name": "Poongsan Corporation",
+      "country": "KR",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "poongsan-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0132",
+      "name": "Samsung Techwin",
+      "country": "KR",
+      "sectors": [
+        "Naval",
+        "Land"
+      ],
+      "slug": "samsung-techwin",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0133",
+      "name": "Aeronautics",
+      "country": "IL",
+      "sectors": [
+        "Unmanned Systems"
+      ],
+      "slug": "aeronautics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0134",
+      "name": "Carbine",
+      "country": "IL",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "carbine",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0135",
+      "name": "Elbit Systems",
+      "country": "IL",
+      "sectors": [
+        "Electronics",
+        "Aerospace"
+      ],
+      "slug": "elbit-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0136",
+      "name": "Hatzor Aviation Service",
+      "country": "IL",
+      "sectors": [
+        "Aerospace Maintenance"
+      ],
+      "slug": "hatzor-aviation-service",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0137",
+      "name": "IMI System",
+      "country": "IL",
+      "sectors": [
+        "Munitions",
+        "Artillery"
+      ],
+      "slug": "imi-system",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0138",
+      "name": "Israel Aerospace Industries",
+      "country": "IL",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "israel-aerospace-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0139",
+      "name": "Magal Security Systems",
+      "country": "IL",
+      "sectors": [
+        "Border Security"
+      ],
+      "slug": "magal-security-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0140",
+      "name": "Rada Electronic Industries",
+      "country": "IL",
+      "sectors": [
+        "Radar",
+        "Electronics"
+      ],
+      "slug": "rada-electronic-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0141",
+      "name": "Rafael Advanced Defense Systems",
+      "country": "IL",
+      "sectors": [
+        "Missiles",
+        "Electronics"
+      ],
+      "slug": "rafael-advanced-defense-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0142",
+      "name": "UVision",
+      "country": "IL",
+      "sectors": [
+        "Loitering Munitions"
+      ],
+      "slug": "uvision",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0143",
+      "name": "AAI Corporation",
+      "country": "US",
+      "sectors": [
+        "Unmanned Systems"
+      ],
+      "slug": "aai-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0144",
+      "name": "Aeryon Labs",
+      "country": "US",
+      "sectors": [
+        "Unmanned Systems"
+      ],
+      "slug": "aeryon-labs",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0145",
+      "name": "AeroVironment",
+      "country": "US",
+      "sectors": [
+        "Unmanned Systems"
+      ],
+      "slug": "aerovironment",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0146",
+      "name": "Airbus Helicopters (US)",
+      "country": "US",
+      "sectors": [
+        "Helicopters"
+      ],
+      "slug": "airbus-helicopters-us",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0147",
+      "name": "Bell Textron",
+      "country": "US",
+      "sectors": [
+        "Rotorcraft",
+        "Aerospace"
+      ],
+      "slug": "bell-textron",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0148",
+      "name": "Booz Allen Hamilton",
+      "country": "US",
+      "sectors": [
+        "Technology",
+        "Services"
+      ],
+      "slug": "booz-allen-hamilton",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0149",
+      "name": "Boeing Defence, Space & Security",
+      "country": "US",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "boeing-defence-space-security",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0150",
+      "name": "DRS Technologies",
+      "country": "US",
+      "sectors": [
+        "Electro-optical",
+        "Defense"
+      ],
+      "slug": "drs-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0151",
+      "name": "Ducommun",
+      "country": "US",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "ducommun",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0152",
+      "name": "Engineered Support Systems",
+      "country": "US",
+      "sectors": [
+        "Defense Support"
+      ],
+      "slug": "engineered-support-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0153",
+      "name": "Garmin",
+      "country": "US",
+      "sectors": [
+        "Navigation",
+        "Electronics"
+      ],
+      "slug": "garmin",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0154",
+      "name": "General Atomics",
+      "country": "US",
+      "sectors": [
+        "Unmanned Systems",
+        "Aircraft"
+      ],
+      "slug": "general-atomics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0155",
+      "name": "General Dynamics",
+      "country": "US",
+      "sectors": [
+        "Land",
+        "Naval",
+        "Aerospace"
+      ],
+      "slug": "general-dynamics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0156",
+      "name": "Huntington Ingalls Industries",
+      "country": "US",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "huntington-ingalls-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0157",
+      "name": "ITT Exelis",
+      "country": "US",
+      "sectors": [
+        "Electronics",
+        "Aerospace"
+      ],
+      "slug": "itt-exelis",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0158",
+      "name": "Kratos Defense",
+      "country": "US",
+      "sectors": [
+        "Unmanned Systems",
+        "Electronics"
+      ],
+      "slug": "kratos-defense",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0159",
+      "name": "L-3 Wescam",
+      "country": "US",
+      "sectors": [
+        "Electro-optical Systems"
+      ],
+      "slug": "l-3-wescam",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0160",
+      "name": "Lockheed Martin",
+      "country": "US",
+      "sectors": [
+        "Aerospace",
+        "Missiles"
+      ],
+      "slug": "lockheed-martin",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0161",
+      "name": "Northrop Grumman",
+      "country": "US",
+      "sectors": [
+        "Aerospace",
+        "Multi-domain"
+      ],
+      "slug": "northrop-grumman",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0162",
+      "name": "Orbital ATK",
+      "country": "US",
+      "sectors": [
+        "Missiles",
+        "Space"
+      ],
+      "slug": "orbital-atk",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0163",
+      "name": "Oshkosh Defence",
+      "country": "US",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "oshkosh-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0164",
+      "name": "Raytheon Technologies",
+      "country": "US",
+      "sectors": [
+        "Missiles",
+        "Electronics"
+      ],
+      "slug": "raytheon-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0165",
+      "name": "SAIC",
+      "country": "US",
+      "sectors": [
+        "C4ISR",
+        "Technology"
+      ],
+      "slug": "saic",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0166",
+      "name": "Sikorsky",
+      "country": "US",
+      "sectors": [
+        "Helicopters"
+      ],
+      "slug": "sikorsky",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0167",
+      "name": "Sparton Corporation",
+      "country": "US",
+      "sectors": [
+        "Naval",
+        "Defense"
+      ],
+      "slug": "sparton-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0168",
+      "name": "System Logic",
+      "country": "US",
+      "sectors": [
+        "Defense Technology"
+      ],
+      "slug": "system-logic",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0169",
+      "name": "Teledyne Technologies",
+      "country": "US",
+      "sectors": [
+        "Electronics",
+        "Sensors"
+      ],
+      "slug": "teledyne-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0170",
+      "name": "Textron Defence",
+      "country": "US",
+      "sectors": [
+        "Land Vehicles",
+        "Aerospace"
+      ],
+      "slug": "textron-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0171",
+      "name": "TTM Technologies",
+      "country": "US",
+      "sectors": [
+        "Electronics",
+        "Defense"
+      ],
+      "slug": "ttm-technologies",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0172",
+      "name": "Ultra Electronics (US)",
+      "country": "US",
+      "sectors": [
+        "Electronics",
+        "Naval"
+      ],
+      "slug": "ultra-electronics-us",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0173",
+      "name": "ADASI",
+      "country": "AE",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "adasi",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0174",
+      "name": "EDGE Group",
+      "country": "AE",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "edge-group",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0175",
+      "name": "Emirates Defence Industries",
+      "country": "AE",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "emirates-defence-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0176",
+      "name": "L&T Arabia",
+      "country": "AE",
+      "sectors": [
+        "Defense"
+      ],
+      "slug": "l-t-arabia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0177",
+      "name": "NIMR Automotive",
+      "country": "AE",
+      "sectors": [
+        "Armored Vehicles"
+      ],
+      "slug": "nimr-automotive",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0178",
+      "name": "Orbit Communications",
+      "country": "AE",
+      "sectors": [
+        "Satellite"
+      ],
+      "slug": "orbit-communications",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0179",
+      "name": "Tawazun Economic Council",
+      "country": "AE",
+      "sectors": [
+        "Defense Industrial"
+      ],
+      "slug": "tawazun-economic-council",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0180",
+      "name": "Thuraya",
+      "country": "AE",
+      "sectors": [
+        "Satellite Communications"
+      ],
+      "slug": "thuraya",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0181",
+      "name": "Advanced Electronics Company",
+      "country": "SA",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "advanced-electronics-company",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0182",
+      "name": "Alibi Defense",
+      "country": "SA",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "alibi-defense",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0183",
+      "name": "International Turnkey",
+      "country": "SA",
+      "sectors": [
+        "Defense Industrial"
+      ],
+      "slug": "international-turnkey",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0184",
+      "name": "Saudi Military Industries",
+      "country": "SA",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "saudi-military-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0185",
+      "name": "TAQNIA",
+      "country": "SA",
+      "sectors": [
+        "Defense Technology"
+      ],
+      "slug": "taqnia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0186",
+      "name": "Beretta",
+      "country": "IT",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "beretta",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0187",
+      "name": "Fincantieri",
+      "country": "IT",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "fincantieri",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0188",
+      "name": "IVECO",
+      "country": "IT",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "iveco",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0189",
+      "name": "Leonardo",
+      "country": "IT",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "leonardo",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0190",
+      "name": "OTO Melara",
+      "country": "IT",
+      "sectors": [
+        "Naval Systems"
+      ],
+      "slug": "oto-melara",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0191",
+      "name": "Whitehead Alenia Sistemi Subacquei",
+      "country": "IT",
+      "sectors": [
+        "Naval",
+        "Torpedoes"
+      ],
+      "slug": "whitehead-alenia-sistemi-subacquei",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0192",
+      "name": "Airbus Defence and Space Spain",
+      "country": "ES",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "airbus-defence-and-space-spain",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0193",
+      "name": "EADS Espa\u00f1a",
+      "country": "ES",
+      "sectors": [
+        "Aerospace",
+        "Defense"
+      ],
+      "slug": "eads-espa-a",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0194",
+      "name": "Indra",
+      "country": "ES",
+      "sectors": [
+        "Electronics",
+        "C4ISR"
+      ],
+      "slug": "indra",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0195",
+      "name": "Navantia",
+      "country": "ES",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "navantia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0196",
+      "name": "Santa B\u00e1rbara",
+      "country": "ES",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "santa-b-rbara",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0197",
+      "name": "Saab",
+      "country": "SE",
+      "sectors": [
+        "Aerospace",
+        "Multi-domain"
+      ],
+      "slug": "saab",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0198",
+      "name": "Saab Bofors Dynamics",
+      "country": "SE",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "saab-bofors-dynamics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0199",
+      "name": "Saab Dynamics",
+      "country": "SE",
+      "sectors": [
+        "Weapons Systems"
+      ],
+      "slug": "saab-dynamics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0200",
+      "name": "Volvo CE Defence",
+      "country": "SE",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "volvo-ce-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0201",
+      "name": "Airborne Support",
+      "country": "NL",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "airborne-support",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0202",
+      "name": "DAF Trucks Defence",
+      "country": "NL",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "daf-trucks-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0203",
+      "name": "Dutch Space",
+      "country": "NL",
+      "sectors": [
+        "Space",
+        "Aerospace"
+      ],
+      "slug": "dutch-space",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0204",
+      "name": "Koninklijke Schelde",
+      "country": "NL",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "koninklijke-schelde",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0205",
+      "name": "Thales Netherlands",
+      "country": "NL",
+      "sectors": [
+        "Electronics",
+        "Naval"
+      ],
+      "slug": "thales-netherlands",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0206",
+      "name": "FN Herstal",
+      "country": "BE",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "fn-herstal",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0207",
+      "name": "Mecar",
+      "country": "BE",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "mecar",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0208",
+      "name": "Nexter Belgium",
+      "country": "BE",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "nexter-belgium",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0209",
+      "name": "Techspace Aero",
+      "country": "BE",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "techspace-aero",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0210",
+      "name": "Bumar",
+      "country": "PL",
+      "sectors": [
+        "Land",
+        "Munitions"
+      ],
+      "slug": "bumar",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0211",
+      "name": "PGZ",
+      "country": "PL",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "pgz",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0212",
+      "name": "Rosomak",
+      "country": "PL",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "rosomak",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0213",
+      "name": "WB Electronics",
+      "country": "PL",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "wb-electronics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0214",
+      "name": "Zeamet",
+      "country": "PL",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "zeamet",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0215",
+      "name": "Aero Vodochody",
+      "country": "CZ",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "aero-vodochody",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0216",
+      "name": "Ceska Zbrojovka",
+      "country": "CZ",
+      "sectors": [
+        "Small Arms"
+      ],
+      "slug": "ceska-zbrojovka",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0217",
+      "name": "Omnipol",
+      "country": "CZ",
+      "sectors": [
+        "Defense Trade"
+      ],
+      "slug": "omnipol",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0218",
+      "name": "Tatra Trucks",
+      "country": "CZ",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "tatra-trucks",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0219",
+      "name": "Fuji Heavy Industries",
+      "country": "JP",
+      "sectors": [
+        "Aerospace",
+        "Land Vehicles"
+      ],
+      "slug": "fuji-heavy-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0220",
+      "name": "IHI Corporation",
+      "country": "JP",
+      "sectors": [
+        "Aerospace",
+        "Engines"
+      ],
+      "slug": "ihi-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0221",
+      "name": "Japan Marine United",
+      "country": "JP",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "japan-marine-united",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0222",
+      "name": "Kawasaki Heavy Industries",
+      "country": "JP",
+      "sectors": [
+        "Aerospace",
+        "Naval"
+      ],
+      "slug": "kawasaki-heavy-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0223",
+      "name": "Mitsubishi Heavy Industries",
+      "country": "JP",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "mitsubishi-heavy-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0224",
+      "name": "Sumitomo Heavy Industries",
+      "country": "JP",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "sumitomo-heavy-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0225",
+      "name": "And\u00f8y Rocket Range",
+      "country": "NO",
+      "sectors": [
+        "Launch Facilities"
+      ],
+      "slug": "and-y-rocket-range",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0226",
+      "name": "Kongsberg Defence & Aerospace",
+      "country": "NO",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "kongsberg-defence-aerospace",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0227",
+      "name": "Kongsberg Maritime",
+      "country": "NO",
+      "sectors": [
+        "Naval",
+        "Electronics"
+      ],
+      "slug": "kongsberg-maritime",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0228",
+      "name": "Nammo",
+      "country": "NO",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "nammo",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0229",
+      "name": "Bombardier Defence",
+      "country": "CA",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "bombardier-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0230",
+      "name": "CAE",
+      "country": "CA",
+      "sectors": [
+        "Simulation",
+        "Training"
+      ],
+      "slug": "cae",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0231",
+      "name": "General Dynamics Land Systems-Canada",
+      "country": "CA",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "general-dynamics-land-systems-canada",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0232",
+      "name": "L-3 Technologies Canada",
+      "country": "CA",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "l-3-technologies-canada",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0233",
+      "name": "Magellan Aerospace",
+      "country": "CA",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "magellan-aerospace",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0234",
+      "name": "Argosy Holdings",
+      "country": "AU",
+      "sectors": [
+        "Defense Support"
+      ],
+      "slug": "argosy-holdings",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0235",
+      "name": "ASC (Australian Submarine Corporation)",
+      "country": "AU",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "asc-australian-submarine-corporation",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0236",
+      "name": "BAE Systems Australia",
+      "country": "AU",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "bae-systems-australia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0237",
+      "name": "Hanwha Australia",
+      "country": "AU",
+      "sectors": [
+        "Land Systems"
+      ],
+      "slug": "hanwha-australia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0238",
+      "name": "Thales Australia",
+      "country": "AU",
+      "sectors": [
+        "Electronics",
+        "Naval"
+      ],
+      "slug": "thales-australia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0239",
+      "name": "Avibras",
+      "country": "BR",
+      "sectors": [
+        "Missiles",
+        "Rockets"
+      ],
+      "slug": "avibras",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0240",
+      "name": "Embraer Defence & Security",
+      "country": "BR",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "embraer-defence-security",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0241",
+      "name": "Marinha do Brasil Estaleiro",
+      "country": "BR",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "marinha-do-brasil-estaleiro",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0242",
+      "name": "Odebrecht Defence & Technology",
+      "country": "BR",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "odebrecht-defence-technology",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0243",
+      "name": "Armscor",
+      "country": "ZA",
+      "sectors": [
+        "Defense Industrial"
+      ],
+      "slug": "armscor",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0244",
+      "name": "Denel",
+      "country": "ZA",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "denel",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0245",
+      "name": "Optimal Energy",
+      "country": "ZA",
+      "sectors": [
+        "Defence Systems"
+      ],
+      "slug": "optimal-energy",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0246",
+      "name": "Reutech Defence",
+      "country": "ZA",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "reutech-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0247",
+      "name": "Pantech Electronics",
+      "country": "SG",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "pantech-electronics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0248",
+      "name": "Singapore Technologies Electronics",
+      "country": "SG",
+      "sectors": [
+        "Electronics",
+        "Naval"
+      ],
+      "slug": "singapore-technologies-electronics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0249",
+      "name": "Singapore Technologies Kinetics",
+      "country": "SG",
+      "sectors": [
+        "Land Systems"
+      ],
+      "slug": "singapore-technologies-kinetics",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0250",
+      "name": "ST Aerospace",
+      "country": "SG",
+      "sectors": [
+        "Aerospace",
+        "Maintenance"
+      ],
+      "slug": "st-aerospace",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0251",
+      "name": "Aerostar",
+      "country": "RO",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "aerostar",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0252",
+      "name": "Romtehnica",
+      "country": "RO",
+      "sectors": [
+        "Defense Industrial"
+      ],
+      "slug": "romtehnica",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0253",
+      "name": "Uzina Mecanica Bucuresti",
+      "country": "RO",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "uzina-mecanica-bucuresti",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0254",
+      "name": "Hellenic Aerospace Industry",
+      "country": "GR",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "hellenic-aerospace-industry",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0255",
+      "name": "Hellenic Defence Systems",
+      "country": "GR",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "hellenic-defence-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0256",
+      "name": "MBDA Finland",
+      "country": "FI",
+      "sectors": [
+        "Missiles"
+      ],
+      "slug": "mbda-finland",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0257",
+      "name": "Patria",
+      "country": "FI",
+      "sectors": [
+        "Land",
+        "Aerospace"
+      ],
+      "slug": "patria",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0258",
+      "name": "Valmet Defence Solutions",
+      "country": "FI",
+      "sectors": [
+        "Systems Integration"
+      ],
+      "slug": "valmet-defence-solutions",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0259",
+      "name": "Heavy Industries Taxila",
+      "country": "PK",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "heavy-industries-taxila",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0260",
+      "name": "Pakistan Aeronautical Complex",
+      "country": "PK",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "pakistan-aeronautical-complex",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0261",
+      "name": "Pakistan Ordinance Factories",
+      "country": "PK",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "pakistan-ordinance-factories",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0262",
+      "name": "Antonov",
+      "country": "UA",
+      "sectors": [
+        "Aerospace",
+        "Aircraft"
+      ],
+      "slug": "antonov",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0263",
+      "name": "Ukroboronprom",
+      "country": "UA",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "ukroboronprom",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0264",
+      "name": "Contraves",
+      "country": "CH",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "contraves",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0265",
+      "name": "Mowag",
+      "country": "CH",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "mowag",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0266",
+      "name": "RUAG Defence",
+      "country": "CH",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "ruag-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0267",
+      "name": "Danish Shipyards",
+      "country": "DK",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "danish-shipyards",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0268",
+      "name": "Terma",
+      "country": "DK",
+      "sectors": [
+        "Electronics",
+        "Aerospace"
+      ],
+      "slug": "terma",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0269",
+      "name": "Bulgarian Defence Industries",
+      "country": "BG",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "bulgarian-defence-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0270",
+      "name": "\u0110uro \u0110akovi\u0107 Defence",
+      "country": "HR",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "uro-akovi-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0271",
+      "name": "Egyptian Advanced Factories Company",
+      "country": "EG",
+      "sectors": [
+        "Defense Industrial"
+      ],
+      "slug": "egyptian-advanced-factories-company",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0272",
+      "name": "Estonian Defence Procurement",
+      "country": "EE",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "estonian-defence-procurement",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0273",
+      "name": "Fabricaciones Militares",
+      "country": "AR",
+      "sectors": [
+        "Munitions",
+        "Aerospace"
+      ],
+      "slug": "fabricaciones-militares",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0274",
+      "name": "Grupo Safran Mexico",
+      "country": "MX",
+      "sectors": [
+        "Aerospace",
+        "Engines"
+      ],
+      "slug": "grupo-safran-mexico",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0275",
+      "name": "Hungarian Defence Industries",
+      "country": "HU",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "hungarian-defence-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0276",
+      "name": "Latvian Defence Systems",
+      "country": "LV",
+      "sectors": [
+        "Electronics"
+      ],
+      "slug": "latvian-defence-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0277",
+      "name": "Malaysia Weapons Development",
+      "country": "MY",
+      "sectors": [
+        "Weapons Systems"
+      ],
+      "slug": "malaysia-weapons-development",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0278",
+      "name": "Minsk Tractor Works",
+      "country": "BY",
+      "sectors": [
+        "Land Vehicles"
+      ],
+      "slug": "minsk-tractor-works",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0279",
+      "name": "New Zealand Defence",
+      "country": "NZ",
+      "sectors": [
+        "Naval",
+        "Maintenance"
+      ],
+      "slug": "new-zealand-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0280",
+      "name": "OMV Defence",
+      "country": "AT",
+      "sectors": [
+        "Defense Industrial"
+      ],
+      "slug": "omv-defence",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0281",
+      "name": "Portuguese Defence Industries",
+      "country": "PT",
+      "sectors": [
+        "Defense"
+      ],
+      "slug": "portuguese-defence-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0282",
+      "name": "PT Dirgantara Indonesia",
+      "country": "ID",
+      "sectors": [
+        "Aerospace"
+      ],
+      "slug": "pt-dirgantara-indonesia",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0283",
+      "name": "PT Pindad",
+      "country": "ID",
+      "sectors": [
+        "Land",
+        "Munitions"
+      ],
+      "slug": "pt-pindad",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0284",
+      "name": "Serco Morocco",
+      "country": "MA",
+      "sectors": [
+        "Defense Services"
+      ],
+      "slug": "serco-morocco",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0285",
+      "name": "Slovak Defence Industries",
+      "country": "SK",
+      "sectors": [
+        "Munitions"
+      ],
+      "slug": "slovak-defence-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0286",
+      "name": "Slovenian Weapons Systems",
+      "country": "SI",
+      "sectors": [
+        "Land Systems"
+      ],
+      "slug": "slovenian-weapons-systems",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0287",
+      "name": "Tandanor",
+      "country": "AR",
+      "sectors": [
+        "Naval"
+      ],
+      "slug": "tandanor",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0288",
+      "name": "Thai Military Manufacturing",
+      "country": "TH",
+      "sectors": [
+        "Land",
+        "Munitions"
+      ],
+      "slug": "thai-military-manufacturing",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0289",
+      "name": "Vietnam National Defense Industries",
+      "country": "VN",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "vietnam-national-defense-industries",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0290",
+      "name": "Vilnius Defence Technology",
+      "country": "LT",
+      "sectors": [
+        "Defense Systems"
+      ],
+      "slug": "vilnius-defence-technology",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    },
+    {
+      "record_id": "intl-exh-2026-0291",
+      "name": "Yugoimport-SDPR",
+      "country": "RS",
+      "sectors": [
+        "Multi-domain"
+      ],
+      "slug": "yugoimport-sdpr",
+      "provenance": {
+        "dataset_id": "world_defense_exhibitors_2026",
+        "source_type": "analyst_fixture",
+        "collected_at": "2026-03-25",
+        "source_notes": "Curated analyst fixture synthesized from World Defense Show 2026, DSEI, Eurosatory, and other public industry exhibitor references."
+      }
+    }
+  ]
+}

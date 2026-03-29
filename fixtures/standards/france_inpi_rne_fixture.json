@@ -1,0 +1,33 @@
+{
+  "records": [
+    {
+      "entity_name": "Hexagone Mission Systems SAS",
+      "country": "FR",
+      "fr_siren": "552100554",
+      "fr_siret": "55210055400013",
+      "status": "Active",
+      "legal_form": "SAS",
+      "registration_date": "2020-05-14",
+      "ape_code": "6202A",
+      "registered_city": "Paris",
+      "website": "https://hexagone-mission.example.fr",
+      "officers": [
+        {
+          "name": "Claire Durand",
+          "role": "Présidente",
+          "appointed_on": "2020-05-14"
+        }
+      ],
+      "beneficial_owners": [
+        {
+          "name": "Hexagone Strategic Holdings SAS",
+          "entity_type": "company",
+          "country": "FR",
+          "share_pct": 82.0,
+          "control_description": "Détention directe supérieure à 50%"
+        }
+      ],
+      "beneficial_owner_access": "INPI beneficial-owner access is gated to authorized users or legitimate-interest workflows; treat beneficial-owner data as gated evidence."
+    }
+  ]
+}

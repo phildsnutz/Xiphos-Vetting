@@ -1,0 +1,437 @@
+[
+  {
+    "scenario_id": "artifact_backed_flight_firmware_supplier",
+    "title": "Artifact-backed flight firmware supplier with clean assurance evidence",
+    "description": "Mission-critical supplier has current cyber evidence, fresh SBOM, VEX separation, and signed provenance.",
+    "vendor_name": "Apex Mission Firmware",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Flight-control firmware supplier supporting safety-critical aircraft systems.",
+    "product_narrative": "Signed firmware release with audited SBOM and VEX package for deployed avionics image.",
+    "dependency_narrative": "No unusual fourth-party concentration identified.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "passed",
+      "poam_active": false,
+      "assessment_score": 94
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 0,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 0,
+      "total_control_references": 110,
+      "implemented_control_count": 96,
+      "system_name": "Apex Mission Firmware Baseline"
+    },
+    "graph_data": {
+      "entities": [],
+      "relationships": [],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 14,
+      "vex_status": "not_affected",
+      "vex_justification": "Affected library not present in deployed build.",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": true,
+      "mission_critical": true,
+      "firmware_or_ot": true,
+      "federal_scope": true,
+      "fourth_party_concentration": "balanced"
+    },
+    "expected": {
+      "deterministic_posture": "qualified",
+      "hybrid_posture": "qualified",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": ["mission_critical_dependency", "firmware_or_ot_exposure", "exploitability_contradiction"],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic assurance posture should stand"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "secure_by_design_marketing_only",
+    "title": "Secure-by-design marketing with no artifact proof",
+    "description": "Supplier claims secure-by-design posture but provides no SBOM, VEX, or provenance evidence for a mission system.",
+    "vendor_name": "Signal Harbor Systems",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Secure-by-design supplier marketing for a mission networking kit.",
+    "product_narrative": "Mission networking appliance for CUI-sensitive deployments.",
+    "dependency_narrative": "No artifact package attached.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "passed",
+      "poam_active": false,
+      "assessment_score": 91
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 0,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 0,
+      "total_control_references": 102,
+      "implemented_control_count": 84,
+      "system_name": "Signal Harbor Control Plane"
+    },
+    "graph_data": {
+      "entities": [],
+      "relationships": [],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": false,
+      "sbom_fresh_days": 999,
+      "vex_status": "missing",
+      "secure_by_design_evidence": "marketing_only",
+      "provenance_attested": false,
+      "mission_critical": true,
+      "firmware_or_ot": false,
+      "federal_scope": true,
+      "fourth_party_concentration": "unknown"
+    },
+    "expected": {
+      "deterministic_posture": "qualified",
+      "hybrid_posture": "review",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["sbom_vex_gap", "marketing_without_artifacts", "mission_critical_dependency", "cmmc_evidence_gap", "provenance_gap"],
+      "missing_facts": ["fresh_sbom", "vex_assertion", "secure_by_design_artifacts", "provenance_attestation", "current_cmmc_evidence"],
+      "explanation_fragments": ["sbom vex gap", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.92
+    }
+  },
+  {
+    "scenario_id": "shared_signing_service_monoculture",
+    "title": "Shared signing service monoculture behind a mission supplier",
+    "description": "Supplier looks decent on direct evidence, but the dependency stack is concentrated behind a single signing and telecom path.",
+    "vendor_name": "North Ridge Avionics",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Supplier supports mission avionics with a shared firmware signing pipeline.",
+    "product_narrative": "Flight-line update package distributed through a common signing stack.",
+    "dependency_narrative": "Single telecom and signing provider supports all field updates.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "assessed",
+      "poam_active": false,
+      "assessment_score": 89
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 1,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 2,
+      "total_control_references": 95,
+      "implemented_control_count": 80,
+      "system_name": "North Ridge Update Service"
+    },
+    "graph_data": {
+      "entities": [
+        {"risk_level": "high"},
+        {"risk_level": "unknown"}
+      ],
+      "relationships": [{}, {}, {}, {}],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 240,
+      "vex_status": "affected",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": true,
+      "mission_critical": true,
+      "firmware_or_ot": true,
+      "federal_scope": true,
+      "fourth_party_concentration": "single_provider",
+      "shared_signing_service": true,
+      "shared_telecom": true
+    },
+    "expected": {
+      "deterministic_posture": "review",
+      "hybrid_posture": "review",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": ["sbom_vex_gap", "fourth_party_concentration", "mission_critical_dependency", "firmware_or_ot_exposure"],
+      "missing_facts": ["fresh_sbom", "fourth_party_dependency_map", "firmware_update_path"],
+      "explanation_fragments": ["fourth party concentration", "before clearance"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.88
+    }
+  },
+  {
+    "scenario_id": "kev_active_mission_firmware_path",
+    "title": "Active exploitation on a mission firmware path",
+    "description": "Deterministic cyber tier lands at review, but the AI layer should harden the answer because KEV and mission firmware coexist with missing exculpatory evidence.",
+    "vendor_name": "Vector Mission Software",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Firmware supplier for escape-system telemetry stack.",
+    "product_narrative": "Embedded firmware image supports flight-safety logic in fielded systems.",
+    "dependency_narrative": "Field updates depend on a vulnerable distribution service.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "assessed",
+      "poam_active": true,
+      "assessment_score": 88
+    },
+    "nvd_summary": {
+      "critical_cve_count": 1,
+      "high_or_critical_cve_count": 2,
+      "total_cve_count": 5,
+      "kev_flagged_cve_count": 1
+    },
+    "oscal_summary": {
+      "open_poam_items": 4,
+      "total_control_references": 90,
+      "implemented_control_count": 72,
+      "system_name": "Vector Firmware Delivery Service"
+    },
+    "graph_data": {
+      "entities": [{"risk_level": "critical"}],
+      "relationships": [{}, {}, {}],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 75,
+      "vex_status": "affected",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": true,
+      "mission_critical": true,
+      "firmware_or_ot": true,
+      "federal_scope": true,
+      "fourth_party_concentration": "balanced"
+    },
+    "expected": {
+      "deterministic_posture": "review",
+      "hybrid_posture": "blocked",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["mission_critical_dependency", "firmware_or_ot_exposure"],
+      "missing_facts": ["firmware_update_path"],
+      "explanation_fragments": ["mission critical dependency", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.88
+    }
+  },
+  {
+    "scenario_id": "vex_backed_false_alarm_suppressed",
+    "title": "VEX-backed false alarm should not stay in review",
+    "description": "The raw cyber score sees a critical CVE, but fresh SBOM, signed provenance, and a strong not-affected VEX assertion should suppress the false alarm.",
+    "vendor_name": "Caldera Flight Systems",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Avionics supplier with a recent vulnerability bulletin tied to a non-deployed library.",
+    "product_narrative": "Flight-planning support tool for maintenance teams.",
+    "dependency_narrative": "No unusual fourth-party concentration.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "certified",
+      "poam_active": false,
+      "assessment_score": 95
+    },
+    "nvd_summary": {
+      "critical_cve_count": 1,
+      "high_or_critical_cve_count": 1,
+      "total_cve_count": 1,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 0,
+      "total_control_references": 100,
+      "implemented_control_count": 90,
+      "system_name": "Caldera Maintenance Toolchain"
+    },
+    "graph_data": {
+      "entities": [],
+      "relationships": [],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 7,
+      "vex_status": "not_affected",
+      "vex_justification": "Affected library not present in deployed build.",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": true,
+      "mission_critical": false,
+      "firmware_or_ot": false,
+      "federal_scope": true,
+      "fourth_party_concentration": "balanced"
+    },
+    "expected": {
+      "deterministic_posture": "review",
+      "hybrid_posture": "qualified",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["exploitability_contradiction"],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic assurance posture should stand"],
+      "safe_behavior": "controlled_downgrade",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "federal_subcontractor_attest_only",
+    "title": "Federal subcontractor with attestation-only readiness evidence",
+    "description": "Current cyber data is thin, but the supplier supports federal work and cannot ride on attestation alone.",
+    "vendor_name": "Patriot Relay Works",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Subsystem supplier for CUI-bearing support work.",
+    "product_narrative": "Low-complexity comms support software with no attached artifact packet.",
+    "dependency_narrative": "Federal scope is claimed but proof is thin.",
+    "sprs_summary": {
+      "current_cmmc_level": 1,
+      "assessment_status": "assessed",
+      "poam_active": false,
+      "assessment_score": 86
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 0,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {},
+    "graph_data": {
+      "entities": [],
+      "relationships": [],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": false,
+      "sbom_fresh_days": 999,
+      "vex_status": "missing",
+      "secure_by_design_evidence": "none",
+      "provenance_attested": false,
+      "mission_critical": false,
+      "firmware_or_ot": false,
+      "federal_scope": true,
+      "fourth_party_concentration": "unknown"
+    },
+    "expected": {
+      "deterministic_posture": "review",
+      "hybrid_posture": "review",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": ["sbom_vex_gap", "cmmc_evidence_gap", "provenance_gap"],
+      "missing_facts": ["fresh_sbom", "vex_assertion", "provenance_attestation", "current_cmmc_evidence"],
+      "explanation_fragments": ["current cmmc evidence", "before clearance"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.9
+    }
+  },
+  {
+    "scenario_id": "commercial_false_positive_with_fresh_artifacts",
+    "title": "Commercial false positive with fresh artifacts should stay out of review",
+    "description": "Commercial supplier faces vulnerability noise, but fresh artifacts and no federal or mission-critical context should keep the posture disciplined.",
+    "vendor_name": "Mercury Fleet Analytics",
+    "profile": "commercial_review",
+    "supplier_narrative": "Commercial maintenance analytics provider with one critical bulletin on a non-shipped component.",
+    "product_narrative": "Maintenance planning software for civil fleets.",
+    "dependency_narrative": "No shared mission or federal dependency chain.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "passed",
+      "poam_active": false,
+      "assessment_score": 93
+    },
+    "nvd_summary": {
+      "critical_cve_count": 1,
+      "high_or_critical_cve_count": 1,
+      "total_cve_count": 1,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 0,
+      "total_control_references": 72,
+      "implemented_control_count": 64,
+      "system_name": "Mercury Civil Planner"
+    },
+    "graph_data": {
+      "entities": [],
+      "relationships": [],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 15,
+      "vex_status": "not_affected",
+      "vex_justification": "Component absent from the deployed production image.",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": true,
+      "mission_critical": false,
+      "firmware_or_ot": false,
+      "federal_scope": false,
+      "fourth_party_concentration": "balanced"
+    },
+    "expected": {
+      "deterministic_posture": "review",
+      "hybrid_posture": "qualified",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["exploitability_contradiction"],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic assurance posture should stand"],
+      "safe_behavior": "controlled_downgrade",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "mission_supplier_no_provenance_packet",
+    "title": "Mission supplier with no provenance packet",
+    "description": "Direct cyber posture looks passable, but the mission supplier has no signed provenance or dependency packet for field updates.",
+    "vendor_name": "Falcon Route Systems",
+    "profile": "defense_acquisition",
+    "supplier_narrative": "Mission routing software supplier for deployed logistics operations.",
+    "product_narrative": "Field-update service supports route-planning tablets in theater.",
+    "dependency_narrative": "Update path depends on shared package registry.",
+    "sprs_summary": {
+      "current_cmmc_level": 2,
+      "assessment_status": "passed",
+      "poam_active": false,
+      "assessment_score": 92
+    },
+    "nvd_summary": {
+      "critical_cve_count": 0,
+      "high_or_critical_cve_count": 0,
+      "total_cve_count": 0,
+      "kev_flagged_cve_count": 0
+    },
+    "oscal_summary": {
+      "open_poam_items": 1,
+      "total_control_references": 88,
+      "implemented_control_count": 74,
+      "system_name": "Falcon Route Update Service"
+    },
+    "graph_data": {
+      "entities": [{"risk_level": "unknown"}],
+      "relationships": [{}, {}, {}],
+      "summary": {}
+    },
+    "assurance_context": {
+      "sbom_present": true,
+      "sbom_fresh_days": 20,
+      "vex_status": "unknown",
+      "secure_by_design_evidence": "audited",
+      "provenance_attested": false,
+      "mission_critical": true,
+      "firmware_or_ot": false,
+      "federal_scope": true,
+      "fourth_party_concentration": "balanced"
+    },
+    "expected": {
+      "deterministic_posture": "qualified",
+      "hybrid_posture": "review",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": ["sbom_vex_gap", "mission_critical_dependency", "provenance_gap"],
+      "missing_facts": ["vex_assertion", "provenance_attestation"],
+      "explanation_fragments": ["provenance gap", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.9
+    }
+  }
+]

@@ -1,0 +1,69 @@
+{
+  "dataset_id": "helios-openownership-bods-v1",
+  "standards": [
+    "BODS v0.4"
+  ],
+  "records": [
+    {
+      "record_id": "bods-001",
+      "name": "North Sea Mission Analytics Ltd",
+      "country": "GB",
+      "observed_at": "2026-03-28T00:00:00Z",
+      "subject": {
+        "name": "North Sea Mission Analytics Ltd",
+        "entity_type": "company",
+        "identifiers": {
+          "uk_company_number": "09876543",
+          "lei": "529900NSMA0000000001"
+        }
+      },
+      "statements": [
+        {
+          "statement_id": "ooc-001",
+          "statement_type": "ownershipOrControlStatement",
+          "direct_or_indirect": "direct",
+          "interests": [
+            "shareholding",
+            "voting-rights"
+          ],
+          "beneficial_ownership_pct": 70,
+          "component_records": [
+            "psc-statement-2026-001"
+          ],
+          "valid_from": "2025-11-01",
+          "evidence": "Direct corporate shareholder disclosed through replayable BODS ownership statement.",
+          "interested_party": {
+            "name": "Atlantic Strategic Holdings LLP",
+            "entity_type": "holding_company",
+            "country": "GB",
+            "identifiers": {
+              "uk_company_number": "OC123456"
+            }
+          }
+        },
+        {
+          "statement_id": "ooc-002",
+          "statement_type": "ownershipOrControlStatement",
+          "direct_or_indirect": "indirect",
+          "interests": [
+            "significant-influence-or-control"
+          ],
+          "component_records": [
+            "psc-statement-2026-002",
+            "gleif-level2-2026-001"
+          ],
+          "valid_from": "2025-11-01",
+          "evidence": "Indirect significant control modeled from replayable BODS statement components.",
+          "interested_party": {
+            "name": "Caledonia Family Trust",
+            "entity_type": "holding_company",
+            "country": "JE",
+            "identifiers": {
+              "record_ref": "trust-001"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

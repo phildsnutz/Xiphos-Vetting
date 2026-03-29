@@ -1,0 +1,36 @@
+{
+  "records": [
+    {
+      "corporation_name": "Northern Mission Systems Inc.",
+      "country": "CA",
+      "ca_corporation_number": "1234567",
+      "business_number": "765432109RC0001",
+      "status": "Active",
+      "governing_legislation": "CBCA",
+      "incorporation_date": "2021-05-04",
+      "directors": [
+        {
+          "name": "Avery North",
+          "role": "director",
+          "appointed_on": "2021-05-04"
+        }
+      ],
+      "individuals_with_significant_control": [
+        {
+          "name": "Jordan Vale",
+          "entity_type": "person",
+          "country": "CA",
+          "control_description": "Direct or indirect control of 25% or more of voting shares",
+          "became_isc_on": "2022-01-15"
+        }
+      ],
+      "filings": [
+        {
+          "date": "2026-01-10",
+          "category": "annual_return",
+          "description": "Annual return filed"
+        }
+      ]
+    }
+  ]
+}

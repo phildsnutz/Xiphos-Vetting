@@ -1,0 +1,270 @@
+[
+  {
+    "scenario_id": "ear99_allied_civil_maintenance",
+    "title": "EAR99 civil maintenance shipment to Germany",
+    "description": "Clean allied shipment that should stay low-friction and avoid false blocking.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Commercial test fixture for civil avionics maintenance",
+      "destination_country": "DE",
+      "destination_company": "LuftWerk Technik GmbH",
+      "end_use_summary": "Routine integration support for civil avionics maintenance",
+      "end_user_name": "LuftWerk Technik GmbH",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "likely_nlr",
+      "reason_fragments": ["ear99", "lower-friction destination"],
+      "next_step_fragments": ["transaction may proceed under nlr", "retain for 5 years"],
+      "minimum_score": 0.85
+    }
+  },
+  {
+    "scenario_id": "usml_russia_fire_control",
+    "title": "USML fire-control component to Russia",
+    "description": "Hard-stop shipment that should never clear.",
+    "transaction_input": {
+      "jurisdiction_guess": "itar",
+      "request_type": "item_transfer",
+      "classification_guess": "USML Category VIII",
+      "item_or_data_summary": "Fire-control component for military rotary-wing platform",
+      "destination_country": "RU",
+      "destination_company": "Volga Rotary Systems",
+      "end_use_summary": "Integration into military helicopter fire-control subsystem",
+      "end_user_name": "Russian Ministry of Defense",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "likely_prohibited",
+      "reason_fragments": ["prohibited or embargoed destination", "hard stop"],
+      "next_step_fragments": ["do not proceed", "legal review"],
+      "minimum_score": 0.85
+    }
+  },
+  {
+    "scenario_id": "three_a001_uae_missile_guidance",
+    "title": "3A001 firmware to UAE missile guidance study",
+    "description": "Critical end-use red flag should force escalation instead of a clean shipment posture.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "technical_data_release",
+      "classification_guess": "3A001",
+      "item_or_data_summary": "Radar processing firmware and interface documentation",
+      "destination_country": "AE",
+      "destination_company": "Desert Research Technologies",
+      "end_use_summary": "Missile guidance and launch vehicle integration study",
+      "end_user_name": "Desert Research Technologies",
+      "access_context": "Firmware release for integrated missile guidance evaluation"
+    },
+    "expected": {
+      "posture": "escalate",
+      "reason_fragments": ["critical end-use", "part 744"],
+      "next_step_fragments": ["formal export-control determination", "escalate"],
+      "minimum_score": 0.82
+    }
+  },
+  {
+    "scenario_id": "ear99_hong_kong_surveillance_reexport",
+    "title": "EAR99 reexport through Hong Kong for surveillance network",
+    "description": "EAR99 should still tighten under a high-scrutiny destination and surveillance-style end use.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "reexport",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Commercial edge appliance with packet capture support",
+      "destination_country": "HK",
+      "destination_company": "Harbor Signal Trading",
+      "end_use_summary": "Bulk monitoring and lawful intercept backbone for telecom surveillance operations",
+      "end_user_name": "Harbor Signal Trading",
+      "access_context": "Reexport through Hong Kong distributor for telecom monitoring deployment"
+    },
+    "expected": {
+      "posture": "likely_license_required",
+      "reason_fragments": ["destination or use-case risk", "high-scrutiny"],
+      "next_step_fragments": ["part 744", "check the destination"],
+      "minimum_score": 0.8
+    }
+  },
+  {
+    "scenario_id": "nine_a610_uk_mod_sustainment",
+    "title": "9A610 sustainment part to UK defense prime",
+    "description": "Defense-adjacent shipment to an ally should still stay license-driven, with an exception candidate surfaced.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "9A610",
+      "item_or_data_summary": "Aircraft sustainment part for rotary-wing support equipment",
+      "destination_country": "GB",
+      "destination_company": "NorthSea Mission Support Ltd",
+      "end_use_summary": "Sustainment support for UK Ministry of Defence rotary-wing fleet",
+      "end_user_name": "UK Ministry of Defence",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "likely_license_required",
+      "reason_fragments": ["tightly controlled defense-adjacent transfer", "license-driven"],
+      "next_step_fragments": ["review license requirements", "destination"],
+      "license_exception_any_of": ["STA", "GOV"],
+      "minimum_score": 0.82
+    }
+  },
+  {
+    "scenario_id": "five_a002_japan_civil_satcom",
+    "title": "5A002 encrypted comms gear to Japan civil operator",
+    "description": "Controlled encryption shipment to an allied destination should surface an exception path instead of over-blocking.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "5A002",
+      "item_or_data_summary": "Encrypted communications gateway for civil satellite ground station",
+      "destination_country": "JP",
+      "destination_company": "Pacific SatCom KK",
+      "end_use_summary": "Civil satellite communications gateway for commercial uplink operations",
+      "end_user_name": "Pacific SatCom KK",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "likely_exception_or_exemption",
+      "reason_fragments": ["exception-driven path", "controlled classification"],
+      "next_step_fragments": ["license exception basis", "country-chart"],
+      "license_exception_any_of": ["STA", "ENC"],
+      "minimum_score": 0.82
+    }
+  },
+  {
+    "scenario_id": "itar_canada_unclassified_transfer",
+    "title": "USML unclassified transfer to Canada",
+    "description": "ITAR-shaped transfer to Canada should surface a narrower exemption-style path.",
+    "transaction_input": {
+      "jurisdiction_guess": "itar",
+      "request_type": "item_transfer",
+      "classification_guess": "USML Category XII",
+      "item_or_data_summary": "Unclassified optical display assembly for support equipment",
+      "destination_country": "CA",
+      "destination_company": "Northern Support Systems",
+      "end_use_summary": "Unclassified support equipment transfer for allied sustainment and depot maintenance",
+      "end_user_name": "Northern Support Systems",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "likely_exception_or_exemption",
+      "reason_fragments": ["canada", "narrower exemption path"],
+      "next_step_fragments": ["validate the exact item scope", "rationale"],
+      "minimum_score": 0.82
+    }
+  },
+  {
+    "scenario_id": "three_e001_singapore_semiconductor_support",
+    "title": "3E001 process technology to Singapore fab support team",
+    "description": "Controlled technology to a standard destination should stay license-driven when no clean exception applies.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "technical_data_release",
+      "classification_guess": "3E001",
+      "item_or_data_summary": "Semiconductor process technology package and calibration notes",
+      "destination_country": "SG",
+      "destination_company": "Straits Microfab Pte Ltd",
+      "end_use_summary": "Commercial fab tooling calibration and process support",
+      "end_user_name": "Straits Microfab Pte Ltd",
+      "access_context": "Technical release for process support team"
+    },
+    "expected": {
+      "posture": "likely_license_required",
+      "reason_fragments": ["controlled on the ccl", "license-driven"],
+      "next_step_fragments": ["country chart", "authorization basis"],
+      "minimum_score": 0.8
+    }
+  },
+  {
+    "scenario_id": "ear99_china_launch_vehicle_support",
+    "title": "EAR99 tooling to China launch vehicle integration",
+    "description": "Even EAR99 should escalate when the end use is clearly missile or launch-vehicle adjacent.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Commercial test tooling and mounting fixtures",
+      "destination_country": "CN",
+      "destination_company": "Shenzhen Precision Integration",
+      "end_use_summary": "Launch vehicle integration support for rocket guidance checkout",
+      "end_user_name": "Shenzhen Precision Integration",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "escalate",
+      "reason_fragments": ["critical end-use", "missile"],
+      "next_step_fragments": ["formal export-control determination", "escalate"],
+      "minimum_score": 0.82
+    }
+  },
+  {
+    "scenario_id": "five_d002_uae_energy_network",
+    "title": "5D002 software to UAE energy network operator",
+    "description": "Encryption software to a high-scrutiny destination should remain license-driven even if ENC may help.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "technical_data_release",
+      "classification_guess": "5D002",
+      "item_or_data_summary": "Encryption-enabled network management software",
+      "destination_country": "AE",
+      "destination_company": "Gulf Energy Systems",
+      "end_use_summary": "Civilian energy network monitoring and secure remote administration",
+      "end_user_name": "Gulf Energy Systems",
+      "access_context": "Software deployment for civilian energy network operations"
+    },
+    "expected": {
+      "posture": "likely_license_required",
+      "reason_fragments": ["controlled on the ccl", "license-driven"],
+      "next_step_fragments": ["country chart", "authorization basis"],
+      "license_exception_any_of": ["ENC"],
+      "minimum_score": 0.8
+    }
+  },
+  {
+    "scenario_id": "classification_unknown_netherlands",
+    "title": "Unknown classification to Netherlands integrator",
+    "description": "Trusted destination should not hide the need for classification certainty.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "TBD",
+      "item_or_data_summary": "Ruggedized avionics module under internal review",
+      "destination_country": "NL",
+      "destination_company": "Aero Delta Integratie BV",
+      "end_use_summary": "Subsystem integration support for civil and defense-adjacent avionics program",
+      "end_user_name": "Aero Delta Integratie BV",
+      "access_context": ""
+    },
+    "expected": {
+      "posture": "insufficient_confidence",
+      "reason_fragments": ["no reliable eccn or usml classification", "cannot safely map"],
+      "next_step_fragments": ["classify the item first"],
+      "minimum_score": 0.85
+    }
+  },
+  {
+    "scenario_id": "three_a001_singapore_replacement_parts",
+    "title": "3A001 replacement part shipment to Singapore",
+    "description": "Replacement context should surface RPL instead of pretending every controlled shipment needs a full license path.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "3A001",
+      "item_or_data_summary": "Radar signal processor spare module",
+      "destination_country": "SG",
+      "destination_company": "Lion City MRO Pte Ltd",
+      "end_use_summary": "One-for-one replacement of failed radar processor during aircraft maintenance",
+      "end_user_name": "Lion City MRO Pte Ltd",
+      "access_context": "Replacement part shipment for aircraft maintenance"
+    },
+    "expected": {
+      "posture": "likely_license_required",
+      "reason_fragments": ["controlled on the ccl", "license-driven"],
+      "next_step_fragments": ["country chart", "authorization basis"],
+      "license_exception_any_of": ["RPL"],
+      "minimum_score": 0.82
+    }
+  }
+]

@@ -1,0 +1,49 @@
+[
+  {
+    "company": "Berry Aviation, Inc.",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "minimum_official_corroboration": "strong",
+    "expected_domain": "berryaviation.com",
+    "expected_cage": "0EA28",
+    "expected_uei": "V1HATBT1N7V5",
+    "expected_duns": "131827925"
+  },
+  {
+    "company": "Columbia Helicopters, Inc.",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "minimum_official_corroboration": "strong",
+    "expected_domain": "colheli.com",
+    "expected_cage": "7W206",
+    "expected_uei": "EBD3SM6LH8D3",
+    "expected_duns": "009673609"
+  },
+  {
+    "company": "Yorktown Systems Group",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "minimum_official_corroboration": "strong",
+    "expected_domain": "ysginc.com",
+    "expected_cage": "4VJW9",
+    "expected_uei": "L5LMQSN59YE5",
+    "expected_duns": "801478384"
+  },
+  {
+    "company": "Boeing",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "minimum_official_corroboration": "strong",
+    "expected_domain": "boeing.com",
+    "expected_cik": "12927"
+  },
+  {
+    "company": "Mass Virtual",
+    "country": "US",
+    "bucket": "identity_foundation",
+    "minimum_official_corroboration": "strong",
+    "expected_domain": "massvirtual.com",
+    "expected_cage": "6CZ17",
+    "expected_uei": "CH34JZ4179Q3"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "export_ambiguous_end_use",
+    "pillar": "export",
+    "fixture": "fixtures/adversarial_gym/export_lane_ai_ambiguous_end_use_cases.json"
+  },
+  {
+    "name": "export_transshipment_diversion",
+    "pillar": "export",
+    "fixture": "fixtures/adversarial_gym/export_lane_ai_transshipment_diversion_cases.json"
+  },
+  {
+    "name": "export_defense_services_foreign_person",
+    "pillar": "export",
+    "fixture": "fixtures/adversarial_gym/export_lane_ai_defense_services_foreign_person_cases.json"
+  },
+  {
+    "name": "supply_chain_assurance_artifact_quality",
+    "pillar": "supply_chain_assurance",
+    "fixture": "fixtures/adversarial_gym/supply_chain_assurance_artifact_quality_cases.json"
+  },
+  {
+    "name": "supply_chain_assurance_dependency_concentration",
+    "pillar": "supply_chain_assurance",
+    "fixture": "fixtures/adversarial_gym/supply_chain_assurance_dependency_concentration_cases.json"
+  },
+  {
+    "name": "supply_chain_assurance_procurement_readiness",
+    "pillar": "supply_chain_assurance",
+    "fixture": "fixtures/adversarial_gym/supply_chain_assurance_procurement_readiness_cases.json"
+  }
+]

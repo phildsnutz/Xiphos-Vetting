@@ -1,0 +1,43 @@
+{
+  "records": [
+    {
+      "entity_name": "Oranje Mission Analytics B.V.",
+      "country": "NL",
+      "kvk_number": "68456789",
+      "establishment_number": "000036845678",
+      "rsin": "858412345",
+      "status": "Active",
+      "legal_form": "Besloten Vennootschap",
+      "registered_on": "2017-06-14",
+      "region": "South Holland",
+      "sbi_code": "62020",
+      "website": "https://www.oranjemissionanalytics.nl",
+      "trade_names": [
+        "Oranje Mission Analytics"
+      ],
+      "officers": [
+        {
+          "name": "Sanne de Vries",
+          "role": "Managing Director",
+          "appointed_on": "2017-06-14"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Lowlands Strategic Holdings B.V.",
+          "entity_type": "holding_company",
+          "country": "NL",
+          "share_pct": 68.0,
+          "interest_description": "Majority shareholder"
+        }
+      ],
+      "mutations": [
+        {
+          "date": "2025-09-03",
+          "mutation_type": "address_update",
+          "summary": "Registered office updated in South Holland"
+        }
+      ]
+    }
+  ]
+}

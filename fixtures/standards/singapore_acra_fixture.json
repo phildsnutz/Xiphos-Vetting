@@ -1,0 +1,30 @@
+{
+  "records": [
+    {
+      "entity_name": "Lion City Mission Systems Pte. Ltd.",
+      "country": "SG",
+      "uen": "201912345N",
+      "status": "Live",
+      "entity_type": "Private Company Limited by Shares",
+      "registration_date": "2019-04-12",
+      "primary_ssic": "62011",
+      "secondary_ssic": "62021",
+      "position_holders": [
+        {
+          "name": "Melissa Tan",
+          "role": "director",
+          "appointed_on": "2019-04-12"
+        }
+      ],
+      "owners_or_partners": [
+        {
+          "name": "Straits Strategic Holdings Pte. Ltd.",
+          "entity_type": "holding_company",
+          "country": "SG",
+          "share_pct": 75.0,
+          "interest_description": "Major shareholder"
+        }
+      ]
+    }
+  ]
+}

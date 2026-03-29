@@ -1,0 +1,272 @@
+[
+  {
+    "scenario_id": "allied_remote_mission_support_without_controls",
+    "title": "Allied remote mission support without agreement or TTCP controls",
+    "description": "US engineers think no hardware movement means low friction, but the narrative is really defense-service style support with no scoped controls.",
+    "transaction_input": {
+      "jurisdiction_guess": "itar",
+      "request_type": "technical_data_release",
+      "classification_guess": "USML CATEGORY XI",
+      "item_or_data_summary": "Mission-system configuration notes and troubleshooting package",
+      "destination_country": "GB",
+      "destination_company": "Aegis Mission Systems Ltd",
+      "end_use_summary": "Remote troubleshooting and mission planning support for allied air platform sustainment",
+      "end_user_name": "Aegis Mission Systems Ltd",
+      "access_context": "Remote access session and screen share from U.S. engineers into customer environment",
+      "notes": "Customer wants support this week. No one has cited a TAA, MLA, or TTCP."
+    },
+    "expected": {
+      "deterministic_posture": "likely_exception_or_exemption",
+      "hybrid_posture": "escalate",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": [
+        "defense_service_or_remote_support",
+        "remote_access_to_technical_data",
+        "agreement_scope_or_proviso_gap"
+      ],
+      "missing_facts": [
+        "service_scope",
+        "authorized_end_user",
+        "remote_access_scope",
+        "ttcp_or_tcp",
+        "taa_mla_wda_reference",
+        "proviso_scope",
+        "proviso_acceptance"
+      ],
+      "explanation_fragments": ["defense service or remote support", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.9
+    }
+  },
+  {
+    "scenario_id": "allied_support_with_taa_and_ttcp",
+    "title": "Allied scoped support with named TAA and TTCP controls",
+    "description": "This is the clean version of defense support. The narrative still sounds sensitive, but the control package is explicit.",
+    "transaction_input": {
+      "jurisdiction_guess": "itar",
+      "request_type": "technical_data_release",
+      "classification_guess": "USML CATEGORY XI",
+      "item_or_data_summary": "Mission-system troubleshooting package",
+      "destination_country": "GB",
+      "destination_company": "Aegis Mission Systems Ltd",
+      "end_use_summary": "Remote troubleshooting support under existing allied sustainment agreement",
+      "end_user_name": "Aegis Mission Systems Ltd",
+      "access_context": "Remote support session with named engineers only",
+      "notes": "TAA 22-1045 covers this scope. TTCP in place. Proviso accepted and agreement scope confirmed."
+    },
+    "expected": {
+      "deterministic_posture": "likely_license_required",
+      "hybrid_posture": "likely_license_required",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": ["defense_service_or_remote_support"],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic posture should stand"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "foreign_person_repo_access_without_ttcp",
+    "title": "Foreign-person source-code access without TTCP or named access list",
+    "description": "The shipment story looks manageable, but the real risk is remote technical-data access by a foreign national.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "foreign_person_access",
+      "classification_guess": "3E001",
+      "item_or_data_summary": "Flight-control source code and tuning notes",
+      "destination_country": "US",
+      "destination_company": "Falcon Embedded Systems",
+      "end_use_summary": "Temporary software support for avionics sustainment",
+      "end_user_name": "Falcon Embedded Systems",
+      "access_context": "VPN source code access and remote repository support",
+      "persons": [
+        {
+          "name": "Arjun Rao",
+          "nationalities": ["IN"],
+          "employer": "Falcon Embedded Systems",
+          "role": "software engineer",
+          "item_classification": "3E001",
+          "access_level": "controlled_repo"
+        }
+      ],
+      "notes": "Program office wants quick access for one engineer. No TTCP, no named-person authorization memo."
+    },
+    "expected": {
+      "deterministic_posture": "likely_license_required",
+      "hybrid_posture": "escalate",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": [
+        "foreign_person_access",
+        "remote_access_to_technical_data",
+        "agreement_scope_or_proviso_gap"
+      ],
+      "missing_facts": [
+        "authorized_person_list",
+        "access_location",
+        "remote_access_scope",
+        "ttcp_or_tcp",
+        "taa_mla_wda_reference",
+        "proviso_scope",
+        "proviso_acceptance"
+      ],
+      "explanation_fragments": ["foreign person access", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.9
+    }
+  },
+  {
+    "scenario_id": "foreign_person_scoped_ttcp_clean",
+    "title": "Foreign-person access with named TTCP and bounded repo scope",
+    "description": "The foreign-person risk is real, but the scope is bounded tightly enough that AI should not add noise.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "foreign_person_access",
+      "classification_guess": "3E001",
+      "item_or_data_summary": "Flight-control source code and tuning notes",
+      "destination_country": "US",
+      "destination_company": "Falcon Embedded Systems",
+      "end_use_summary": "Temporary software support for avionics sustainment",
+      "end_user_name": "Falcon Embedded Systems",
+      "access_context": "VPN source code access limited to named engineers only",
+      "persons": [
+        {
+          "name": "Arjun Rao",
+          "nationalities": ["IN"],
+          "employer": "Falcon Embedded Systems",
+          "role": "software engineer",
+          "item_classification": "3E001",
+          "access_level": "controlled_repo"
+        }
+      ],
+      "notes": "Named engineers only. TTCP in place. Technology Control Plan approved. Access limited to the repository branch in scope."
+    },
+    "expected": {
+      "deterministic_posture": "likely_exception_or_exemption",
+      "hybrid_posture": "likely_exception_or_exemption",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": [
+        "foreign_person_access",
+        "remote_access_to_technical_data"
+      ],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic posture should stand"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "customer_scope_creep_into_defense_services",
+    "title": "Customer scope creep turns installation into defense-style service support",
+    "description": "The original install looked bounded. The new request crosses into training, troubleshooting, and new affiliate participation.",
+    "transaction_input": {
+      "jurisdiction_guess": "itar",
+      "request_type": "item_transfer",
+      "classification_guess": "USML CATEGORY VIII",
+      "item_or_data_summary": "Avionics line-replaceable unit installation kit",
+      "destination_country": "AU",
+      "destination_company": "Southern Lift Aviation",
+      "end_use_summary": "Initial installation now expanded to operator training and mission planning assistance",
+      "end_user_name": "Southern Lift Aviation",
+      "access_context": "Field service representative support plus remote follow-on sessions",
+      "notes": "Customer expanded scope after award. New affiliate engineers may join. Proviso coverage is unclear."
+    },
+    "expected": {
+      "deterministic_posture": "likely_license_required",
+      "hybrid_posture": "escalate",
+      "expect_ai_disagreement": true,
+      "ambiguity_flags": [
+        "defense_service_or_remote_support",
+        "agreement_scope_or_proviso_gap",
+        "third_country_national_or_subcontractor"
+      ],
+      "missing_facts": [
+        "service_scope",
+        "authorized_end_user",
+        "taa_mla_wda_reference",
+        "proviso_scope",
+        "proviso_acceptance",
+        "subcontractor_authority",
+        "third_country_national_plan"
+      ],
+      "explanation_fragments": ["agreement scope or proviso gap", "before clearance"],
+      "safe_behavior": "elevate",
+      "minimum_score": 0.9
+    }
+  },
+  {
+    "scenario_id": "civil_allied_support_no_controlled_release",
+    "title": "Civil allied support with no controlled release or foreign-person access",
+    "description": "This is the false-positive guardrail. Support language alone should not turn a routine civil case into an export panic.",
+    "transaction_input": {
+      "jurisdiction_guess": "ear",
+      "request_type": "item_transfer",
+      "classification_guess": "EAR99",
+      "item_or_data_summary": "Civil avionics test adapter",
+      "destination_country": "CA",
+      "destination_company": "North Shore Avionics",
+      "end_use_summary": "Direct delivery for civil maintenance evaluation",
+      "end_user_name": "North Shore Avionics",
+      "access_context": "No remote repository, no foreign-person access, direct end user only",
+      "notes": "Direct delivery. No broker. No onward transfer. No controlled technical-data release."
+    },
+    "expected": {
+      "deterministic_posture": "likely_nlr",
+      "hybrid_posture": "likely_nlr",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": [],
+      "missing_facts": [],
+      "explanation_fragments": ["deterministic posture should stand"],
+      "safe_behavior": "hold",
+      "minimum_score": 0.84
+    }
+  },
+  {
+    "scenario_id": "prohibited_foreign_person_hard_stop",
+    "title": "Prohibited foreign-person access remains a hard stop",
+    "description": "The AI layer should never make this gentler than the deterministic floor.",
+    "transaction_input": {
+      "jurisdiction_guess": "itar",
+      "request_type": "foreign_person_access",
+      "classification_guess": "USML CATEGORY XI",
+      "item_or_data_summary": "EW source code and integration notes",
+      "destination_country": "US",
+      "destination_company": "Sentinel Mission Labs",
+      "end_use_summary": "Foreign-person troubleshooting support request",
+      "end_user_name": "Sentinel Mission Labs",
+      "access_context": "Remote source code access from inside the United States",
+      "persons": [
+        {
+          "name": "Reza Farhadi",
+          "nationalities": ["IR"],
+          "employer": "Sentinel Mission Labs",
+          "role": "contract engineer",
+          "item_classification": "USML CATEGORY XI",
+          "access_level": "source_code"
+        }
+      ],
+      "notes": "Customer asks whether a TCP could solve this."
+    },
+    "expected": {
+      "deterministic_posture": "likely_prohibited",
+      "hybrid_posture": "likely_prohibited",
+      "expect_ai_disagreement": false,
+      "ambiguity_flags": [
+        "foreign_person_access",
+        "remote_access_to_technical_data",
+        "agreement_scope_or_proviso_gap"
+      ],
+      "missing_facts": [
+        "authorized_person_list",
+        "access_location",
+        "remote_access_scope",
+        "ttcp_or_tcp",
+        "taa_mla_wda_reference",
+        "proviso_scope",
+        "proviso_acceptance"
+      ],
+      "explanation_fragments": ["before clearance"],
+      "safe_behavior": "no_downgrade",
+      "minimum_score": 0.88
+    }
+  }
+]

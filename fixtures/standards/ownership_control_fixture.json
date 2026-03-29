@@ -1,0 +1,108 @@
+{
+  "dataset_id": "helios_ownership_control_2026",
+  "version": "2026-03-26",
+  "source_type": "analyst_fixture",
+  "standards": ["GLEIF Level 2", "BODS"],
+  "records": [
+    {
+      "record_id": "ownership-fixture-001",
+      "name": "Horizon Mission Systems LLC",
+      "country": "US",
+      "observed_at": "2026-03-26T08:00:00Z",
+      "valid_from": "2025-01-01T00:00:00Z",
+      "lei": "549300HORIZONMS001",
+      "direct_parent": {
+        "name": "Horizon Mission Holdings",
+        "entity_type": "holding_company",
+        "country": "US",
+        "identifiers": {"lei": "549300HORIZONHLD01"}
+      },
+      "ultimate_parent": {
+        "name": "Strategic Mission Control Group",
+        "entity_type": "holding_company",
+        "country": "US",
+        "identifiers": {"lei": "549300SMCGROUP001"}
+      },
+      "beneficial_owners": [
+        {
+          "name": "Strategic Mission Control Group",
+          "entity_type": "holding_company",
+          "country": "US",
+          "ownership_pct": 62
+        },
+        {
+          "name": "Elena Voss",
+          "entity_type": "person",
+          "country": "US",
+          "ownership_pct": 18
+        }
+      ],
+      "control_path": [
+        {
+          "type": "routes_payment_through",
+          "target_entity": "Sentinel Federal Bank",
+          "target_entity_type": "bank",
+          "country": "US",
+          "evidence": "Modeled trade-finance counterparty from standards-backed ownership fixture"
+        },
+        {
+          "type": "distributed_by",
+          "target_entity": "Mission Distribution Partners",
+          "target_entity_type": "distributor",
+          "country": "US",
+          "evidence": "Modeled distribution intermediary from standards-backed ownership fixture"
+        }
+      ]
+    },
+    {
+      "record_id": "ownership-fixture-002",
+      "name": "Apex Control Electronics",
+      "country": "US",
+      "observed_at": "2026-03-26T08:15:00Z",
+      "valid_from": "2025-06-01T00:00:00Z",
+      "lei": "549300APEXCTRL001",
+      "direct_parent": {
+        "name": "Apex Industrial Controls Holdings",
+        "entity_type": "holding_company",
+        "country": "US",
+        "identifiers": {"lei": "549300APEXHOLD001"}
+      },
+      "ultimate_parent": {
+        "name": "North Harbor Strategic Industries",
+        "entity_type": "holding_company",
+        "country": "US",
+        "identifiers": {"lei": "549300NHSTRATIND1"}
+      },
+      "beneficial_owners": [
+        {
+          "name": "North Harbor Strategic Industries",
+          "entity_type": "holding_company",
+          "country": "US",
+          "ownership_pct": 54
+        },
+        {
+          "name": "Marta Levin",
+          "entity_type": "person",
+          "country": "US",
+          "ownership_pct": 11
+        }
+      ],
+      "control_path": [
+        {
+          "type": "routes_payment_through",
+          "target_entity": "Pacific Correspondent Bank",
+          "target_entity_type": "bank",
+          "country": "US",
+          "evidence": "Modeled payment intermediary from standards-backed ownership fixture"
+        },
+        {
+          "type": "distributed_by",
+          "target_entity": "Apex Distribution Network",
+          "target_entity_type": "distributor",
+          "country": "US",
+          "evidence": "Modeled distributor from standards-backed ownership fixture"
+        }
+      ]
+    }
+  ]
+}

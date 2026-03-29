@@ -1,0 +1,56 @@
+[
+  {
+    "company": "DOMO Tactical Communications US",
+    "country": "US",
+    "bucket": "control_path",
+    "connectors": [
+      "google_news",
+      "public_search_ownership"
+    ],
+    "expected_min_control_paths": 1,
+    "expected_control_target": "Codan"
+  },
+  {
+    "company": "FAUN Trackway",
+    "country": "US",
+    "bucket": "control_path",
+    "connectors": [
+      "public_search_ownership",
+      "public_html_ownership"
+    ],
+    "expected_domain": "fauntrackway.com",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "KIRCHHOFF"
+  },
+  {
+    "company": "Greensea IQ",
+    "country": "US",
+    "bucket": "control_path",
+    "connectors": [
+      "public_search_ownership"
+    ],
+    "expected_min_control_paths": 1,
+    "expected_control_target": "FreshTracks Capital"
+  },
+  {
+    "company": "Hascall-Denke",
+    "country": "US",
+    "bucket": "control_path",
+    "connectors": [
+      "public_search_ownership"
+    ],
+    "expected_min_control_paths": 1,
+    "expected_control_target": "Mike Hascall"
+  },
+  {
+    "company": "HELLENIC DEFENCE SYSTEMS SA",
+    "country": "GR",
+    "bucket": "control_path",
+    "connectors": [
+      "public_html_ownership"
+    ],
+    "expected_domain": "eas.gr",
+    "expected_min_control_paths": 1,
+    "expected_control_target": "Hellenic Ministry of Finance"
+  }
+]

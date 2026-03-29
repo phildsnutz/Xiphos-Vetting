@@ -1,0 +1,167 @@
+[
+  {
+    "scenario_id": "critical_widget_hidden_owner",
+    "title": "Critical widget supplier with hidden foreign control",
+    "description": "Tier-3 component supplier shows intermediary and ownership edges tied to a hostile control path.",
+    "signal_packet": {
+      "posture": "review",
+      "hard_stop": false,
+      "latest_decision": "escalate",
+      "connector_coverage": 6,
+      "identifier_count": 3,
+      "control_path_count": 5,
+      "ownership_path_count": 2,
+      "intermediary_path_count": 2,
+      "contradicted_path_count": 0,
+      "stale_path_count": 0,
+      "corroborated_path_count": 3,
+      "network_score": 2.8,
+      "network_level": "high",
+      "foreign_control_risk": true,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": true,
+      "cyber_gap": true,
+      "critical_cves": 2,
+      "kev_count": 1,
+      "workflow_owner": "Compliance review"
+    },
+    "expected": {
+      "recommended_view": "deny",
+      "minimum_score": 0.55,
+      "required_signal_keys": ["foreign_control_risk", "network_pressure", "cyber_gap"]
+    }
+  },
+  {
+    "scenario_id": "friendly_reseller_export_detour",
+    "title": "Friendly reseller masking export review",
+    "description": "A seemingly allied reseller path still forces export review and watch handling.",
+    "signal_packet": {
+      "posture": "review",
+      "hard_stop": false,
+      "latest_decision": "escalate",
+      "connector_coverage": 5,
+      "identifier_count": 2,
+      "control_path_count": 2,
+      "ownership_path_count": 0,
+      "intermediary_path_count": 1,
+      "contradicted_path_count": 0,
+      "stale_path_count": 0,
+      "corroborated_path_count": 1,
+      "network_score": 0.9,
+      "network_level": "medium",
+      "foreign_control_risk": false,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": true,
+      "cyber_gap": false,
+      "critical_cves": 0,
+      "kev_count": 0,
+      "workflow_owner": "Export officer"
+    },
+    "expected": {
+      "recommended_view": "watch",
+      "minimum_score": 0.5,
+      "required_signal_keys": ["review_posture", "export_review", "network_pressure"]
+    }
+  },
+  {
+    "scenario_id": "bank_and_telecom_control_chain",
+    "title": "Bank and telecom intermediaries in the control chain",
+    "description": "Payments and data paths amplify hidden-control risk even without a direct hard stop.",
+    "signal_packet": {
+      "posture": "review",
+      "hard_stop": false,
+      "latest_decision": "",
+      "connector_coverage": 5,
+      "identifier_count": 2,
+      "control_path_count": 4,
+      "ownership_path_count": 1,
+      "intermediary_path_count": 3,
+      "contradicted_path_count": 0,
+      "stale_path_count": 1,
+      "corroborated_path_count": 2,
+      "network_score": 1.8,
+      "network_level": "medium",
+      "foreign_control_risk": true,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": false,
+      "cyber_gap": false,
+      "critical_cves": 0,
+      "kev_count": 0,
+      "workflow_owner": "Analyst review"
+    },
+    "expected": {
+      "recommended_view": "watch",
+      "minimum_score": 0.45,
+      "required_signal_keys": ["foreign_control_context", "intermediary_paths"]
+    }
+  },
+  {
+    "scenario_id": "contradicted_stale_ownership_claims",
+    "title": "Contradicted and stale ownership evidence",
+    "description": "The graph has ownership data, but the evidence is stale and internally contradictory.",
+    "signal_packet": {
+      "posture": "pending",
+      "hard_stop": false,
+      "latest_decision": "",
+      "connector_coverage": 3,
+      "identifier_count": 1,
+      "control_path_count": 2,
+      "ownership_path_count": 1,
+      "intermediary_path_count": 0,
+      "contradicted_path_count": 2,
+      "stale_path_count": 2,
+      "corroborated_path_count": 1,
+      "network_score": 0.6,
+      "network_level": "low",
+      "foreign_control_risk": false,
+      "mitigated_foreign_interest": false,
+      "export_prohibited": false,
+      "export_review_required": false,
+      "cyber_gap": false,
+      "critical_cves": 0,
+      "kev_count": 0,
+      "workflow_owner": "Analyst review"
+    },
+    "expected": {
+      "recommended_view": "watch",
+      "minimum_score": 0.45,
+      "required_signal_keys": ["contradictory_claims", "stale_claims"]
+    }
+  },
+  {
+    "scenario_id": "clean_allied_component_supplier",
+    "title": "Clean allied component supplier with mitigated control path",
+    "description": "Allied ownership is disclosed and mitigated, identifiers are strong, and no export or cyber pressure is present.",
+    "signal_packet": {
+      "posture": "approved",
+      "hard_stop": false,
+      "latest_decision": "approve",
+      "connector_coverage": 6,
+      "identifier_count": 4,
+      "control_path_count": 2,
+      "ownership_path_count": 1,
+      "intermediary_path_count": 0,
+      "contradicted_path_count": 0,
+      "stale_path_count": 0,
+      "corroborated_path_count": 2,
+      "network_score": 0.0,
+      "network_level": "none",
+      "foreign_control_risk": false,
+      "mitigated_foreign_interest": true,
+      "export_prohibited": false,
+      "export_review_required": false,
+      "cyber_gap": false,
+      "critical_cves": 0,
+      "kev_count": 0,
+      "workflow_owner": "Program review"
+    },
+    "expected": {
+      "recommended_view": "approve",
+      "minimum_score": 0.6,
+      "required_signal_keys": ["approved_posture", "identifier_depth", "ownership_mitigated"]
+    }
+  }
+]

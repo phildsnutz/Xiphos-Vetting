@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Google News</title>
+    <item>
+      <title>Northwind Holdings acquires Greensea IQ</title>
+      <link>https://example.test/articles/northwind-greensea</link>
+      <pubDate>Thu, 27 Mar 2026 12:00:00 GMT</pubDate>
+      <source>Defense Industry Daily</source>
+    </item>
+    <item>
+      <title>Greensea IQ unveils new maritime autonomy software</title>
+      <link>https://example.test/articles/greensea-launch</link>
+      <pubDate>Thu, 27 Mar 2026 10:00:00 GMT</pubDate>
+      <source>Marine Tech News</source>
+    </item>
+  </channel>
+</rss>

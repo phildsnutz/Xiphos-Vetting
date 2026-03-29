@@ -1,0 +1,113 @@
+{
+  "dataset_id": "helios-public-assurance-evidence-v1",
+  "records": [
+    {
+      "record_id": "assurance-001",
+      "name": "Horizon Mission Systems LLC",
+      "country": "US",
+      "observed_at": "2026-03-27T00:00:00Z",
+      "artifact_urls": [
+        "https://security.horizon.example/security.txt",
+        "https://trust.horizon.example/sbom/cyclonedx.json",
+        "https://trust.horizon.example/vex/openvex.json",
+        "https://trust.horizon.example/provenance/attestation.intoto.jsonl",
+        "https://trust.horizon.example/lifecycle/support-policy"
+      ],
+      "repository_urls": [
+        "https://github.com/horizon-mission/telemetry-core"
+      ],
+      "package_inventory": [
+        {
+          "ecosystem": "PyPI",
+          "name": "telemetry-core",
+          "version": "2.4.1",
+          "purl": "pkg:pypi/telemetry-core@2.4.1"
+        },
+        {
+          "ecosystem": "npm",
+          "name": "@horizon/ground-station",
+          "version": "7.2.0",
+          "purl": "pkg:npm/%40horizon/ground-station@7.2.0"
+        }
+      ],
+      "summary": {
+        "public_evidence_present": true,
+        "evidence_quality": "strong",
+        "sbom_present": true,
+        "sbom_format": "CycloneDX",
+        "sbom_fresh_days": 21,
+        "vex_status": "not_affected",
+        "security_txt_present": true,
+        "psirt_contact_present": true,
+        "support_lifecycle_published": true,
+        "support_lifecycle_status": "published",
+        "provenance_attested": true,
+        "secure_by_design_evidence": "artifact_backed",
+        "artifact_kinds": [
+          "sbom",
+          "vex",
+          "security_txt",
+          "psirt_contact",
+          "provenance",
+          "support_lifecycle"
+        ]
+      }
+    },
+    {
+      "record_id": "assurance-002",
+      "name": "Apex Telemetry Systems",
+      "country": "US",
+      "observed_at": "2026-03-27T00:00:00Z",
+      "artifact_urls": [
+        "https://www.apextelemetry.example/security",
+        "https://www.apextelemetry.example/product-security/statement"
+      ],
+      "summary": {
+        "public_evidence_present": true,
+        "evidence_quality": "partial",
+        "sbom_present": false,
+        "sbom_format": "",
+        "sbom_fresh_days": null,
+        "vex_status": "missing",
+        "security_txt_present": false,
+        "psirt_contact_present": true,
+        "support_lifecycle_published": false,
+        "support_lifecycle_status": "not_published",
+        "provenance_attested": false,
+        "secure_by_design_evidence": "marketing_only",
+        "artifact_kinds": [
+          "psirt_contact",
+          "secure_by_design_statement"
+        ]
+      }
+    },
+    {
+      "record_id": "assurance-003",
+      "name": "Legacy Router Works",
+      "country": "US",
+      "observed_at": "2026-03-27T00:00:00Z",
+      "artifact_urls": [
+        "https://trust.legacyrouter.example/sbom/spdx.json",
+        "https://trust.legacyrouter.example/support/lifecycle"
+      ],
+      "summary": {
+        "public_evidence_present": true,
+        "evidence_quality": "moderate",
+        "sbom_present": true,
+        "sbom_format": "SPDX",
+        "sbom_fresh_days": 240,
+        "vex_status": "missing",
+        "security_txt_present": false,
+        "psirt_contact_present": false,
+        "support_lifecycle_published": true,
+        "support_lifecycle_status": "published",
+        "provenance_attested": false,
+        "secure_by_design_evidence": "partial",
+        "artifact_kinds": [
+          "sbom",
+          "support_lifecycle"
+        ]
+      }
+    }
+  ]
+}
