@@ -339,3 +339,47 @@ def test_enrich_vendor_replays_public_html_after_search_discovers_first_party_ar
             "first_party_pages": ["https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"],
         },
     ]
+
+
+def test_merge_identifier_value_prefers_stronger_first_party_same_host_website():
+    identifiers = {"website": "https://ysginc.com"}
+    identifier_sources = {"website": ["public_search_ownership"]}
+    connector_status = {
+        "public_search_ownership": {"authority_level": "third_party_public"},
+        "public_html_ownership": {"authority_level": "first_party_self_disclosed"},
+    }
+
+    enrichment._merge_identifier_value(
+        identifiers,
+        identifier_sources,
+        connector_status,
+        {},
+        "public_html_ownership",
+        "website",
+        "https://www.ysginc.com",
+    )
+
+    assert identifiers["website"] == "https://www.ysginc.com"
+    assert identifier_sources["website"] == ["public_html_ownership", "public_search_ownership"]
+
+
+def test_merge_identifier_value_refreshes_same_source_same_host_peer_seed():
+    identifiers = {"website": "https://ysginc.com"}
+    identifier_sources = {"website": ["public_search_ownership", "public_html_ownership"]}
+    connector_status = {
+        "public_search_ownership": {"authority_level": "third_party_public"},
+        "public_html_ownership": {"authority_level": "first_party_self_disclosed"},
+    }
+
+    enrichment._merge_identifier_value(
+        identifiers,
+        identifier_sources,
+        connector_status,
+        {},
+        "public_html_ownership",
+        "website",
+        "https://www.ysginc.com",
+    )
+
+    assert identifiers["website"] == "https://www.ysginc.com"
+    assert identifier_sources["website"] == ["public_html_ownership", "public_search_ownership"]

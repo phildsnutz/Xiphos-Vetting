@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import json
 import re
 from typing import Any
 
 
 OCI_SCHEMA_VERSION = "oci-v1"
-OCI_ADJUDICATOR_VERSION = "oci-adjudicator-v1"
+OCI_ADJUDICATOR_VERSION = "oci-adjudicator-v2"
+logger = logging.getLogger(__name__)
 
 _DESCRIPTOR_OWNER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -78,6 +82,41 @@ _GENERIC_OWNER_TARGETS = {
 
 _OWNERSHIP_REL_TYPES = {"owned_by", "beneficially_owned_by", "ultimate_parent", "parent_of"}
 _CONTROL_REL_TYPES = _OWNERSHIP_REL_TYPES | {"backed_by", "led_by"}
+_ALLOWED_OWNER_CLASSES: tuple[str, ...] = tuple(dict.fromkeys(label for _pattern, label in _DESCRIPTOR_OWNER_PATTERNS))
+
+
+def _sanitize_ai_fragment(value: object, max_len: int = 240) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    return text[:max_len]
+
+
+def _oci_ai_enabled() -> bool:
+    return os.environ.get("XIPHOS_OCI_AI_ADJUDICATOR", "true").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def get_oci_adjudicator_cache_key() -> str:
+    if not _oci_ai_enabled():
+        return f"{OCI_ADJUDICATOR_VERSION}:disabled"
+    try:
+        from ai_analysis import get_ai_config
+    except Exception:
+        return f"{OCI_ADJUDICATOR_VERSION}:rules"
+
+    user_id = os.environ.get("XIPHOS_OCI_AI_USER_ID", "__org_default__")
+    try:
+        config = get_ai_config(user_id)
+    except Exception:
+        return f"{OCI_ADJUDICATOR_VERSION}:rules"
+    if not config:
+        return f"{OCI_ADJUDICATOR_VERSION}:rules"
+    return ":".join(
+        [
+            OCI_ADJUDICATOR_VERSION,
+            str(user_id or "__org_default__"),
+            str(config.get("provider") or "unknown"),
+            str(config.get("model") or "unknown"),
+        ]
+    )
 
 
 def normalize_owner_class(text: str | None) -> str | None:
@@ -217,6 +256,198 @@ def classify_ownership_relationships(relationships: list[dict[str, Any]] | None)
     }
 
 
+def _should_run_ai_adjudication(
+    owner_class_evidence: list[dict[str, Any]],
+    classified: dict[str, list[dict[str, Any]]],
+) -> bool:
+    if not _oci_ai_enabled():
+        return False
+    if owner_class_evidence and not classified.get("weak_owner_candidates") and not classified.get("rejected_descriptors"):
+        return False
+    return bool(
+        classified.get("weak_owner_candidates")
+        or classified.get("controllers")
+        or classified.get("controlling_parents")
+        or classified.get("rejected_descriptors")
+    )
+
+
+def _sanitize_ai_adjudication_output(
+    payload: dict[str, Any] | None,
+    classified: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+
+    allowed_candidates = {
+        str(row.get("target_name") or "").strip()
+        for bucket in ("weak_owner_candidates", "controllers", "controlling_parents")
+        for row in classified.get(bucket, [])
+        if str(row.get("target_name") or "").strip()
+        and not looks_like_descriptor_owner(str(row.get("target_name") or ""))
+    }
+    weak_owner_candidates = {
+        str(row.get("target_name") or "").strip()
+        for row in classified.get("weak_owner_candidates", [])
+        if str(row.get("target_name") or "").strip()
+    }
+
+    owner_class = normalize_owner_class(payload.get("owner_class"))
+    should_set_owner_class = bool(payload.get("should_set_owner_class")) and bool(owner_class)
+
+    control_candidate = _sanitize_ai_fragment(payload.get("control_candidate"), max_len=120)
+    if not control_candidate or control_candidate not in allowed_candidates:
+        control_candidate = None
+
+    dismissed_named_owner_candidates: list[str] = []
+    for candidate in payload.get("dismissed_named_owner_candidates") or []:
+        normalized = _sanitize_ai_fragment(candidate, max_len=120)
+        if normalized and normalized in weak_owner_candidates and normalized not in dismissed_named_owner_candidates:
+            dismissed_named_owner_candidates.append(normalized)
+
+    follow_up_queries: list[str] = []
+    for candidate in payload.get("follow_up_queries") or []:
+        normalized = _sanitize_ai_fragment(candidate, max_len=140)
+        if normalized and normalized not in follow_up_queries:
+            follow_up_queries.append(normalized)
+
+    confidence = _sanitize_ai_fragment(payload.get("confidence"), max_len=16).lower()
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "medium" if should_set_owner_class or control_candidate else "low"
+
+    return {
+        "owner_class": owner_class,
+        "should_set_owner_class": should_set_owner_class,
+        "descriptor_only": bool(payload.get("descriptor_only")),
+        "control_signal_present": bool(payload.get("control_signal_present")) or bool(control_candidate),
+        "control_candidate": control_candidate,
+        "dismissed_named_owner_candidates": dismissed_named_owner_candidates[:5],
+        "follow_up_queries": follow_up_queries[:5],
+        "reason": _sanitize_ai_fragment(payload.get("reason") or payload.get("rationale"), max_len=320),
+        "confidence": confidence,
+    }
+
+
+def _build_ai_adjudication_prompt(
+    owner_class_evidence: list[dict[str, Any]],
+    classified: dict[str, list[dict[str, Any]]],
+) -> str:
+    payload = {
+        "descriptor_evidence": [
+            {
+                "descriptor": row.get("descriptor"),
+                "source": row.get("source"),
+                "detail": _sanitize_ai_fragment(row.get("detail"), max_len=220),
+                "artifact_ref": row.get("artifact_ref"),
+                "scope": row.get("scope"),
+            }
+            for row in owner_class_evidence[:5]
+        ],
+        "weak_owner_candidates": [
+            {
+                "name": row.get("target_name"),
+                "authority_level": row.get("authority_level"),
+                "access_model": row.get("access_model"),
+                "evidence": _sanitize_ai_fragment(row.get("evidence"), max_len=220),
+                "artifact_ref": row.get("artifact_ref"),
+            }
+            for row in classified.get("weak_owner_candidates", [])[:5]
+        ],
+        "controllers": [
+            {
+                "name": row.get("target_name"),
+                "rel_type": row.get("rel_type"),
+                "authority_level": row.get("authority_level"),
+                "evidence": _sanitize_ai_fragment(row.get("evidence"), max_len=220),
+                "artifact_ref": row.get("artifact_ref"),
+            }
+            for row in classified.get("controllers", [])[:5]
+        ],
+        "controlling_parents": [
+            {
+                "name": row.get("target_name"),
+                "rel_type": row.get("rel_type"),
+                "authority_level": row.get("authority_level"),
+                "evidence": _sanitize_ai_fragment(row.get("evidence"), max_len=220),
+                "artifact_ref": row.get("artifact_ref"),
+            }
+            for row in classified.get("controlling_parents", [])[:5]
+        ],
+        "rejected_descriptor_relationships": classified.get("rejected_descriptors", [])[:5],
+        "allowed_owner_classes": list(_ALLOWED_OWNER_CLASSES),
+    }
+    return (
+        "You are adjudicating beneficial ownership / control evidence for a national-security diligence system.\n"
+        "You are NOT allowed to invent a named beneficial owner.\n"
+        "You may only do three things:\n"
+        "1. decide whether the evidence supports an owner class descriptor,\n"
+        "2. decide whether there is a meaningful control signal worth surfacing,\n"
+        "3. dismiss weak named-owner candidates that should not be treated as ownership truth.\n\n"
+        "Hard rules:\n"
+        "- Never output a named beneficial owner.\n"
+        "- Only use one of the provided allowed owner classes or null.\n"
+        "- control_candidate must be one of the provided candidate names or null.\n"
+        "- If the evidence is descriptor-only, set descriptor_only=true.\n"
+        "- If evidence is too weak, leave owner_class null and should_set_owner_class=false.\n\n"
+        "Return valid JSON with exactly these keys:\n"
+        "{\n"
+        '  "owner_class": string|null,\n'
+        '  "should_set_owner_class": boolean,\n'
+        '  "descriptor_only": boolean,\n'
+        '  "control_signal_present": boolean,\n'
+        '  "control_candidate": string|null,\n'
+        '  "dismissed_named_owner_candidates": string[],\n'
+        '  "follow_up_queries": string[],\n'
+        '  "confidence": "low"|"medium"|"high",\n'
+        '  "reason": string\n'
+        "}\n\n"
+        f"Evidence payload:\n{json.dumps(payload, sort_keys=True)}"
+    )
+
+
+def _run_ai_adjudication(
+    owner_class_evidence: list[dict[str, Any]],
+    classified: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    if not _should_run_ai_adjudication(owner_class_evidence, classified):
+        return None
+
+    try:
+        from ai_analysis import PROVIDER_CALLERS, _parse_analysis_json, get_ai_config
+    except Exception:
+        return None
+
+    user_id = os.environ.get("XIPHOS_OCI_AI_USER_ID", "__org_default__")
+    try:
+        config = get_ai_config(user_id)
+    except Exception:
+        return None
+    if not config:
+        return None
+
+    provider = str(config.get("provider") or "")
+    model = str(config.get("model") or "")
+    api_key = str(config.get("api_key") or "")
+    caller = PROVIDER_CALLERS.get(provider)
+    if not caller or not api_key:
+        return None
+
+    try:
+        response = caller(api_key, model, _build_ai_adjudication_prompt(owner_class_evidence, classified))
+        parsed = _parse_analysis_json(str(response.get("text") or ""))
+        sanitized = _sanitize_ai_adjudication_output(parsed, classified)
+    except Exception as exc:
+        logger.warning("OCI AI adjudication failed: %s", exc)
+        return None
+    if not sanitized:
+        return None
+    return {
+        **sanitized,
+        "provider": provider,
+        "model": model,
+    }
+
+
 def build_oci_summary(
     ownership_profile: dict[str, Any] | None,
     findings: list[dict[str, Any]] | None,
@@ -226,19 +457,22 @@ def build_oci_summary(
     classified = classify_ownership_relationships(relationships)
     owner_class_evidence = extract_owner_class_evidence(findings)
     owner_class = owner_class_evidence[0]["descriptor"] if owner_class_evidence else None
+    ai_adjudication = _run_ai_adjudication(owner_class_evidence, classified)
 
     profile_named_owner_known = bool(
         profile.get("named_beneficial_owner_known", profile.get("beneficial_owner_known", False))
     )
     named_owner_known = bool(profile_named_owner_known or classified["named_owners"])
     controlling_parent_known = bool(profile.get("controlling_parent_known") or classified["controlling_parents"])
-    owner_class_known = bool(profile.get("owner_class_known") or owner_class)
     named_owner = None
     controlling_parent = None
     if classified["named_owners"]:
         named_owner = classified["named_owners"][0]["target_name"]
     if classified["controlling_parents"]:
         controlling_parent = classified["controlling_parents"][0]["target_name"]
+    if ai_adjudication and ai_adjudication.get("should_set_owner_class") and not owner_class:
+        owner_class = str(ai_adjudication.get("owner_class") or "").strip() or None
+    owner_class_known = bool(profile.get("owner_class_known") or owner_class)
 
     ownership_resolution_pct = float(
         profile.get("ownership_resolution_pct")
@@ -266,7 +500,7 @@ def build_oci_summary(
     return {
         "schema_version": OCI_SCHEMA_VERSION,
         "adjudicator_version": OCI_ADJUDICATOR_VERSION,
-        "adjudicator_mode": "schema_ready_rules",
+        "adjudicator_mode": "rules_plus_ai" if ai_adjudication else "schema_ready_rules",
         "named_beneficial_owner_known": named_owner_known,
         "named_beneficial_owner": named_owner,
         "controlling_parent_known": controlling_parent_known,
@@ -283,4 +517,5 @@ def build_oci_summary(
         "controlling_parent_candidates": classified["controlling_parents"][:5],
         "owner_class_evidence": owner_class_evidence[:5],
         "rejected_descriptor_relationships": classified["rejected_descriptors"][:5],
+        "ai_adjudication": ai_adjudication,
     }

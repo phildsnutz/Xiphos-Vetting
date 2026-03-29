@@ -9,9 +9,10 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "public_html_ow
 
 
 class _FakeResponse:
-    def __init__(self, text: str, content_type: str = "text/html; charset=utf-8"):
+    def __init__(self, text: str, content_type: str = "text/html; charset=utf-8", *, url: str | None = None):
         self.text = text
         self.headers = {"Content-Type": content_type}
+        self.url = url or ""
 
     def raise_for_status(self) -> None:
         return None
@@ -339,7 +340,81 @@ def test_public_html_wordpress_descriptor_queries_find_owner_class_when_vendor_q
         finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
         for finding in result.findings
     )
-    assert "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract" in result.structured_fields["visited_pages"]
+
+
+def test_public_html_promotes_successful_www_host_to_canonical_website(monkeypatch):
+    article_url = "https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == article_url:
+            return _FakeResponse(article_html)
+        raise ConnectionError(f"unreachable host: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich(
+        "Yorktown Systems Group",
+        country="US",
+        website="https://ysg.example",
+        first_party_pages=[article_url],
+    )
+
+    assert result.identifiers["website"] == "https://www.ysg.example"
+    assert article_url in result.identifiers["first_party_pages"]
+    assert article_url in result.structured_fields["successful_pages"]
+    assert article_url in result.structured_fields["visited_pages"]
+
+
+def test_public_html_uses_resolved_www_host_for_canonical_website(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">OSG news</a>
+      </body>
+    </html>
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+    home_url = "https://www.ysg.example"
+    article_url = "https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://ysg.example":
+            return _FakeResponse(home_html, url=home_url)
+        if url == article_url:
+            return _FakeResponse(article_html, url=article_url)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Yorktown Systems Group", country="US", website="https://ysg.example")
+
+    assert result.identifiers["website"] == home_url
+    assert home_url in result.structured_fields["successful_pages"]
+    assert article_url in result.structured_fields["successful_pages"]
+    assert article_url in result.identifiers["first_party_pages"]
 
 
 def test_public_html_uses_seeded_first_party_page_before_default_paths(monkeypatch):

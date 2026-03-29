@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import db
 from osint.connector_registry import get_connector_entry, get_source_metadata_defaults
-from ownership_control_intelligence import build_oci_summary
+from ownership_control_intelligence import build_oci_summary, get_oci_adjudicator_cache_key
 
 from decision_tribunal import build_decision_tribunal
 
@@ -218,7 +218,7 @@ _GATED_OFFICIAL_CONNECTOR_SOURCES = {
     "france_inpi_rne",
 }
 
-_SUPPLIER_PASSPORT_CACHE: dict[tuple[str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
+_SUPPLIER_PASSPORT_CACHE: dict[tuple[str, str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
 _SUPPLIER_PASSPORT_CACHE_LOCK = threading.Lock()
 _SUPPLIER_PASSPORT_TTL_SECONDS = 120
 
@@ -243,7 +243,8 @@ def _supplier_passport_cache_key(
     foci_summary: dict | None,
     cyber_summary: dict | None,
     export_summary: dict | None,
-) -> tuple[str, str, str, str, str, str, str, str, str]:
+    oci_adjudicator_key: str,
+) -> tuple[str, str, str, str, str, str, str, str, str, str]:
     return (
         case_id,
         mode,
@@ -254,10 +255,11 @@ def _supplier_passport_cache_key(
         _summary_version(foci_summary),
         _summary_version(cyber_summary),
         _summary_version(export_summary),
+        oci_adjudicator_key,
     )
 
 
-def _get_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str]) -> dict[str, Any] | None:
+def _get_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str, str]) -> dict[str, Any] | None:
     now = time.time()
     with _SUPPLIER_PASSPORT_CACHE_LOCK:
         cached = _SUPPLIER_PASSPORT_CACHE.get(cache_key)
@@ -270,7 +272,7 @@ def _get_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str,
         return payload.copy() if isinstance(payload, dict) else None
 
 
-def _store_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str], passport: dict[str, Any]) -> None:
+def _store_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str, str], passport: dict[str, Any]) -> None:
     with _SUPPLIER_PASSPORT_CACHE_LOCK:
         _SUPPLIER_PASSPORT_CACHE[cache_key] = {
             "_cached_at": time.time(),
@@ -983,6 +985,7 @@ def build_supplier_passport(
         if export_summary is not None
         else get_export_evidence_summary(case_id, export_input) if callable(get_export_evidence_summary) and export_input else None
     )
+    oci_adjudicator_key = get_oci_adjudicator_cache_key()
 
     cache_key = _supplier_passport_cache_key(
         case_id,
@@ -994,6 +997,7 @@ def build_supplier_passport(
         foci_summary,
         cyber_summary,
         export_summary,
+        oci_adjudicator_key,
     )
     cached = _get_cached_supplier_passport(cache_key)
     if cached is not None:

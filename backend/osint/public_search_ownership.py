@@ -654,7 +654,10 @@ def _synthetic_official_candidates(vendor_name: str, country: str = "") -> list[
 
     for url in _synthetic_domain_urls(vendor_name, country):
         try:
-            markup, _content_type = public_html_ownership._fetch_page(url)
+            markup, _content_type, _resolved_url = public_html_ownership._coerce_fetch_page_result(
+                public_html_ownership._fetch_page(url),
+                url,
+            )
         except Exception:
             continue
         title = _extract_html_title(markup)
@@ -685,33 +688,40 @@ def _synthetic_official_candidates(vendor_name: str, country: str = "") -> list[
 
 
 def _site_scoped_queries(vendor_name: str, website: str) -> list[str]:
-    host = urlparse(website).netloc.lower()
-    if not host:
+    hosts = [
+        urlparse(candidate).netloc.lower()
+        for candidate in public_html_ownership._website_variants(website)
+        if urlparse(candidate).netloc
+    ]
+    hosts = list(dict.fromkeys(hosts))
+    if not hosts:
         return []
-    host_label = host.removeprefix("www.").split(".", 1)[0].replace("-", " ").strip()
     queries: list[str] = []
     seen: set[str] = set()
-    for variant in _search_queries(vendor_name):
-        query = f"site:{host} {variant}{OWNERSHIP_SEARCH_SUFFIX}".strip()
-        if query not in seen:
-            seen.add(query)
-            queries.append(query)
-        descriptor_query = f"site:{host} {variant}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
-        if descriptor_query not in seen:
-            seen.add(descriptor_query)
-            queries.append(descriptor_query)
-    if host_label:
-        query = f"site:{host} {host_label}{OWNERSHIP_SEARCH_SUFFIX}".strip()
-        if query not in seen:
-            seen.add(query)
-            queries.append(query)
-        descriptor_query = f"site:{host} {host_label}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
-        if descriptor_query not in seen:
-            seen.add(descriptor_query)
-            queries.append(descriptor_query)
-    generic_query = f"site:{host}{OWNERSHIP_SEARCH_SUFFIX}".strip()
-    if generic_query not in seen:
-        queries.append(generic_query)
+    for host in hosts:
+        host_label = host.removeprefix("www.").split(".", 1)[0].replace("-", " ").strip()
+        for variant in _search_queries(vendor_name):
+            query = f"site:{host} {variant}{OWNERSHIP_SEARCH_SUFFIX}".strip()
+            if query not in seen:
+                seen.add(query)
+                queries.append(query)
+            descriptor_query = f"site:{host} {variant}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
+            if descriptor_query not in seen:
+                seen.add(descriptor_query)
+                queries.append(descriptor_query)
+        if host_label:
+            query = f"site:{host} {host_label}{OWNERSHIP_SEARCH_SUFFIX}".strip()
+            if query not in seen:
+                seen.add(query)
+                queries.append(query)
+            descriptor_query = f"site:{host} {host_label}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
+            if descriptor_query not in seen:
+                seen.add(descriptor_query)
+                queries.append(descriptor_query)
+        generic_query = f"site:{host}{OWNERSHIP_SEARCH_SUFFIX}".strip()
+        if generic_query not in seen:
+            seen.add(generic_query)
+            queries.append(generic_query)
     return queries
 
 
@@ -757,17 +767,10 @@ def _unwrap_result_url(href: str) -> str:
 
 
 def _official_site_root(url: str) -> str:
-    parsed = urlparse(url)
-    if not parsed.scheme or not parsed.netloc:
-        return ""
-    host = parsed.netloc.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return f"{parsed.scheme}://{host}"
+    return public_html_ownership._root_website(url)
 
 
 def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> list[str]:
-    parsed_root = urlparse(website_root)
     selected: list[tuple[int, str]] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -775,7 +778,7 @@ def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> lis
         title = _clean_text(str(candidate.get("title") or "")).lower()
         snippet = _clean_text(str(candidate.get("snippet") or "")).lower()
         parsed = urlparse(url)
-        if not parsed.scheme or not parsed.netloc or parsed.netloc != parsed_root.netloc:
+        if not parsed.scheme or not parsed.netloc or not public_html_ownership._same_first_party_host(url, website_root):
             continue
         normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
         if not normalized:
@@ -905,7 +908,6 @@ def _pick_official_candidate(candidates: list[dict], country: str = "") -> dict 
 
 
 def _external_candidate_pages(candidates: list[dict], website_root: str) -> list[dict]:
-    parsed_root = urlparse(website_root)
     selected: list[tuple[int, dict]] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -915,7 +917,7 @@ def _external_candidate_pages(candidates: list[dict], website_root: str) -> list
         parsed = urlparse(url)
         if not parsed.scheme or not parsed.netloc:
             continue
-        if parsed.netloc == parsed_root.netloc:
+        if public_html_ownership._same_first_party_host(url, website_root):
             continue
         title = _clean_text(str(candidate.get("title") or "")).lower()
         snippet = _clean_text(str(candidate.get("snippet") or "")).lower()
@@ -1512,7 +1514,10 @@ def _extract_external_relationships(
     if not url:
         return [], [], [], [], {}
     try:
-        html_text, _content_type = public_html_ownership._fetch_page(url)
+        html_text, _content_type, _resolved_url = public_html_ownership._coerce_fetch_page_result(
+            public_html_ownership._fetch_page(url),
+            url,
+        )
     except Exception:
         return [], [], [], [], {}
     text = public_html_ownership._extract_text(html_text)
@@ -1793,7 +1798,10 @@ def _synthetic_finance_profile_candidates(
                 continue
             seen_urls.add(url)
             try:
-                html_text, _content_type = public_html_ownership._fetch_page(url)
+                html_text, _content_type, _resolved_url = public_html_ownership._coerce_fetch_page_result(
+                    public_html_ownership._fetch_page(url),
+                    url,
+                )
             except Exception:
                 continue
             text = public_html_ownership._extract_text(html_text)
@@ -1818,7 +1826,6 @@ def _synthetic_finance_profile_candidates(
 
 
 def _snippet_signal_candidates(candidates: list[dict], website: str, vendor_name: str) -> list[dict]:
-    official_host = urlparse(website).netloc.lower()
     vendor_tokens = _normalize_name_tokens(vendor_name)
     required_token_hits = 1 if len(vendor_tokens) <= 2 else 2
     selected: list[tuple[int, dict]] = []
@@ -1831,7 +1838,7 @@ def _snippet_signal_candidates(candidates: list[dict], website: str, vendor_name
         host = parsed.netloc.lower()
         if not host:
             continue
-        same_host = host == official_host
+        same_host = public_html_ownership._same_first_party_host(url, website)
         if same_host and parsed.path in {"", "/"}:
             continue
         snippet = _clean_text(str(candidate.get("snippet") or "")).lower()
@@ -1868,7 +1875,6 @@ def _snippet_signal_candidates(candidates: list[dict], website: str, vendor_name
 
 
 def _identifier_signal_candidates(candidates: list[dict], website: str, vendor_name: str) -> list[dict]:
-    official_host = urlparse(website).netloc.lower()
     vendor_tokens = _normalize_name_tokens(vendor_name)
     required_title_hits = 1 if len(vendor_tokens) <= 2 else 2
     selected: list[tuple[int, dict]] = []
@@ -1888,14 +1894,15 @@ def _identifier_signal_candidates(candidates: list[dict], website: str, vendor_n
         title_token_hits = sum(1 for token in vendor_tokens if token and f" {token} " in vendor_title_haystack)
         combined = f" {title} {snippet} "
         identifier_query = bool(candidate.get("identifier_query"))
+        same_host = public_html_ownership._same_first_party_host(url, website)
         if not identifier_query and not any(keyword in combined for keyword in IDENTIFIER_SIGNAL_KEYWORDS):
             continue
-        if vendor_tokens and host != official_host and title_token_hits < required_title_hits:
+        if vendor_tokens and not same_host and title_token_hits < required_title_hits:
             continue
         score = int(candidate.get("score") or 0)
         if identifier_query:
             score += 8
-        if host == official_host:
+        if same_host:
             score += 10
         if title_token_hits:
             score += title_token_hits * 8
@@ -2257,7 +2264,10 @@ def _extract_external_identifiers(
         return {}, [], []
 
     try:
-        html_text, _content_type = public_html_ownership._fetch_page(url)
+        html_text, _content_type, _resolved_url = public_html_ownership._coerce_fetch_page_result(
+            public_html_ownership._fetch_page(url),
+            url,
+        )
     except Exception:
         return {}, [], []
 
@@ -2649,9 +2659,17 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         result.risk_signals = merged_risk_signals
         result.artifact_refs = artifact_refs
         first_party_pages = _collect_first_party_pages(website, visited_pages, artifact_refs)
+        canonical_website = public_html_ownership._canonical_first_party_website(
+            website,
+            [website, *visited_pages, *artifact_refs, *first_party_pages],
+        )
+        if canonical_website:
+            result.identifiers["website"] = canonical_website
         if first_party_pages:
             result.identifiers["first_party_pages"] = first_party_pages
             result.structured_fields["first_party_pages"] = first_party_pages
+        if canonical_website:
+            result.structured_fields["canonical_website"] = canonical_website
         result.structured_fields["visited_pages"] = sorted(visited_pages)
         if not _within_budget(deadline):
             result.structured_fields["budget_exhausted"] = True

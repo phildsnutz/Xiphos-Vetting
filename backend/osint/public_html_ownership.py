@@ -410,6 +410,16 @@ def _normalize_website(raw: str) -> str:
     return normalized.rstrip("/")
 
 
+def _root_website(raw: str) -> str:
+    normalized = _normalize_website(raw)
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if not parsed.netloc:
+        return ""
+    return f"{parsed.scheme or 'https'}://{parsed.netloc}".rstrip("/")
+
+
 def _first_party_host_key(value: str) -> str:
     host = urlparse(_normalize_website(value)).netloc.lower()
     return host[4:] if host.startswith("www.") else host
@@ -433,6 +443,42 @@ def _website_variants(website: str) -> list[str]:
         if with_www not in variants:
             variants.append(with_www)
     return variants
+
+
+def _canonical_first_party_website(seed_website: str, evidence_urls: list[str] | tuple[str, ...] | set[str]) -> str:
+    normalized_seed = _normalize_website(seed_website)
+    seed_root = _root_website(normalized_seed)
+    if not normalized_seed:
+        return ""
+
+    root_stats: dict[str, dict[str, int]] = {}
+    for candidate in evidence_urls or []:
+        normalized = _normalize_website(str(candidate or ""))
+        if not normalized or not _same_first_party_host(normalized, normalized_seed):
+            continue
+        root = _root_website(normalized)
+        if not root:
+            continue
+        stats = root_stats.setdefault(root, {"hits": 0, "root_hits": 0})
+        stats["hits"] += 1
+        if normalized == root:
+            stats["root_hits"] += 1
+
+    if not root_stats:
+        return seed_root or normalized_seed
+
+    def _rank(root: str) -> tuple[int, int, int]:
+        stats = root_stats[root]
+        return (
+            stats["hits"],
+            stats["root_hits"],
+            1 if root == seed_root else 0,
+        )
+
+    best_root = max(root_stats, key=_rank)
+    if seed_root and seed_root in root_stats and _rank(seed_root) >= _rank(best_root):
+        return seed_root
+    return best_root
 
 
 def _candidate_urls(website: str) -> list[str]:
@@ -928,7 +974,7 @@ def _fetch_rss_post_links(website: str, vendor_name: str, *, page_url: str) -> l
             feed_candidates.insert(0, f"{base}{page_path}/feed")
         for candidate_url in dict.fromkeys(feed_candidates):
             try:
-                xml_text, _content_type = _fetch_page(candidate_url)
+                xml_text, _content_type, _resolved_url = _coerce_fetch_page_result(_fetch_page(candidate_url), candidate_url)
             except Exception:
                 continue
             for match in RSS_ITEM_RE.finditer(xml_text or ""):
@@ -956,7 +1002,7 @@ def _fetch_sitemap_post_links(website: str, vendor_name: str) -> list[str]:
     for base in _website_variants(website):
         sitemap_urls = [f"{base}/post-sitemap.xml"]
         try:
-            index_xml, _content_type = _fetch_page(f"{base}/sitemap_index.xml")
+            index_xml, _content_type, _resolved_url = _coerce_fetch_page_result(_fetch_page(f"{base}/sitemap_index.xml"), f"{base}/sitemap_index.xml")
         except Exception:
             index_xml = ""
         for match in SITEMAP_LOC_RE.finditer(index_xml or ""):
@@ -965,7 +1011,7 @@ def _fetch_sitemap_post_links(website: str, vendor_name: str) -> list[str]:
                 sitemap_urls.insert(0, link)
         for sitemap_url in dict.fromkeys(sitemap_urls):
             try:
-                sitemap_xml, _content_type = _fetch_page(sitemap_url)
+                sitemap_xml, _content_type, _resolved_url = _coerce_fetch_page_result(_fetch_page(sitemap_url), sitemap_url)
             except Exception:
                 continue
             for match in SITEMAP_LOC_RE.finditer(sitemap_xml or ""):
@@ -1009,7 +1055,7 @@ def _discover_first_party_links(vendor_name: str, markup: str, page_url: str, we
     return discovered[:MAX_DISCOVERED_LINKS]
 
 
-def _fetch_page(url: str) -> tuple[str, str]:
+def _fetch_page(url: str) -> tuple[str, str, str]:
     response = requests.get(
         url,
         timeout=TIMEOUT,
@@ -1017,9 +1063,21 @@ def _fetch_page(url: str) -> tuple[str, str]:
     )
     response.raise_for_status()
     content_type = response.headers.get("Content-Type", "")
+    resolved_url = _normalize_website(str(getattr(response, "url", "") or url))
     if "html" not in content_type and response.text.lstrip()[:1] != "<":
-        return "", content_type
-    return response.text, content_type
+        return "", content_type, resolved_url
+    return response.text, content_type, resolved_url
+
+
+def _coerce_fetch_page_result(payload, fallback_url: str) -> tuple[str, str, str]:
+    if isinstance(payload, tuple):
+        if len(payload) == 3:
+            html_text, content_type, resolved_url = payload
+            return str(html_text or ""), str(content_type or ""), _normalize_website(str(resolved_url or fallback_url))
+        if len(payload) == 2:
+            html_text, content_type = payload
+            return str(html_text or ""), str(content_type or ""), _normalize_website(fallback_url)
+    raise ValueError("unexpected fetch page result")
 
 
 def _build_relationship(
@@ -1087,6 +1145,7 @@ def extract_page(
     started = datetime.utcnow()
     normalized_website = _normalize_website(website)
     normalized_page_url = _normalize_website(page_url)
+    canonical_website = _canonical_first_party_website(normalized_website, [normalized_page_url])
     result.source_class = "public_connector"
     result.authority_level = "first_party_self_disclosed"
     result.access_model = "public_html"
@@ -1097,10 +1156,13 @@ def extract_page(
 
     discovered_links: list[str] = []
     try:
-        html_text, _content_type = _fetch_page(normalized_page_url)
+        html_text, _content_type, resolved_page_url = _coerce_fetch_page_result(_fetch_page(normalized_page_url), normalized_page_url)
+        effective_page_url = resolved_page_url or normalized_page_url
+        canonical_website = _canonical_first_party_website(normalized_website, [effective_page_url])
         text = _extract_text(html_text)
         if not text:
-            result.identifiers["website"] = normalized_website
+            result.identifiers["website"] = canonical_website or normalized_website
+            result.structured_fields["resolved_page_url"] = effective_page_url
             result.elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
             return result, discovered_links
 
@@ -1112,16 +1174,16 @@ def extract_page(
                     source=SOURCE_NAME,
                     category="identity",
                     title=f"Public site identifier hint: {hint['label']} {value}",
-                    detail=f"{hint['snippet']} | Source page: {normalized_page_url}",
+                    detail=f"{hint['snippet']} | Source page: {effective_page_url}",
                     severity="info",
                     confidence=float(hint["confidence"]),
-                    url=normalized_page_url,
-                    artifact_ref=normalized_page_url,
+                    url=effective_page_url,
+                    artifact_ref=effective_page_url,
                     structured_fields={
                         "identifier_type": key,
                         "identifier_value": value,
-                        "source_page": normalized_page_url,
-                        "website": normalized_website,
+                        "source_page": effective_page_url,
+                        "website": canonical_website or normalized_website,
                     },
                     source_class="public_connector",
                     authority_level="first_party_self_disclosed",
@@ -1136,16 +1198,16 @@ def extract_page(
                     source=SOURCE_NAME,
                     category="profile",
                     title=f"Public site operating history hint: founded in {value}",
-                    detail=f"{hint['snippet']} | Source page: {normalized_page_url}",
+                    detail=f"{hint['snippet']} | Source page: {effective_page_url}",
                     severity="info",
                     confidence=float(hint["confidence"]),
-                    url=normalized_page_url,
-                    artifact_ref=normalized_page_url,
+                    url=effective_page_url,
+                    artifact_ref=effective_page_url,
                     structured_fields={
                         "identifier_type": key,
                         "identifier_value": value,
-                        "source_page": normalized_page_url,
-                        "website": normalized_website,
+                        "source_page": effective_page_url,
+                        "website": canonical_website or normalized_website,
                     },
                     source_class="public_connector",
                     authority_level="first_party_self_disclosed",
@@ -1158,30 +1220,30 @@ def extract_page(
                     source=SOURCE_NAME,
                     category="ownership",
                     title=f"Public site beneficial ownership descriptor: {descriptor_hint['descriptor']}",
-                    detail=f"{descriptor_hint['snippet']} | Source page: {normalized_page_url}",
+                    detail=f"{descriptor_hint['snippet']} | Source page: {effective_page_url}",
                     severity="info",
                     confidence=float(descriptor_hint["confidence"]),
-                    url=normalized_page_url,
-                    artifact_ref=normalized_page_url,
+                    url=effective_page_url,
+                    artifact_ref=effective_page_url,
                     structured_fields={
                         "ownership_descriptor": descriptor_hint["descriptor"],
                         "ownership_descriptor_scope": descriptor_hint["scope"],
-                        "website": normalized_website,
+                        "website": canonical_website or normalized_website,
                     },
                     source_class="public_connector",
                     authority_level="first_party_self_disclosed",
                     access_model="public_html",
                 )
             )
-        for candidate in _extract_candidates(text, vendor_name, normalized_page_url):
+        for candidate in _extract_candidates(text, vendor_name, effective_page_url):
             result.relationships.append(
                 _build_relationship(
                     vendor_name=vendor_name,
                     country=country,
-                    website=normalized_website,
+                    website=canonical_website or normalized_website,
                     rel_type=candidate["rel_type"],
                     parent_name=candidate["target_entity"],
-                    page_url=normalized_page_url,
+                    page_url=effective_page_url,
                     confidence=candidate["confidence"],
                     scope=candidate["scope"],
                     snippet=candidate["snippet"],
@@ -1196,16 +1258,16 @@ def extract_page(
                         if candidate["rel_type"] == "owned_by"
                         else f"Public site financial backer hint: {candidate['target_entity']}"
                     ),
-                    detail=f"{candidate['snippet']} | Source page: {normalized_page_url}",
+                    detail=f"{candidate['snippet']} | Source page: {effective_page_url}",
                     severity="info",
                     confidence=candidate["confidence"],
-                    url=normalized_page_url,
-                    artifact_ref=normalized_page_url,
+                    url=effective_page_url,
+                    artifact_ref=effective_page_url,
                     structured_fields={
                         "relationship_scope": candidate["scope"] if candidate["rel_type"] == "owned_by" else "first_party_financing",
                         "relationship_type": candidate["rel_type"],
                         "target_entity": candidate["target_entity"],
-                        "website": normalized_website,
+                        "website": canonical_website or normalized_website,
                     },
                     source_class="public_connector",
                     authority_level="first_party_self_disclosed",
@@ -1213,11 +1275,18 @@ def extract_page(
                 )
             )
         if discover_links:
-            discovered_links = _discover_first_party_links(vendor_name, html_text, normalized_page_url, normalized_website)
+            discovered_links = _discover_first_party_links(
+                vendor_name,
+                html_text,
+                effective_page_url,
+                canonical_website or normalized_website,
+            )
     except Exception as exc:
         result.error = str(exc)
 
-    result.identifiers["website"] = normalized_website
+    result.identifiers["website"] = canonical_website or normalized_website
+    if "effective_page_url" in locals():
+        result.structured_fields["resolved_page_url"] = effective_page_url
     result.artifact_refs = list(
         dict.fromkeys(
             [
@@ -1235,7 +1304,7 @@ def extract_page(
                 "severity": "info",
                 "confidence": max((rel["confidence"] for rel in result.relationships), default=0.0),
                 "summary": f"Public website ownership hint found for {vendor_name}",
-                "website": normalized_website,
+                "website": canonical_website or normalized_website,
             }
         )
     return result, discovered_links
@@ -1259,6 +1328,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     seen_identifiers: set[tuple[str, str]] = set()
     identifier_artifact_refs: list[str] = []
     seen_page_findings: set[tuple[str, str, str]] = set()
+    successful_pages: list[str] = []
     seeded_pages = _resolve_first_party_pages(ids, website)
     queue = seeded_pages + [candidate for candidate in _candidate_urls(website) if candidate not in seeded_pages]
     visited: set[str] = set()
@@ -1278,6 +1348,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             )
             if page_result.error:
                 continue
+            resolved_page_url = str(page_result.structured_fields.get("resolved_page_url") or page_url).rstrip("/")
+            successful_pages.append(resolved_page_url)
             for key, value in page_result.identifiers.items():
                 if key == "website":
                     continue
@@ -1325,9 +1397,17 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     except Exception as exc:
         result.error = str(exc)
 
-    result.identifiers["website"] = website
-    if seeded_pages:
-        result.identifiers["first_party_pages"] = seeded_pages
+    canonical_website = _canonical_first_party_website(
+        website,
+        [*seeded_pages, *successful_pages, *identifier_artifact_refs, *(rel.get("artifact_ref") for rel in relationships)],
+    )
+    result.identifiers["website"] = canonical_website or website
+    canonical_seed_pages = _resolve_first_party_pages(
+        {"first_party_pages": [*seeded_pages, *identifier_artifact_refs, *(rel.get("artifact_ref") for rel in relationships)]},
+        canonical_website or website,
+    )
+    if canonical_seed_pages:
+        result.identifiers["first_party_pages"] = canonical_seed_pages
     result.relationships = relationships
     result.findings = findings
     result.artifact_refs = list(
@@ -1336,9 +1416,10 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         )
     )
     result.elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
-    if seeded_pages:
-        result.structured_fields["seed_pages"] = seeded_pages
+    if canonical_seed_pages:
+        result.structured_fields["seed_pages"] = canonical_seed_pages
     result.structured_fields["visited_pages"] = list(visited)
+    result.structured_fields["successful_pages"] = successful_pages
     if relationships:
         result.risk_signals.append(
             {
@@ -1347,7 +1428,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 "severity": "info",
                 "confidence": max((rel["confidence"] for rel in relationships), default=0.0),
                 "summary": f"Public website ownership hint found for {vendor_name}",
-                "website": website,
+                "website": canonical_website or website,
             }
         )
     return result

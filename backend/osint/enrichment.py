@@ -571,6 +571,24 @@ def _website_value_priority(value) -> tuple[int, int, int, int]:
     return (extra_subdomain_penalty, path_penalty, query_penalty, host_length)
 
 
+def _website_host_key(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    host = (parsed.netloc or parsed.path.split("/", 1)[0]).lower().strip()
+    host = host.rsplit("@", 1)[-1].split(":", 1)[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _same_first_party_website(left, right) -> bool:
+    left_host = _website_host_key(left)
+    right_host = _website_host_key(right)
+    return bool(left_host and right_host and left_host == right_host)
+
+
 def _merge_identifier_value(
     all_identifiers: dict,
     identifier_sources: dict[str, list[str]],
@@ -611,6 +629,15 @@ def _merge_identifier_value(
     )
     incoming_priority = _identifier_source_priority(source, connector_status, connector_metadata)
     if key == "website":
+        if _same_first_party_website(existing, value):
+            if source in current_sources or incoming_priority < current_priority:
+                all_identifiers[key] = value
+                updated_sources = [source]
+                for existing_source in current_sources:
+                    if existing_source != source:
+                        updated_sources.append(existing_source)
+                identifier_sources[str(key)] = updated_sources
+                return
         current_value_priority = _website_value_priority(existing)
         incoming_value_priority = _website_value_priority(value)
         current_website_priority = min(

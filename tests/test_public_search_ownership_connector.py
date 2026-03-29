@@ -67,6 +67,21 @@ def test_public_search_discovers_official_site_and_emits_backed_by(monkeypatch):
     assert "https://hefring.example/news/hefring-funding-round" in result.identifiers["first_party_pages"]
 
 
+def test_public_search_treats_bare_and_www_as_same_first_party_host():
+    candidates = [
+        {
+            "url": "https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/",
+            "title": "Yorktown Systems Group owned by a Service-Disabled Veteran",
+            "snippet": "Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran.",
+            "score": 37,
+        }
+    ]
+
+    pages = public_search_ownership._same_host_candidate_pages(candidates, "https://ysg.example")
+
+    assert pages == ["https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"]
+
+
 def test_public_search_external_identifiers_prefer_canonical_registration_uei(monkeypatch):
     conflict_html = """
     <html>
@@ -324,7 +339,7 @@ def test_public_search_fetches_identifier_page_when_search_snippet_is_thin(monke
 def test_public_search_collapses_contact_page_to_site_root():
     assert (
         public_search_ownership._official_site_root("https://www.hefringmarine.com/contact")
-        == "https://hefringmarine.com"
+        == "https://www.hefringmarine.com"
     )
 
 
@@ -678,8 +693,11 @@ def test_public_search_uses_site_scoped_query_for_same_host_funding_page(monkeyp
                 return _SearchResponse(search_html)
             if query in {
                 "site:apexspace.com APEX Space & Defense Systems owner investor shareholder acquired backed by",
+                "site:www.apexspace.com APEX Space & Defense Systems owner investor shareholder acquired backed by",
                 "site:apexspace.com apexspace owner investor shareholder acquired backed by",
+                "site:www.apexspace.com apexspace owner investor shareholder acquired backed by",
                 "site:apexspace.com owner investor shareholder acquired backed by",
+                "site:www.apexspace.com owner investor shareholder acquired backed by",
             }:
                 return _SearchResponse(site_search_html)
             return _SearchResponse("<html><body></body></html>")
@@ -694,10 +712,10 @@ def test_public_search_uses_site_scoped_query_for_same_host_funding_page(monkeyp
 
     result = public_search_ownership.enrich("APEX Space & Defense Systems", country="US")
 
-    assert result.identifiers["website"] == "https://apexspace.com"
+    assert result.identifiers["website"] == "https://www.apexspace.com"
     assert any(rel["type"] == "backed_by" and rel["target_entity"] == "Andreessen Horowitz" for rel in result.relationships)
     assert any(
-        finding.title == "Public search financial backer hint: Andreessen Horowitz"
+        finding.title == "Public site financial backer hint: Andreessen Horowitz"
         for finding in result.findings
     )
 
@@ -2269,7 +2287,7 @@ def test_public_search_uses_acquisition_snippet_when_page_is_js_gated(monkeypatc
 
     result = public_search_ownership.enrich("DOMO Tactical Communications US", country="US")
 
-    assert result.identifiers["website"] == "https://dtccodan.com"
+    assert result.identifiers["website"] == "https://www.dtccodan.com"
     assert any(rel["type"] == "owned_by" and "Codan" in rel["target_entity"] for rel in result.relationships)
     assert any(rel["access_model"] == "search_snippet_only" for rel in result.relationships)
     assert any(
@@ -2356,7 +2374,7 @@ def test_public_search_falls_back_to_lite_when_primary_search_is_empty(monkeypat
 
     result = public_search_ownership.enrich("DOMO Tactical Communications US", country="US")
 
-    assert result.identifiers["website"] == "https://dtccodan.com"
+    assert result.identifiers["website"] == "https://www.dtccodan.com"
     assert any(rel["type"] == "owned_by" and "Codan" in rel["target_entity"] for rel in result.relationships)
 
 
