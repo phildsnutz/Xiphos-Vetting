@@ -27,6 +27,8 @@ import json
 import hashlib
 from datetime import datetime
 
+from ownership_control_intelligence import looks_like_descriptor_owner
+
 logger = logging.getLogger(__name__)
 
 # Relationship type constants
@@ -505,6 +507,13 @@ def _ingest_relationship(kg, er, primary_entity_id: str, vendor_name: str, rel: 
         source_name = (rel.get("source_entity") or vendor_name or "").strip()
         target_name = (rel.get("target_entity") or rel.get("entity") or "").strip()
         if not source_name or not target_name:
+            return
+        if rel_type in {REL_OWNED_BY, REL_BENEFICIALLY_OWNED_BY} and looks_like_descriptor_owner(target_name):
+            logger.debug(
+                "Skipping descriptor-only ownership relationship during graph ingest: %s -> %s",
+                source_name,
+                target_name,
+            )
             return
 
         source_type = (rel.get("source_entity_type") or "company").strip().lower()
@@ -1273,7 +1282,20 @@ def get_vendor_graph_summary(
             all_relationships.extend(network.get("relationships", []))
 
         unique_rels = _aggregate_graph_relationships(all_relationships)
+        if vendor_id and unique_rels and callable(getattr(kg, "attach_relationship_provenance", None)):
+            # Even "light" graph reads need vendor-scoped claim hydration before filtering.
+            # Otherwise globally deduped entity networks leak stale control edges from older cases.
+            needs_scope_hydration = any(not (rel.get("claim_records") or []) for rel in unique_rels)
+            if needs_scope_hydration:
+                unique_rels = kg.attach_relationship_provenance(
+                    unique_rels,
+                    max_claim_records=max(1, int(max_claim_records or 1)),
+                    max_evidence_records=max(1, int(max_evidence_records or 1)),
+                )
         unique_rels = _filter_relationships_to_vendor_claims(unique_rels, vendor_id)
+        if not include_provenance:
+            for rel in unique_rels:
+                rel["claim_records"] = []
 
         all_entities = _hydrate_missing_graph_entities(kg, all_entities, unique_rels)
         visible_entity_ids = {entity.id for entity in entities}

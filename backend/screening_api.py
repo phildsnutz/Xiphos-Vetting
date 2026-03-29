@@ -194,7 +194,12 @@ class OwnershipInput:
     publicly_traded: bool = False
     state_owned: bool = False
     beneficial_owner_known: bool = False
+    named_beneficial_owner_known: bool = False
+    controlling_parent_known: bool = False
+    owner_class_known: bool = False
+    owner_class: str = ""
     ownership_pct_resolved: float = 0.0
+    control_resolution_pct: float = 0.0
     shell_layers: int = 0
     pep_connection: bool = False
     foreign_ownership_pct: float = 0.0
@@ -298,7 +303,12 @@ def _build_vendor_input(req: ScreeningRequest) -> Optional[VendorInputV5]:
         publicly_traded=ownership_dict.get("publicly_traded", False),
         state_owned=ownership_dict.get("state_owned", False),
         beneficial_owner_known=ownership_dict.get("beneficial_owner_known", False),
+        named_beneficial_owner_known=ownership_dict.get("named_beneficial_owner_known", ownership_dict.get("beneficial_owner_known", False)),
+        controlling_parent_known=ownership_dict.get("controlling_parent_known", False),
+        owner_class_known=ownership_dict.get("owner_class_known", False),
+        owner_class=ownership_dict.get("owner_class", ""),
         ownership_pct_resolved=ownership_dict.get("ownership_pct_resolved", 0.0),
+        control_resolution_pct=ownership_dict.get("control_resolution_pct", 0.0),
         shell_layers=ownership_dict.get("shell_layers", 0),
         pep_connection=ownership_dict.get("pep_connection", False),
         foreign_ownership_pct=ownership_dict.get("foreign_ownership_pct", 0.0),

@@ -17,21 +17,15 @@ Original scoring weights (from deep-research-report.md):
 import math
 from dataclasses import dataclass, field
 from fgamlogit import VendorInputV5, OwnershipProfile, DataQuality, ExecProfile
+from ownership_control_intelligence import (
+    build_oci_summary,
+    extract_owner_class_evidence,
+    relationship_supports_named_owner_resolution,
+)
 
 
 def _relationship_supports_control_resolution(relationship: dict) -> bool:
-    rel_type = str(relationship.get("type") or "").strip().lower()
-    if rel_type in {"beneficially_owned_by", "ultimate_parent"}:
-        return True
-    if rel_type not in {"owned_by", "parent_of", "subsidiary_of"}:
-        return False
-    access_model = str(relationship.get("access_model") or "").strip().lower()
-    confidence = float(relationship.get("confidence") or 0.0)
-    if not access_model and confidence <= 0.0:
-        return True
-    if access_model == "search_snippet_only":
-        return confidence >= 0.62
-    return confidence >= 0.60
+    return relationship_supports_named_owner_resolution(relationship)
 
 
 # =============================================================================
@@ -170,7 +164,12 @@ def augment_from_enrichment(
         publicly_traded=base_input.ownership.publicly_traded,
         state_owned=base_input.ownership.state_owned,
         beneficial_owner_known=base_input.ownership.beneficial_owner_known,
+        named_beneficial_owner_known=base_input.ownership.named_beneficial_owner_known,
+        controlling_parent_known=base_input.ownership.controlling_parent_known,
+        owner_class_known=base_input.ownership.owner_class_known,
+        owner_class=base_input.ownership.owner_class,
         ownership_pct_resolved=base_input.ownership.ownership_pct_resolved,
+        control_resolution_pct=base_input.ownership.control_resolution_pct,
         shell_layers=base_input.ownership.shell_layers,
         pep_connection=base_input.ownership.pep_connection,
         foreign_ownership_pct=base_input.ownership.foreign_ownership_pct,
@@ -318,6 +317,7 @@ def augment_from_enrichment(
             and own.beneficial_owner_known
         ):
             own.beneficial_owner_known = False
+            own.named_beneficial_owner_known = False
             changes.append(
                 "Cleared beneficial-owner status: current evidence verifies identity/disclosure, not control path"
             )
@@ -406,7 +406,10 @@ def augment_from_enrichment(
         ultimate_parents = [r for r in relationships if r.get("type") == "ultimate_parent"]
         if ultimate_parents:
             own.beneficial_owner_known = True
+            own.named_beneficial_owner_known = True
+            own.controlling_parent_known = True
             own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.85)
+            own.control_resolution_pct = max(own.control_resolution_pct, 0.85)
             changes.append(f"Ultimate parent identified via GLEIF: {ultimate_parents[0].get('parent_name', 'N/A')}")
         if ownership_relationships:
             strong_ownership_relationships = [
@@ -419,12 +422,16 @@ def augment_from_enrichment(
             unique_targets = [name for name in dict.fromkeys(target_names) if name]
             if strong_ownership_relationships:
                 own.beneficial_owner_known = True
+                own.named_beneficial_owner_known = True
+                if any(r.get("type") in {"beneficially_owned_by", "ultimate_parent", "parent_of"} for r in strong_ownership_relationships):
+                    own.controlling_parent_known = True
                 relationship_resolution = (
                     0.85
                     if any(r.get("type") in {"beneficially_owned_by", "ultimate_parent"} for r in strong_ownership_relationships)
                     else 0.65
                 )
                 own.ownership_pct_resolved = max(own.ownership_pct_resolved, relationship_resolution)
+                own.control_resolution_pct = max(own.control_resolution_pct, relationship_resolution)
                 if has_public_market_signal or has_lei or had_stale_public_company_state:
                     own.ownership_pct_resolved = min(own.ownership_pct_resolved, relationship_resolution)
                 if unique_targets:
@@ -435,6 +442,57 @@ def augment_from_enrichment(
                     )
             else:
                 changes.append("Weak ownership hints observed but not enough to resolve beneficial owner")
+
+    descriptor_owner_findings = extract_owner_class_evidence(findings)
+    if descriptor_owner_findings:
+        descriptor = str(
+            descriptor_owner_findings[0].get("descriptor")
+            or "self-disclosed beneficial owner class"
+        )
+        descriptor_resolution = 0.55
+        own.owner_class_known = True
+        own.owner_class = descriptor
+        if own.ownership_pct_resolved < descriptor_resolution:
+            own.ownership_pct_resolved = descriptor_resolution
+        if own.control_resolution_pct < 0.35:
+            own.control_resolution_pct = 0.35
+        changes.append(
+            "Beneficial ownership partially resolved via first-party descriptor disclosure: "
+            + descriptor
+        )
+        has_strong_named_owner_path = any(
+            _relationship_supports_control_resolution(relationship)
+            for relationship in ownership_relationships
+        )
+        if own.beneficial_owner_known and not has_strong_named_owner_path:
+            own.beneficial_owner_known = False
+        if own.named_beneficial_owner_known and not has_strong_named_owner_path:
+            own.named_beneficial_owner_known = False
+            own.controlling_parent_known = False
+            changes.append(
+                "Descriptor-only ownership evidence kept as owner class, not promoted to named beneficial owner"
+            )
+
+    oci_summary = build_oci_summary(
+        {
+            "beneficial_owner_known": own.beneficial_owner_known,
+            "named_beneficial_owner_known": own.named_beneficial_owner_known,
+            "controlling_parent_known": own.controlling_parent_known,
+            "owner_class_known": own.owner_class_known,
+            "owner_class": own.owner_class,
+            "ownership_pct_resolved": own.ownership_pct_resolved,
+            "control_resolution_pct": own.control_resolution_pct,
+        },
+        findings,
+        relationships,
+    )
+    own.beneficial_owner_known = bool(oci_summary.get("named_beneficial_owner_known"))
+    own.named_beneficial_owner_known = bool(oci_summary.get("named_beneficial_owner_known"))
+    own.controlling_parent_known = bool(oci_summary.get("controlling_parent_known"))
+    own.owner_class_known = bool(oci_summary.get("owner_class_known"))
+    own.owner_class = str(oci_summary.get("owner_class") or own.owner_class or "")
+    own.ownership_pct_resolved = max(own.ownership_pct_resolved, float(oci_summary.get("ownership_resolution_pct") or 0.0))
+    own.control_resolution_pct = max(own.control_resolution_pct, float(oci_summary.get("control_resolution_pct") or 0.0))
 
     # Check for OpenCorporates officer data
     for f in findings:

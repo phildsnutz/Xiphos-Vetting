@@ -175,14 +175,14 @@ COMMON_MULTI_PART_TLDS = {
 }
 
 CONNECTOR_REPLAY_DEPENDENCIES: dict[str, tuple[str, ...]] = {
-    "public_html_ownership": ("website",),
+    "public_html_ownership": ("website", "first_party_pages"),
     "osv_dev": ("package_inventory",),
     "deps_dev": ("package_inventory",),
     "openssf_scorecard": ("repository_urls",),
 }
 
 CONNECTOR_CACHE_VARIANT_KEYS: dict[str, tuple[str, ...]] = {
-    "public_html_ownership": ("website", "official_website", "domain"),
+    "public_html_ownership": ("website", "official_website", "domain", "first_party_pages"),
     "openownership_bods_public": ("openownership_bods_url", "uk_company_number", "lei"),
     "corporations_canada": ("corporations_canada_url", "ca_corporation_number", "business_number"),
     "australia_abn_asic": ("australia_abn_asic_url", "abn", "acn"),
@@ -672,7 +672,12 @@ def _should_replay_connector(
     if not dependency_keys:
         return False
     report_identifiers = report.get("identifiers") if isinstance(report.get("identifiers"), dict) else {}
-    if not all(_normalize_identifier_value(_dependency_identifier_value(report_identifiers, key)) for key in dependency_keys):
+    available_dependency_keys = [
+        key
+        for key in dependency_keys
+        if _normalize_identifier_value(_dependency_identifier_value(report_identifiers, key))
+    ]
+    if not available_dependency_keys:
         return False
     current_result = result_by_source.get(connector_name)
     if current_result is None:
@@ -680,12 +685,12 @@ def _should_replay_connector(
     seed_changed = any(
         _normalize_identifier_value(_dependency_identifier_value(seed_identifiers, key))
         != _normalize_identifier_value(_dependency_identifier_value(report_identifiers, key))
-        for key in dependency_keys
+        for key in available_dependency_keys
     )
     current_mismatch = any(
         _normalize_identifier_value(_dependency_identifier_value(current_result, key))
         != _normalize_identifier_value(_dependency_identifier_value(report_identifiers, key))
-        for key in dependency_keys
+        for key in available_dependency_keys
     )
     return seed_changed or current_mismatch or not current_result.has_data
 

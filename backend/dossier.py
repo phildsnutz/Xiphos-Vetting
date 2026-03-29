@@ -839,6 +839,47 @@ def _render_threat_intel_summary(threat_intel: dict) -> str:
     """
 
 
+def _render_ownership_control_summary(ownership: dict) -> str:
+    if not isinstance(ownership, dict):
+        return ""
+    oci = ownership.get("oci") if isinstance(ownership.get("oci"), dict) else {}
+    if not oci:
+        return ""
+    named_owner = str(oci.get("named_beneficial_owner") or "Unknown")
+    owner_class = str(oci.get("owner_class") or "Unknown")
+    controlling_parent = str(oci.get("controlling_parent") or "Unknown")
+    ownership_pct = float(oci.get("ownership_resolution_pct") or 0.0)
+    control_pct = float(oci.get("control_resolution_pct") or 0.0)
+    gap = str(oci.get("ownership_gap") or "unknown").replace("_", " ")
+    rows = "".join(
+        [
+            _passport_field("Named owner", "Known" if oci.get("named_beneficial_owner_known") else "Unknown"),
+            _passport_field("Named owner entity", named_owner),
+            _passport_field("Owner class", owner_class if oci.get("owner_class_known") else "Unknown"),
+            _passport_field("Controlling parent", controlling_parent if oci.get("controlling_parent_known") else "Unknown"),
+            _passport_field("Ownership resolved", f"{round(ownership_pct * 100)}%"),
+            _passport_field("Control resolved", f"{round(control_pct * 100)}%"),
+        ]
+    )
+    notes: list[str] = []
+    if oci.get("descriptor_only"):
+        notes.append("Descriptor-only evidence was captured without inventing a named owner.")
+    rejected = oci.get("rejected_descriptor_relationships") if isinstance(oci.get("rejected_descriptor_relationships"), list) else []
+    if rejected:
+        notes.append(f"{len(rejected)} descriptor-like ownership targets were rejected as non-entities.")
+    notes.append(f"Current ownership gap: {gap}.")
+    note_html = "<br/>".join(escape(note) for note in notes if note)
+    return f"""
+        <div style=\"margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e9ecef;\">
+            <div style=\"font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.06em;\">Ownership / control intelligence</div>
+            <div style=\"display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; margin-top: 8px;\">
+                {rows}
+            </div>
+            <div style=\"margin-top: 8px; font-size: 12px; color: #475569; line-height: 1.5;\">{note_html}</div>
+        </div>
+    """
+
+
 def _generate_supplier_passport_section(passport: Optional[dict]) -> str:
     if not isinstance(passport, dict):
         return ""
@@ -957,6 +998,7 @@ def _generate_supplier_passport_section(passport: Optional[dict]) -> str:
         </div>
     """
     official_corroboration_html = _render_official_corroboration(identity)
+    ownership_control_html = _render_ownership_control_summary(ownership)
     threat_intel_html = _render_threat_intel_summary(threat_intel)
 
     return f"""
@@ -976,6 +1018,7 @@ def _generate_supplier_passport_section(passport: Optional[dict]) -> str:
         </div>
         {identifiers_html}
         {official_corroboration_html}
+        {ownership_control_html}
         {threat_intel_html}
         <div class="storyline-grid" style="margin-top: 14px;">
             <article class="storyline-card" style="--storyline-accent: #3B82F6;">

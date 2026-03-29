@@ -234,3 +234,108 @@ def test_enrich_vendor_replays_package_collectors_after_inventory_discovery(monk
 
     assert any(finding["source"] == "osv_dev" for finding in report["findings"])
     assert fake_osv.calls == ["[]", "[{'ecosystem': 'PyPI', 'name': 'telemetry-core', 'version': '2.4.1'}]"]
+
+
+class _FakeDescriptorSearchConnector:
+    def enrich(self, vendor_name: str, country: str = "", **ids):
+        return EnrichmentResult(
+            source="public_search_ownership",
+            vendor_name=vendor_name,
+            identifiers={
+                "website": "https://ysg.example",
+                "first_party_pages": ["https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"],
+            },
+            findings=[
+                Finding(
+                    source="public_search_ownership",
+                    category="identity",
+                    title="Public search discovered official site candidate: https://ysg.example",
+                    detail="fixture",
+                )
+            ],
+            artifact_refs=["https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"],
+            structured_fields={
+                "first_party_pages": ["https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"],
+            },
+            source_class="public_connector",
+            authority_level="third_party_public",
+            access_model="search_public_html",
+        )
+
+
+class _FakeDescriptorHtmlConnector:
+    def __init__(self):
+        self.calls: list[dict[str, object]] = []
+
+    def enrich(self, vendor_name: str, country: str = "", **ids):
+        website = str(ids.get("website") or ids.get("domain") or "")
+        first_party_pages = list(ids.get("first_party_pages") or [])
+        self.calls.append({"website": website, "first_party_pages": first_party_pages})
+        if first_party_pages:
+            return EnrichmentResult(
+                source="public_html_ownership",
+                vendor_name=vendor_name,
+                identifiers={
+                    "website": website,
+                    "first_party_pages": first_party_pages,
+                },
+                findings=[
+                    Finding(
+                        source="public_html_ownership",
+                        category="ownership",
+                        title="Public site beneficial ownership descriptor: Service-Disabled Veteran",
+                        detail="fixture",
+                        confidence=0.78,
+                        structured_fields={
+                            "ownership_descriptor": "Service-Disabled Veteran",
+                            "ownership_descriptor_scope": "self_disclosed_owner_descriptor",
+                        },
+                    )
+                ],
+                source_class="public_connector",
+                authority_level="first_party_self_disclosed",
+                access_model="public_html",
+            )
+        return EnrichmentResult(
+            source="public_html_ownership",
+            vendor_name=vendor_name,
+            identifiers={"website": website} if website else {},
+            source_class="public_connector",
+            authority_level="first_party_self_disclosed",
+            access_model="public_html",
+        )
+
+
+def test_enrich_vendor_replays_public_html_after_search_discovers_first_party_article(monkeypatch):
+    fake_html = _FakeDescriptorHtmlConnector()
+    monkeypatch.setattr(
+        enrichment,
+        "CONNECTORS",
+        [("public_search_ownership", _FakeDescriptorSearchConnector()), ("public_html_ownership", fake_html)],
+    )
+    monkeypatch.setattr(enrichment, "_filter_connectors_by_country", lambda active, country: active)
+
+    report = enrichment.enrich_vendor(
+        "Yorktown Systems Group",
+        country="US",
+        connectors=["public_search_ownership", "public_html_ownership"],
+        parallel=False,
+        force=True,
+        website="https://ysg.example",
+    )
+
+    assert report["identifiers"]["website"] == "https://ysg.example"
+    assert report["identifiers"]["first_party_pages"] == [
+        "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"
+    ]
+    assert any(
+        finding["title"] == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in report["findings"]
+    )
+    assert fake_html.calls == [
+        {"website": "https://ysg.example", "first_party_pages": []},
+        {
+            "website": "https://ysg.example",
+            "first_party_pages": ["https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"],
+        },
+    ]

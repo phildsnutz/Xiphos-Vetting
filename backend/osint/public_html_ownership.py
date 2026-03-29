@@ -13,9 +13,10 @@ It avoids search automation, anti-bot workarounds, or broad crawling.
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import datetime
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 import requests
 
@@ -26,8 +27,12 @@ SOURCE_NAME = "public_html_ownership"
 TIMEOUT = 12
 MAX_PAGES = 16
 MAX_DISCOVERED_LINKS = 3
+MAX_DISCOVERY_SURFACE_LINKS = 6
 DEFAULT_PATHS = (
     "",
+    "/news",
+    "/blog",
+    "/newsroom",
     "/about",
     "/about-us",
     "/who-we-are",
@@ -37,10 +42,8 @@ DEFAULT_PATHS = (
     "/en/the-company",
     "/leadership",
     "/ysgleadership",
-    "/news",
-    "/blog",
-    "/newsroom",
 )
+DISCOVERY_HUB_PATHS = ("/news", "/newsroom", "/blog", "/press", "/articles", "/updates")
 USER_AGENT = "Helios/5.2 (+https://xiphosllc.com)"
 
 SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
@@ -142,6 +145,27 @@ SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     ),
 )
 
+DESCRIPTOR_OWNERSHIP_PATTERNS: tuple[tuple[re.Pattern[str], float, str, str], ...] = (
+    (
+        re.compile(
+            r"\bowned by\s+(?:a\s+|an\s+)?(Service[- ]Disabled Veteran)\b",
+            re.IGNORECASE,
+        ),
+        0.78,
+        "Service-Disabled Veteran",
+        "self_disclosed_owner_descriptor",
+    ),
+    (
+        re.compile(
+            r"\bowned by\s+(?:a\s+|an\s+)?(Veteran)\b",
+            re.IGNORECASE,
+        ),
+        0.68,
+        "Veteran",
+        "self_disclosed_owner_descriptor",
+    ),
+)
+
 TRAILING_GENERIC = re.compile(
     r"\s+(?:group|family|portfolio|company|companies|corporation|corp\.?|inc\.?|llc|ltd\.?|plc|gmbh)\s*$",
     re.IGNORECASE,
@@ -151,6 +175,11 @@ SCRIPT_STYLE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re
 TAGS = re.compile(r"<[^>]+>")
 WHITESPACE = re.compile(r"\s+")
 ANCHOR_TAG = re.compile(r"<a\b[^>]*href=[\"'](?P<href>[^\"']+)[\"'][^>]*>(?P<label>.*?)</a>", re.IGNORECASE | re.DOTALL)
+RSS_ITEM_RE = re.compile(
+    r"<item\b[^>]*>.*?<title>(?P<title>.*?)</title>.*?<link>(?P<link>https?://[^<]+)</link>.*?</item>",
+    re.IGNORECASE | re.DOTALL,
+)
+SITEMAP_LOC_RE = re.compile(r"<loc>(?P<link>https?://[^<]+)</loc>", re.IGNORECASE)
 DISCOVERY_KEYWORDS = (
     "fund",
     "invest",
@@ -184,6 +213,12 @@ ENTITY_NOISE_PHRASES = (
     "lean six sigma",
     "quality auditing",
 )
+MARKET_TEXT_NOISE_PHRASES = (
+    "prices of the securities",
+    "conventional funds",
+    "lose money investing",
+    "etf go down",
+)
 DESCRIPTOR_OWNER_PHRASES = (
     "service disabled veteran",
     "service-disabled veteran",
@@ -202,6 +237,29 @@ DESCRIPTOR_OWNER_PHRASES = (
     "edwosb",
     "8(a)",
 )
+ENTITY_CONNECTOR_WORDS = {
+    "and",
+    "of",
+    "the",
+    "for",
+    "de",
+    "del",
+    "della",
+    "di",
+    "da",
+    "du",
+    "van",
+    "von",
+    "der",
+    "den",
+    "la",
+    "le",
+    "el",
+    "al",
+    "bin",
+    "ibn",
+    "y",
+}
 CONTROL_BODY_NOISE_PHRASES = (
     "executive management team",
     "management team",
@@ -210,6 +268,39 @@ CONTROL_BODY_NOISE_PHRASES = (
     "advisory board",
     "executive committee",
     "steering committee",
+)
+DISCOVERY_SURFACE_KEYWORDS = (
+    "owner",
+    "owned",
+    "ownership",
+    "parent",
+    "subsidiary",
+    "shareholder",
+    "investor",
+    "veteran",
+    "sdvosb",
+    "wosb",
+)
+DISCOVERY_QUERY_STOPWORDS = {
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "company",
+    "llc",
+    "ltd",
+    "limited",
+    "plc",
+    "gmbh",
+}
+OWNERSHIP_DISCOVERY_QUERIES = (
+    "Service-Disabled Veteran",
+    "sdvosb",
+    "veteran-owned",
+    "ownership",
+    "owner",
+    "parent company",
 )
 IDENTIFIER_PATTERNS: tuple[tuple[str, str, re.Pattern[str], float], ...] = (
     (
@@ -319,22 +410,87 @@ def _normalize_website(raw: str) -> str:
     return normalized.rstrip("/")
 
 
-def _candidate_urls(website: str) -> list[str]:
+def _first_party_host_key(value: str) -> str:
+    host = urlparse(_normalize_website(value)).netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _same_first_party_host(left: str, right: str) -> bool:
+    left_key = _first_party_host_key(left)
+    right_key = _first_party_host_key(right)
+    return bool(left_key and right_key and left_key == right_key)
+
+
+def _website_variants(website: str) -> list[str]:
     base = _normalize_website(website)
     if not base:
         return []
+    variants = [base]
+    parsed = urlparse(base)
+    host = parsed.netloc.lower()
+    if host and not host.startswith("www.") and host.count(".") >= 1:
+        with_www = f"{parsed.scheme or 'https'}://www.{host}{parsed.path.rstrip('/')}"
+        if with_www not in variants:
+            variants.append(with_www)
+    return variants
+
+
+def _candidate_urls(website: str) -> list[str]:
     seen: set[str] = set()
     urls: list[str] = []
+    variants = _website_variants(website)
+    if not variants:
+        return urls
+    primary_base = variants[0]
+    alternate_bases = variants[1:]
+
     for path in DEFAULT_PATHS:
-        candidate = urljoin(f"{base}/", path.lstrip("/"))
+        candidate = urljoin(f"{primary_base}/", path.lstrip("/"))
         candidate = candidate.rstrip("/") if path else candidate.rstrip("/")
         if candidate in seen:
             continue
         seen.add(candidate)
         urls.append(candidate)
         if len(urls) >= MAX_PAGES:
-            break
+            return urls
+
+    alternate_priority_paths = ("", "/news", "/blog", "/newsroom")
+    for base in alternate_bases:
+        for path in alternate_priority_paths:
+            candidate = urljoin(f"{base}/", path.lstrip("/"))
+            candidate = candidate.rstrip("/") if path else candidate.rstrip("/")
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            urls.append(candidate)
+            if len(urls) >= MAX_PAGES:
+                return urls
     return urls
+
+
+def _resolve_first_party_pages(ids: dict, website: str) -> list[str]:
+    raw_pages = ids.get("first_party_pages")
+    if isinstance(raw_pages, str):
+        candidates = [raw_pages]
+    elif isinstance(raw_pages, (list, tuple, set)):
+        candidates = [str(item or "") for item in raw_pages]
+    else:
+        candidates = []
+
+    normalized_website = _normalize_website(website)
+    seen: set[str] = set()
+    pages: list[str] = []
+    for candidate in candidates:
+        normalized = _normalize_website(candidate)
+        if not normalized:
+            continue
+        if not _same_first_party_host(normalized, normalized_website):
+            continue
+        if normalized == normalized_website or normalized in seen:
+            continue
+        seen.add(normalized)
+        pages.append(normalized)
+    return pages[:MAX_PAGES]
 
 
 def _extract_text(markup: str) -> str:
@@ -397,9 +553,23 @@ def _looks_like_entity_name(raw_name: str, parent_name: str) -> bool:
         return False
     if any(fragment in lowered for fragment in ENTITY_NOISE_PHRASES):
         return False
+    if any(fragment in lowered or fragment in raw_lowered for fragment in MARKET_TEXT_NOISE_PHRASES):
+        return False
     if any(phrase in lowered or phrase in normalized for phrase in DESCRIPTOR_OWNER_PHRASES):
         return False
+    if re.search(r"\b(?:go down|lose money)\b", lowered):
+        return False
     if len(cleaned.split()) > 8:
+        return False
+    alpha_tokens = re.findall(r"[A-Za-z][A-Za-z'’-]*", cleaned)
+    lowercase_noise_tokens = [
+        token
+        for token in alpha_tokens
+        if token.lower() not in ENTITY_CONNECTOR_WORDS
+        and token != token.upper()
+        and not token[:1].isupper()
+    ]
+    if lowercase_noise_tokens:
         return False
     candidate_for_case = cleaned if cleaned and raw[:1].lower() == raw[:1] else raw
     first_alpha = re.search(r"[A-Za-z]", candidate_for_case)
@@ -449,6 +619,29 @@ def _extract_candidates(text: str, vendor_name: str, page_url: str) -> list[dict
                 {
                     "target_entity": parent_name,
                     "rel_type": rel_type,
+                    "confidence": confidence,
+                    "scope": scope,
+                    "snippet": snippet,
+                }
+            )
+    return matches
+
+
+def _extract_descriptor_owner_hints(text: str) -> list[dict]:
+    matches: list[dict] = []
+    seen: set[str] = set()
+    for pattern, confidence, normalized_target, scope in DESCRIPTOR_OWNERSHIP_PATTERNS:
+        for hit in pattern.finditer(text):
+            snippet_start = max(hit.start() - 80, 0)
+            snippet_end = min(hit.end() + 120, len(text))
+            snippet = text[snippet_start:snippet_end].strip()
+            dedupe_key = normalized_target.upper()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            matches.append(
+                {
+                    "descriptor": normalized_target,
                     "confidence": confidence,
                     "scope": scope,
                     "snippet": snippet,
@@ -579,6 +772,8 @@ def _extract_internal_candidate_links(markup: str, page_url: str, website: str) 
     base = _normalize_website(website)
     parsed_base = urlparse(base)
     normalized_page_url = f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}{urlparse(page_url).path}".rstrip("/")
+    current_path = urlparse(page_url).path.lower().rstrip("/")
+    on_discovery_hub = current_path in DISCOVERY_HUB_PATHS
     discovered: list[tuple[int, str]] = []
     seen: set[str] = set()
     for match in ANCHOR_TAG.finditer(markup or ""):
@@ -591,7 +786,15 @@ def _extract_internal_candidate_links(markup: str, page_url: str, website: str) 
         if parsed_candidate.netloc != parsed_base.netloc:
             continue
         lowered = f"{candidate} {label}".lower()
-        if not any(keyword in lowered for keyword in DISCOVERY_KEYWORDS):
+        candidate_path = parsed_candidate.path.lower().rstrip("/")
+        is_article_like = (
+            on_discovery_hub
+            and candidate_path not in DISCOVERY_HUB_PATHS
+            and len(label.split()) >= 3
+            and not candidate_path.endswith((".jpg", ".jpeg", ".png", ".gif", ".svg", ".pdf"))
+            and not candidate_path.endswith(("/feed", "/rss"))
+        )
+        if not any(keyword in lowered for keyword in DISCOVERY_KEYWORDS) and not is_article_like:
             continue
         normalized = f"{parsed_candidate.scheme}://{parsed_candidate.netloc}{parsed_candidate.path}".rstrip("/")
         if not normalized or normalized == normalized_page_url:
@@ -612,9 +815,198 @@ def _extract_internal_candidate_links(markup: str, page_url: str, website: str) 
             score += 5
         if parsed_candidate.path.lower().endswith("/news"):
             score -= 10
+        if is_article_like:
+            score += 18
         discovered.append((score, normalized))
     discovered.sort(key=lambda item: (-item[0], item[1]))
     return [url for _score, url in discovered[:MAX_DISCOVERED_LINKS]]
+
+
+def _vendor_discovery_queries(vendor_name: str) -> list[str]:
+    raw = re.split(r"\s*[|/]\s*", str(vendor_name or "").strip(), maxsplit=1)[0]
+    queries: list[str] = []
+    seen: set[str] = set()
+    if raw:
+        queries.append(raw)
+        seen.add(raw.lower())
+    tokens = [
+        token
+        for token in re.split(r"[^A-Za-z0-9]+", raw)
+        if token and token.lower() not in DISCOVERY_QUERY_STOPWORDS
+    ]
+    for width in (3, 2):
+        if len(tokens) >= width:
+            candidate = " ".join(tokens[:width]).strip()
+            if candidate and candidate.lower() not in seen:
+                seen.add(candidate.lower())
+                queries.append(candidate)
+    return queries[:3]
+
+
+def _wordpress_discovery_queries(vendor_name: str) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for candidate in [*_vendor_discovery_queries(vendor_name), *OWNERSHIP_DISCOVERY_QUERIES]:
+        normalized = str(candidate or "").strip()
+        if not normalized:
+            continue
+        dedupe_key = normalized.lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        queries.append(normalized)
+    return queries[:8]
+
+
+def _discovery_candidate_score(link: str, text: str, vendor_tokens: list[str]) -> int:
+    haystack = f"{str(link or '').lower()} {str(text or '').lower()}"
+    score = 0
+    for token in vendor_tokens:
+        if token and token in haystack:
+            score += 18
+    for keyword in DISCOVERY_SURFACE_KEYWORDS:
+        if keyword in haystack:
+            score += 15
+    if "/news/" in str(link or "").lower() or "/blog/" in str(link or "").lower():
+        score += 8
+    return score
+
+
+def _fetch_wordpress_post_links(website: str, vendor_name: str) -> list[str]:
+    vendor_tokens = [
+        token.lower()
+        for token in re.split(r"[^A-Za-z0-9]+", vendor_name or "")
+        if token and token.lower() not in DISCOVERY_QUERY_STOPWORDS
+    ]
+    discovered: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for base in _website_variants(website):
+        for query in _wordpress_discovery_queries(vendor_name):
+            endpoint = f"{base}/wp-json/wp/v2/posts?search={quote_plus(query)}&per_page=5&_fields=link,title,excerpt,content,slug"
+            try:
+                response = requests.get(
+                    endpoint,
+                    timeout=TIMEOUT,
+                    headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+                )
+                response.raise_for_status()
+                payload = json.loads(response.text or "[]")
+            except Exception:
+                continue
+            if not isinstance(payload, list):
+                continue
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                link = str(item.get("link") or "").strip().rstrip("/")
+                if not link or link in seen:
+                    continue
+                title = _extract_text(str((item.get("title") or {}).get("rendered") if isinstance(item.get("title"), dict) else item.get("title") or ""))
+                excerpt = _extract_text(str((item.get("excerpt") or {}).get("rendered") if isinstance(item.get("excerpt"), dict) else item.get("excerpt") or ""))
+                content = _extract_text(str((item.get("content") or {}).get("rendered") if isinstance(item.get("content"), dict) else item.get("content") or ""))
+                score = _discovery_candidate_score(link, f"{title} {excerpt} {content}", vendor_tokens)
+                if score <= 0:
+                    continue
+                seen.add(link)
+                discovered.append((score, link))
+    discovered.sort(key=lambda item: (-item[0], item[1]))
+    return [link for _score, link in discovered[:MAX_DISCOVERY_SURFACE_LINKS]]
+
+
+def _fetch_rss_post_links(website: str, vendor_name: str, *, page_url: str) -> list[str]:
+    page_path = urlparse(page_url).path.rstrip("/")
+    vendor_tokens = [
+        token.lower()
+        for token in re.split(r"[^A-Za-z0-9]+", vendor_name or "")
+        if token and token.lower() not in DISCOVERY_QUERY_STOPWORDS
+    ]
+    discovered: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for base in _website_variants(website):
+        feed_candidates = [f"{base}/feed", f"{base}/news/feed"]
+        if page_path in DISCOVERY_HUB_PATHS:
+            feed_candidates.insert(0, f"{base}{page_path}/feed")
+        for candidate_url in dict.fromkeys(feed_candidates):
+            try:
+                xml_text, _content_type = _fetch_page(candidate_url)
+            except Exception:
+                continue
+            for match in RSS_ITEM_RE.finditer(xml_text or ""):
+                link = str(match.group("link") or "").strip().rstrip("/")
+                if not link or link in seen:
+                    continue
+                title = _extract_text(match.group("title") or "")
+                score = _discovery_candidate_score(link, title, vendor_tokens)
+                if score <= 0:
+                    continue
+                seen.add(link)
+                discovered.append((score, link))
+    discovered.sort(key=lambda item: (-item[0], item[1]))
+    return [link for _score, link in discovered[:MAX_DISCOVERY_SURFACE_LINKS]]
+
+
+def _fetch_sitemap_post_links(website: str, vendor_name: str) -> list[str]:
+    vendor_tokens = [
+        token.lower()
+        for token in re.split(r"[^A-Za-z0-9]+", vendor_name or "")
+        if token and token.lower() not in DISCOVERY_QUERY_STOPWORDS
+    ]
+    discovered: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for base in _website_variants(website):
+        sitemap_urls = [f"{base}/post-sitemap.xml"]
+        try:
+            index_xml, _content_type = _fetch_page(f"{base}/sitemap_index.xml")
+        except Exception:
+            index_xml = ""
+        for match in SITEMAP_LOC_RE.finditer(index_xml or ""):
+            link = str(match.group("link") or "").strip()
+            if link.endswith("post-sitemap.xml"):
+                sitemap_urls.insert(0, link)
+        for sitemap_url in dict.fromkeys(sitemap_urls):
+            try:
+                sitemap_xml, _content_type = _fetch_page(sitemap_url)
+            except Exception:
+                continue
+            for match in SITEMAP_LOC_RE.finditer(sitemap_xml or ""):
+                link = str(match.group("link") or "").strip().rstrip("/")
+                if not link or link in seen:
+                    continue
+                if link.rstrip("/") == base.rstrip("/"):
+                    continue
+                score = _discovery_candidate_score(link, link, vendor_tokens)
+                if score <= 0:
+                    continue
+                seen.add(link)
+                discovered.append((score, link))
+    discovered.sort(key=lambda item: (-item[0], item[1]))
+    return [link for _score, link in discovered[:MAX_DISCOVERY_SURFACE_LINKS]]
+
+
+def _discover_first_party_links(vendor_name: str, markup: str, page_url: str, website: str) -> list[str]:
+    discovered: list[str] = []
+    seen: set[str] = set()
+
+    def add_links(candidates: list[str]) -> None:
+        for candidate in candidates:
+            normalized = str(candidate or "").rstrip("/")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            discovered.append(normalized)
+            if len(discovered) >= MAX_DISCOVERED_LINKS:
+                return
+
+    current_path = urlparse(page_url).path.lower().rstrip("/")
+    if current_path in {"", *DISCOVERY_HUB_PATHS}:
+        add_links(_fetch_wordpress_post_links(website, vendor_name))
+        if len(discovered) < MAX_DISCOVERED_LINKS:
+            add_links(_fetch_rss_post_links(website, vendor_name, page_url=page_url))
+        if len(discovered) < MAX_DISCOVERED_LINKS:
+            add_links(_fetch_sitemap_post_links(website, vendor_name))
+    if len(discovered) < MAX_DISCOVERED_LINKS:
+        add_links(_extract_internal_candidate_links(markup, page_url, website))
+    return discovered[:MAX_DISCOVERED_LINKS]
 
 
 def _fetch_page(url: str) -> tuple[str, str]:
@@ -760,6 +1152,27 @@ def extract_page(
                     access_model="public_html",
                 )
             )
+        for descriptor_hint in _extract_descriptor_owner_hints(text):
+            result.findings.append(
+                Finding(
+                    source=SOURCE_NAME,
+                    category="ownership",
+                    title=f"Public site beneficial ownership descriptor: {descriptor_hint['descriptor']}",
+                    detail=f"{descriptor_hint['snippet']} | Source page: {normalized_page_url}",
+                    severity="info",
+                    confidence=float(descriptor_hint["confidence"]),
+                    url=normalized_page_url,
+                    artifact_ref=normalized_page_url,
+                    structured_fields={
+                        "ownership_descriptor": descriptor_hint["descriptor"],
+                        "ownership_descriptor_scope": descriptor_hint["scope"],
+                        "website": normalized_website,
+                    },
+                    source_class="public_connector",
+                    authority_level="first_party_self_disclosed",
+                    access_model="public_html",
+                )
+            )
         for candidate in _extract_candidates(text, vendor_name, normalized_page_url):
             result.relationships.append(
                 _build_relationship(
@@ -800,7 +1213,7 @@ def extract_page(
                 )
             )
         if discover_links:
-            discovered_links = _extract_internal_candidate_links(html_text, normalized_page_url, normalized_website)
+            discovered_links = _discover_first_party_links(vendor_name, html_text, normalized_page_url, normalized_website)
     except Exception as exc:
         result.error = str(exc)
 
@@ -846,7 +1259,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     seen_identifiers: set[tuple[str, str]] = set()
     identifier_artifact_refs: list[str] = []
     seen_page_findings: set[tuple[str, str, str]] = set()
-    queue = _candidate_urls(website)
+    seeded_pages = _resolve_first_party_pages(ids, website)
+    queue = seeded_pages + [candidate for candidate in _candidate_urls(website) if candidate not in seeded_pages]
     visited: set[str] = set()
 
     try:
@@ -874,7 +1288,12 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 result.identifiers.setdefault(key, value)
             for finding in page_result.findings:
                 artifact_ref = finding.artifact_ref or page_url
-                if finding.category not in {"identity", "profile"}:
+                structured_fields = finding.structured_fields if isinstance(finding.structured_fields, dict) else {}
+                keep_without_relationship = (
+                    finding.category == "ownership"
+                    and bool(structured_fields.get("ownership_descriptor"))
+                )
+                if finding.category not in {"identity", "profile"} and not keep_without_relationship:
                     continue
                 dedupe_key = (finding.category, finding.title, artifact_ref)
                 if dedupe_key in seen_page_findings:
@@ -900,13 +1319,15 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 relationship_finding = relationship_findings.get(dedupe_key)
                 if relationship_finding:
                     findings.append(relationship_finding)
-            for discovered in discovered_links:
+            for discovered in reversed(discovered_links):
                 if discovered not in visited and discovered not in queue:
-                    queue.append(discovered)
+                    queue.insert(0, discovered)
     except Exception as exc:
         result.error = str(exc)
 
     result.identifiers["website"] = website
+    if seeded_pages:
+        result.identifiers["first_party_pages"] = seeded_pages
     result.relationships = relationships
     result.findings = findings
     result.artifact_refs = list(
@@ -915,6 +1336,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         )
     )
     result.elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
+    if seeded_pages:
+        result.structured_fields["seed_pages"] = seeded_pages
     result.structured_fields["visited_pages"] = list(visited)
     if relationships:
         result.risk_signals.append(

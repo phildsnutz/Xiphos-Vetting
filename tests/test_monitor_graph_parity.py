@@ -422,8 +422,16 @@ def test_graph_summary_excludes_stale_relationships_from_other_cases(app_env):
     graph_ingest.ingest_enrichment_to_graph("case-yorktown-fresh", "Yorktown Systems Group", fresh_report)
 
     fresh_summary = graph_ingest.get_vendor_graph_summary("case-yorktown-fresh", depth=1)
+    light_summary = graph_ingest.get_vendor_graph_summary(
+        "case-yorktown-fresh",
+        depth=1,
+        include_provenance=False,
+        max_claim_records=0,
+        max_evidence_records=0,
+    )
 
     assert all(rel["rel_type"] != "owned_by" for rel in fresh_summary["relationships"])
+    assert all(rel["rel_type"] != "owned_by" for rel in light_summary["relationships"])
 
 
 def test_monitor_scheduler_uses_canonical_rescore_helpers(app_env, monkeypatch):

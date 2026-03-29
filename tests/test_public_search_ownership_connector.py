@@ -64,6 +64,7 @@ def test_public_search_discovers_official_site_and_emits_backed_by(monkeypatch):
     assert relationship["type"] == "backed_by"
     assert relationship["target_entity"] == "Faber Ventures"
     assert relationship["evidence_url"] == "https://hefring.example/news/hefring-funding-round"
+    assert "https://hefring.example/news/hefring-funding-round" in result.identifiers["first_party_pages"]
 
 
 def test_public_search_external_identifiers_prefer_canonical_registration_uei(monkeypatch):
@@ -573,7 +574,9 @@ def test_site_scoped_queries_include_host_brand_and_generic_variant():
         "https://www.apexspace.com",
     ) == [
         "site:www.apexspace.com APEX Space & Defense Systems owner investor shareholder acquired backed by",
+        'site:www.apexspace.com APEX Space & Defense Systems "Service-Disabled Veteran" veteran-owned sdvosb owner',
         "site:www.apexspace.com apexspace owner investor shareholder acquired backed by",
+        'site:www.apexspace.com apexspace "Service-Disabled Veteran" veteran-owned sdvosb owner',
         "site:www.apexspace.com owner investor shareholder acquired backed by",
     ]
 
@@ -2355,3 +2358,179 @@ def test_public_search_falls_back_to_lite_when_primary_search_is_empty(monkeypat
 
     assert result.identifiers["website"] == "https://dtccodan.com"
     assert any(rel["type"] == "owned_by" and "Codan" in rel["target_entity"] for rel in result.relationships)
+
+
+def test_public_search_site_scoped_descriptor_query_recovers_first_party_owner_descriptor(monkeypatch):
+    root_search_html = """
+    <html>
+      <body>
+        <div class="result results_links results_links_deep web-result">
+          <a class="result__a" href="https://ysg.example/">Yorktown Systems Group</a>
+          <a class="result__snippet" href="https://ysg.example/">Official site</a>
+        </div>
+      </body>
+    </html>
+    """
+    descriptor_search_html = """
+    <html>
+      <body>
+        <div class="result results_links results_links_deep web-result">
+          <a class="result__a" href="https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">The U.S. Army awards Offset Systems Group $829M IDIQ contract.</a>
+          <a class="result__snippet" href="https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">Yorktown Systems Group is owned by a Service-Disabled Veteran.</a>
+        </div>
+      </body>
+    </html>
+    """
+    root_html = "<html><body><p>Official site</p></body></html>"
+    article_html = """
+    <html>
+      <body>
+        <p>
+          This will be the first prime contract win for OSG as an All-Small Mentor Protégé Program
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict, params: dict | None = None):
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == public_search_ownership.SEARCH_URL:
+            query = (params or {}).get("q") or ""
+            if query == "Yorktown Systems Group":
+                return _SearchResponse(root_search_html)
+            if "site:ysg.example" in query and "Service-Disabled Veteran" in query:
+                return _SearchResponse(descriptor_search_html)
+            return _SearchResponse("<html><body></body></html>")
+        if url == "https://ysg.example":
+            return _HtmlResponse(root_html)
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _HtmlResponse(article_html)
+        raise AssertionError(f"unexpected fetch: {url} / {(params or {}).get('q')}")
+
+    monkeypatch.setattr(public_search_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_search_ownership.enrich("Yorktown Systems Group", country="US")
+
+    assert result.identifiers["website"] == "https://ysg.example"
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    assert result.relationships == []
+
+
+def test_public_search_ignores_generic_market_text_owner_phrase():
+    extracted = public_html_ownership._extract_candidates(
+        (
+            "The Fund could lose money investing in an ETF if the prices of the securities "
+            "owned by the ETF go down. In addition, ETFs may be subject to risks that do not "
+            "apply to conventional funds."
+        ),
+        "Yorktown Systems Group",
+        "https://www.yorktownfunds.example",
+    )
+
+    assert extracted == []
+
+
+def test_public_search_external_page_ignores_market_disclaimer_false_owner(monkeypatch):
+    disclaimer_html = """
+    <html>
+      <body>
+        <p>
+          The Fund could lose money investing in an ETF if the prices of the securities
+          owned by the ETF go down. In addition, ETFs may be subject to risks that do not
+          apply to conventional funds.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_fetch_page(url: str):
+        assert url == "https://www.yorktownfunds.example/"
+        return disclaimer_html, "text/html; charset=utf-8"
+
+    monkeypatch.setattr(public_html_ownership, "_fetch_page", fake_fetch_page)
+
+    relationships, findings, risk_signals, artifact_refs, identifiers = public_search_ownership._extract_external_relationships(
+        "Yorktown Systems Group",
+        "US",
+        "https://ysg.example",
+        {
+            "url": "https://www.yorktownfunds.example/",
+            "title": "Yorktown Funds",
+            "snippet": "Fund overview and ETF disclosures.",
+            "score": 26,
+        },
+    )
+
+    assert relationships == []
+    assert findings == []
+    assert risk_signals == []
+    assert artifact_refs == ["https://www.yorktownfunds.example/"]
+    assert identifiers == {}
+
+
+def test_public_search_follows_one_more_same_host_hop_into_news_article(monkeypatch):
+    root_search_html = """
+    <html>
+      <body>
+        <div class="result results_links results_links_deep web-result">
+          <a class="result__a" href="https://ysg.example/">Yorktown Systems Group</a>
+          <a class="result__snippet" href="https://ysg.example/">Official site</a>
+        </div>
+      </body>
+    </html>
+    """
+    root_html = """
+    <html>
+      <body>
+        <a href="/news">News</a>
+      </body>
+    </html>
+    """
+    news_html = """
+    <html>
+      <body>
+        <a href="/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">Army awards Offset Systems Group contract</a>
+      </body>
+    </html>
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          This will be the first prime contract win for OSG as an All-Small Mentor Protégé Program
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict, params: dict | None = None):
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == public_search_ownership.SEARCH_URL:
+            return _SearchResponse(root_search_html)
+        if url == "https://ysg.example":
+            return _HtmlResponse(root_html)
+        if url == "https://ysg.example/news":
+            return _HtmlResponse(news_html)
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _HtmlResponse(article_html)
+        raise AssertionError(f"unexpected fetch: {url} / {(params or {}).get('q')}")
+
+    monkeypatch.setattr(public_search_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_search_ownership.enrich("Yorktown Systems Group", country="US")
+
+    assert result.identifiers["website"] == "https://ysg.example"
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    assert result.relationships == []

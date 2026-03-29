@@ -134,6 +134,63 @@ def test_osint_scoring_uses_owned_by_relationships_to_resolve_ownership():
     assert augmented.vendor_input.ownership.ownership_pct_resolved >= 0.65
 
 
+def test_osint_scoring_uses_first_party_beneficial_owner_descriptor_to_partially_resolve_ownership():
+    enrichment = {
+        "identifiers": {},
+        "findings": [
+            {
+                "source": "public_html_ownership",
+                "category": "ownership",
+                "title": "Public site beneficial ownership descriptor: Service-Disabled Veteran",
+                "detail": "Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran.",
+                "severity": "info",
+                "confidence": 0.78,
+                "structured_fields": {
+                    "ownership_descriptor": "Service-Disabled Veteran",
+                    "ownership_descriptor_scope": "self_disclosed_owner_descriptor",
+                },
+            }
+        ],
+        "relationships": [],
+        "risk_signals": [],
+    }
+
+    augmented = augment_from_enrichment(_base_vendor(), enrichment)
+
+    assert augmented.vendor_input.ownership.beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.named_beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.owner_class_known is True
+    assert augmented.vendor_input.ownership.owner_class == "Service-Disabled Veteran"
+    assert augmented.vendor_input.ownership.ownership_pct_resolved >= 0.55
+    assert augmented.vendor_input.ownership.control_resolution_pct >= 0.35
+
+
+def test_osint_scoring_does_not_treat_third_party_public_owned_by_as_named_beneficial_owner():
+    enrichment = {
+        "identifiers": {},
+        "findings": [],
+        "relationships": [
+            {
+                "type": "owned_by",
+                "source_entity": "Yorktown Systems Group",
+                "target_entity": "Yorktown Funds",
+                "access_model": "search_public_html",
+                "authority_level": "third_party_public",
+                "confidence": 0.72,
+                "data_source": "public_search_ownership",
+            }
+        ],
+        "risk_signals": [],
+    }
+
+    augmented = augment_from_enrichment(_base_vendor(), enrichment)
+
+    assert augmented.vendor_input.ownership.beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.named_beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.owner_class_known is False
+    assert augmented.vendor_input.ownership.ownership_pct_resolved == 0.0
+
+
 def test_osint_scoring_does_not_resolve_ownership_from_low_confidence_search_snippet():
     enrichment = {
         "identifiers": {},
@@ -154,6 +211,8 @@ def test_osint_scoring_does_not_resolve_ownership_from_low_confidence_search_sni
     augmented = augment_from_enrichment(_base_vendor(), enrichment)
 
     assert augmented.vendor_input.ownership.beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.named_beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.owner_class_known is False
     assert augmented.vendor_input.ownership.ownership_pct_resolved == 0.0
 
 

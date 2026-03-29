@@ -180,6 +180,339 @@ def test_public_html_extracts_founded_year_from_first_party_history_page(monkeyp
     assert any(finding.title == "Public site operating history hint: founded in 2008" for finding in result.findings)
 
 
+def test_public_html_extracts_descriptor_beneficial_owner_from_first_party_article(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">OSG news</a>
+      </body>
+    </html>
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          This will be the first prime contract win for OSG as an All-Small Mentor Protégé Program
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://ysg.example":
+            return _FakeResponse(home_html)
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _FakeResponse(article_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Yorktown Systems Group", country="US", website="https://ysg.example")
+
+    assert result.relationships == []
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+
+
+def test_public_html_discovers_wordpress_rest_post_for_descriptor_owner(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="/news">News</a>
+      </body>
+    </html>
+    """
+    post_json = """
+    [
+      {
+        "link": "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/",
+        "title": {"rendered": "The U.S. Army awards Offset Systems Group $829M IDIQ contract."},
+        "excerpt": {"rendered": "Offset Systems Group, owned by a Service-Disabled Veteran."},
+        "content": {"rendered": "<p>Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran.</p>"}
+      }
+    ]
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://ysg.example":
+            return _FakeResponse(home_html)
+        if "/wp-json/wp/v2/posts?search=" in url:
+            return _FakeResponse(post_json, "application/json; charset=utf-8")
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _FakeResponse(article_html)
+        if url in {"https://ysg.example/feed", "https://ysg.example/news/feed"}:
+            return _FakeResponse("<?xml version='1.0'?><rss><channel></channel></rss>", "application/rss+xml")
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Yorktown Systems Group", country="US", website="https://ysg.example")
+
+    assert result.relationships == []
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    assert "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract" in result.structured_fields["visited_pages"]
+
+
+def test_public_html_wordpress_descriptor_queries_find_owner_class_when_vendor_query_misses(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="/news">News</a>
+      </body>
+    </html>
+    """
+    unrelated_posts = """
+    [
+      {
+        "link": "https://ysg.example/yorktown-systems-group-announces-2025-employees-of-the-year/",
+        "title": {"rendered": "Yorktown Systems Group Announces 2025 Employees of the Year"},
+        "excerpt": {"rendered": "<p>Company update.</p>"},
+        "content": {"rendered": "<p>Company update.</p>"}
+      }
+    ]
+    """
+    descriptor_post = """
+    [
+      {
+        "link": "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/",
+        "title": {"rendered": "The U.S. Army awards Offset Systems Group $829M IDIQ contract."},
+        "excerpt": {"rendered": "Offset Systems Group, owned by a Service-Disabled Veteran."},
+        "content": {"rendered": "<p>Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran.</p>"}
+      }
+    ]
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://ysg.example":
+            return _FakeResponse(home_html)
+        if "/wp-json/wp/v2/posts?search=Yorktown%20Systems%20Group" in url:
+            return _FakeResponse(unrelated_posts, "application/json; charset=utf-8")
+        if "/wp-json/wp/v2/posts?search=Service-Disabled+Veteran" in url:
+            return _FakeResponse(descriptor_post, "application/json; charset=utf-8")
+        if "/wp-json/wp/v2/posts?search=" in url:
+            return _FakeResponse("[]", "application/json; charset=utf-8")
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _FakeResponse(article_html)
+        if url in {"https://ysg.example/feed", "https://ysg.example/news/feed"}:
+            return _FakeResponse("<?xml version='1.0'?><rss><channel></channel></rss>", "application/rss+xml")
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Yorktown Systems Group", country="US", website="https://ysg.example")
+
+    assert result.relationships == []
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    assert "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract" in result.structured_fields["visited_pages"]
+
+
+def test_public_html_uses_seeded_first_party_page_before_default_paths(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <p>Yorktown Systems Group home page.</p>
+      </body>
+    </html>
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+    fetch_order: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        fetch_order.append(url)
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _FakeResponse(article_html)
+        if url.startswith("https://ysg.example"):
+            return _FakeResponse(home_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich(
+        "Yorktown Systems Group",
+        country="US",
+        website="https://ysg.example",
+        first_party_pages=["https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/"],
+    )
+
+    assert fetch_order[0] == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"
+    assert result.identifiers["first_party_pages"] == [
+        "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"
+    ]
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+
+
+def test_public_html_falls_through_to_www_variant_when_bare_domain_tls_fails(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="/news">News</a>
+      </body>
+    </html>
+    """
+    descriptor_post = """
+    [
+      {
+        "link": "https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/",
+        "title": {"rendered": "The U.S. Army awards Offset Systems Group $829M IDIQ contract."},
+        "excerpt": {"rendered": "Offset Systems Group, owned by a Service-Disabled Veteran."},
+        "content": {"rendered": "<p>Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran.</p>"}
+      }
+    ]
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url.startswith("https://ysg.example"):
+            raise public_html_ownership.requests.exceptions.SSLError("tls handshake failure")
+        if url in {"https://www.ysg.example", "https://www.ysg.example/news"}:
+            return _FakeResponse(home_html)
+        if "/wp-json/wp/v2/posts?search=Service-Disabled+Veteran" in url:
+            return _FakeResponse(descriptor_post, "application/json; charset=utf-8")
+        if "/wp-json/wp/v2/posts?search=" in url:
+            return _FakeResponse("[]", "application/json; charset=utf-8")
+        if url == "https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _FakeResponse(article_html)
+        if url in {"https://www.ysg.example/feed", "https://www.ysg.example/news/feed"}:
+            return _FakeResponse("<?xml version='1.0'?><rss><channel></channel></rss>", "application/rss+xml")
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Yorktown Systems Group", country="US", website="https://ysg.example")
+
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    assert "https://www.ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract" in result.structured_fields["visited_pages"]
+
+
+def test_public_html_discovers_sitemap_post_for_descriptor_owner_when_rest_is_empty(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="/news">News</a>
+      </body>
+    </html>
+    """
+    sitemap_index = """
+    <sitemapindex>
+      <sitemap><loc>https://ysg.example/post-sitemap.xml</loc></sitemap>
+    </sitemapindex>
+    """
+    post_sitemap = """
+    <urlset>
+      <url><loc>https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/</loc></url>
+    </urlset>
+    """
+    article_html = """
+    <html>
+      <body>
+        <p>
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://ysg.example":
+            return _FakeResponse(home_html)
+        if "/wp-json/wp/v2/posts?search=" in url:
+            return _FakeResponse("[]", "application/json; charset=utf-8")
+        if url in {"https://ysg.example/feed", "https://ysg.example/news/feed"}:
+            return _FakeResponse("<?xml version='1.0'?><rss><channel></channel></rss>", "application/rss+xml")
+        if url == "https://ysg.example/sitemap_index.xml":
+            return _FakeResponse(sitemap_index, "text/xml; charset=utf-8")
+        if url == "https://ysg.example/post-sitemap.xml":
+            return _FakeResponse(post_sitemap, "text/xml; charset=utf-8")
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _FakeResponse(article_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Yorktown Systems Group", country="US", website="https://ysg.example")
+
+    assert result.relationships == []
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    finding = next(
+        finding
+        for finding in result.findings
+        if finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+    )
+    assert finding.structured_fields["ownership_descriptor"] == "Service-Disabled Veteran"
+    assert finding.structured_fields["ownership_descriptor_scope"] == "self_disclosed_owner_descriptor"
+    assert finding.artifact_ref == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract"
+
+
 def test_public_html_discovers_funding_article_and_emits_backed_by(monkeypatch):
     home_html = (FIXTURE_DIR / "hefring_home.html").read_text(encoding="utf-8")
     funding_html = (FIXTURE_DIR / "hefring_funding_round.html").read_text(encoding="utf-8")

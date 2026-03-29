@@ -48,10 +48,13 @@ SNIPPET_IDENTIFIER_MIN_CONFIDENCE = 0.52
 EXTERNAL_IDENTIFIER_MIN_CONFIDENCE = 0.60
 EXTERNAL_IDENTIFIER_ACCESS_BONUS = 0.05
 MAX_SYNTHETIC_FINANCE_PAGES = 4
+MAX_SAME_HOST_PAGE_VISITS = 8
 OWNERSHIP_SEARCH_SUFFIX = " owner investor shareholder acquired backed by"
 LEADERSHIP_OWNERSHIP_SEARCH_SUFFIX = " founder president CEO owner"
+DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX = ' "Service-Disabled Veteran" veteran-owned sdvosb owner'
 FINANCING_SEARCH_SUFFIX = " portfolio capital funding investors"
 LEGACY_CORPORATE_SUFFIXES = ("Systems", "Technologies", "Solutions", "Laboratories", "Labs")
+SAME_HOST_DISCOVERY_HUB_PATHS = ("/news", "/newsroom", "/blog", "/press", "/articles", "/updates")
 SYNTHETIC_FINANCE_PROFILE_TEMPLATES = (
     "https://www.freshtrackscap.com/portfolio/{slug}/",
     "https://www.cbinsights.com/company/{slug}/financials",
@@ -693,11 +696,19 @@ def _site_scoped_queries(vendor_name: str, website: str) -> list[str]:
         if query not in seen:
             seen.add(query)
             queries.append(query)
+        descriptor_query = f"site:{host} {variant}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
+        if descriptor_query not in seen:
+            seen.add(descriptor_query)
+            queries.append(descriptor_query)
     if host_label:
         query = f"site:{host} {host_label}{OWNERSHIP_SEARCH_SUFFIX}".strip()
         if query not in seen:
             seen.add(query)
             queries.append(query)
+        descriptor_query = f"site:{host} {host_label}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
+        if descriptor_query not in seen:
+            seen.add(descriptor_query)
+            queries.append(descriptor_query)
     generic_query = f"site:{host}{OWNERSHIP_SEARCH_SUFFIX}".strip()
     if generic_query not in seen:
         queries.append(generic_query)
@@ -784,9 +795,27 @@ def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> lis
             score += 30
         if any(token in title for token in ("fund", "investment", "backed", "acquired", "led by")):
             score += 20
+        if any(token in title for token in ("owned", "owner", "shareholder", "service-disabled veteran", "veteran-owned", "sdvosb")):
+            score += 18
         strong_signal = any(
             token in f"{title} {snippet}"
-            for token in ("fund", "investment", "backed", "investor", "series a", "series b", "series c", "acquired", "led by")
+            for token in (
+                "fund",
+                "investment",
+                "backed",
+                "investor",
+                "series a",
+                "series b",
+                "series c",
+                "acquired",
+                "led by",
+                "owned by",
+                " owner ",
+                " shareholder ",
+                "service-disabled veteran",
+                "veteran-owned",
+                "sdvosb",
+            )
         )
         if strong_signal:
             score += 18
@@ -795,6 +824,13 @@ def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> lis
         selected.append((score, normalized))
     selected.sort(key=lambda item: (-item[0], item[1]))
     return [url for score, url in selected if score > 0][:3]
+
+
+def _should_expand_same_host_page(page_url: str) -> bool:
+    path = urlparse(page_url).path.lower().rstrip("/")
+    if not path:
+        return True
+    return path in SAME_HOST_DISCOVERY_HUB_PATHS
 
 
 def _country_mismatch_penalty(host: str, title: str, snippet: str, country: str) -> int:
@@ -1375,8 +1411,92 @@ def _merge_enrichment_result(
     artifact_refs.extend([ref for ref in incoming.artifact_refs if ref])
 
 
+def _collect_same_host_pages(
+    *,
+    vendor_name: str,
+    country: str,
+    website: str,
+    initial_pages: Iterable[str],
+    deadline: float,
+    visited_pages: set[str],
+    result: EnrichmentResult,
+    relationships: list[dict],
+    findings: list[Finding],
+    risk_signals: list[dict],
+    artifact_refs: list[str],
+    seen_finding_keys: set[tuple[str, str, str]],
+) -> None:
+    queue: list[str] = []
+    queued: set[str] = set()
+    for page in initial_pages:
+        normalized = str(page or "").rstrip("/")
+        if not normalized or normalized in queued or normalized in visited_pages:
+            continue
+        queued.add(normalized)
+        queue.append(page)
+
+    index = 0
+    while index < len(queue) and _within_budget(deadline):
+        if len(visited_pages) >= MAX_SAME_HOST_PAGE_VISITS:
+            break
+        candidate_page = queue[index]
+        index += 1
+        normalized_page = str(candidate_page or "").rstrip("/")
+        if not normalized_page or normalized_page in visited_pages:
+            continue
+        discover_more = _should_expand_same_host_page(candidate_page)
+        page_result, discovered = public_html_ownership.extract_page(
+            vendor_name,
+            country,
+            website=website,
+            page_url=candidate_page,
+            discover_links=discover_more,
+        )
+        visited_pages.add(normalized_page)
+        _merge_enrichment_result(
+            result,
+            page_result,
+            relationships=relationships,
+            findings=findings,
+            risk_signals=risk_signals,
+            artifact_refs=artifact_refs,
+            seen_finding_keys=seen_finding_keys,
+        )
+        if not discover_more:
+            continue
+        for nested_page in discovered:
+            nested_normalized = str(nested_page or "").rstrip("/")
+            if not nested_normalized or nested_normalized in visited_pages or nested_normalized in queued:
+                continue
+            queued.add(nested_normalized)
+            queue.append(nested_page)
+
+
 def _within_budget(deadline: float, *, reserve_seconds: float = 0.0) -> bool:
     return time.monotonic() + reserve_seconds < deadline
+
+
+def _collect_first_party_pages(
+    website: str,
+    visited_pages: set[str],
+    artifact_refs: list[str],
+) -> list[str]:
+    normalized_website = public_html_ownership._normalize_website(website)
+    if not normalized_website:
+        return []
+    pages: list[str] = []
+    seen: set[str] = set()
+    for candidate in [*visited_pages, *artifact_refs]:
+        normalized = public_html_ownership._normalize_website(str(candidate or ""))
+        if not normalized:
+            continue
+        if not public_html_ownership._same_first_party_host(normalized, normalized_website):
+            continue
+        if normalized == normalized_website or normalized in seen:
+            continue
+        seen.add(normalized)
+        pages.append(normalized)
+    return pages[: public_html_ownership.MAX_PAGES]
 
 
 def _extract_external_relationships(
@@ -2289,27 +2409,20 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             artifact_refs.extend(snippet_refs)
 
         same_host_pages.extend(_same_host_candidate_pages(candidates, website))
-        for candidate_page in list(dict.fromkeys(same_host_pages)):
-            normalized_page = candidate_page.rstrip("/")
-            if normalized_page in visited_pages or not _within_budget(deadline):
-                continue
-            page_result, _discovered = public_html_ownership.extract_page(
-                vendor_name,
-                country,
-                website=website,
-                page_url=candidate_page,
-                discover_links=False,
-            )
-            visited_pages.add(normalized_page)
-            _merge_enrichment_result(
-                result,
-                page_result,
-                relationships=merged_relationships,
-                findings=merged_findings,
-                risk_signals=merged_risk_signals,
-                artifact_refs=artifact_refs,
-                seen_finding_keys=seen_finding_keys,
-            )
+        _collect_same_host_pages(
+            vendor_name=vendor_name,
+            country=country,
+            website=website,
+            initial_pages=same_host_pages,
+            deadline=deadline,
+            visited_pages=visited_pages,
+            result=result,
+            relationships=merged_relationships,
+            findings=merged_findings,
+            risk_signals=merged_risk_signals,
+            artifact_refs=artifact_refs,
+            seen_finding_keys=seen_finding_keys,
+        )
 
         if not merged_relationships:
             merged_candidates = list(candidates)
@@ -2331,27 +2444,20 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     merged_candidates.append(candidate)
                 if not _search_providers_available(search_provider_state):
                     break
-            for candidate_page in _same_host_candidate_pages(merged_candidates, website):
-                normalized_page = candidate_page.rstrip("/")
-                if normalized_page in visited_pages or not _within_budget(deadline):
-                    continue
-                page_result, _discovered = public_html_ownership.extract_page(
-                    vendor_name,
-                    country,
-                    website=website,
-                    page_url=candidate_page,
-                    discover_links=False,
-                )
-                visited_pages.add(normalized_page)
-                _merge_enrichment_result(
-                    result,
-                    page_result,
-                    relationships=merged_relationships,
-                    findings=merged_findings,
-                    risk_signals=merged_risk_signals,
-                    artifact_refs=artifact_refs,
-                    seen_finding_keys=seen_finding_keys,
-                )
+            _collect_same_host_pages(
+                vendor_name=vendor_name,
+                country=country,
+                website=website,
+                initial_pages=_same_host_candidate_pages(merged_candidates, website),
+                deadline=deadline,
+                visited_pages=visited_pages,
+                result=result,
+                relationships=merged_relationships,
+                findings=merged_findings,
+                risk_signals=merged_risk_signals,
+                artifact_refs=artifact_refs,
+                seen_finding_keys=seen_finding_keys,
+            )
 
         if not merged_relationships:
             expanded_queries = _expanded_search_queries(vendor_name)
@@ -2542,6 +2648,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         result.findings = merged_findings
         result.risk_signals = merged_risk_signals
         result.artifact_refs = artifact_refs
+        first_party_pages = _collect_first_party_pages(website, visited_pages, artifact_refs)
+        if first_party_pages:
+            result.identifiers["first_party_pages"] = first_party_pages
+            result.structured_fields["first_party_pages"] = first_party_pages
+        result.structured_fields["visited_pages"] = sorted(visited_pages)
         if not _within_budget(deadline):
             result.structured_fields["budget_exhausted"] = True
     except Exception as exc:

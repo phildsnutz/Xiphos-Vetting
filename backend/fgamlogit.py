@@ -160,7 +160,12 @@ class OwnershipProfile:
     publicly_traded: bool = False
     state_owned: bool = False
     beneficial_owner_known: bool = False
+    named_beneficial_owner_known: bool = False
+    controlling_parent_known: bool = False
+    owner_class_known: bool = False
+    owner_class: str = ""
     ownership_pct_resolved: float = 0.0
+    control_resolution_pct: float = 0.0
     shell_layers: int = 0
     pep_connection: bool = False
     foreign_ownership_pct: float = 0.0
@@ -694,6 +699,12 @@ def _factor_description(
     if factor == "ownership":
         if inp.ownership.state_owned:
             return "State-owned enterprise."
+        if inp.ownership.owner_class_known and not inp.ownership.beneficial_owner_known:
+            return (
+                f"Named beneficial owner unresolved. "
+                f"Owner class self-disclosed as {inp.ownership.owner_class or 'unknown'} "
+                f"({round(inp.ownership.ownership_pct_resolved * 100)}% traced)."
+            )
         if not inp.ownership.beneficial_owner_known:
             return f"Beneficial ownership unresolved ({round(inp.ownership.ownership_pct_resolved * 100)}% traced)."
         if inp.ownership.publicly_traded:

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import db
 from osint.connector_registry import get_connector_entry, get_source_metadata_defaults
+from ownership_control_intelligence import build_oci_summary
 
 from decision_tribunal import build_decision_tribunal
 
@@ -1044,6 +1045,12 @@ def build_supplier_passport(
     claim_health = _graph_claim_health(control_graph_summary)
     control_entities = control_graph_summary.get("entities") or []
     control_relationships = control_graph_summary.get("relationships") or []
+    ownership_profile = vendor_input.get("ownership", {}) if isinstance(vendor_input.get("ownership"), dict) else {}
+    ownership_oci_summary = build_oci_summary(
+        ownership_profile,
+        (enrichment or {}).get("findings") if isinstance(enrichment, dict) else [],
+        (enrichment or {}).get("relationships") if isinstance(enrichment, dict) else [],
+    )
     identity = {
         "identifiers": identifiers,
         "identifier_status": identifier_status,
@@ -1081,7 +1088,8 @@ def build_supplier_passport(
         "decision": latest_decision,
         "identity": identity,
         "ownership": {
-            "profile": vendor_input.get("ownership", {}) if isinstance(vendor_input.get("ownership"), dict) else {},
+            "profile": ownership_profile,
+            "oci": ownership_oci_summary,
             "foci_summary": foci_summary,
             "workflow_control": workflow_control,
         },

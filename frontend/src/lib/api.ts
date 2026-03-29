@@ -371,6 +371,27 @@ export interface SupplierPassportOfficialCorroboration {
   core_official_fields?: string[];
 }
 
+export interface OwnershipControlIntelligenceSummary {
+  schema_version: string;
+  adjudicator_version: string;
+  adjudicator_mode: string;
+  named_beneficial_owner_known: boolean;
+  named_beneficial_owner?: string | null;
+  controlling_parent_known: boolean;
+  controlling_parent?: string | null;
+  owner_class_known: boolean;
+  owner_class?: string | null;
+  ownership_resolution_pct: number;
+  control_resolution_pct: number;
+  ownership_gap: string;
+  descriptor_only: boolean;
+  named_owner_candidates: Array<Record<string, unknown>>;
+  controller_candidates: Array<Record<string, unknown>>;
+  controlling_parent_candidates: Array<Record<string, unknown>>;
+  owner_class_evidence: Array<Record<string, unknown>>;
+  rejected_descriptor_relationships: Array<Record<string, unknown>>;
+}
+
 export interface ThreatIntelSummary {
   shared_threat_intel_present?: boolean;
   attack_actor_families?: string[];
@@ -462,7 +483,16 @@ export interface SupplierPassport {
     enriched_at?: string | null;
   };
   ownership: {
-    profile: Record<string, unknown>;
+    profile: Record<string, unknown> & {
+      beneficial_owner_known?: boolean;
+      named_beneficial_owner_known?: boolean;
+      controlling_parent_known?: boolean;
+      owner_class_known?: boolean;
+      owner_class?: string;
+      ownership_pct_resolved?: number;
+      control_resolution_pct?: number;
+    };
+    oci?: OwnershipControlIntelligenceSummary | null;
     foci_summary?: Record<string, unknown> | null;
     workflow_control?: WorkflowControlSummary | Record<string, unknown> | null;
   };
@@ -721,7 +751,12 @@ export interface CreateCasePayload {
     publicly_traded: boolean;
     state_owned: boolean;
     beneficial_owner_known: boolean;
+    named_beneficial_owner_known?: boolean;
+    controlling_parent_known?: boolean;
+    owner_class_known?: boolean;
+    owner_class?: string;
     ownership_pct_resolved: number;
+    control_resolution_pct?: number;
     shell_layers: number;
     pep_connection: boolean;
     foreign_ownership_pct?: number;
