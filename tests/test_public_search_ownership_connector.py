@@ -2440,6 +2440,72 @@ def test_public_search_site_scoped_descriptor_query_recovers_first_party_owner_d
     assert result.relationships == []
 
 
+def test_public_search_uses_site_scoped_descriptor_recovery_before_broad_web_ownership_queries(monkeypatch):
+    root_search_html = """
+    <html>
+      <body>
+        <div class="result results_links results_links_deep web-result">
+          <a class="result__a" href="https://ysg.example/">Yorktown Systems Group</a>
+          <a class="result__snippet" href="https://ysg.example/">Official site</a>
+        </div>
+      </body>
+    </html>
+    """
+    descriptor_search_html = """
+    <html>
+      <body>
+        <div class="result results_links results_links_deep web-result">
+          <a class="result__a" href="https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">Army awards Offset Systems Group contract.</a>
+          <a class="result__snippet" href="https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract/">Yorktown Systems Group is owned by a Service-Disabled Veteran.</a>
+        </div>
+      </body>
+    </html>
+    """
+    root_html = "<html><body><p>Official site</p></body></html>"
+    article_html = """
+    <html>
+      <body>
+        <p>
+          This will be the first prime contract win for OSG as an All-Small Mentor Protégé Program
+          Joint Venture formed by Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran,
+          and Offset Strategic Services, LLC.
+        </p>
+      </body>
+    </html>
+    """
+    search_queries: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict, params: dict | None = None):
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == public_search_ownership.SEARCH_URL:
+            query = (params or {}).get("q") or ""
+            search_queries.append(query)
+            if query == "Yorktown Systems Group":
+                return _SearchResponse(root_search_html)
+            if query.startswith("site:ysg.example") and "Service-Disabled Veteran" in query:
+                return _SearchResponse(descriptor_search_html)
+            if not query.startswith("site:") and query.endswith(public_search_ownership.OWNERSHIP_SEARCH_SUFFIX):
+                raise AssertionError("broad ownership query should not run before site-scoped descriptor recovery")
+            return _SearchResponse("<html><body></body></html>")
+        if url == "https://ysg.example":
+            return _HtmlResponse(root_html)
+        if url == "https://ysg.example/the-u-s-army-awards-offset-systems-group-829m-idiq-contract":
+            return _HtmlResponse(article_html)
+        raise AssertionError(f"unexpected fetch: {url} / {(params or {}).get('q')}")
+
+    monkeypatch.setattr(public_search_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_search_ownership.enrich("Yorktown Systems Group", country="US")
+
+    assert result.identifiers["website"] == "https://ysg.example"
+    assert any(
+        finding.title == "Public site beneficial ownership descriptor: Service-Disabled Veteran"
+        for finding in result.findings
+    )
+    assert any(query.startswith("site:ysg.example") and "Service-Disabled Veteran" in query for query in search_queries)
+
+
 def test_public_search_ignores_generic_market_text_owner_phrase():
     extracted = public_html_ownership._extract_candidates(
         (

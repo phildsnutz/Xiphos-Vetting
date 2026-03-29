@@ -76,6 +76,7 @@ DEFAULT_SPECS = [
     {
         "flow_name": "counterparty_defense",
         "expected_workflow_lane": "counterparty",
+        "enabled_modes": ["fixture", "local-auth"],
     }
 ]
 
@@ -320,6 +321,15 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
     for index, entry in enumerate(payload):
         if not isinstance(entry, dict):
             raise SystemExit("gauntlet spec entries must be JSON objects")
+        enabled_modes_raw = entry.get("enabled_modes") or ["fixture", "local-auth"]
+        if not isinstance(enabled_modes_raw, list) or not enabled_modes_raw:
+            raise SystemExit("gauntlet spec enabled_modes must be a non-empty list")
+        enabled_modes = [str(item).strip() for item in enabled_modes_raw if str(item).strip()]
+        if not all(item in {"fixture", "local-auth"} for item in enabled_modes):
+            raise SystemExit("gauntlet spec enabled_modes may only contain fixture and local-auth")
+        expected_oci = entry.get("expected_oci") or {}
+        if expected_oci and not isinstance(expected_oci, dict):
+            raise SystemExit("gauntlet spec expected_oci must be a JSON object when provided")
         specs.append(
             {
                 "flow_name": str(entry.get("flow_name") or f"flow_{index + 1}"),
@@ -327,9 +337,17 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
                 "case_payload": _deep_merge(DEFAULT_CASE_PAYLOAD, entry.get("case_payload") or {}),
                 "assistant_prompt": str(entry.get("assistant_prompt") or ASSISTANT_PROMPT),
                 "expected_workflow_lane": str(entry.get("expected_workflow_lane") or "").strip(),
+                "expected_oci": dict(expected_oci),
+                "enabled_modes": enabled_modes,
+                "preserve_case_name": bool(entry.get("preserve_case_name")),
+                "run_enrich_and_score": bool(entry.get("run_enrich_and_score")),
             }
         )
     return specs
+
+
+def _specs_for_mode(specs: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    return [spec for spec in specs if mode in (spec.get("enabled_modes") or [])]
 
 
 def _normalize_headers(headers: dict[str, Any]) -> dict[str, str]:
@@ -390,7 +408,12 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
     created = _run_step(
         results,
         "create_case",
-        lambda: _step_create_case(client, flow_name=spec["flow_name"], case_payload=spec["case_payload"]),
+        lambda: _step_create_case(
+            client,
+            flow_name=spec["flow_name"],
+            case_payload=spec["case_payload"],
+            preserve_case_name=bool(spec.get("preserve_case_name")),
+        ),
     )
     case_id = created["case_id"]
     _run_step(
@@ -398,8 +421,14 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
         "case_detail",
         lambda: _step_case_detail(client, case_id, expected_workflow_lane=spec.get("expected_workflow_lane", "")),
     )
+    if spec.get("run_enrich_and_score"):
+        _run_step(results, "enrich_and_score", lambda: _step_enrich_and_score(client, case_id))
     _run_step(results, "graph", lambda: _step_graph(client, case_id))
-    _run_step(results, "supplier_passport", lambda: _step_supplier_passport(client, case_id))
+    passport = _run_step(
+        results,
+        "supplier_passport",
+        lambda: _step_supplier_passport(client, case_id, expected_oci=spec.get("expected_oci") or {}),
+    )
     plan = _run_step(
         results,
         "assistant_plan",
@@ -417,6 +446,9 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
         "vendor_name": created["vendor_name"],
         "health": health,
         "download_url": dossier_html.get("download_url"),
+        "oci_required": bool(passport.get("oci_required")),
+        "oci_passed": bool(passport.get("oci_passed", not passport.get("oci_required"))),
+        "oci_details": passport.get("oci"),
         "warning_count": len(warnings),
         "warnings": warnings,
         "steps": [asdict(item) for item in results],
@@ -453,9 +485,18 @@ def _step_compare(client: BaseClient, compare_payload: dict[str, Any]) -> dict[s
     return {"comparison_count": len(comparisons)}
 
 
-def _step_create_case(client: BaseClient, *, flow_name: str, case_payload: dict[str, Any]) -> dict[str, Any]:
+def _step_create_case(
+    client: BaseClient,
+    *,
+    flow_name: str,
+    case_payload: dict[str, Any],
+    preserve_case_name: bool = False,
+) -> dict[str, Any]:
     payload = _deep_merge(DEFAULT_CASE_PAYLOAD, case_payload)
-    payload["name"] = f"{flow_name} {int(time.time())}"
+    if preserve_case_name:
+        payload["name"] = str(case_payload.get("name") or payload.get("name") or flow_name)
+    else:
+        payload["name"] = f"{flow_name} {int(time.time())}"
     status, _, body = client.request_json("POST", "/api/cases", payload=payload, timeout=45)
     _assert(status == 201 and isinstance(body, dict), f"/api/cases returned {status}")
     case_id = body.get("case_id")
@@ -488,14 +529,85 @@ def _step_graph(client: BaseClient, case_id: str) -> dict[str, Any]:
     return {"entity_count": len(entities), "relationship_count": len(relationships)}
 
 
-def _step_supplier_passport(client: BaseClient, case_id: str) -> dict[str, Any]:
+def _step_enrich_and_score(client: BaseClient, case_id: str) -> dict[str, Any]:
+    status, _, body = client.request_json("POST", f"/api/cases/{case_id}/enrich-and-score", payload={}, timeout=180)
+    _assert(status == 200 and isinstance(body, dict), f"/api/cases/{case_id}/enrich-and-score returned {status}")
+    enrichment = body.get("enrichment") if isinstance(body.get("enrichment"), dict) else {}
+    scoring = body.get("scoring") if isinstance(body.get("scoring"), dict) else {}
+    _assert(body.get("case_id") == case_id, "enrich-and-score case id mismatch")
+    _assert(bool(enrichment), "enrich-and-score missing enrichment payload")
+    _assert(bool(scoring), "enrich-and-score missing scoring payload")
+    return {
+        "overall_risk": enrichment.get("overall_risk"),
+        "connectors_with_data": int((enrichment.get("summary") or {}).get("connectors_with_data") or 0),
+        "findings_total": int((enrichment.get("summary") or {}).get("findings_total") or 0),
+        "calibrated_tier": (scoring.get("calibrated") or {}).get("calibrated_tier"),
+    }
+
+
+def _validate_expected_oci(passport: dict[str, Any], expected_oci: dict[str, Any]) -> dict[str, Any]:
+    ownership = passport.get("ownership") if isinstance(passport.get("ownership"), dict) else {}
+    oci = ownership.get("oci") if isinstance(ownership.get("oci"), dict) else {}
+    _assert(bool(oci), "supplier passport missing ownership.oci")
+
+    if "named_beneficial_owner_known" in expected_oci:
+        _assert(
+            bool(oci.get("named_beneficial_owner_known")) == bool(expected_oci["named_beneficial_owner_known"]),
+            "OCI named_beneficial_owner_known mismatch",
+        )
+    if "owner_class_known" in expected_oci:
+        _assert(
+            bool(oci.get("owner_class_known")) == bool(expected_oci["owner_class_known"]),
+            "OCI owner_class_known mismatch",
+        )
+    if "descriptor_only" in expected_oci:
+        _assert(
+            bool(oci.get("descriptor_only")) == bool(expected_oci["descriptor_only"]),
+            "OCI descriptor_only mismatch",
+        )
+    if expected_oci.get("owner_class"):
+        _assert(str(oci.get("owner_class") or "") == str(expected_oci["owner_class"]), "OCI owner_class mismatch")
+    if expected_oci.get("ownership_gap"):
+        _assert(str(oci.get("ownership_gap") or "") == str(expected_oci["ownership_gap"]), "OCI ownership_gap mismatch")
+    if "min_ownership_resolution_pct" in expected_oci:
+        _assert(
+            float(oci.get("ownership_resolution_pct") or 0.0) >= float(expected_oci["min_ownership_resolution_pct"]),
+            "OCI ownership_resolution_pct below threshold",
+        )
+    if "min_control_resolution_pct" in expected_oci:
+        _assert(
+            float(oci.get("control_resolution_pct") or 0.0) >= float(expected_oci["min_control_resolution_pct"]),
+            "OCI control_resolution_pct below threshold",
+        )
+    if expected_oci.get("require_owner_class_evidence"):
+        evidence = oci.get("owner_class_evidence") if isinstance(oci.get("owner_class_evidence"), list) else []
+        _assert(bool(evidence), "OCI owner_class_evidence missing")
+
+    return {
+        "named_beneficial_owner_known": bool(oci.get("named_beneficial_owner_known")),
+        "owner_class_known": bool(oci.get("owner_class_known")),
+        "owner_class": str(oci.get("owner_class") or ""),
+        "descriptor_only": bool(oci.get("descriptor_only")),
+        "ownership_gap": str(oci.get("ownership_gap") or ""),
+        "ownership_resolution_pct": float(oci.get("ownership_resolution_pct") or 0.0),
+        "control_resolution_pct": float(oci.get("control_resolution_pct") or 0.0),
+        "owner_class_evidence_count": len(oci.get("owner_class_evidence") or []),
+    }
+
+
+def _step_supplier_passport(client: BaseClient, case_id: str, expected_oci: dict[str, Any] | None = None) -> dict[str, Any]:
     status, _, body = client.request_json("GET", f"/api/cases/{case_id}/supplier-passport?mode=light", timeout=60)
     _assert(status == 200 and isinstance(body, dict), f"/api/cases/{case_id}/supplier-passport returned {status}")
     _assert(body.get("case_id") == case_id, "supplier passport case id mismatch")
     _assert(bool(body.get("passport_version")), "supplier passport version missing")
+    expected_oci = expected_oci or {}
+    oci = _validate_expected_oci(body, expected_oci) if expected_oci else None
     return {
         "passport_version": body.get("passport_version"),
         "posture": body.get("posture"),
+        "oci_required": bool(expected_oci),
+        "oci_passed": True if expected_oci else False,
+        "oci": oci,
     }
 
 
@@ -629,6 +741,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Overall verdict: **{summary['overall_verdict']}**",
         "",
     ]
+    oci_summary = summary.get("oci_summary") if isinstance(summary.get("oci_summary"), dict) else {}
+    if oci_summary:
+        lines.extend(
+            [
+                f"- OCI required flows: `{oci_summary.get('required_flows', 0)}`",
+                f"- OCI passed flows: `{oci_summary.get('passed_flows', 0)}`",
+                f"- OCI descriptor-only passed flows: `{oci_summary.get('descriptor_only_passed_flows', 0)}`",
+                "",
+            ]
+        )
     for flow in summary["flows"]:
         lines.extend(
             [
@@ -681,7 +803,7 @@ def run_fixture_flow() -> dict[str, Any]:
 def run_fixture_flows(specs: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     specs = specs or load_specs("")
     with fixture_client_context() as client:
-        return [run_query_to_dossier_flow(client, spec) for spec in specs]
+        return [run_query_to_dossier_flow(client, spec) for spec in _specs_for_mode(specs, "fixture")]
 
 
 def run_local_auth_flow(base_url: str, email: str, password: str, token: str) -> dict[str, Any]:
@@ -705,7 +827,23 @@ def run_local_auth_flows(
     else:
         raise SystemExit("local-auth mode requires --token or --email/--password")
     client = HttpGauntletClient(base_url, headers=headers)
-    return [run_query_to_dossier_flow(client, spec) for spec in specs]
+    return [run_query_to_dossier_flow(client, spec) for spec in _specs_for_mode(specs, "local-auth")]
+
+
+def build_oci_summary(flows: list[dict[str, Any]]) -> dict[str, Any]:
+    oci_flows = [flow for flow in flows if flow.get("oci_required")]
+    passed = [flow for flow in oci_flows if flow.get("oci_passed")]
+    descriptor_only_passed = [
+        flow
+        for flow in passed
+        if isinstance(flow.get("oci_details"), dict) and bool(flow["oci_details"].get("descriptor_only"))
+    ]
+    return {
+        "required_flows": len(oci_flows),
+        "passed_flows": len(passed),
+        "descriptor_only_passed_flows": len(descriptor_only_passed),
+        "failed_flows": [str(flow.get("flow_name") or "") for flow in oci_flows if not flow.get("oci_passed")],
+    }
 
 
 def main() -> int:
@@ -738,6 +876,7 @@ def main() -> int:
         "mode": args.mode,
         "overall_verdict": overall_verdict,
         "flows": flows,
+        "oci_summary": build_oci_summary(flows),
         "failures": failures,
     }
     md_path, json_path = write_report(summary, Path(args.report_dir))

@@ -491,8 +491,8 @@ def augment_from_enrichment(
     own.controlling_parent_known = bool(oci_summary.get("controlling_parent_known"))
     own.owner_class_known = bool(oci_summary.get("owner_class_known"))
     own.owner_class = str(oci_summary.get("owner_class") or own.owner_class or "")
-    own.ownership_pct_resolved = max(own.ownership_pct_resolved, float(oci_summary.get("ownership_resolution_pct") or 0.0))
-    own.control_resolution_pct = max(own.control_resolution_pct, float(oci_summary.get("control_resolution_pct") or 0.0))
+    own.ownership_pct_resolved = float(oci_summary.get("ownership_resolution_pct") or 0.0)
+    own.control_resolution_pct = float(oci_summary.get("control_resolution_pct") or 0.0)
 
     # Check for OpenCorporates officer data
     for f in findings:

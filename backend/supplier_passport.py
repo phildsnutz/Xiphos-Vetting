@@ -945,6 +945,17 @@ def _network_risk_summary(case_id: str) -> dict | None:
     }
 
 
+def _resolved_ownership_profile(vendor_input: dict, score: dict | None) -> dict:
+    raw_profile = vendor_input.get("ownership", {}) if isinstance(vendor_input.get("ownership"), dict) else {}
+    scored_profile = (score or {}).get("ownership", {}) if isinstance((score or {}).get("ownership"), dict) else {}
+    if not scored_profile:
+        return dict(raw_profile)
+    return {
+        **raw_profile,
+        **scored_profile,
+    }
+
+
 def build_supplier_passport(
     case_id: str,
     *,
@@ -1049,7 +1060,7 @@ def build_supplier_passport(
     claim_health = _graph_claim_health(control_graph_summary)
     control_entities = control_graph_summary.get("entities") or []
     control_relationships = control_graph_summary.get("relationships") or []
-    ownership_profile = vendor_input.get("ownership", {}) if isinstance(vendor_input.get("ownership"), dict) else {}
+    ownership_profile = _resolved_ownership_profile(vendor_input, score)
     ownership_oci_summary = build_oci_summary(
         ownership_profile,
         (enrichment or {}).get("findings") if isinstance(enrichment, dict) else [],

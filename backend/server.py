@@ -470,7 +470,7 @@ def _build_vendor_input(v: dict) -> VendorInputV5:
         publicly_traded=o.get("publicly_traded", False),
         state_owned=o.get("state_owned", False),
         beneficial_owner_known=o.get("beneficial_owner_known", False),
-        named_beneficial_owner_known=o.get("named_beneficial_owner_known", o.get("beneficial_owner_known", False)),
+        named_beneficial_owner_known=o.get("named_beneficial_owner_known", False),
         controlling_parent_known=o.get("controlling_parent_known", False),
         owner_class_known=o.get("owner_class_known", False),
         owner_class=o.get("owner_class", ""),
@@ -579,7 +579,26 @@ def _score_to_api_dict(result) -> dict:
     }
 
 
-def _full_score_dict(result) -> dict:
+def _ownership_profile_to_dict(ownership: OwnershipProfile | None) -> dict:
+    profile = ownership if isinstance(ownership, OwnershipProfile) else OwnershipProfile()
+    return {
+        "publicly_traded": bool(profile.publicly_traded),
+        "state_owned": bool(profile.state_owned),
+        "beneficial_owner_known": bool(profile.beneficial_owner_known),
+        "named_beneficial_owner_known": bool(profile.named_beneficial_owner_known),
+        "controlling_parent_known": bool(profile.controlling_parent_known),
+        "owner_class_known": bool(profile.owner_class_known),
+        "owner_class": str(profile.owner_class or ""),
+        "ownership_pct_resolved": float(profile.ownership_pct_resolved or 0.0),
+        "control_resolution_pct": float(profile.control_resolution_pct or 0.0),
+        "shell_layers": int(profile.shell_layers or 0),
+        "pep_connection": bool(profile.pep_connection),
+        "foreign_ownership_pct": float(profile.foreign_ownership_pct or 0.0),
+        "foreign_ownership_is_allied": bool(profile.foreign_ownership_is_allied),
+    }
+
+
+def _full_score_dict(result, ownership: OwnershipProfile | None = None) -> dict:
     # composite_score: probabilistic risk as 0-100 for legacy frontend display
     composite_score = round(result.calibrated_probability * 100)
     is_hard_stop = result.combined_tier.startswith("TIER_1") or result.calibrated_tier.startswith("TIER_1")
@@ -587,6 +606,7 @@ def _full_score_dict(result) -> dict:
         "composite_score": composite_score,
         "is_hard_stop": is_hard_stop,
         "calibrated": _score_to_api_dict(result),
+        "ownership": _ownership_profile_to_dict(ownership),
     }
 
 
@@ -1290,7 +1310,7 @@ def _score_vendor_result(v: dict, source_reliability_avg: float = 0.0, case_id: 
         extra_hard_stops=extra_stops,
         source_reliability_avg=source_reliability_avg,
     )
-    return result, _full_score_dict(result)
+    return result, _full_score_dict(result, inp.ownership)
 
 
 def _build_augmented_vendor_input(vendor_input: dict, report: dict) -> tuple[dict, float, object]:

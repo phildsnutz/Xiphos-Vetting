@@ -601,6 +601,130 @@ def test_supplier_passport_attributes_public_identifier_sources_without_claiming
     assert passport["identity"]["official_corroboration"]["official_identifiers_verified"] == []
 
 
+def test_score_vendor_result_persists_ownership_snapshot(client):
+    server = sys.modules["server"]
+    vendor_input = {
+        "name": "OCI Snapshot Vendor",
+        "country": "US",
+        "ownership": {
+            "publicly_traded": False,
+            "state_owned": False,
+            "beneficial_owner_known": False,
+            "named_beneficial_owner_known": False,
+            "controlling_parent_known": False,
+            "owner_class_known": True,
+            "owner_class": "Service-Disabled Veteran",
+            "ownership_pct_resolved": 0.55,
+            "control_resolution_pct": 0.35,
+            "shell_layers": 0,
+            "pep_connection": False,
+            "foreign_ownership_pct": 0.0,
+            "foreign_ownership_is_allied": True,
+        },
+        "data_quality": {
+            "has_lei": True,
+            "has_cage": True,
+            "has_duns": True,
+            "has_tax_id": True,
+            "has_audited_financials": True,
+            "years_of_records": 10,
+        },
+        "exec": {
+            "known_execs": 2,
+            "adverse_media": 0,
+            "pep_execs": 0,
+            "litigation_history": 0,
+        },
+        "program": "dod_unclassified",
+        "profile": "defense_acquisition",
+    }
+
+    _result, score_dict = server._score_vendor_result(vendor_input)
+
+    assert score_dict["ownership"]["owner_class_known"] is True
+    assert score_dict["ownership"]["owner_class"] == "Service-Disabled Veteran"
+    assert score_dict["ownership"]["named_beneficial_owner_known"] is False
+    assert score_dict["ownership"]["ownership_pct_resolved"] == pytest.approx(0.55)
+    assert score_dict["ownership"]["control_resolution_pct"] == pytest.approx(0.35)
+
+
+def test_supplier_passport_prefers_scored_ownership_snapshot_over_raw_vendor_input(client):
+    server = sys.modules["server"]
+    case_id = _create_case(
+        client,
+        name="Descriptor Ownership Vendor",
+        extra_payload={
+            "ownership": {
+                "publicly_traded": False,
+                "state_owned": False,
+                "beneficial_owner_known": True,
+                "named_beneficial_owner_known": True,
+                "ownership_pct_resolved": 0.9,
+                "control_resolution_pct": 0.7,
+                "shell_layers": 0,
+                "pep_connection": False,
+            }
+        },
+    )
+
+    server.db.save_enrichment(
+        case_id,
+        {
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 2, "connectors_with_data": 1, "findings_total": 1},
+            "findings": [
+                {
+                    "source": "public_html_ownership",
+                    "authority_level": "first_party_self_disclosed",
+                    "confidence": 0.82,
+                    "detail": "Owned by a Service-Disabled Veteran.",
+                    "structured_fields": {"ownership_descriptor": "Service-Disabled Veteran"},
+                    "artifact_ref": "https://www.ysginc.com/article",
+                }
+            ],
+            "relationships": [],
+            "identifiers": {"website": "https://www.ysginc.com"},
+            "enriched_at": "2026-03-29T21:00:00Z",
+        },
+    )
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 21,
+            "is_hard_stop": False,
+            "calibrated": {"calibrated_probability": 0.21, "calibrated_tier": "TIER_3_WATCH"},
+            "ownership": {
+                "publicly_traded": False,
+                "state_owned": False,
+                "beneficial_owner_known": False,
+                "named_beneficial_owner_known": False,
+                "controlling_parent_known": False,
+                "owner_class_known": True,
+                "owner_class": "Service-Disabled Veteran",
+                "ownership_pct_resolved": 0.55,
+                "control_resolution_pct": 0.35,
+                "shell_layers": 0,
+                "pep_connection": False,
+                "foreign_ownership_pct": 0.0,
+                "foreign_ownership_is_allied": True,
+            },
+        },
+    )
+
+    import supplier_passport
+
+    passport = supplier_passport.build_supplier_passport(case_id)
+
+    assert passport is not None
+    assert passport["ownership"]["profile"]["ownership_pct_resolved"] == pytest.approx(0.55)
+    assert passport["ownership"]["profile"]["control_resolution_pct"] == pytest.approx(0.35)
+    assert passport["ownership"]["profile"]["named_beneficial_owner_known"] is False
+    assert passport["ownership"]["oci"]["descriptor_only"] is True
+    assert passport["ownership"]["oci"]["ownership_gap"] == "descriptor_only_owner_class"
+    assert passport["ownership"]["oci"]["ownership_resolution_pct"] == pytest.approx(0.55)
+    assert passport["ownership"]["oci"]["control_resolution_pct"] == pytest.approx(0.35)
+
+
 def test_graph_runtime_reports_active_database_paths(client, tmp_path):
     response = client.get("/api/graph/runtime")
 

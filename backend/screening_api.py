@@ -303,7 +303,7 @@ def _build_vendor_input(req: ScreeningRequest) -> Optional[VendorInputV5]:
         publicly_traded=ownership_dict.get("publicly_traded", False),
         state_owned=ownership_dict.get("state_owned", False),
         beneficial_owner_known=ownership_dict.get("beneficial_owner_known", False),
-        named_beneficial_owner_known=ownership_dict.get("named_beneficial_owner_known", ownership_dict.get("beneficial_owner_known", False)),
+        named_beneficial_owner_known=ownership_dict.get("named_beneficial_owner_known", False),
         controlling_parent_known=ownership_dict.get("controlling_parent_known", False),
         owner_class_known=ownership_dict.get("owner_class_known", False),
         owner_class=ownership_dict.get("owner_class", ""),

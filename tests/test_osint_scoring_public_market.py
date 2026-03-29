@@ -161,8 +161,44 @@ def test_osint_scoring_uses_first_party_beneficial_owner_descriptor_to_partially
     assert augmented.vendor_input.ownership.named_beneficial_owner_known is False
     assert augmented.vendor_input.ownership.owner_class_known is True
     assert augmented.vendor_input.ownership.owner_class == "Service-Disabled Veteran"
-    assert augmented.vendor_input.ownership.ownership_pct_resolved >= 0.55
-    assert augmented.vendor_input.ownership.control_resolution_pct >= 0.35
+    assert augmented.vendor_input.ownership.ownership_pct_resolved == 0.55
+    assert augmented.vendor_input.ownership.control_resolution_pct == 0.35
+
+
+def test_osint_scoring_descriptor_only_ownership_caps_stale_overconfident_resolution():
+    base = _base_vendor()
+    base.ownership.beneficial_owner_known = True
+    base.ownership.named_beneficial_owner_known = True
+    base.ownership.ownership_pct_resolved = 0.9
+    base.ownership.control_resolution_pct = 0.7
+
+    enrichment = {
+        "identifiers": {},
+        "findings": [
+            {
+                "source": "public_html_ownership",
+                "category": "ownership",
+                "title": "Public site beneficial ownership descriptor: Service-Disabled Veteran",
+                "detail": "Yorktown Systems Group, Inc., owned by a Service-Disabled Veteran.",
+                "severity": "info",
+                "confidence": 0.78,
+                "structured_fields": {
+                    "ownership_descriptor": "Service-Disabled Veteran",
+                    "ownership_descriptor_scope": "self_disclosed_owner_descriptor",
+                },
+            }
+        ],
+        "relationships": [],
+        "risk_signals": [],
+    }
+
+    augmented = augment_from_enrichment(base, enrichment)
+
+    assert augmented.vendor_input.ownership.beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.named_beneficial_owner_known is False
+    assert augmented.vendor_input.ownership.owner_class_known is True
+    assert augmented.vendor_input.ownership.ownership_pct_resolved == 0.55
+    assert augmented.vendor_input.ownership.control_resolution_pct == 0.35
 
 
 def test_osint_scoring_does_not_treat_third_party_public_owned_by_as_named_beneficial_owner():

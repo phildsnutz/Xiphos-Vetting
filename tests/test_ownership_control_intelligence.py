@@ -80,8 +80,8 @@ def test_descriptor_only_evidence_sets_owner_class_without_named_owner():
     assert summary["owner_class"] == "Service-Disabled Veteran"
     assert summary["descriptor_only"] is True
     assert summary["ownership_gap"] == "descriptor_only_owner_class"
-    assert summary["ownership_resolution_pct"] >= 0.55
-    assert summary["control_resolution_pct"] >= 0.35
+    assert summary["ownership_resolution_pct"] == 0.55
+    assert summary["control_resolution_pct"] == 0.35
 
 
 def test_official_beneficial_owner_relationship_counts_as_named_owner():
@@ -103,6 +103,26 @@ def test_official_beneficial_owner_relationship_counts_as_named_owner():
     assert summary["controlling_parent"] == "Acorn Holdings"
     assert summary["ownership_resolution_pct"] >= 0.65
     assert summary["control_resolution_pct"] >= 0.65
+
+
+def test_profile_named_owner_boolean_without_concrete_name_does_not_resolve_named_owner():
+    summary = build_oci_summary(
+        {
+            "beneficial_owner_known": True,
+            "named_beneficial_owner_known": True,
+            "owner_class_known": False,
+            "ownership_pct_resolved": 0.9,
+            "control_resolution_pct": 0.65,
+        },
+        [],
+        [],
+    )
+
+    assert summary["named_beneficial_owner_known"] is False
+    assert summary["named_beneficial_owner"] is None
+    assert summary["ownership_gap"] == "named_owner_unknown"
+    assert summary["ownership_resolution_pct"] == 0.0
+    assert summary["control_resolution_pct"] == 0.0
 
 
 def test_ai_adjudication_sanitizer_rejects_invented_control_candidate():

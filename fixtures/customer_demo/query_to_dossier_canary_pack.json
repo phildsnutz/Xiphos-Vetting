@@ -4,6 +4,33 @@
     "expected_workflow_lane": "counterparty"
   },
   {
+    "flow_name": "yorktown_descriptor_only",
+    "enabled_modes": ["local-auth"],
+    "preserve_case_name": true,
+    "run_enrich_and_score": true,
+    "expected_workflow_lane": "counterparty",
+    "compare_payload": {
+      "name": "Yorktown Systems Group",
+      "country": "US"
+    },
+    "case_payload": {
+      "name": "Yorktown Systems Group",
+      "country": "US",
+      "profile": "defense_acquisition",
+      "program": "dod_unclassified"
+    },
+    "expected_oci": {
+      "named_beneficial_owner_known": false,
+      "owner_class_known": true,
+      "owner_class": "Service-Disabled Veteran",
+      "descriptor_only": true,
+      "ownership_gap": "descriptor_only_owner_class",
+      "min_ownership_resolution_pct": 0.5,
+      "min_control_resolution_pct": 0.3,
+      "require_owner_class_evidence": true
+    }
+  },
+  {
     "flow_name": "export_trade_compliance",
     "expected_workflow_lane": "export",
     "case_payload": {

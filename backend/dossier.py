@@ -851,12 +851,20 @@ def _render_ownership_control_summary(ownership: dict) -> str:
     ownership_pct = float(oci.get("ownership_resolution_pct") or 0.0)
     control_pct = float(oci.get("control_resolution_pct") or 0.0)
     gap = str(oci.get("ownership_gap") or "unknown").replace("_", " ")
+    descriptor_only = "Yes" if oci.get("descriptor_only") else "No"
+    owner_class_evidence = (
+        oci.get("owner_class_evidence")
+        if isinstance(oci.get("owner_class_evidence"), list)
+        else []
+    )
     rows = "".join(
         [
             _passport_field("Named owner", "Known" if oci.get("named_beneficial_owner_known") else "Unknown"),
             _passport_field("Named owner entity", named_owner),
             _passport_field("Owner class", owner_class if oci.get("owner_class_known") else "Unknown"),
             _passport_field("Controlling parent", controlling_parent if oci.get("controlling_parent_known") else "Unknown"),
+            _passport_field("Descriptor-only", descriptor_only),
+            _passport_field("Ownership gap", gap.title()),
             _passport_field("Ownership resolved", f"{round(ownership_pct * 100)}%"),
             _passport_field("Control resolved", f"{round(control_pct * 100)}%"),
         ]
@@ -869,6 +877,32 @@ def _render_ownership_control_summary(ownership: dict) -> str:
         notes.append(f"{len(rejected)} descriptor-like ownership targets were rejected as non-entities.")
     notes.append(f"Current ownership gap: {gap}.")
     note_html = "<br/>".join(escape(note) for note in notes if note)
+    evidence_cards = "".join(
+        [
+            f"""
+            <div style=\"padding: 10px 12px; border-radius: 8px; background: #ffffff; border: 1px solid #dbe4ee;\">
+                <div style=\"font-size: 12px; font-weight: 600; color: #0f172a;\">{escape(str(item.get('descriptor') or item.get('title') or 'Owner class evidence'))}</div>
+                <div style=\"font-size: 11px; color: #475569; margin-top: 4px;\">{escape(str(item.get('title') or 'First-party ownership descriptor evidence'))}</div>
+                <div style=\"font-size: 11px; color: #64748b; margin-top: 4px;\">Source: {escape(str(item.get('source') or 'unknown'))} | Confidence: {float(item.get('confidence') or 0.0):.2f}</div>
+                <div style=\"font-size: 11px; color: #334155; margin-top: 4px; overflow-wrap: anywhere;\">{escape(str(item.get('artifact') or item.get('url') or ''))}</div>
+            </div>
+            """
+            for item in owner_class_evidence[:3]
+            if isinstance(item, dict)
+        ]
+    )
+    evidence_html = (
+        f"""
+            <div style=\"margin-top: 10px;\">
+                <div style=\"font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.06em;\">Owner-class evidence</div>
+                <div style=\"display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; margin-top: 8px;\">
+                    {evidence_cards}
+                </div>
+            </div>
+        """
+        if evidence_cards
+        else ""
+    )
     return f"""
         <div style=\"margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e9ecef;\">
             <div style=\"font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.06em;\">Ownership / control intelligence</div>
@@ -876,6 +910,7 @@ def _render_ownership_control_summary(ownership: dict) -> str:
                 {rows}
             </div>
             <div style=\"margin-top: 8px; font-size: 12px; color: #475569; line-height: 1.5;\">{note_html}</div>
+            {evidence_html}
         </div>
     """
 

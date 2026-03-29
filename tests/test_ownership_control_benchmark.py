@@ -48,6 +48,15 @@ def test_evaluate_passport_counts_control_and_intermediary_paths():
             "findings_total": 6,
         },
         "ownership": {
+            "oci": {
+                "owner_class_known": True,
+                "owner_class": "Service-Disabled Veteran",
+                "descriptor_only": True,
+                "ownership_gap": "descriptor_only_owner_class",
+                "ownership_resolution_pct": 0.55,
+                "control_resolution_pct": 0.35,
+                "owner_class_evidence": [{"source": "public_html_ownership", "artifact": "https://www.ysginc.com/article"}],
+            },
             "workflow_control": {
                 "label": "Foreign interest in view",
                 "action_owner": "Analyst review",
@@ -66,6 +75,8 @@ def test_evaluate_passport_counts_control_and_intermediary_paths():
     assert result["control_path_metrics"]["has_upstream_ownership"] is True
     assert result["control_path_metrics"]["has_intermediary_visibility"] is True
     assert result["control_path_metrics"]["relationship_mix"]["backed_by"] == 1
+    assert result["oci_metrics"]["owner_class_known"] is True
+    assert result["oci_metrics"]["descriptor_only"] is True
     assert result["jurisdiction_signal"] == "CN"
     assert result["analyst_usefulness_score"] >= 4
 
@@ -238,6 +249,40 @@ def test_build_summary_weights_zero_link_success_more_heavily():
     assert summary["group_summary"]["tier2_low_link"]["successes"] == 1
     assert summary["group_summary"]["tier3_high_yield"]["successes"] == 1
     assert summary["benchmark_score_pct"] > 0
+
+
+def test_descriptor_only_oci_group_requires_preserved_unknown_named_owner():
+    row = {
+        "group": "oci_descriptor_only",
+        "name": "Yorktown Systems Group",
+        "case_id": "c-oci",
+        "status": "ok",
+        "evaluation": {
+            "workflow_control_label": None,
+            "analyst_usefulness_score": 2,
+            "control_path_metrics": {
+                "has_control_path": False,
+                "has_upstream_ownership": False,
+                "has_intermediary_visibility": False,
+            },
+            "oci_metrics": {
+                "owner_class_known": True,
+                "descriptor_only": True,
+                "named_beneficial_owner_known": False,
+                "ownership_gap": "descriptor_only_owner_class",
+                "ownership_resolution_pct": 0.55,
+                "control_resolution_pct": 0.35,
+                "owner_class_evidence_count": 1,
+            },
+        },
+    }
+
+    summary = benchmark.build_summary([row])
+
+    assert benchmark._row_succeeds(row) is True
+    assert summary["group_summary"]["oci_descriptor_only"]["successes"] == 1
+    assert summary["descriptor_only_cases"] == 1
+    assert summary["cases_with_owner_class_signal"] == 1
 
 
 def test_compare_to_baseline_detects_improvement():

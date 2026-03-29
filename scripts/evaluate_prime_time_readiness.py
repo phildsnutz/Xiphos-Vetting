@@ -157,6 +157,31 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             expected=required_gauntlet_verdict,
         )
     )
+    oci_summary = query_to_dossier.get("oci_summary") if isinstance(query_to_dossier.get("oci_summary"), dict) else {}
+    required_oci_flows = int(criteria.get("required_oci_flows_passed") or 0)
+    if required_oci_flows:
+        actual = int(oci_summary.get("passed_flows") or 0)
+        checks.append(
+            _criterion(
+                "query_to_dossier_oci",
+                actual >= required_oci_flows,
+                f"query-to-dossier OCI passed {actual} required flows",
+                actual=actual,
+                expected=required_oci_flows,
+            )
+        )
+    required_descriptor_only_oci = int(criteria.get("required_descriptor_only_oci_flows_passed") or 0)
+    if required_descriptor_only_oci:
+        actual = int(oci_summary.get("descriptor_only_passed_flows") or 0)
+        checks.append(
+            _criterion(
+                "query_to_dossier_oci_descriptor_only",
+                actual >= required_descriptor_only_oci,
+                f"query-to-dossier OCI preserved descriptor-only ownership in {actual} flows",
+                actual=actual,
+                expected=required_descriptor_only_oci,
+            )
+        )
 
     max_counterparty_seconds = float(criteria.get("max_counterparty_readiness_seconds") or 0.0)
     counterparty_elapsed = (

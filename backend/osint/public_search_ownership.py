@@ -2378,6 +2378,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         merged_risk_signals: list[dict] = []
         artifact_refs: list[str] = [website]
         visited_pages: set[str] = set()
+        merged_candidates: list[dict] = list(candidates)
+        seen_urls = {str(item.get("url") or "") for item in merged_candidates}
         seen_finding_keys: set[tuple[str, str, str]] = {
             (finding.category, finding.title, str(finding.artifact_ref or finding.url or ""))
             for finding in merged_findings
@@ -2403,22 +2405,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             )
             visited_pages.add(website.rstrip("/"))
             same_host_pages.extend(discovered_links)
-        if not merged_relationships and _within_budget(deadline, reserve_seconds=8):
-            snippet_relationships, snippet_findings, snippet_risk_signals, snippet_refs = _collect_snippet_relationships(
-                vendor_name,
-                country,
-                website,
-                candidates,
-                deadline=deadline,
-                provider_state=search_provider_state,
-                vendor_variants=_search_queries(vendor_name),
-            )
-            merged_relationships.extend(snippet_relationships)
-            merged_findings.extend(snippet_findings)
-            merged_risk_signals.extend(snippet_risk_signals)
-            artifact_refs.extend(snippet_refs)
-
-        same_host_pages.extend(_same_host_candidate_pages(candidates, website))
+        same_host_pages.extend(_same_host_candidate_pages(merged_candidates, website))
         _collect_same_host_pages(
             vendor_name=vendor_name,
             country=country,
@@ -2435,8 +2422,6 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         )
 
         if not merged_relationships:
-            merged_candidates = list(candidates)
-            seen_urls = {str(item.get("url") or "") for item in candidates}
             for query in _site_scoped_queries(vendor_name, website):
                 if not _within_budget(deadline):
                     break
@@ -2468,6 +2453,20 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 artifact_refs=artifact_refs,
                 seen_finding_keys=seen_finding_keys,
             )
+        if not merged_relationships and _within_budget(deadline, reserve_seconds=8):
+            snippet_relationships, snippet_findings, snippet_risk_signals, snippet_refs = _collect_snippet_relationships(
+                vendor_name,
+                country,
+                website,
+                merged_candidates,
+                deadline=deadline,
+                provider_state=search_provider_state,
+                vendor_variants=_search_queries(vendor_name),
+            )
+            merged_relationships.extend(snippet_relationships)
+            merged_findings.extend(snippet_findings)
+            merged_risk_signals.extend(snippet_risk_signals)
+            artifact_refs.extend(snippet_refs)
 
         if not merged_relationships:
             expanded_queries = _expanded_search_queries(vendor_name)

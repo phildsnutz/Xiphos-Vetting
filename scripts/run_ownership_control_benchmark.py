@@ -13,6 +13,9 @@ import requests
 
 
 BENCHMARK_GROUPS: dict[str, list[str]] = {
+    "oci_descriptor_only": [
+        "Yorktown Systems Group",
+    ],
     "tier1_zero_link": [
         "Hefring Marine",
         "HTL / Herrick Technology Laboratories Inc",
@@ -38,6 +41,7 @@ BENCHMARK_GROUPS: dict[str, list[str]] = {
     ],
 }
 GROUP_WEIGHTS = {
+    "oci_descriptor_only": 3,
     "tier1_zero_link": 3,
     "tier2_low_link": 2,
     "tier3_high_yield": 1,
@@ -123,6 +127,33 @@ def _control_path_metrics(passport: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _oci_metrics(passport: dict[str, Any]) -> dict[str, Any]:
+    ownership = passport.get("ownership") or {}
+    oci = ownership.get("oci") if isinstance(ownership, dict) and isinstance(ownership.get("oci"), dict) else {}
+    owner_class_evidence = (
+        oci.get("owner_class_evidence")
+        if isinstance(oci.get("owner_class_evidence"), list)
+        else []
+    )
+    return {
+        "named_beneficial_owner_known": bool(oci.get("named_beneficial_owner_known")),
+        "controlling_parent_known": bool(oci.get("controlling_parent_known")),
+        "owner_class_known": bool(oci.get("owner_class_known")),
+        "descriptor_only": bool(oci.get("descriptor_only")),
+        "owner_class": str(oci.get("owner_class") or ""),
+        "ownership_gap": str(oci.get("ownership_gap") or ""),
+        "ownership_resolution_pct": float(oci.get("ownership_resolution_pct") or 0.0),
+        "control_resolution_pct": float(oci.get("control_resolution_pct") or 0.0),
+        "owner_class_evidence_count": len(owner_class_evidence),
+        "has_oci_signal": bool(
+            oci.get("named_beneficial_owner_known")
+            or oci.get("controlling_parent_known")
+            or oci.get("owner_class_known")
+            or oci.get("descriptor_only")
+        ),
+    }
+
+
 def evaluate_passport(passport: dict[str, Any]) -> dict[str, Any]:
     graph = passport.get("graph") or {}
     identity = passport.get("identity") or {}
@@ -130,6 +161,7 @@ def evaluate_passport(passport: dict[str, Any]) -> dict[str, Any]:
     foci_summary = ownership.get("foci_summary") if isinstance(ownership, dict) else {}
     control = ownership.get("workflow_control") if isinstance(ownership, dict) else {}
     metrics = _control_path_metrics(passport)
+    oci = _oci_metrics(passport)
 
     jurisdiction_signal = str(
         (foci_summary or {}).get("foreign_country")
@@ -148,6 +180,8 @@ def evaluate_passport(passport: dict[str, Any]) -> dict[str, Any]:
         analyst_usefulness += 1
     if control:
         analyst_usefulness += 1
+    if oci["has_oci_signal"]:
+        analyst_usefulness += 1
 
     return {
         "posture": passport.get("posture"),
@@ -159,6 +193,7 @@ def evaluate_passport(passport: dict[str, Any]) -> dict[str, Any]:
         "workflow_control_label": (control or {}).get("label"),
         "workflow_control_owner": (control or {}).get("action_owner"),
         "control_path_metrics": metrics,
+        "oci_metrics": oci,
         "analyst_usefulness_score": analyst_usefulness,
     }
 
@@ -168,9 +203,20 @@ def _row_succeeds(row: dict[str, Any]) -> bool:
         return False
     evaluation = row.get("evaluation") or {}
     metrics = evaluation.get("control_path_metrics") or {}
+    oci = evaluation.get("oci_metrics") or {}
     analyst = int(evaluation.get("analyst_usefulness_score") or 0)
     workflow_control = bool(evaluation.get("workflow_control_label"))
     group = str(row.get("group") or "")
+    if group == "oci_descriptor_only":
+        return (
+            bool(oci.get("owner_class_known"))
+            and bool(oci.get("descriptor_only"))
+            and not bool(oci.get("named_beneficial_owner_known"))
+            and str(oci.get("ownership_gap") or "") == "descriptor_only_owner_class"
+            and float(oci.get("ownership_resolution_pct") or 0.0) >= 0.5
+            and float(oci.get("control_resolution_pct") or 0.0) >= 0.3
+            and int(oci.get("owner_class_evidence_count") or 0) >= 1
+        )
     if group == "tier1_zero_link":
         return bool(metrics.get("has_control_path"))
     if group == "tier2_low_link":
@@ -213,6 +259,9 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     with_control = [row for row in present if row["evaluation"]["control_path_metrics"]["has_control_path"]]
     with_ownership = [row for row in present if row["evaluation"]["control_path_metrics"]["has_upstream_ownership"]]
     with_intermediary = [row for row in present if row["evaluation"]["control_path_metrics"]["has_intermediary_visibility"]]
+    with_owner_class = [row for row in present if row["evaluation"].get("oci_metrics", {}).get("owner_class_known")]
+    descriptor_only = [row for row in present if row["evaluation"].get("oci_metrics", {}).get("descriptor_only")]
+    named_owner = [row for row in present if row["evaluation"].get("oci_metrics", {}).get("named_beneficial_owner_known")]
     group_summary = summarize_groups(rows)
     weighted_total = sum(
         int(group["cases_total"]) * int(group["weight"]) for group in group_summary.values()
@@ -234,6 +283,9 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "cases_with_control_paths": len(with_control),
         "cases_with_upstream_ownership": len(with_ownership),
         "cases_with_intermediary_visibility": len(with_intermediary),
+        "cases_with_owner_class_signal": len(with_owner_class),
+        "descriptor_only_cases": len(descriptor_only),
+        "cases_with_named_beneficial_owner": len(named_owner),
         "benchmark_score_pct": round((weighted_success / weighted_total) * 100, 1) if weighted_total else 0.0,
         "group_summary": group_summary,
         "supplier_passport_route_available": not route_missing,
@@ -360,6 +412,9 @@ def render_markdown(
             f"- Cases with control paths: `{summary['cases_with_control_paths']}`",
             f"- Cases with upstream ownership: `{summary['cases_with_upstream_ownership']}`",
             f"- Cases with intermediary visibility: `{summary['cases_with_intermediary_visibility']}`",
+            f"- Cases with owner-class signal: `{summary['cases_with_owner_class_signal']}`",
+            f"- Descriptor-only cases preserved: `{summary['descriptor_only_cases']}`",
+            f"- Cases with named beneficial owner: `{summary['cases_with_named_beneficial_owner']}`",
             f"- Weighted benchmark score: `{summary['benchmark_score_pct']}`%",
             "",
         ]
@@ -425,6 +480,9 @@ def render_markdown(
                         f"- Ownership paths: `{metrics['ownership_path_count']}`",
                         f"- Intermediary paths: `{metrics['intermediary_path_count']}`",
                         f"- Workflow control: `{evaluation.get('workflow_control_label') or 'None'}`",
+                        f"- OCI owner class: `{(evaluation.get('oci_metrics') or {}).get('owner_class') or 'Unknown'}`",
+                        f"- OCI descriptor-only: `{bool((evaluation.get('oci_metrics') or {}).get('descriptor_only'))}`",
+                        f"- OCI ownership gap: `{(evaluation.get('oci_metrics') or {}).get('ownership_gap') or 'unknown'}`",
                         f"- Analyst usefulness proxy: `{evaluation['analyst_usefulness_score']}` / `5`",
                     ]
                 )
@@ -448,6 +506,9 @@ def render_markdown(
                 f"- Ownership paths: `{metrics['ownership_path_count']}`",
                 f"- Intermediary paths: `{metrics['intermediary_path_count']}`",
                 f"- Workflow control: `{evaluation.get('workflow_control_label') or 'None'}`",
+                f"- OCI owner class: `{(evaluation.get('oci_metrics') or {}).get('owner_class') or 'Unknown'}`",
+                f"- OCI descriptor-only: `{bool((evaluation.get('oci_metrics') or {}).get('descriptor_only'))}`",
+                f"- OCI ownership gap: `{(evaluation.get('oci_metrics') or {}).get('ownership_gap') or 'unknown'}`",
                 f"- Analyst usefulness proxy: `{evaluation['analyst_usefulness_score']}` / `5`",
             ]
         )

@@ -8,6 +8,8 @@
   "min_stable_canary_companies": 10,
   "min_acceptance_registry_companies": 15,
   "required_query_to_dossier_verdict": "PASS",
+  "required_oci_flows_passed": 1,
+  "required_descriptor_only_oci_flows_passed": 1,
   "required_flagship_companies": [
     "Yorktown Systems Group",
     "Berry Aviation, Inc.",

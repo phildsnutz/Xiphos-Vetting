@@ -456,23 +456,35 @@ def build_oci_summary(
     profile = ownership_profile if isinstance(ownership_profile, dict) else {}
     classified = classify_ownership_relationships(relationships)
     owner_class_evidence = extract_owner_class_evidence(findings)
-    owner_class = owner_class_evidence[0]["descriptor"] if owner_class_evidence else None
+    profile_owner_class = normalize_owner_class(profile.get("owner_class"))
+    owner_class = owner_class_evidence[0]["descriptor"] if owner_class_evidence else profile_owner_class
     ai_adjudication = _run_ai_adjudication(owner_class_evidence, classified)
 
-    profile_named_owner_known = bool(
-        profile.get("named_beneficial_owner_known", profile.get("beneficial_owner_known", False))
+    profile_named_owner = None
+    for key in ("named_beneficial_owner", "beneficial_owner_name"):
+        candidate = str(profile.get(key) or "").strip()
+        if candidate and not looks_like_descriptor_owner(candidate):
+            profile_named_owner = candidate
+            break
+
+    profile_controlling_parent = None
+    for key in ("controlling_parent", "parent_company_name", "ultimate_parent_name"):
+        candidate = str(profile.get(key) or "").strip()
+        if candidate and not looks_like_descriptor_owner(candidate):
+            profile_controlling_parent = candidate
+            break
+
+    named_owner = classified["named_owners"][0]["target_name"] if classified["named_owners"] else profile_named_owner
+    controlling_parent = (
+        classified["controlling_parents"][0]["target_name"]
+        if classified["controlling_parents"]
+        else profile_controlling_parent
     )
-    named_owner_known = bool(profile_named_owner_known or classified["named_owners"])
-    controlling_parent_known = bool(profile.get("controlling_parent_known") or classified["controlling_parents"])
-    named_owner = None
-    controlling_parent = None
-    if classified["named_owners"]:
-        named_owner = classified["named_owners"][0]["target_name"]
-    if classified["controlling_parents"]:
-        controlling_parent = classified["controlling_parents"][0]["target_name"]
+    named_owner_known = bool(named_owner)
+    controlling_parent_known = bool(controlling_parent)
     if ai_adjudication and ai_adjudication.get("should_set_owner_class") and not owner_class:
         owner_class = str(ai_adjudication.get("owner_class") or "").strip() or None
-    owner_class_known = bool(profile.get("owner_class_known") or owner_class)
+    owner_class_known = bool(owner_class)
 
     ownership_resolution_pct = float(
         profile.get("ownership_resolution_pct")
@@ -490,10 +502,22 @@ def build_oci_summary(
         control_resolution_pct = 0.65
     if owner_class_known and control_resolution_pct < 0.35:
         control_resolution_pct = 0.35
+    if owner_class_known and not named_owner_known and not controlling_parent_known:
+        ownership_resolution_pct = 0.55
+        control_resolution_pct = 0.35
+    if not named_owner_known and not owner_class_known and not controlling_parent_known:
+        if classified["weak_owner_candidates"] or classified["controllers"]:
+            ownership_resolution_pct = min(ownership_resolution_pct, 0.45)
+            control_resolution_pct = min(control_resolution_pct, 0.35)
+        else:
+            ownership_resolution_pct = 0.0
+            control_resolution_pct = 0.0
 
     ownership_gap = "named_owner_unknown"
     if named_owner_known:
         ownership_gap = "resolved_named_owner"
+    elif controlling_parent_known:
+        ownership_gap = "controlling_parent_only"
     elif owner_class_known:
         ownership_gap = "descriptor_only_owner_class"
 
@@ -506,7 +530,7 @@ def build_oci_summary(
         "controlling_parent_known": controlling_parent_known,
         "controlling_parent": controlling_parent,
         "owner_class_known": owner_class_known,
-        "owner_class": owner_class or profile.get("owner_class") or None,
+        "owner_class": owner_class or None,
         "ownership_resolution_pct": ownership_resolution_pct,
         "control_resolution_pct": control_resolution_pct,
         "ownership_gap": ownership_gap,
