@@ -30,10 +30,13 @@ import hashlib
 import base64
 import sqlite3
 import functools
-from datetime import datetime, timedelta, timezone
+import logging
+import re
 
 from flask import request, jsonify, g
 from runtime_paths import get_main_db_path, get_secret
+
+logger = logging.getLogger(__name__)
 
 # ---- Configuration ----
 AUTH_ENABLED = os.environ.get("XIPHOS_AUTH_ENABLED", "false").lower() == "true"
@@ -48,9 +51,15 @@ if AUTH_ENABLED and not SECRET_KEY:
     )
 
 TOKEN_EXPIRY_HOURS = int(os.environ.get("XIPHOS_TOKEN_EXPIRY_HOURS", "8"))
+ACCESS_TICKET_TTL_SECONDS = int(os.environ.get("XIPHOS_ACCESS_TICKET_TTL_SECONDS", "120"))
 
 # Password hashing iterations (PBKDF2-SHA256)
 HASH_ITERATIONS = 260_000
+
+ACCESS_TICKET_ROUTES = [
+    (re.compile(r"^/api/cases/[^/]+/enrich-stream$"), "cases:enrich"),
+    (re.compile(r"^/api/dossiers/[^/]+$"), "cases:dossier"),
+]
 
 
 # ---- Role Definitions ----
@@ -78,6 +87,9 @@ PERMISSIONS = {
     # Monitoring
     "monitor:run":         50,   # analyst+
     "monitor:read":        20,   # reviewer+
+
+    # Portfolio intelligence
+    "portfolio:read":      20,   # reviewer+
 
     # Alerts
     "alerts:read":         20,   # reviewer+
@@ -231,6 +243,55 @@ def _decode_token(token: str) -> dict | None:
     return payload
 
 
+def _access_ticket_signature(payload_b64: str) -> str:
+    message = f"access-ticket:{payload_b64}".encode()
+    return hmac.new(SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
+
+
+def create_access_ticket(user_id: str, email: str, role: str, path: str, method: str = "GET",
+                         ttl_seconds: int = ACCESS_TICKET_TTL_SECONDS) -> str:
+    """Create a short-lived access ticket for browser flows that cannot set headers."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "role": role,
+        "path": path,
+        "method": method.upper(),
+        "iat": int(time.time()),
+        "exp": int(time.time()) + max(30, ttl_seconds),
+    }
+    payload_b64 = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
+    sig = _access_ticket_signature(payload_b64)
+    return f"{payload_b64}.{sig}"
+
+
+def decode_access_ticket(ticket: str) -> dict | None:
+    """Decode and verify a short-lived access ticket."""
+    parts = ticket.split(".")
+    if len(parts) != 2:
+        return None
+    payload_b64, sig = parts
+    expected_sig = _access_ticket_signature(payload_b64)
+    if not hmac.compare_digest(sig, expected_sig):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if payload.get("exp", 0) < time.time():
+        return None
+    return payload
+
+
+def required_permission_for_access_path(path: str) -> str | None:
+    for pattern, permission in ACCESS_TICKET_ROUTES:
+        if pattern.match(path):
+            return permission
+    return None
+
+
 # ---- Audit Logging ----
 def log_audit(action: str, resource: str = "", resource_id: str = "",
               status_code: int = 200, detail: str = ""):
@@ -260,8 +321,8 @@ def log_audit(action: str, resource: str = "", resource_id: str = "",
         ))
         conn.commit()
         conn.close()
-    except Exception:
-        pass  # Audit logging should never break the main application
+    except Exception as e:
+        logger.warning(f"Audit logging failed: {e}")  # Audit logging should never break the main application
 
 
 def get_audit_log(limit: int = 100, offset: int = 0,
@@ -402,8 +463,21 @@ def require_auth(permission: str):
             # Extract token from Authorization header (preferred) or query param (SSE only)
             auth_header = request.headers.get("Authorization", "")
             token = None
+            payload = None
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]
+            elif request.args.get("access_ticket"):
+                ticket_payload = decode_access_ticket(request.args.get("access_ticket", ""))
+                if (
+                    ticket_payload
+                    and ticket_payload.get("path") == request.path
+                    and ticket_payload.get("method", "GET") == request.method
+                ):
+                    payload = {
+                        "sub": ticket_payload.get("sub", ""),
+                        "email": ticket_payload.get("email", ""),
+                        "role": ticket_payload.get("role", ""),
+                    }
             elif request.args.get("sse_token") or request.args.get("token"):
                 # Query-string tokens only for SSE endpoints (EventSource cannot set headers)
                 # Restrict to streaming paths to minimize token exposure in URLs/logs
@@ -412,10 +486,11 @@ def require_auth(permission: str):
                     token = request.args.get("sse_token") or request.args.get("token")
                 # Non-SSE endpoints must use Authorization header
 
-            if not token:
+            if not token and not payload:
                 log_audit("auth_failed", detail="Missing bearer token")
                 return jsonify({"error": "Authentication required"}), 401
-            payload = _decode_token(token)
+            if token:
+                payload = _decode_token(token)
             if not payload:
                 log_audit("auth_failed", detail="Invalid or expired token")
                 return jsonify({"error": "Invalid or expired token"}), 401
@@ -450,7 +525,7 @@ def register_auth_routes(app):
     def auth_login():
         """Authenticate and receive a bearer token. Rate limited: 5 per 5 min per IP."""
         # Rate limit: import here to avoid circular imports at module level
-        from hardening import rate_limit as _rl, validate_auth_input as _vai
+        from hardening import validate_auth_input as _vai
 
         # Inline rate check (5 attempts per 5 minutes per IP)
         from hardening import _limiter
@@ -534,6 +609,39 @@ def register_auth_routes(app):
         conn.close()
         log_audit("password_changed", "user", user_id, detail=f"Password changed for user {g.user['email']}")
         return jsonify({"status": "ok", "message": "Password updated successfully"})
+
+    @app.route("/api/auth/access-ticket", methods=["POST"])
+    @require_auth("cases:read")
+    def auth_access_ticket():
+        """Issue a short-lived access ticket for browser flows that cannot send auth headers."""
+        body = request.get_json(silent=True) or {}
+        path = body.get("path", "")
+        if not path or not isinstance(path, str) or not path.startswith("/api/"):
+            return jsonify({"error": "A valid relative API path is required"}), 400
+
+        permission = required_permission_for_access_path(path)
+        if not permission:
+            return jsonify({"error": "Access tickets are not supported for that path"}), 400
+
+        required_level = PERMISSIONS.get(permission, 100)
+        user_role = g.user.get("role", "")
+        user_level = ROLES.get(user_role, {}).get("level", 0)
+        if user_level < required_level:
+            return jsonify({"error": f"Insufficient permissions for {path}"}), 403
+
+        ticket = create_access_ticket(
+            user_id=g.user["sub"],
+            email=g.user.get("email", ""),
+            role=user_role,
+            path=path,
+        )
+        log_audit("access_ticket_issued", "auth", path, detail=f"{permission} ticket issued")
+        return jsonify({
+            "path": path,
+            "permission": permission,
+            "access_ticket": ticket,
+            "expires_in": max(30, ACCESS_TICKET_TTL_SECONDS),
+        })
 
     @app.route("/api/audit", methods=["GET"])
     @require_auth("audit:read")

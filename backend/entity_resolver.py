@@ -16,7 +16,6 @@ import threading
 import difflib
 import requests
 import concurrent.futures
-from datetime import datetime
 from runtime_paths import get_cache_dir
 
 TIMEOUT = 10

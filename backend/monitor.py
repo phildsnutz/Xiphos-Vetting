@@ -10,8 +10,6 @@ alerts when risk signals change. Designed to run as:
 
 import threading
 import time
-import json
-import hashlib
 import argparse
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -26,10 +24,18 @@ except ImportError:
     HAS_OSINT = False
 
 try:
-    from portfolio_intelligence import ScoreDriftDetector, AnomalyDetectorBank
+    from portfolio_intelligence import AnomalyDetectorBank
     HAS_PORTFOLIO_INTEL = True
 except ImportError:
     HAS_PORTFOLIO_INTEL = False
+
+from monitor_core import (
+    diff_findings,
+    emit_registry_mutation_alerts,
+    is_registry_mutation_finding,
+    fingerprint_finding,
+    run_monitor_check,
+)
 
 
 @dataclass
@@ -37,8 +43,8 @@ class MonitoringResult:
     """Results from a single vendor monitoring check."""
     vendor_id: str
     vendor_name: str
-    previous_risk: str        # NONE/LOW/MEDIUM/HIGH/CRITICAL
-    current_risk: str
+    previous_risk: str        # Calibrated tier before monitoring
+    current_risk: str         # Calibrated tier after monitoring
     risk_changed: bool
     new_findings: list        # Findings not seen in previous enrichment
     resolved_findings: list   # Findings no longer present
@@ -61,8 +67,14 @@ class VendorMonitor:
     @staticmethod
     def _fingerprint_finding(finding: dict) -> str:
         """Generate a stable hash for a finding based on source, title, severity."""
-        key = f"{finding.get('source', '')}-{finding.get('title', '')}-{finding.get('severity', '')}"
-        return hashlib.md5(key.encode()).hexdigest()
+        return fingerprint_finding(finding)
+
+    @staticmethod
+    def _is_registry_mutation_finding(finding: dict) -> bool:
+        return is_registry_mutation_finding(finding)
+
+    def _emit_registry_mutation_alerts(self, vendor_id: str, vendor_name: str, new_findings: list[dict]) -> None:
+        emit_registry_mutation_alerts(vendor_id, vendor_name, new_findings)
 
     def _diff_findings(self, old_findings: list, new_findings: list) -> tuple:
         """
@@ -75,22 +87,7 @@ class VendorMonitor:
         Returns:
             (new_findings_list, resolved_findings_list)
         """
-        old_fingerprints = {
-            self._fingerprint_finding(f): f for f in old_findings
-        }
-        new_fingerprints = {
-            self._fingerprint_finding(f): f for f in new_findings
-        }
-
-        # New = in new but not in old
-        new = [new_fingerprints[fp] for fp in new_fingerprints
-               if fp not in old_fingerprints]
-
-        # Resolved = in old but not in new
-        resolved = [old_fingerprints[fp] for fp in old_fingerprints
-                    if fp not in new_fingerprints]
-
-        return new, resolved
+        return diff_findings(old_findings, new_findings)
 
     def check_vendor(self, vendor_id: str) -> Optional[MonitoringResult]:
         """
@@ -105,71 +102,28 @@ class VendorMonitor:
         if not HAS_OSINT:
             return None
 
-        t0 = time.time()
-
         # Get vendor from DB
         vendor = db.get_vendor(vendor_id)
         if not vendor:
             return None
-
-        # Get previous enrichment report
-        previous = db.get_latest_enrichment(vendor_id)
-
-        # Run fresh enrichment
         try:
-            current_report = enrich_vendor(
-                vendor_name=vendor["name"],
-                country=vendor["country"],
-                parallel=True,
-                timeout=60
-            )
+            monitor_result = run_monitor_check(vendor, enrich_func=enrich_vendor)
         except Exception as e:
             print(f"Error enriching {vendor_id}: {e}")
             return None
-
-        # Compare findings
-        old_findings = previous.get("findings", []) if previous else []
-        new_findings = current_report.get("findings", [])
-
-        new_findings_list, resolved_findings_list = self._diff_findings(
-            old_findings, new_findings
-        )
-
-        # Determine risk levels
-        previous_risk = previous.get("overall_risk", "NONE") if previous else "NONE"
-        current_risk = current_report.get("overall_risk", "NONE")
-        risk_changed = previous_risk != current_risk
-
-        # Extract new risk signals
-        new_signals = []
-        if previous:
-            old_signal_fingerprints = {
-                hashlib.md5(
-                    f"{s.get('type', '')}-{s.get('message', '')}".encode()
-                ).hexdigest(): s
-                for s in previous.get("risk_signals", [])
-            }
-            for signal in current_report.get("risk_signals", []):
-                fp = hashlib.md5(
-                    f"{signal.get('type', '')}-{signal.get('message', '')}".encode()
-                ).hexdigest()
-                if fp not in old_signal_fingerprints:
-                    new_signals.append(signal)
-        else:
-            new_signals = current_report.get("risk_signals", [])
-
-        elapsed_ms = int((time.time() - t0) * 1000)
+        if not monitor_result:
+            return None
 
         result = MonitoringResult(
             vendor_id=vendor_id,
             vendor_name=vendor["name"],
-            previous_risk=previous_risk,
-            current_risk=current_risk,
-            risk_changed=risk_changed,
-            new_findings=new_findings_list,
-            resolved_findings=resolved_findings_list,
-            new_risk_signals=new_signals,
-            elapsed_ms=elapsed_ms
+            previous_risk=str(monitor_result["previous_risk"]),
+            current_risk=str(monitor_result["current_risk"]),
+            risk_changed=bool(monitor_result["risk_changed"]),
+            new_findings=list(monitor_result["new_findings"]),
+            resolved_findings=list(monitor_result["resolved_findings"]),
+            new_risk_signals=list(monitor_result["new_risk_signals"]),
+            elapsed_ms=int(monitor_result["elapsed_ms"]),
         )
 
         # Run anomaly detectors (Phase 4)
@@ -181,11 +135,10 @@ class VendorMonitor:
                 if isinstance(vendor_data, str):
                     import json as _json
                     vendor_data = _json.loads(vendor_data)
-                prev_data = {}
-                if previous:
-                    prev_data = previous.get("vendor_data", {})
+                previous = db.get_latest_enrichment(vendor_id)
+                prev_data = previous.get("vendor_data", {}) if previous else {}
                 anomalies = bank.run_all(
-                    vendor_id, new_findings, old_findings,
+                    vendor_id, result.new_findings, previous.get("findings", []) if previous else [],
                     current_data=vendor_data, prev_data=prev_data
                 )
                 for a in anomalies:
@@ -197,35 +150,30 @@ class VendorMonitor:
             except Exception as e:
                 print(f"[monitor] anomaly detection error for {vendor_id}: {e}")
 
-        # Run score drift detection (Phase 4)
-        drift_result = None
-        if HAS_PORTFOLIO_INTEL:
-            try:
-                drift = ScoreDriftDetector()
-                drift_result = drift.check(vendor_id)
-                if drift_result and abs(drift_result.delta_pp) >= drift.ALERT_THRESHOLD_PP:
-                    direction = "increased" if drift_result.delta_pp > 0 else "decreased"
-                    db.save_alert(
-                        vendor_id, vendor["name"], drift_result.severity,
-                        f"Score drift: {drift_result.previous_score}% -> "
-                        f"{drift_result.current_score}% "
-                        f"({direction} {abs(drift_result.delta_pp):.1f}pp)",
-                        f"Tier: {drift_result.previous_tier} -> {drift_result.current_tier}"
-                    )
-            except Exception as e:
-                print(f"[monitor] drift detection error for {vendor_id}: {e}")
+        # Alert directly off the canonical score change from this monitoring run.
+        score_delta = float(monitor_result["score_delta"])
+        if score_delta >= 5.0:
+            previous_score_pct = float(monitor_result["previous_score"])
+            current_score_pct = float(monitor_result["current_score"])
+            direction = "increased" if current_score_pct > previous_score_pct else "decreased"
+            db.save_alert(
+                vendor_id,
+                vendor["name"],
+                "high" if result.risk_changed else "medium",
+                f"Score drift: {previous_score_pct}% -> {current_score_pct}% ({direction} {score_delta:.1f}pp)",
+                f"Tier: {result.previous_risk} -> {result.current_risk}",
+            )
 
-        # Save new enrichment to DB
-        db.save_enrichment(vendor_id, current_report)
+        self._emit_registry_mutation_alerts(vendor_id, vendor["name"], result.new_findings)
 
         # Log monitoring check
         db.save_monitoring_log(
             vendor_id=vendor_id,
-            previous_risk=previous_risk,
-            current_risk=current_risk,
-            risk_changed=risk_changed,
-            new_findings_count=len(new_findings_list),
-            resolved_findings_count=len(resolved_findings_list)
+            previous_risk=result.previous_risk,
+            current_risk=result.current_risk,
+            risk_changed=result.risk_changed,
+            new_findings_count=len(result.new_findings),
+            resolved_findings_count=len(result.resolved_findings)
         )
 
         return result

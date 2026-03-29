@@ -1,5 +1,6 @@
 import { T, FS, TIER_META, RISK_META, tierBand, type TierKey, type RiskKey } from "@/lib/tokens";
 import { ShieldOff } from "lucide-react";
+import { formatSeverityLabel } from "@/lib/workflow-copy";
 
 interface BadgeProps {
   color: string;
@@ -10,14 +11,14 @@ interface BadgeProps {
 
 export function XBadge({ color, bg, children, size = "sm" }: BadgeProps) {
   const sizes = {
-    sm: { fontSize: FS.sm, padding: "2px 8px", borderRadius: 4 },
-    md: { fontSize: FS.sm, padding: "3px 10px", borderRadius: 4 },
-    lg: { fontSize: FS.md, padding: "4px 14px", borderRadius: 6 },
+    sm: { fontSize: FS.sm, padding: "4px 10px", borderRadius: 4 },
+    md: { fontSize: FS.sm, padding: "5px 12px", borderRadius: 4 },
+    lg: { fontSize: FS.md, padding: "6px 16px", borderRadius: 6 },
   };
   const s = sizes[size];
   return (
     <span
-      className="inline-flex items-center whitespace-nowrap font-semibold tracking-wider"
+      className="inline-flex items-center whitespace-nowrap font-semibold tracking-wider transition-opacity duration-200 hover:opacity-90"
       style={{
         ...s,
         color,
@@ -35,26 +36,26 @@ export function TierBadge({ tier, size = "sm" }: { tier: TierKey; size?: "sm" | 
   const t = TIER_META[tier] || TIER_META.TIER_3_CONDITIONAL;
   if (tierBand(tier) === "critical") {
     const sizes = {
-      sm: { fontSize: FS.sm, padding: "3px 10px", borderRadius: 4, iconSize: 12 },
-      md: { fontSize: FS.base, padding: "4px 12px", borderRadius: 5, iconSize: 14 },
+      sm: { fontSize: FS.sm, padding: "4px 10px", borderRadius: 4, iconSize: 12 },
+      md: { fontSize: FS.base, padding: "5px 12px", borderRadius: 5, iconSize: 14 },
       lg: { fontSize: FS.md, padding: "6px 16px", borderRadius: 6, iconSize: 16 },
     };
     const s = sizes[size];
     return (
       <span
-        className="inline-flex items-center gap-1.5 whitespace-nowrap font-bold tracking-wider"
+        className="inline-flex items-center gap-1.5 whitespace-nowrap font-bold tracking-wider transition-opacity duration-200 hover:opacity-90"
         style={{
           fontSize: s.fontSize,
           padding: s.padding,
           borderRadius: s.borderRadius,
-          color: "#ffffff",
+          color: T.text,
           background: T.hardStopBg,
           border: `2px solid ${T.hardStopBorder}`,
           boxShadow: "0 0 12px rgba(220,38,38,0.3)",
         }}
       >
         <ShieldOff size={s.iconSize} />
-        DISQUALIFIED
+        BLOCKED
       </span>
     );
   }
@@ -74,5 +75,5 @@ export function SeverityBadge({ sev }: { sev: string }) {
     low: { color: T.green, bg: T.greenBg },
   };
   const m = map[sev] || map.medium;
-  return <XBadge color={m.color} bg={m.bg}>{sev.toUpperCase()}</XBadge>;
+  return <XBadge color={m.color} bg={m.bg}>{formatSeverityLabel(sev)}</XBadge>;
 }

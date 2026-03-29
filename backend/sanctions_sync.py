@@ -24,14 +24,12 @@ Usage:
 import csv
 import io
 import json
-import os
 import sqlite3
-import sys
 import time
 import urllib.request
 import urllib.error
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from typing import Optional
@@ -66,6 +64,11 @@ SOURCES = {
         "label": "OpenSanctions (sanctions subset)",
         "url": "https://data.opensanctions.org/datasets/latest/sanctions/entities.ftm.json",
         "format": "jsonl",
+    },
+    "bis": {
+        "label": "BIS Consolidated Screening List",
+        "url": "https://api.trade.gov/consolidated_screening_list/v2/search",
+        "format": "json",
     },
 }
 
@@ -654,6 +657,17 @@ def parse_opensanctions_jsonl(data: bytes) -> list[SanctionRecord]:
     return records
 
 
+# BIS CSL parser (uses seed data + optional live API)
+def parse_bis_csl(raw_bytes: bytes) -> list[SanctionRecord]:
+    """Parse BIS CSL data. The raw_bytes param is unused because BIS uses its own sync."""
+    try:
+        from bis_csl import sync_bis_csl
+        return sync_bis_csl()
+    except ImportError:
+        print("  [BIS] bis_csl module not available, skipping")
+        return []
+
+
 # Map source keys to parser functions
 PARSERS = {
     "ofac": parse_ofac_xml,
@@ -661,6 +675,7 @@ PARSERS = {
     "eu": parse_eu_xml,
     "un": parse_un_xml,
     "opensanctions": parse_opensanctions_jsonl,
+    "bis": parse_bis_csl,
 }
 
 
@@ -678,7 +693,11 @@ def sync_source(source_key: str, dry_run: bool = False) -> dict:
     result = {"source": source_key, "label": src["label"], "status": "ok"}
 
     try:
-        data = _download(src["url"], src["label"])
+        # BIS uses its own data source (seed data / API), skip HTTP download
+        if source_key == "bis":
+            data = b""
+        else:
+            data = _download(src["url"], src["label"])
         parser = PARSERS[source_key]
         records = parser(data)
         result["entities_parsed"] = len(records)
@@ -786,14 +805,14 @@ def main():
 
     if args.status:
         status = get_sync_status()
-        print(f"\nSanctions Database Status:")
+        print("\nSanctions Database Status:")
         print(f"  Total entities: {status['total_entities']}")
         print(f"  Total aliases:  {status['total_aliases']}")
-        print(f"\n  By source:")
+        print("\n  By source:")
         for src, count in status["by_source"].items():
             label = SOURCES.get(src, {}).get("label", src)
             print(f"    {label:35s} {count:>8,}")
-        print(f"\n  Last sync:")
+        print("\n  Last sync:")
         for src, info in status["last_sync"].items():
             label = SOURCES.get(src, {}).get("label", src)
             print(f"    {label:35s} {info['last_sync']}  [{info['status']}]")

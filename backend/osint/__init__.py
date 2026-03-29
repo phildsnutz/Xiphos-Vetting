@@ -46,8 +46,6 @@ Each connector exports:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
-from datetime import datetime
 
 
 @dataclass
@@ -62,6 +60,11 @@ class Finding:
     url: str = ""               # provenance link
     raw_data: dict = field(default_factory=dict)
     timestamp: str = ""         # when this data was fetched
+    source_class: str = ""      # public_connector, gated_federal_source, customer_artifact, etc.
+    authority_level: str = ""   # official_registry, official_regulatory, customer_internal_record, etc.
+    access_model: str = ""      # public_api, authenticated_api, customer_upload, rules_dataset, etc.
+    artifact_ref: str = ""      # optional stable artifact pointer when evidence came from an uploaded record
+    structured_fields: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -75,6 +78,11 @@ class EnrichmentResult:
     risk_signals: list[dict] = field(default_factory=list)   # structured risk indicators
     elapsed_ms: int = 0
     error: str = ""
+    source_class: str = ""
+    authority_level: str = ""
+    access_model: str = ""
+    artifact_refs: list[str] = field(default_factory=list)
+    structured_fields: dict = field(default_factory=dict)
 
     @property
     def has_data(self) -> bool:

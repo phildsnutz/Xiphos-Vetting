@@ -24,3 +24,23 @@ Hezbollah Trading Co Ltd,LB,false,true,true,0.70,10,false,false,false,false,fals
 IRGC Aerospace Holdings,IR,false,true,true,0.90,12,false,false,false,false,false,false,1,1,60,15,25,dod_classified,TIER_1
 Sanctioned Commerce Enterprises,SY,false,true,false,0.02,15,false,false,false,false,false,false,1,0,70,20,30,dod_unclassified,TIER_1
 North Korea Industrial Corp,KP,false,true,false,0.01,20,false,false,false,false,false,false,1,0,100,30,50,dod_classified,TIER_1
+Huawei Technologies Co Ltd,CN,false,true,false,0.08,4,true,false,false,false,false,false,5,18,12,3,8,dod_classified,TIER_1
+ZTE Corporation,CN,false,true,false,0.10,3,true,false,false,false,false,false,6,22,10,2,7,dod_unclassified,TIER_1
+Hytera Communications Corp,CN,true,false,false,0.15,2,true,false,false,false,false,false,8,25,14,4,9,dod_unclassified,TIER_1
+Hangzhou Hikvision Digital Technology,CN,false,true,false,0.12,5,true,false,false,false,false,false,4,15,18,5,11,dod_unclassified,TIER_1
+Dahua Technology Co Ltd,CN,false,true,false,0.14,4,true,false,false,false,false,false,7,20,16,4,10,dod_unclassified,TIER_1
+Aviation Industry Corporation of China,CN,false,true,false,0.05,6,true,false,false,false,false,false,3,10,22,6,15,dod_classified,TIER_1
+China Aerospace Science and Technology,CN,false,true,false,0.03,8,true,false,false,false,false,false,2,8,25,7,18,dod_classified,TIER_1
+China Electronics Technology Group,CN,false,true,false,0.04,7,true,false,false,false,false,false,3,9,23,6,16,dod_classified,TIER_1
+Semiconductor Manufacturing International,CN,true,true,false,0.20,3,true,false,false,false,false,false,9,35,11,3,8,dod_classified,TIER_1
+Commercial Aircraft Corporation of China,CN,false,true,false,0.06,7,true,false,false,false,false,false,4,12,20,5,14,dod_classified,TIER_1
+Allied Defense Systems GmbH,DE,false,false,true,0.65,2,false,false,true,true,false,false,10,22,3,0,2,commercial,TIER_4
+Allied Defense Systems GmbH,DE,false,false,true,0.65,2,false,false,true,true,false,false,10,22,3,0,2,dod_classified,TIER_3
+Kaspersky Lab,RU,false,false,false,0.35,2,true,false,false,true,false,false,12,45,9,2,5,dod_unclassified,TIER_1
+Rosoboronexport,RU,false,true,false,0.08,5,true,false,false,false,false,false,4,14,24,6,12,dod_classified,TIER_1
+Elbit Systems Ltd,IL,true,false,true,0.92,1,false,true,true,true,true,true,18,95,2,0,1,dod_unclassified,TIER_4
+Rheinmetall AG,DE,true,false,true,0.91,1,false,true,true,true,true,true,20,105,1,0,2,dod_unclassified,TIER_4
+Saab AB,SE,true,false,true,0.90,1,false,true,true,true,true,true,19,88,1,0,1,dod_unclassified,TIER_4
+Acme Office Supplies Inc,US,false,false,true,0.85,1,false,true,true,true,true,false,12,35,0,0,0,commercial,TIER_4
+Generic Tech Consulting LLC,US,false,false,false,0.55,2,false,false,true,true,false,false,6,18,2,0,1,commercial,TIER_4
+DJI Technology,CN,false,false,false,0.28,3,true,false,false,false,false,false,7,32,13,3,6,dod_unclassified,TIER_1

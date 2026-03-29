@@ -8,9 +8,8 @@ and probabilistic fuzzy name matching (Jaro-Winkler).
 No external dependencies beyond Python stdlib.
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Optional
-import json
 import hashlib
 import re
 from datetime import datetime
@@ -153,10 +152,11 @@ def extract_entity_mentions(enrichment_data: dict) -> list[dict]:
                 "source": f"{enrichment_data.get('_source', 'unknown')}:relationship",
             })
         elif rel.get("type") == "officer_of":
+            officer_name = rel.get("officer_name", "") or rel.get("source_entity", "")
             mentions.append({
-                "name": rel.get("officer_name", ""),
+                "name": officer_name,
                 "type": "person",
-                "identifiers": rel.get("officer_ids", {}),
+                "identifiers": rel.get("officer_ids", {}) or rel.get("source_identifiers", {}),
                 "country": "",
                 "source": f"{enrichment_data.get('_source', 'unknown')}:officer",
             })

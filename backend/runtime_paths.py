@@ -65,6 +65,17 @@ def get_cache_dir() -> str:
     return str(path)
 
 
+def get_secure_artifacts_dir() -> str:
+    configured = os.environ.get("XIPHOS_SECURE_ARTIFACTS_DIR", "").strip()
+    path = _resolve_path(configured) if configured else Path(get_data_dir()) / "secure_artifacts"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
+    return str(path)
+
+
 def is_placeholder_secret(value: str | None) -> bool:
     return (value or "").strip() in _PLACEHOLDER_SECRETS
 

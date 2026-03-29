@@ -9,12 +9,59 @@ Source: https://www.cisa.gov/known-exploited-vulnerabilities-catalog
 Data: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
 """
 
+import re
+
 import requests
 from datetime import datetime
 from . import EnrichmentResult, Finding
 
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 TIMEOUT = 15
+GENERIC_VENDOR_TOKENS = {
+    "inc",
+    "incorporated",
+    "llc",
+    "ltd",
+    "limited",
+    "corp",
+    "corporation",
+    "co",
+    "company",
+    "group",
+    "systems",
+    "system",
+    "solutions",
+    "solution",
+    "services",
+    "service",
+    "technologies",
+    "technology",
+    "tech",
+    "international",
+    "global",
+    "defense",
+    "aviation",
+}
+
+
+def _tokenize(value: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9]+", (value or "").lower()) if token]
+
+
+def _matches_vendor(vendor_name: str, vendor_project: str, product: str) -> bool:
+    haystack_tokens = set(_tokenize(f"{vendor_project} {product}"))
+    vendor_tokens = _tokenize(vendor_name)
+    informative_tokens = [
+        token for token in vendor_tokens if len(token) > 2 and token not in GENERIC_VENDOR_TOKENS
+    ]
+    if not informative_tokens:
+        informative_tokens = [token for token in vendor_tokens if len(token) > 2]
+    if not informative_tokens:
+        return False
+    overlap = [token for token in informative_tokens if token in haystack_tokens]
+    if len(informative_tokens) == 1:
+        return bool(overlap)
+    return len(overlap) >= 2 or len(overlap) == len(informative_tokens)
 
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     result = EnrichmentResult(source="cisa_kev", vendor_name=vendor_name)
@@ -26,14 +73,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         data = resp.json()
 
         vulns = data.get("vulnerabilities", [])
-        vendor_lower = vendor_name.lower()
-        # Extract key words from vendor name for matching
-        keywords = [w.lower() for w in vendor_name.split() if len(w) > 3]
-
         matches = []
         for v in vulns:
-            vendor_project = (v.get("vendorProject", "") + " " + v.get("product", "")).lower()
-            if any(kw in vendor_project for kw in keywords):
+            vendor_project = v.get("vendorProject", "")
+            product = v.get("product", "")
+            if _matches_vendor(vendor_name, vendor_project, product):
                 matches.append(v)
 
         if matches:

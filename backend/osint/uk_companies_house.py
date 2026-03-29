@@ -23,7 +23,6 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import os
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 
@@ -68,6 +67,28 @@ def _get_company_profile(company_number: str, api_key: str) -> dict | None:
     return _get(url, api_key)
 
 
+def _company_profile_search_stub(profile: dict, company_number: str) -> dict:
+    address = profile.get("registered_office_address") or {}
+    address_snippet = ", ".join(
+        part
+        for part in [
+            str(address.get("address_line_1") or "").strip(),
+            str(address.get("locality") or "").strip(),
+            str(address.get("country") or "").strip(),
+            str(address.get("postal_code") or "").strip(),
+        ]
+        if part
+    )
+    return {
+        "company_number": company_number,
+        "title": profile.get("company_name", ""),
+        "company_status": profile.get("company_status", ""),
+        "date_of_creation": profile.get("date_of_creation", ""),
+        "company_type": profile.get("type", ""),
+        "address_snippet": address_snippet,
+    }
+
+
 def _get_officers(company_number: str, api_key: str) -> list[dict]:
     """Get list of company officers."""
     url = f"{BASE}/company/{company_number}/officers?items_per_page=50"
@@ -80,6 +101,24 @@ def _get_officers(company_number: str, api_key: str) -> list[dict]:
 def _get_psc(company_number: str, api_key: str) -> list[dict]:
     """Get Persons with Significant Control (beneficial owners)."""
     url = f"{BASE}/company/{company_number}/persons-with-significant-control?items_per_page=50"
+    data = _get(url, api_key)
+    if data and "items" in data:
+        return data["items"]
+    return []
+
+
+def _get_psc_statements(company_number: str, api_key: str) -> list[dict]:
+    """Get PSC statement records when available."""
+    url = f"{BASE}/company/{company_number}/persons-with-significant-control-statements?items_per_page=50"
+    data = _get(url, api_key)
+    if data and "items" in data:
+        return data["items"]
+    return []
+
+
+def _get_filing_history(company_number: str, api_key: str) -> list[dict]:
+    """Get recent filing history records."""
+    url = f"{BASE}/company/{company_number}/filing-history?items_per_page=25"
     data = _get(url, api_key)
     if data and "items" in data:
         return data["items"]
@@ -121,8 +160,18 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         return result
 
     try:
-        # Step 1: Search for the company
-        search_results = _search_company(vendor_name, api_key)
+        company_number = str(ids.get("uk_company_number") or ids.get("company_number") or "").strip()
+        profile = None
+        search_results: list[dict] = []
+
+        # Step 1: Resolve the company either from a seeded official company number
+        # or from public name search.
+        if company_number:
+            profile = _get_company_profile(company_number, api_key)
+            if profile:
+                search_results = [_company_profile_search_stub(profile, company_number)]
+        if not search_results:
+            search_results = _search_company(vendor_name, api_key)
 
         if not search_results:
             result.findings.append(Finding(
@@ -179,7 +228,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
         # Step 2: Get detailed profile
         time.sleep(0.3)
-        profile = _get_company_profile(company_number, api_key)
+        profile = profile or _get_company_profile(company_number, api_key)
         if profile:
             sic_codes = profile.get("sic_codes", [])
             if sic_codes:
@@ -214,11 +263,31 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
                 # Add relationship for knowledge graph
                 result.relationships.append({
-                    "type": "officer",
-                    "entity_name": name,
-                    "role": role,
-                    "company": company_name,
-                    "appointed": appointed,
+                    "type": "officer_of",
+                    "source_entity": name,
+                    "target_entity": company_name,
+                    "source_entity_type": "person",
+                    "target_entity_type": "company",
+                    "data_source": "uk_companies_house",
+                    "confidence": 0.88,
+                    "evidence": (
+                        f"UK Companies House lists {name} as {role or 'an officer'} "
+                        f"of {company_name}."
+                    ),
+                    "evidence_url": (
+                        f"https://find-and-update.company-information.service.gov.uk/company/"
+                        f"{company_number}/officers"
+                    ),
+                    "structured_fields": {
+                        "role": role,
+                        "appointed_on": appointed,
+                        "nationality": nationality,
+                        "company_number": company_number,
+                        "standards": ["UK Companies House Officers Register"],
+                    },
+                    "authority_level": "official_registry",
+                    "access_model": "public_api",
+                    "source_class": "public_connector",
                 })
 
             result.findings.append(Finding(
@@ -270,12 +339,37 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     })
 
                 # Add relationship
+                target_entity_type = "holding_company" if any(
+                    token in kind.lower() for token in ("corporate", "legal")
+                ) else "person"
                 result.relationships.append({
-                    "type": "beneficial_owner",
-                    "entity_name": psc_name,
-                    "kind": kind,
-                    "natures_of_control": natures,
-                    "company": company_name,
+                    "type": "beneficially_owned_by",
+                    "source_entity": company_name,
+                    "target_entity": psc_name,
+                    "source_entity_type": "company",
+                    "target_entity_type": target_entity_type,
+                    "data_source": "uk_companies_house",
+                    "confidence": 0.93,
+                    "evidence": (
+                        f"UK Companies House PSC register lists {psc_name} as a person with "
+                        f"significant control over {company_name}."
+                    ),
+                    "evidence_url": (
+                        f"https://find-and-update.company-information.service.gov.uk/company/"
+                        f"{company_number}/persons-with-significant-control"
+                    ),
+                    "structured_fields": {
+                        "kind": kind,
+                        "natures_of_control": natures,
+                        "notified_on": notified,
+                        "nationality": nationality,
+                        "country_of_residence": country_of_residence,
+                        "company_number": company_number,
+                        "standards": ["UK PSC Register"],
+                    },
+                    "authority_level": "official_registry",
+                    "access_model": "public_api",
+                    "source_class": "public_connector",
                 })
 
             # Determine PSC severity
@@ -309,6 +403,79 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 confidence=0.6,
             ))
 
+        # Step 5: Get PSC statements
+        time.sleep(0.3)
+        psc_statements = _get_psc_statements(company_number, api_key)
+        if psc_statements:
+            statement_kinds = sorted(
+                {
+                    str(statement.get("statement") or statement.get("statement_type") or "").strip()
+                    for statement in psc_statements
+                    if str(statement.get("statement") or statement.get("statement_type") or "").strip()
+                }
+            )
+            result.findings.append(Finding(
+                source="uk_companies_house",
+                category="beneficial_ownership",
+                title=f"PSC statements: {len(psc_statements)} disclosure records",
+                detail=(
+                    f"Companies House exposes {len(psc_statements)} PSC statement records for {company_name}. "
+                    + (f"Statement types: {', '.join(statement_kinds)}." if statement_kinds else "Statement types were not labeled in the response.")
+                ),
+                severity="info",
+                confidence=0.88,
+                url=f"https://find-and-update.company-information.service.gov.uk/company/{company_number}/persons-with-significant-control",
+                raw_data={"statement_kinds": statement_kinds, "count": len(psc_statements)},
+                structured_fields={
+                    "company_number": company_number,
+                    "statement_count": len(psc_statements),
+                    "statement_kinds": statement_kinds,
+                    "standards": ["UK PSC Register", "Companies House PSC Statements"],
+                },
+            ))
+
+        # Step 6: Get filing history
+        time.sleep(0.3)
+        filing_history = _get_filing_history(company_number, api_key)
+        if filing_history:
+            recent_items = filing_history[:5]
+            filing_categories = sorted(
+                {
+                    str(item.get("category") or "").strip()
+                    for item in filing_history
+                    if str(item.get("category") or "").strip()
+                }
+            )
+            recent_lines = [
+                f"  {item.get('date', '')} - {item.get('description', item.get('type', 'filing'))}"
+                for item in recent_items
+            ]
+            result.findings.append(Finding(
+                source="uk_companies_house",
+                category="corporate_identity",
+                title=f"Filing history: {len(filing_history)} recent Companies House records",
+                detail=(
+                    f"Recent filing activity for {company_name} ({company_number}).\n"
+                    + "\n".join(recent_lines)
+                    + (f"\nCategories: {', '.join(filing_categories)}" if filing_categories else "")
+                ),
+                severity="info",
+                confidence=0.9,
+                url=f"https://find-and-update.company-information.service.gov.uk/company/{company_number}/filing-history",
+                raw_data={"count": len(filing_history), "categories": filing_categories},
+                structured_fields={
+                    "company_number": company_number,
+                    "filing_count": len(filing_history),
+                    "filing_categories": filing_categories,
+                    "recent_filing_dates": [
+                        str(item.get("date") or "")
+                        for item in recent_items
+                        if str(item.get("date") or "").strip()
+                    ],
+                    "standards": ["UK Companies House Filing History"],
+                },
+            ))
+
         # Check for other search results that might be related entities
         if len(search_results) > 1:
             related = []
@@ -327,5 +494,15 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     except Exception as e:
         result.error = str(e)
 
+    result.structured_fields = {
+        "summary": {
+            "company_number": result.identifiers.get("uk_company_number", ""),
+            "company_status": company_status if "company_status" in locals() else "",
+            "active_officer_count": len(active_officers) if "active_officers" in locals() else 0,
+            "psc_count": len(pscs) if "pscs" in locals() else 0,
+            "psc_statement_count": len(psc_statements) if "psc_statements" in locals() else 0,
+            "filing_count": len(filing_history) if "filing_history" in locals() else 0,
+        }
+    }
     result.elapsed_ms = int((time.time() - t0) * 1000)
     return result

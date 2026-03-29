@@ -26,7 +26,6 @@ import time
 import urllib.request
 import urllib.error
 import urllib.parse
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 from runtime_paths import get_sanctions_db_path
@@ -119,7 +118,8 @@ def _get_json(url: str, headers: dict = None) -> dict | list | None:
 
 def _search_local_db(vendor_name: str) -> list[dict]:
     """Search local sanctions.db for World Bank debarment records."""
-    import sqlite3, os
+    import sqlite3
+    import os
     db_path = get_sanctions_db_path()
     if not os.path.exists(db_path):
         return []

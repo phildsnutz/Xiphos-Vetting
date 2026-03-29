@@ -16,9 +16,7 @@ Architecture:
 
 from __future__ import annotations
 
-import math
-import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Optional
@@ -32,7 +30,7 @@ except ImportError:
     HAS_SCORING = False
 
 try:
-    from osint.enrichment import enrich_vendor
+    import osint.enrichment  # noqa: F401
     HAS_OSINT = True
 except ImportError:
     HAS_OSINT = False

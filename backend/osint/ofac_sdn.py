@@ -31,12 +31,9 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         resp.raise_for_status()
 
         root = ET.fromstring(resp.content)
-        ns = {"sdn": "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/ADVANCED_XML"}
-
         # Try both namespaced and non-namespaced
         entries = root.findall(".//sdnEntry") or root.findall(".//{*}sdnEntry")
 
-        vendor_lower = vendor_name.lower()
         vendor_words = [w.lower() for w in vendor_name.split() if len(w) >= 3]
 
         matches = []

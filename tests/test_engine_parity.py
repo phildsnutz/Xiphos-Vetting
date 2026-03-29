@@ -7,14 +7,14 @@ Sensitivity tiers use Xiphos program scrutiny labels (not classification marking
   CRITICAL_SAP, CRITICAL_SCI, ELEVATED, ENHANCED, CONTROLLED, STANDARD, COMMERCIAL
 """
 
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 from fgamlogit import (
     geo_risk, OwnershipProfile, DataQuality, ExecProfile, DoDContext,
     VendorInputV5, score_vendor, integrate_layers,
-    _compute_ownership_risk, _compute_data_quality_risk, _compute_exec_risk,
-    _logistic, _wilson_ci, BASELINE_LOGODDS, FACTOR_WEIGHTS, SENSITIVITY_TIERS,
+    _compute_ownership_risk, _logistic, _wilson_ci, BASELINE_LOGODDS, FACTOR_WEIGHTS, SENSITIVITY_TIERS,
 )
 
 
@@ -26,7 +26,7 @@ class TestGeoRisk:
         assert geo_risk("KP") == 0.98
 
     def test_unknown_country_defaults(self):
-        assert geo_risk("XX") == 0.30
+        assert geo_risk("XX") == 0.15
 
     def test_case_insensitive(self):
         assert geo_risk("us") == geo_risk("US")

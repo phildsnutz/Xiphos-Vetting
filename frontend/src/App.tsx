@@ -1,18 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
-import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings } from "lucide-react";
-import { T, FS } from "@/lib/tokens";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard } from "lucide-react";
+import { T, FS, FX } from "@/lib/tokens";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { HeliosLanding } from "@/components/xiphos/helios-landing";
 import { PortfolioScreen } from "@/components/xiphos/portfolio-screen";
 import { DemoCompare } from "@/components/xiphos/demo-compare";
-import { rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler } from "@/lib/api";
+import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligence-dashboard";
+import ComplianceDashboard from "@/components/xiphos/compliance-dashboard";
+import { ErrorBoundary } from "@/components/xiphos/error-boundary";
+import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
-import type { VettingCase, Calibration } from "@/lib/types";
+import type { VettingCase, Calibration, ScreeningPolicyBasis, ScoringPolicyMetadata } from "@/lib/types";
 import { parseTier, tierToRisk } from "@/lib/tokens";
+import { WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "@/components/xiphos/portfolio-utils";
+import type { WorkflowLane } from "@/components/xiphos/portfolio-utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -41,6 +47,17 @@ function mapCalibration(apiCal: Record<string, unknown>): Calibration {
     sensitivity_context?: string;
     supply_chain_tier?: number;
     model_version?: string;
+    policy?: ScoringPolicyMetadata;
+    screening?: {
+      matched: boolean;
+      best_score: number;
+      best_raw_jw: number;
+      matched_name: string;
+      db_label: string;
+      screening_ms: number;
+      match_details?: Record<string, unknown>;
+      policy_basis?: ScreeningPolicyBasis;
+    };
   };
 
   const meanConf = cal.contributions.length > 0
@@ -48,7 +65,7 @@ function mapCalibration(apiCal: Record<string, unknown>): Calibration {
 
   return {
     p: cal.calibrated_probability,
-    tier: parseTier(cal.calibrated_tier),
+    tier: parseTier(cal.combined_tier ?? cal.calibrated_tier),
     combinedTier: parseTier(cal.combined_tier ?? cal.calibrated_tier),
     lo: cal.interval.lower,
     hi: cal.interval.upper,
@@ -72,11 +89,22 @@ function mapCalibration(apiCal: Record<string, unknown>): Calibration {
     sensitivityContext: cal.sensitivity_context,
     supplyChainTier: cal.supply_chain_tier,
     modelVersion: cal.model_version,
+    policy: cal.policy,
+    screening: cal.screening ? {
+      matched: cal.screening.matched,
+      bestScore: cal.screening.best_score,
+      bestRawJw: cal.screening.best_raw_jw,
+      matchedName: cal.screening.matched_name,
+      dbLabel: cal.screening.db_label,
+      screeningMs: cal.screening.screening_ms,
+      matchDetails: cal.screening.match_details,
+      policyBasis: cal.screening.policy_basis,
+    } : undefined,
   };
 }
 
 /** Convert an API case to our internal VettingCase */
-function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string; created_at: string; score: Record<string, unknown> | null; profile?: string; program?: string; country?: string }): VettingCase | null {
+function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string; created_at: string; score: Record<string, unknown> | null; profile?: string; program?: string; country?: string; workflow_lane?: "counterparty" | "cyber" | "export" }): VettingCase | null {
   if (!ac.score) return null;
   const score = ac.score as { composite_score: number; is_hard_stop: boolean; calibrated: Record<string, unknown> };
   if (!score.calibrated) return null;
@@ -85,7 +113,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   return {
     id: ac.id,
     name: ac.vendor_name,
-    cc: (score.calibrated as { calibrated_tier?: string })?.calibrated_tier ? "" : "",
+    cc: ac.country ?? "",
     date: ac.created_at,
     rl: tierToRisk(cal.tier),
     sc: score.composite_score,
@@ -93,18 +121,27 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
     cal,
     profile: ac.profile,
     program: ac.program,
-    ...(() => {
+    workflowLane: ac.workflow_lane,
+    ...(!ac.country ? (() => {
       const geoCt = cal.ct.find((c) => c.n === "Geography");
       const ccMatch = geoCt?.d?.match(/\(([A-Z]{2})\)/);
       return ccMatch ? { cc: ccMatch[1] } : {};
-    })(),
+    })() : {}),
   };
 }
 
-type Tab = "helios" | "portfolio" | "admin";
+type Tab = "dashboard" | "helios" | "portfolio" | "graph" | "admin";
+
+function shellPriorityRank(disposition: ReturnType<typeof portfolioDisposition>): number {
+  if (disposition === "blocked") return 3;
+  if (disposition === "review") return 2;
+  if (disposition === "qualified") return 1;
+  return 0;
+}
 
 export default function App() {
   const isFileMode = window.location.protocol === "file:";
+  const demoEnabled = import.meta.env.VITE_ENABLE_PUBLIC_DEMO === "true";
 
   // Auth state
   const [authRequired, setAuthRequired] = useState<boolean | null>(isFileMode ? false : null);
@@ -115,20 +152,32 @@ export default function App() {
   const [cases, setCases] = useState<VettingCase[]>([]);
   const [selected, setSelected] = useState<VettingCase | null>(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("helios");
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
+  const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState<"bug" | "confusion" | "request" | "general">("bug");
+  const [feedbackSeverity, setFeedbackSeverity] = useState<"low" | "medium" | "high">("medium");
+  const [feedbackSummary, setFeedbackSummary] = useState("");
+  const [feedbackDetails, setFeedbackDetails] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
+  const lastModeEventRef = useRef<string>("");
+  const lastScreenEventRef = useRef<string>("");
   // onboarding dismissed state removed in UI redesign
 
+  const refreshCases = useCallback(async (limit = 200) => {
+    const apiCases = await fetchCases(limit);
+    const converted = apiCases
+      .map((ac) => apiCaseToVetting(ac as unknown as Parameters<typeof apiCaseToVetting>[0]))
+      .filter((c): c is VettingCase => c !== null);
+    setCases(converted);
+    return converted;
+  }, []);
+
   const loadCases = useCallback(() => {
-    fetchCases(200)
-      .then((apiCases) => {
-        const converted = apiCases
-          .map((ac) => apiCaseToVetting(ac as unknown as Parameters<typeof apiCaseToVetting>[0]))
-          .filter((c): c is VettingCase => c !== null);
-        if (converted.length > 0) {
-          setCases(converted);
-        }
-      })
+    refreshCases(200)
       .catch(() => {
         // Token might be expired
         if (authRequired) {
@@ -136,7 +185,7 @@ export default function App() {
           setUser(null);
         }
       });
-  }, [authRequired]);
+  }, [authRequired, refreshCases]);
 
   // Handle 401 from any API call (auto-logout)
   useEffect(() => {
@@ -161,6 +210,70 @@ export default function App() {
     });
   }, [isFileMode, loadCases]);
 
+  const shellLaneMeta = WORKFLOW_LANE_META[workflowMode];
+  const shellLaneCases = useMemo(
+    () => cases.filter((c) => workflowLaneForCase(c) === workflowMode),
+    [cases, workflowMode],
+  );
+  const shellLaneBlocked = useMemo(
+    () => shellLaneCases.filter((c) => portfolioDisposition(c) === "blocked").length,
+    [shellLaneCases],
+  );
+  const shellLaneReview = useMemo(
+    () => shellLaneCases.filter((c) => portfolioDisposition(c) === "review").length,
+    [shellLaneCases],
+  );
+  const shellLaneWatch = useMemo(
+    () => shellLaneCases.filter((c) => portfolioDisposition(c) === "qualified").length,
+    [shellLaneCases],
+  );
+  const shellTopCase = useMemo(() => {
+    const ranked = [...shellLaneCases].sort((a, b) => {
+      const dispositionDiff = shellPriorityRank(portfolioDisposition(b)) - shellPriorityRank(portfolioDisposition(a));
+      if (dispositionDiff !== 0) return dispositionDiff;
+      return (b.cal?.p ?? b.sc) - (a.cal?.p ?? a.sc);
+    });
+    return ranked[0] ?? null;
+  }, [shellLaneCases]);
+  const shellSummary = useMemo(() => {
+    if (shellLaneCases.length === 0) {
+      return `No ${shellLaneMeta.label.toLowerCase()} cases are active yet. Start a new case in this lane.`;
+    }
+    if (shellLaneBlocked > 0) {
+      return `${shellLaneBlocked} blocked ${shellLaneMeta.shortLabel.toLowerCase()} case${shellLaneBlocked === 1 ? "" : "s"} require immediate action.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
+    }
+    if (shellLaneReview > 0) {
+      return `${shellLaneReview} ${shellLaneMeta.shortLabel.toLowerCase()} case${shellLaneReview === 1 ? "" : "s"} need focused review.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
+    }
+    if (shellLaneWatch > 0) {
+      return `${shellLaneWatch} qualified ${shellLaneMeta.shortLabel.toLowerCase()} case${shellLaneWatch === 1 ? "" : "s"} remain on watch.${shellTopCase ? ` Highest priority: ${shellTopCase.name}.` : ""}`;
+    }
+    return `The ${shellLaneMeta.label.toLowerCase()} queue is currently stable.${shellTopCase ? ` Highest-priority case: ${shellTopCase.name}.` : ""}`;
+  }, [shellLaneBlocked, shellLaneCases.length, shellLaneMeta.label, shellLaneMeta.shortLabel, shellLaneReview, shellLaneWatch, shellTopCase]);
+  const shellLaneSummary = useMemo(() => ({
+    lane: workflowMode,
+    label: shellLaneMeta.label,
+    shortLabel: shellLaneMeta.shortLabel,
+    description: shellLaneMeta.description,
+    activeCount: shellLaneCases.length,
+    reviewCount: shellLaneReview,
+    blockedCount: shellLaneBlocked,
+    watchCount: shellLaneWatch,
+    summary: shellSummary,
+    topCaseName: shellTopCase?.name ?? null,
+  }), [
+    shellLaneBlocked,
+    shellLaneCases.length,
+    shellLaneMeta.description,
+    shellLaneMeta.label,
+    shellLaneMeta.shortLabel,
+    shellLaneReview,
+    shellLaneWatch,
+    shellSummary,
+    shellTopCase?.name,
+    workflowMode,
+  ]);
+
   function handleLogin(u: AuthUser) {
     setUser(u);
     setApiAvailable(true);
@@ -176,24 +289,61 @@ export default function App() {
     setTab("helios");
   }
 
+  const emitBetaEvent = useCallback((eventName: string, payload: { workflow_lane?: WorkflowLane; screen?: string; case_id?: string; metadata?: Record<string, unknown> } = {}) => {
+    if (!apiAvailable) return;
+    void trackBetaEvent({
+      event_name: eventName,
+      workflow_lane: payload.workflow_lane,
+      screen: payload.screen,
+      case_id: payload.case_id,
+      metadata: payload.metadata,
+    }).catch(() => undefined);
+  }, [apiAvailable]);
+
   const handleCaseCreated = async (caseId: string) => {
-    const fresh = await fetchCases();
-    const mapped = fresh.map(apiCaseToVetting).filter(Boolean) as VettingCase[];
-    setCases(mapped);
+    const mapped = await refreshCases();
     const newCase = mapped.find((c) => c.id === caseId);
     if (newCase) setSelected(newCase);
   };
 
+  useEffect(() => {
+    if (!apiAvailable) return;
+    const key = workflowMode;
+    if (lastModeEventRef.current === key) return;
+    lastModeEventRef.current = key;
+    emitBetaEvent("shell_mode_changed", {
+      workflow_lane: workflowMode,
+      screen: selected ? "case" : tab,
+      case_id: selected?.id,
+      metadata: { tab, selected_case: selected?.name ?? null },
+    });
+  }, [apiAvailable, emitBetaEvent, selected, tab, workflowMode]);
+
+  useEffect(() => {
+    if (!apiAvailable) return;
+    const key = selected ? `case:${selected.id}:${workflowMode}` : `screen:${tab}:${workflowMode}`;
+    if (lastScreenEventRef.current === key) return;
+    lastScreenEventRef.current = key;
+    emitBetaEvent(selected ? "case_viewed" : "screen_viewed", {
+      workflow_lane: selected ? workflowLaneForCase(selected) : workflowMode,
+      screen: selected ? "case" : tab,
+      case_id: selected?.id,
+      metadata: { shell_lane: workflowMode, tab },
+    });
+  }, [apiAvailable, emitBetaEvent, selected, tab, workflowMode]);
+
   // Demo mode: /demo or /#demo path renders public comparison page
-  const isDemo = window.location.pathname === "/demo"
+  const isDemo = demoEnabled && (window.location.pathname === "/demo"
     || window.location.hash === "#demo"
-    || window.location.hash === "#/demo";
+    || window.location.hash === "#/demo");
 
   if (isDemo) {
     return (
-      <div className="min-h-screen" style={{ background: T.bg, color: T.text }}>
-        <DemoCompare />
-      </div>
+      <ErrorBoundary>
+        <div className="min-h-screen" style={{ background: T.bg, color: T.text }}>
+          <DemoCompare />
+        </div>
+      </ErrorBoundary>
     );
   }
 
@@ -211,10 +361,20 @@ export default function App() {
   }
 
   if (authRequired && !user) {
-    return <LoginScreen onLogin={handleLogin} needsSetup={false} />;
+    return (
+      <ErrorBoundary>
+        <LoginScreen onLogin={handleLogin} needsSetup={false} />
+      </ErrorBoundary>
+    );
   }
 
   const handleRescore = async (caseId: string) => {
+    emitBetaEvent("rescore_requested", {
+      workflow_lane: selected ? workflowLaneForCase(selected) : workflowMode,
+      screen: "case",
+      case_id: caseId,
+      metadata: { tab },
+    });
     const result = await rescore(caseId);
     const cal = mapCalibration(result.calibrated as unknown as Record<string, unknown>);
     const rl = tierToRisk(cal.tier);
@@ -234,18 +394,63 @@ export default function App() {
   const handleDossier = async (caseId: string) => {
     const c = cases.find((x) => x.id === caseId);
     if (!c) return;
+    emitBetaEvent("dossier_requested", {
+      workflow_lane: workflowLaneForCase(c),
+      screen: selected ? "case" : tab,
+      case_id: caseId,
+      metadata: { tab },
+    });
     if (apiAvailable) {
       try {
         const result = await apiDossier(caseId);
         if (result.download_url) {
-          const token = getToken();
-          const sep = result.download_url.includes("?") ? "&" : "?";
-          window.open(`${result.download_url}${token ? sep + "token=" + encodeURIComponent(token) : ""}`, "_blank");
+          const protectedUrl = await buildProtectedUrl(result.download_url);
+          window.open(protectedUrl, "_blank");
           return;
         }
       } catch { /* fall through */ }
     }
     openDossier(c);
+  };
+
+  const handleSubmitFeedback = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFeedbackSubmitting(true);
+    setFeedbackError(null);
+    setFeedbackSuccess(null);
+    try {
+      const activeCase = selected ?? null;
+      const lane = activeCase ? workflowLaneForCase(activeCase) : workflowMode;
+      await submitBetaFeedback({
+        summary: feedbackSummary.trim(),
+        details: feedbackDetails.trim(),
+        category: feedbackCategory,
+        severity: feedbackSeverity,
+        workflow_lane: lane,
+        screen: activeCase ? "case" : tab,
+        case_id: activeCase?.id,
+        metadata: {
+          shell_lane: workflowMode,
+          selected_case_name: activeCase?.name ?? null,
+          tab,
+        },
+      });
+      emitBetaEvent("feedback_submitted", {
+        workflow_lane: lane,
+        screen: activeCase ? "case" : tab,
+        case_id: activeCase?.id,
+        metadata: { category: feedbackCategory, severity: feedbackSeverity },
+      });
+      setFeedbackSuccess("Feedback captured for beta review.");
+      setFeedbackSummary("");
+      setFeedbackDetails("");
+      setFeedbackCategory("bug");
+      setFeedbackSeverity("medium");
+    } catch (err) {
+      setFeedbackError(err instanceof Error ? err.message : "Failed to submit feedback");
+    } finally {
+      setFeedbackSubmitting(false);
+    }
   };
 
   const filtered = cases.filter(
@@ -260,76 +465,178 @@ export default function App() {
     : "TG";
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: T.bg, color: T.text }}>
-      {/* Header */}
-      <header
-        className="flex items-center justify-between px-4 lg:px-6 shrink-0"
-        style={{ height: 48, borderBottom: `1px solid ${T.border}`, background: T.bg }}
+    <ErrorBoundary>
+      <div className="h-screen flex flex-col overflow-hidden" style={{ background: T.bg, color: T.text }}>
+        {/* Header */}
+        <header
+        className="flex items-center justify-between px-4 lg:px-6 shrink-0 helios-glass"
+        style={{
+          height: '56px',
+          borderBottom: `1px solid ${T.borderStrong}`,
+          background: FX.shell,
+        }}
       >
-        <div className="flex items-center gap-2">
-          <Shield size={18} color={T.accent} />
-          <div className="flex items-baseline gap-2">
-            <span className="font-bold" style={{ fontSize: FS.md, color: T.text }}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="inline-flex items-center gap-2 rounded-full"
+            style={{
+              padding: "8px 12px",
+              background: `${shellLaneMeta.softBackground}`,
+              border: `1px solid ${shellLaneMeta.softBorder}`,
+              boxShadow: FX.softShadow,
+            }}
+          >
+            <div
+              className="flex items-center justify-center rounded-full"
+              style={{
+                width: 28,
+                height: 28,
+                background: "rgba(255,255,255,0.04)",
+                border: `1px solid ${T.borderStrong}`,
+              }}
+            >
+              <Shield size={15} color={shellLaneMeta.accent} />
+            </div>
+            <div className="flex items-baseline gap-2">
+            <span className="font-bold" style={{ fontSize: FS.base, color: T.text, letterSpacing: "-0.02em" }}>
               Helios
             </span>
-            <span style={{ fontSize: FS.sm, color: T.muted }}>
+            <span style={{ fontSize: FS.sm, color: T.dim }}>
               by Xiphos
             </span>
+            </div>
           </div>
 
 
           {/* Tab navigation */}
-          {!selected && (
-            <div className="flex items-center gap-0.5 ml-4">
+          <div className="flex items-center gap-1 ml-2 rounded-full min-w-0" style={{ padding: 4, background: T.surface, border: `1px solid ${T.borderStrong}`, boxShadow: FX.softShadow }}>
               <button
-                onClick={() => setTab("helios")}
-                className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                onClick={() => { setTab("dashboard"); setSelected(null); }}
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring"
                 style={{
                   fontSize: FS.sm,
-                  background: tab === "helios" ? "#C4A05222" : "transparent",
-                  color: tab === "helios" ? "#C4A052" : T.muted,
+                  fontWeight: 700,
+                  background: tab === "dashboard" ? T.accentSoft : "transparent",
+                  color: tab === "dashboard" ? T.accent : T.muted,
+                  borderBottom: tab === "dashboard" ? '2px solid #0ea5e9' : 'none',
+                }}
+              >
+                <LayoutDashboard size={12} />
+                Dashboard
+              </button>
+              <button
+                onClick={() => { setTab("helios"); setSelected(null); }}
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring"
+                style={{
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  background: tab === "helios" ? WORKFLOW_LANE_META.counterparty.softBackground : "transparent",
+                  color: tab === "helios" ? WORKFLOW_LANE_META.counterparty.accent : T.muted,
+                  borderBottom: tab === "helios" ? '2px solid #0ea5e9' : 'none',
                 }}
               >
                 <Shield size={12} />
                 Helios
               </button>
               <button
-                onClick={() => setTab("portfolio")}
-                className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                onClick={() => { setTab("portfolio"); setSelected(null); }}
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring"
                 style={{
                   fontSize: FS.sm,
-                  background: tab === "portfolio" ? T.accent + "22" : "transparent",
+                  fontWeight: 700,
+                  background: tab === "portfolio" ? T.accentSoft : "transparent",
                   color: tab === "portfolio" ? T.accent : T.muted,
+                  borderBottom: tab === "portfolio" ? '2px solid #0ea5e9' : 'none',
                 }}
               >
                 <Shield size={12} />
                 Portfolio
               </button>
-              {hasPermission(user, "admin") && (
+              <button
+                onClick={() => { setTab("graph"); setSelected(null); }}
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring"
+                style={{
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  background: tab === "graph" ? T.accentSoft : "transparent",
+                  color: tab === "graph" ? T.accent : T.muted,
+                  borderBottom: tab === "graph" ? '2px solid #0ea5e9' : 'none',
+                }}
+              >
+                <Grid3X3 size={12} />
+                Graph Intel
+              </button>
+              {hasPermission(user, "auditor") && (
                 <button
-                  onClick={() => setTab("admin")}
-                  className="inline-flex items-center gap-1 rounded px-2.5 py-1 border-none cursor-pointer"
+                  onClick={() => { setTab("admin"); setSelected(null); }}
+                  className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring"
                   style={{
                     fontSize: FS.sm,
-                    background: tab === "admin" ? T.accent + "22" : "transparent",
+                    fontWeight: 700,
+                    background: tab === "admin" ? T.accentSoft : "transparent",
                     color: tab === "admin" ? T.accent : T.muted,
+                    borderBottom: tab === "admin" ? '2px solid #0ea5e9' : 'none',
                   }}
                 >
                   <Settings size={12} />
                   Admin
                 </button>
               )}
+          </div>
+          {tab !== "admin" && tab !== "graph" && tab !== "dashboard" && (
+            <div className="flex items-center gap-1 ml-3 rounded-full min-w-0" style={{ padding: 4, background: T.surface, border: `1px solid ${T.borderStrong}`, boxShadow: FX.softShadow }}>
+              {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
+                const meta = WORKFLOW_LANE_META[lane];
+                const isActive = workflowMode === lane;
+                return (
+                  <button
+                    key={lane}
+                    onClick={() => setWorkflowMode(lane)}
+                    className="inline-flex items-center rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring"
+                    style={{
+                      fontSize: FS.sm,
+                      fontWeight: 700,
+                      background: isActive ? meta.softBackground : "transparent",
+                      color: isActive ? meta.accent : T.muted,
+                    }}
+                    title={meta.description}
+                  >
+                    {meta.shortLabel}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
         <div className="flex items-center gap-3">
           {apiAvailable !== null && (
-            <div className="flex items-center gap-1" title={apiAvailable ? "API connected" : "Scoring engine runs client-side"}>
+            <div className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5" title={apiAvailable ? "API connected" : "Scoring engine runs client-side"} style={{ background: T.surface, border: `1px solid ${T.borderStrong}` }}>
               {apiAvailable ? <Wifi size={12} color={T.green} /> : <WifiOff size={12} color={T.muted} />}
               <span style={{ fontSize: FS.sm, fontWeight: 600, color: apiAvailable ? T.green : T.muted }}>
                 {apiAvailable ? "Live" : "Offline"}
               </span>
             </div>
+          )}
+          {apiAvailable && (
+            <button
+              onClick={() => {
+                setShowFeedbackDialog(true);
+                setFeedbackError(null);
+                setFeedbackSuccess(null);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 cursor-pointer helios-focus-ring"
+              style={{
+                fontSize: FS.sm,
+                fontWeight: 700,
+                background: FX.panel,
+                color: T.text,
+                border: `1px solid ${T.borderStrong}`,
+                boxShadow: FX.softShadow,
+              }}
+            >
+              <MessageSquare size={12} color={T.accent} />
+              Beta feedback
+            </button>
           )}
           {tab === "portfolio" && !selected && (
             <div className="relative">
@@ -338,11 +645,11 @@ export default function App() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search vendors..."
-                className="rounded outline-none"
+                className="rounded-full outline-none helios-focus-ring"
                 style={{
                   paddingLeft: 28, paddingRight: 10, paddingTop: 5, paddingBottom: 5,
                   fontSize: FS.sm, width: 200,
-                  background: T.surface, border: `1px solid ${T.border}`, color: T.text,
+                  background: T.surface, border: `1px solid ${T.borderStrong}`, color: T.text,
                 }}
               />
             </div>
@@ -436,49 +743,187 @@ export default function App() {
         </div>
       </header>
 
+      {tab !== "admin" && (
+        <section
+          className="px-4 lg:px-6 py-2 shrink-0"
+          style={{ borderBottom: `1px solid ${T.borderStrong}`, background: "transparent" }}
+        >
+          <div className="max-w-[1400px] mx-auto" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: shellLaneMeta.accent, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Current operating lane
+            </span>
+            <span style={{ fontSize: FS.base, fontWeight: 700, color: T.text }}>
+              {shellLaneMeta.label}
+            </span>
+            <span style={{ fontSize: FS.base, color: T.muted }}>
+              {shellLaneCases.length} active · {shellLaneBlocked} blocked
+            </span>
+          </div>
+        </section>
+      )}
+
       {/* Main content */}
-      <main className="flex-1 overflow-auto p-3 lg:p-4">
-        <div className="max-w-[1400px] mx-auto h-full">
+      <main className={`flex-1 overflow-auto ${tab === "graph" || tab === "dashboard" ? "p-0" : "p-4 lg:p-6"}`}>
+        <div className={`${tab === "graph" || tab === "dashboard" ? "w-full h-full" : "max-w-[1400px] mx-auto"} h-full`}>
           {selected ? (
             <CaseDetail
               c={selected}
               onBack={() => setSelected(null)}
               onRescore={apiAvailable ? handleRescore : undefined}
               onDossier={handleDossier}
+              onCaseRefresh={handleCaseCreated}
+              globalLane={workflowMode}
+              laneSummary={shellLaneSummary}
             />
+          ) : tab === "dashboard" ? (
+            <ComplianceDashboard />
           ) : tab === "helios" ? (
             <HeliosLanding
               onCaseCreated={handleCaseCreated}
               onNavigate={(t) => setTab(t as Tab)}
+              onCasesRefresh={async () => { await refreshCases(); }}
               cases={cases}
+              preferredLane={workflowMode}
+              onPreferredLaneChange={setWorkflowMode}
             />
           ) : tab === "portfolio" ? (
             <PortfolioScreen
+              key={`portfolio-${workflowMode}`}
+              allCases={cases}
               cases={filtered}
+              query={query}
               onSelect={setSelected}
+              globalLane={workflowMode}
+              onGlobalLaneChange={setWorkflowMode}
+              onNavigate={(t) => setTab(t as Tab)}
+              laneSummary={shellLaneSummary}
             />
-          ) : tab === "admin" && user ? (
+          ) : tab === "graph" ? (
+            <GraphIntelligenceDashboard />
+          ) : tab === "admin" && user && hasPermission(user, "auditor") ? (
             <AdminPanel currentUser={user} />
           ) : (
             <HeliosLanding
               onCaseCreated={handleCaseCreated}
               onNavigate={(t) => setTab(t as Tab)}
+              onCasesRefresh={async () => { await refreshCases(); }}
               cases={cases}
+              preferredLane={workflowMode}
+              onPreferredLaneChange={setWorkflowMode}
             />
           )}
         </div>
       </main>
 
-      {/* Footer */}
-      <footer
-        className="text-center shrink-0"
-        style={{ padding: "8px 0", fontSize: FS.sm, color: T.muted, borderTop: `1px solid ${T.border}` }}
-      >
-        Helios v5.2 · {cases.length} vendors in portfolio
-        {user && <> · {user.email}</>}
-        {" · "}
-        <span style={{ color: T.dim }}>{apiAvailable ? "System live" : "Local mode"}</span>
-      </footer>
-    </div>
+        {/* Footer */}
+        <footer
+          className="text-center shrink-0"
+          style={{ padding: "8px 0", fontSize: FS.sm, color: T.muted, borderTop: `1px solid ${T.border}` }}
+        >
+          Helios v5.2 · {cases.length} vendors in portfolio
+          {user && <> · {user.email}</>}
+          {" · "}
+          <span style={{ color: T.dim }}>{apiAvailable ? "System live" : "Local mode"}</span>
+        </footer>
+
+        <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
+          <DialogContent style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, maxWidth: 640 }}>
+            <DialogHeader>
+              <DialogTitle style={{ color: T.text }}>Submit beta feedback</DialogTitle>
+              <DialogDescription style={{ color: T.muted }}>
+                Captures the current lane, screen, and case context for triage.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmitFeedback} className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontSize: FS.sm, color: T.muted }}>Category</span>
+                  <select
+                    value={feedbackCategory}
+                    onChange={(e) => setFeedbackCategory(e.target.value as typeof feedbackCategory)}
+                    style={{ background: T.bg, border: `1px solid ${T.border}`, color: T.text, borderRadius: 8, padding: "8px 10px", fontSize: FS.sm }}
+                  >
+                    <option value="bug">Bug</option>
+                    <option value="confusion">Confusion</option>
+                    <option value="request">Request</option>
+                    <option value="general">General</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontSize: FS.sm, color: T.muted }}>Severity</span>
+                  <select
+                    value={feedbackSeverity}
+                    onChange={(e) => setFeedbackSeverity(e.target.value as typeof feedbackSeverity)}
+                    style={{ background: T.bg, border: `1px solid ${T.border}`, color: T.text, borderRadius: 8, padding: "8px 10px", fontSize: FS.sm }}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+              </div>
+
+              <div
+                className="rounded-lg"
+                style={{ background: T.bg, border: `1px solid ${T.border}`, padding: "10px 12px" }}
+              >
+                <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 4 }}>Current context</div>
+                <div style={{ fontSize: FS.sm, color: T.text }}>
+                  Lane: {selected ? WORKFLOW_LANE_META[workflowLaneForCase(selected)].label : shellLaneMeta.label}
+                  {" · "}
+                  Screen: {selected ? "case" : tab}
+                  {selected ? ` · Case: ${selected.name}` : ""}
+                </div>
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: FS.sm, color: T.muted }}>Summary</span>
+                <input
+                  value={feedbackSummary}
+                  onChange={(e) => setFeedbackSummary(e.target.value)}
+                  maxLength={240}
+                  placeholder="What failed or slowed you down?"
+                  style={{ background: T.bg, border: `1px solid ${T.border}`, color: T.text, borderRadius: 8, padding: "8px 10px", fontSize: FS.sm }}
+                  required
+                />
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: FS.sm, color: T.muted }}>Details</span>
+                <textarea
+                  value={feedbackDetails}
+                  onChange={(e) => setFeedbackDetails(e.target.value)}
+                  rows={5}
+                  placeholder="Include what you expected, what happened instead, and any blockers."
+                  style={{ background: T.bg, border: `1px solid ${T.border}`, color: T.text, borderRadius: 8, padding: "10px 12px", fontSize: FS.sm, resize: "vertical" }}
+                />
+              </label>
+
+              {feedbackError && <div style={{ fontSize: FS.sm, color: T.red }}>{feedbackError}</div>}
+              {feedbackSuccess && <div style={{ fontSize: FS.sm, color: T.green }}>{feedbackSuccess}</div>}
+
+              <DialogFooter>
+                <button
+                  type="button"
+                  onClick={() => setShowFeedbackDialog(false)}
+                  className="rounded px-3 py-2 cursor-pointer"
+                  style={{ background: T.bg, color: T.text, border: `1px solid ${T.border}`, fontSize: FS.sm, fontWeight: 700 }}
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={feedbackSubmitting || feedbackSummary.trim().length === 0}
+                  className="rounded px-3 py-2 cursor-pointer"
+                  style={{ background: T.accent, color: "#fff", border: "none", fontSize: FS.sm, fontWeight: 700, opacity: feedbackSubmitting ? 0.7 : 1 }}
+                >
+                  {feedbackSubmitting ? "Submitting..." : "Send feedback"}
+                </button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </ErrorBoundary>
   );
 }

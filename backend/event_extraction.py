@@ -37,6 +37,13 @@ _JURISDICTION_BY_SOURCE = {
     "eu_sanctions": "EU",
     "uk_hmt_sanctions": "UK",
     "uk_companies_house": "UK",
+    "corporations_canada": "CA",
+    "australia_abn_asic": "AU",
+    "singapore_acra": "SG",
+    "new_zealand_companies_office": "NZ",
+    "norway_brreg": "NO",
+    "netherlands_kvk": "NL",
+    "france_inpi_rne": "FR",
     "opencorporates": "GLOBAL",
     "gleif_lei": "GLOBAL",
     "gdelt_media": "GLOBAL",
@@ -187,7 +194,7 @@ def _event_type_for_finding(finding: dict) -> str | None:
     if source == "fara" and any(token in text for token in ("terminated", "termination", "registration ended", "registration terminated")):
         return "terminated_registration"
 
-    if source in {"sec_edgar", "gleif_lei", "opencorporates", "uk_companies_house", "sam_gov"} and any(token in text for token in ("acquired", "merger", "merged", "ownership", "beneficial owner", "parent company", "subsidiary", "shareholder", "controller", "ultimate owner")):
+    if source in {"sec_edgar", "gleif_lei", "opencorporates", "uk_companies_house", "corporations_canada", "australia_abn_asic", "singapore_acra", "new_zealand_companies_office", "norway_brreg", "netherlands_kvk", "france_inpi_rne", "sam_gov"} and any(token in text for token in ("acquired", "merger", "merged", "ownership", "beneficial owner", "parent company", "subsidiary", "shareholder", "controller", "ultimate owner")):
         return "ownership_change"
 
     if any(token in text for token in ("chief executive", "ceo", "director", "officer", "pep", "politically exposed", "executive", "board member")):

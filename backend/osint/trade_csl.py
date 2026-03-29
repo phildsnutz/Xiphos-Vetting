@@ -21,10 +21,10 @@ Strategy: Download full JSON (~31 MB), cache 24 hours, search in-memory.
 import json
 import os
 import re
+import threading
 import time
 import urllib.request
 import urllib.error
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 
@@ -37,6 +37,7 @@ DOWNLOAD_TIMEOUT = 60  # 31 MB takes ~25s on a fast connection
 # Module-level cache to avoid re-parsing JSON on every call
 _cached_entries: list[dict] | None = None
 _cache_loaded_at: float = 0.0
+_cache_lock = threading.Lock()
 
 
 def _normalize(name: str) -> str:
@@ -80,64 +81,65 @@ def _load_csl_data() -> list[dict]:
     """Load CSL data from cache or download fresh."""
     global _cached_entries, _cache_loaded_at
 
-    now = time.time()
+    with _cache_lock:
+        now = time.time()
 
-    # Check in-memory cache first
-    if _cached_entries is not None and (now - _cache_loaded_at) < CACHE_TTL:
-        return _cached_entries
-
-    # Check file cache
-    if os.path.exists(CACHE_FILE):
-        cache_age = now - os.path.getmtime(CACHE_FILE)
-        if cache_age < CACHE_TTL:
-            try:
-                with open(CACHE_FILE, 'r') as f:
-                    data = json.load(f)
-                    _cached_entries = data.get("results", [])
-                    _cache_loaded_at = now
-                    return _cached_entries
-            except (json.JSONDecodeError, IOError):
-                pass  # Fall through to download
-
-    # Download fresh from Trade.gov
-    req = urllib.request.Request(CSL_URL, headers={
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-    })
-
-    try:
-        with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            raw = resp.read()
-
-            # Validate we got JSON, not HTML
-            if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
-                raise ValueError(f"CSL API returned HTML instead of JSON (Content-Type: {content_type})")
-
-            # Cache to file
-            try:
-                with open(CACHE_FILE, 'wb') as f:
-                    f.write(raw)
-            except IOError:
-                pass  # Cache write failed, continue with data
-
-            data = json.loads(raw)
-            _cached_entries = data.get("results", [])
-            _cache_loaded_at = now
+        # Check in-memory cache first
+        if _cached_entries is not None and (now - _cache_loaded_at) < CACHE_TTL:
             return _cached_entries
 
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-        # Try stale cache as fallback
+        # Check file cache
         if os.path.exists(CACHE_FILE):
-            try:
-                with open(CACHE_FILE, 'r') as f:
-                    data = json.load(f)
-                    _cached_entries = data.get("results", [])
-                    _cache_loaded_at = now
-                    return _cached_entries
-            except (json.JSONDecodeError, IOError):
-                pass
-        raise RuntimeError(f"CSL download failed and no cache available: {e}")
+            cache_age = now - os.path.getmtime(CACHE_FILE)
+            if cache_age < CACHE_TTL:
+                try:
+                    with open(CACHE_FILE, 'r') as f:
+                        data = json.load(f)
+                        _cached_entries = data.get("results", [])
+                        _cache_loaded_at = now
+                        return _cached_entries
+                except (json.JSONDecodeError, IOError):
+                    pass  # Fall through to download
+
+        # Download fresh from Trade.gov
+        req = urllib.request.Request(CSL_URL, headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+        })
+
+        try:
+            with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                raw = resp.read()
+
+                # Validate we got JSON, not HTML
+                if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
+                    raise ValueError(f"CSL API returned HTML instead of JSON (Content-Type: {content_type})")
+
+                # Cache to file
+                try:
+                    with open(CACHE_FILE, 'wb') as f:
+                        f.write(raw)
+                except IOError:
+                    pass  # Cache write failed, continue with data
+
+                data = json.loads(raw)
+                _cached_entries = data.get("results", [])
+                _cache_loaded_at = now
+                return _cached_entries
+
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+            # Try stale cache as fallback
+            if os.path.exists(CACHE_FILE):
+                try:
+                    with open(CACHE_FILE, 'r') as f:
+                        data = json.load(f)
+                        _cached_entries = data.get("results", [])
+                        _cache_loaded_at = now
+                        return _cached_entries
+                except (json.JSONDecodeError, IOError):
+                    pass
+            raise RuntimeError(f"CSL download failed and no cache available: {e}")
 
 
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:

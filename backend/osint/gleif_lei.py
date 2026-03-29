@@ -11,17 +11,103 @@ Free API, no registration required.
 API: https://api.gleif.org/api/v1
 """
 
+import difflib
 import json
+import re
 import time
 import urllib.request
 import urllib.error
 import urllib.parse
-from typing import Optional
-
+from datetime import datetime, timezone
 from . import EnrichmentResult, Finding
 
 BASE = "https://api.gleif.org/api/v1"
 USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
+ENTITY_SUFFIXES = {
+    "llc", "llp", "lp", "ltd", "inc", "co", "corp", "corporation",
+    "incorporated", "limited", "company", "plc", "sa", "ag", "gmbh",
+    "bv", "nv", "pty", "srl", "spa", "ab", "oy", "as", "se",
+    "group", "holdings", "partners", "associates", "the",
+}
+
+
+def _strip_entity_suffixes(name: str) -> list[str]:
+    cleaned = re.sub(r"[,.\-&/()']", " ", str(name or ""))
+    words = cleaned.split()
+    return [w.lower() for w in words if len(w) >= 2 and w.lower() not in ENTITY_SUFFIXES]
+
+
+def _name_match_score(query: str, candidate: str) -> float:
+    query_tokens = _strip_entity_suffixes(query)
+    candidate_tokens = _strip_entity_suffixes(candidate)
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+
+    query_set = set(query_tokens)
+    candidate_set = set(candidate_tokens)
+    token_coverage = len(query_set & candidate_set) / max(1, len(query_set))
+    ratio = difflib.SequenceMatcher(None, " ".join(query_tokens), " ".join(candidate_tokens)).ratio()
+
+    if query.lower() in candidate.lower():
+        return max(token_coverage, ratio, 0.95)
+    return max(token_coverage, ratio)
+
+
+def _candidate_country(entity: dict) -> str:
+    legal_country = str((entity.get("legalAddress") or {}).get("country") or "").upper()
+    if legal_country:
+        return legal_country
+    hq_country = str((entity.get("headquartersAddress") or {}).get("country") or "").upper()
+    if hq_country:
+        return hq_country
+    jurisdiction = str(entity.get("jurisdiction") or "").upper()
+    if jurisdiction.startswith("US"):
+        return "US"
+    return jurisdiction[:2] if len(jurisdiction) >= 2 else ""
+
+
+def _pick_best_lei_record(records: list[dict], vendor_name: str, country: str = "") -> dict | None:
+    normalized_country = str(country or "").upper()
+    scored: list[tuple[float, dict]] = []
+    for record in records:
+        attrs = record.get("attributes", {}) or {}
+        entity = attrs.get("entity", {}) or {}
+        legal_name = entity.get("legalName", {})
+        if isinstance(legal_name, dict):
+            legal_name = legal_name.get("name", "")
+        legal_name = str(legal_name or "")
+        if not legal_name:
+            continue
+
+        score = _name_match_score(vendor_name, legal_name)
+        candidate_country = _candidate_country(entity)
+        candidate_jurisdiction = str(entity.get("jurisdiction") or "").upper()
+
+        if normalized_country:
+            same_country = candidate_country == normalized_country or candidate_jurisdiction.startswith(normalized_country)
+            if same_country:
+                score += 0.08
+            elif normalized_country == "US":
+                score -= 0.18
+            else:
+                score -= 0.08
+
+        scored.append((score, record))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_record = scored[0]
+    best_entity = ((best_record.get("attributes") or {}).get("entity") or {})
+    best_country = _candidate_country(best_entity)
+    best_jurisdiction = str(best_entity.get("jurisdiction") or "").upper()
+
+    if best_score < 0.72:
+        return None
+    if normalized_country == "US" and best_country != "US" and not best_jurisdiction.startswith("US"):
+        return None
+    return best_record
 
 
 def _get(url: str) -> dict | None:
@@ -42,6 +128,53 @@ def _get(url: str) -> dict | None:
         return None
 
 
+def _gleif_record_url(lei: str) -> str:
+    return f"https://search.gleif.org/#/record/{lei}"
+
+
+def _build_ownership_relationship(
+    *,
+    vendor_name: str,
+    vendor_lei: str,
+    vendor_country: str,
+    rel_type: str,
+    target_lei: str,
+    target_name: str,
+    target_country: str,
+    evidence: str,
+    confidence: float,
+    valid_from: str,
+    relationship_scope: str,
+) -> dict:
+    return {
+        "type": rel_type,
+        "source_entity": vendor_name,
+        "source_entity_type": "company",
+        "source_identifiers": {"lei": vendor_lei},
+        "target_entity": target_name or target_lei,
+        "target_entity_type": "holding_company",
+        "target_identifiers": {"lei": target_lei},
+        "country": target_country or vendor_country,
+        "data_source": "gleif_lei",
+        "confidence": confidence,
+        "evidence": evidence,
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "valid_from": valid_from,
+        "artifact_ref": f"gleif://{vendor_lei}/{relationship_scope}/{target_lei}",
+        "evidence_url": _gleif_record_url(target_lei),
+        "evidence_title": "GLEIF Level 2 ownership path",
+        "structured_fields": {
+            "standards": ["GLEIF Level 2"],
+            "relationship_scope": relationship_scope,
+            "vendor_lei": vendor_lei,
+            "target_lei": target_lei,
+        },
+        "source_class": "public_connector",
+        "authority_level": "official_registry",
+        "access_model": "public_api",
+    }
+
+
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     """Query GLEIF API for LEI data and ownership chains."""
     t0 = time.time()
@@ -53,19 +186,20 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         # Step 1: Search for LEI if not provided - LIVE API call
         if not lei:
             encoded_name = urllib.parse.quote(vendor_name)
-            url = f"{BASE}/lei-records?filter[entity.names]={encoded_name}&page[size]=5"
+            url = f"{BASE}/lei-records?filter[fulltext]={encoded_name}&page[size]=8"
 
             records_data = _get(url)
             if records_data and "data" in records_data:
                 records = records_data.get("data", [])
-                if records:
-                    lei = records[0].get("id", "")
+                best_record = _pick_best_lei_record(records, vendor_name, country=country)
+                if best_record:
+                    lei = best_record.get("id", "")
 
         if not lei:
             result.findings.append(Finding(
                 source="gleif_lei", category="identity",
-                title="No LEI found",
-                detail=f"No Legal Entity Identifier found for '{vendor_name}' in GLEIF API.",
+                title="No high-confidence LEI found",
+                detail=f"No high-confidence Legal Entity Identifier match found for '{vendor_name}' in GLEIF API.",
                 severity="info", confidence=0.7,
             ))
             result.elapsed_ms = int((time.time() - t0) * 1000)
@@ -118,7 +252,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 title=f"LEI verified: {legal_name}",
                 detail="\n".join(detail_parts),
                 severity="info", confidence=0.95,
-                url=f"https://search.gleif.org/#/record/{lei}",
+                url=_gleif_record_url(lei),
                 raw_data={"lei": lei, "status": status, "reg_status": reg_status,
                           "jurisdiction": legal_jurisdiction},
             ))
@@ -157,11 +291,12 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             # Step 3: Get parent relationships - LIVE API calls
             parent_url = f"{BASE}/lei-records/{lei}/direct-parent"
             parent_data = _get(parent_url)
+            parent_lei = ""
 
             if parent_data and "data" in parent_data:
                 parent = parent_data["data"]
                 if parent:
-                    parent_lei = parent.get("id", "")
+                    parent_lei = parent.get("id", "") or ""
                     if parent_lei:
                         # Look up parent details
                         parent_detail_url = f"{BASE}/lei-records/{parent_lei}"
@@ -179,14 +314,28 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                             title=f"Direct parent: {parent_name or parent_lei}",
                             detail=f"LEI: {parent_lei}\nCountry: {parent_country}",
                             severity="info", confidence=0.9,
-                            url=f"https://search.gleif.org/#/record/{parent_lei}",
+                            url=_gleif_record_url(parent_lei),
                         ))
 
                         result.relationships.append({
-                            "type": "direct_parent",
-                            "parent_lei": parent_lei,
-                            "parent_name": parent_name,
-                            "parent_country": parent_country,
+                            **_build_ownership_relationship(
+                                vendor_name=vendor_name,
+                                vendor_lei=lei,
+                                vendor_country=legal_country or hq_country or country.upper(),
+                                rel_type="owned_by",
+                                target_lei=parent_lei,
+                                target_name=parent_name,
+                                target_country=parent_country,
+                                evidence="GLEIF Level 2 direct parent relationship from live GLEIF registry",
+                                confidence=0.93,
+                                valid_from=initial_reg,
+                                relationship_scope="direct_parent",
+                            ),
+                            "raw_data": {
+                                "parent_lei": parent_lei,
+                                "parent_name": parent_name,
+                                "parent_country": parent_country,
+                            },
                         })
 
                         time.sleep(0.15)
@@ -199,7 +348,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 ultimate = ultimate_data["data"]
                 if ultimate:
                     ultimate_lei = ultimate.get("id", "")
-                    if ultimate_lei and ultimate_lei != parent_lei if 'parent_lei' in locals() else True:
+                    if ultimate_lei and ultimate_lei != parent_lei:
                         ultimate_detail_url = f"{BASE}/lei-records/{ultimate_lei}"
                         ultimate_detail = _get(ultimate_detail_url)
                         ultimate_name = ""
@@ -215,14 +364,28 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                             title=f"Ultimate parent: {ultimate_name or ultimate_lei}",
                             detail=f"LEI: {ultimate_lei}\nCountry: {ultimate_country}",
                             severity="info", confidence=0.9,
-                            url=f"https://search.gleif.org/#/record/{ultimate_lei}",
+                            url=_gleif_record_url(ultimate_lei),
                         ))
 
                         result.relationships.append({
-                            "type": "ultimate_parent",
-                            "parent_lei": ultimate_lei,
-                            "parent_name": ultimate_name,
-                            "parent_country": ultimate_country,
+                            **_build_ownership_relationship(
+                                vendor_name=vendor_name,
+                                vendor_lei=lei,
+                                vendor_country=legal_country or hq_country or country.upper(),
+                                rel_type="beneficially_owned_by",
+                                target_lei=ultimate_lei,
+                                target_name=ultimate_name,
+                                target_country=ultimate_country,
+                                evidence="GLEIF Level 2 ultimate parent relationship from live GLEIF registry",
+                                confidence=0.91,
+                                valid_from=initial_reg,
+                                relationship_scope="ultimate_parent",
+                            ),
+                            "raw_data": {
+                                "parent_lei": ultimate_lei,
+                                "parent_name": ultimate_name,
+                                "parent_country": ultimate_country,
+                            },
                         })
 
     except Exception as e:

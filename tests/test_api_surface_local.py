@@ -26,9 +26,7 @@ def client(tmp_path, monkeypatch):
     if "server" in sys.modules:
         server = importlib.reload(sys.modules["server"])
     else:
-        import server  # type: ignore
-
-        server = sys.modules["server"]
+        server = importlib.import_module("server")
 
     server.db.init_db()
     server.init_auth_db()
@@ -56,9 +54,7 @@ def auth_client(tmp_path, monkeypatch):
     if "server" in sys.modules:
         server = importlib.reload(sys.modules["server"])
     else:
-        import server  # type: ignore
-
-        server = sys.modules["server"]
+        server = importlib.import_module("server")
 
     server.db.init_db()
     server.init_auth_db()
@@ -177,6 +173,434 @@ def test_case_detail_route_includes_storyline_payload(client):
     assert any(card["type"] == "action" for card in body["storyline"]["cards"])
 
 
+def test_supplier_passport_route_returns_portable_summary(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Passport Route Vendor")
+    captured = {"mode": None}
+
+    def fake_build_supplier_passport(vendor_id, mode="full"):
+        captured["mode"] = mode
+        return {
+            "passport_version": "supplier-passport-v1",
+            "case_id": vendor_id,
+            "posture": "approved",
+            "vendor": {"name": "Passport Route Vendor"},
+        }
+
+    monkeypatch.setattr(server, "HAS_SUPPLIER_PASSPORT", True, raising=False)
+    monkeypatch.setattr(
+        server,
+        "build_supplier_passport",
+        fake_build_supplier_passport,
+        raising=False,
+    )
+
+    response = client.get(f"/api/cases/{case_id}/supplier-passport?mode=light")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["case_id"] == case_id
+    assert payload["passport_version"] == "supplier-passport-v1"
+    assert payload["posture"] == "approved"
+    assert captured["mode"] == "light"
+
+
+def test_supplier_passport_builder_combines_case_graph_and_control_paths(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(
+        client,
+        name="Passport Builder Vendor",
+        extra_payload={
+            "ownership": {
+                "publicly_traded": False,
+                "state_owned": False,
+                "beneficial_owner_known": False,
+                "ownership_pct_resolved": 0.35,
+                "shell_layers": 2,
+                "pep_connection": False,
+            },
+            "export_authorization": {
+                "request_type": "item_transfer",
+                "destination_country": "AE",
+                "classification_guess": "EAR99",
+            },
+        },
+    )
+
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 19,
+            "is_hard_stop": False,
+            "calibrated": {
+                "calibrated_probability": 0.41,
+                "calibrated_tier": "TIER_3_REVIEW",
+                "program_recommendation": "ENHANCED_DUE_DILIGENCE",
+                "interval": {"lower": 0.31, "upper": 0.52, "coverage": 0.9},
+            },
+        },
+    )
+    server.db.save_enrichment(
+        case_id,
+        {
+            "overall_risk": "MEDIUM",
+            "summary": {"connectors_run": 6, "connectors_with_data": 4, "findings_total": 7},
+            "identifiers": {"cage": "1ABC2", "uei": "UEI123456"},
+            "connector_status": {
+                "sam_gov": {
+                    "has_data": True,
+                    "error": "",
+                    "structured_fields": {
+                        "sam_api_status": {
+                            "entity_lookup": {"status": 200, "throttled": False},
+                            "exclusions_lookup": {"status": 200, "throttled": False},
+                        }
+                    },
+                },
+                "mitre_attack_fixture": {
+                    "has_data": True,
+                    "error": "",
+                    "structured_fields": {
+                        "summary": {
+                            "actor_families": ["Volt Typhoon"],
+                            "campaigns": ["Edge-device access with living-off-the-land persistence"],
+                            "technique_ids": ["T1190", "T1078"],
+                            "techniques": [
+                                {"id": "T1190", "name": "Exploit Public-Facing Application", "tactic": "Initial Access"},
+                                {"id": "T1078", "name": "Valid Accounts", "tactic": "Defense Evasion"}
+                            ],
+                            "tactics": ["Initial Access", "Defense Evasion"]
+                        }
+                    },
+                },
+                "cisa_advisory_fixture": {
+                    "has_data": True,
+                    "error": "",
+                    "structured_fields": {
+                        "summary": {
+                            "advisory_ids": ["AA24-057A"],
+                            "advisory_titles": ["SVR Cyber Actors Adapt Tactics for Initial Cloud Access"],
+                            "technique_ids": ["T1078"],
+                            "sectors": ["defense industrial base"],
+                            "mitigations": ["phishing-resistant MFA"],
+                            "ioc_types": ["token_abuse"]
+                        }
+                    },
+                },
+            },
+        },
+    )
+
+    import supplier_passport
+
+    monkeypatch.setattr(
+        supplier_passport,
+        "get_latest_foci_summary",
+        lambda vendor_id: {"posture": "foreign_interest_requires_review", "foreign_owner": "Example Holdings"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        supplier_passport,
+        "get_latest_cyber_evidence_summary",
+        lambda vendor_id: {"current_cmmc_level": 2, "high_or_critical_cve_count": 1},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        supplier_passport,
+        "get_export_evidence_summary",
+        lambda vendor_id, export_input: {"jurisdiction_guess": "ear", "posture": "likely_license_required"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        supplier_passport,
+        "build_workflow_control_summary",
+        lambda vendor, **kwargs: {"label": "Foreign interest in view", "action_owner": "Analyst review"},
+        raising=False,
+    )
+    def fake_graph_summary(vendor_id, depth=2, **kwargs):
+        assert depth == 2
+        assert kwargs.get("include_provenance") is True
+        assert kwargs.get("max_claim_records") == 2
+        assert kwargs.get("max_evidence_records") == 2
+        return {
+            "entity_count": 3,
+            "relationship_count": 3,
+            "root_entity_ids": ["entity:a"],
+            "entity_type_distribution": {"company": 2, "holding_company": 1},
+            "relationship_type_distribution": {"beneficially_owned_by": 1, "contracts_with": 1},
+            "entities": [
+                {"id": "entity:a", "canonical_name": "Passport Builder Vendor"},
+                {"id": "holding_company:example", "canonical_name": "Example Holdings"},
+                {"id": "entity:b", "canonical_name": "Prime Integrator"},
+            ],
+            "relationships": [
+                {
+                    "source_entity_id": "entity:a",
+                    "target_entity_id": "holding_company:example",
+                    "rel_type": "beneficially_owned_by",
+                    "confidence": 0.92,
+                    "corroboration_count": 2,
+                    "data_sources": ["gleif_bods_ownership_fixture"],
+                    "created_at": "2026-03-26T00:00:00Z",
+                    "claim_records": [
+                        {
+                            "claim_id": "claim:1",
+                            "contradiction_state": "unreviewed",
+                            "evidence_records": [
+                                {
+                                    "title": "Ownership filing",
+                                    "url": "https://example.test/ownership",
+                                    "artifact_ref": "fixture://ownership/1",
+                                    "source": "gleif_bods_ownership_fixture",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "source_entity_id": "entity:a",
+                    "target_entity_id": "entity:b",
+                    "rel_type": "contracts_with",
+                    "confidence": 0.81,
+                    "corroboration_count": 1,
+                    "data_sources": ["usaspending"],
+                    "created_at": "2026-03-26T00:00:00Z",
+                },
+                {
+                    "source_entity_id": "entity:b",
+                    "target_entity_id": "holding_company:other",
+                    "rel_type": "owned_by",
+                    "confidence": 0.72,
+                    "corroboration_count": 1,
+                    "data_sources": ["google_news"],
+                    "created_at": "2026-03-26T00:00:00Z",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(
+        supplier_passport,
+        "get_vendor_graph_summary",
+        fake_graph_summary,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        supplier_passport,
+        "compute_network_risk",
+        lambda vendor_id: {
+            "network_risk_score": 1.7,
+            "network_risk_level": "medium",
+            "neighbor_count": 4,
+            "high_risk_neighbors": 1,
+            "risk_contributors": [{"entity_name": "Example Holdings", "contribution": 1.2}],
+        },
+        raising=False,
+    )
+
+    passport = supplier_passport.build_supplier_passport(case_id)
+
+    assert passport is not None
+    assert passport["case_id"] == case_id
+    assert passport["posture"] == "review"
+    assert passport["identity"]["identifiers"]["cage"] == "1ABC2"
+    assert passport["identity"]["identifier_status"]["cage"]["state"] == "verified_present"
+    assert passport["identity"]["identifier_status"]["cage"]["authority_level"] == "official_registry"
+    assert passport["identity"]["identifier_status"]["uei"]["state"] == "verified_present"
+    assert passport["identity"]["official_corroboration"]["coverage_level"] == "strong"
+    assert passport["identity"]["official_corroboration"]["official_identifiers_verified"] == ["cage", "uei"]
+    assert passport["threat_intel"]["shared_threat_intel_present"] is True
+    assert passport["threat_intel"]["attack_technique_ids"] == ["T1190", "T1078"]
+    assert passport["threat_intel"]["cisa_advisory_ids"] == ["AA24-057A"]
+    assert passport["ownership"]["foci_summary"]["foreign_owner"] == "Example Holdings"
+    assert passport["graph"]["entity_count"] == 2
+    assert passport["graph"]["relationship_count"] == 1
+    assert passport["graph"]["network_entity_count"] == 3
+    assert passport["graph"]["network_relationship_count"] == 3
+    assert passport["graph"]["control_paths"][0]["rel_type"] == "beneficially_owned_by"
+    assert passport["graph"]["control_paths"][0]["evidence_refs"][0]["url"] == "https://example.test/ownership"
+    assert len(passport["graph"]["control_paths"]) == 1
+    assert passport["graph"]["claim_health"]["corroborated_paths"] == 1
+    assert passport["tribunal"]["recommended_view"] == "watch"
+    assert passport["tribunal"]["views"][0]["stance"] == "watch"
+    assert passport["network_risk"]["level"] == "medium"
+
+
+def test_supplier_passport_caches_expensive_graph_and_network_calls(client, monkeypatch):
+    case_id = _create_case(client, name="Passport Cache Vendor")
+    server = sys.modules["server"]
+    server.db.save_enrichment(
+        case_id,
+        {
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 2, "connectors_with_data": 1, "findings_total": 1},
+            "identifiers": {"website": "https://example.test"},
+            "enriched_at": "2026-03-28T20:30:00Z",
+        },
+    )
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 12,
+            "is_hard_stop": False,
+            "scored_at": "2026-03-28T20:31:00Z",
+            "calibrated": {"calibrated_probability": 0.12, "calibrated_tier": "TIER_4_CLEAR"},
+        },
+    )
+
+    import supplier_passport
+
+    graph_calls = {"count": 0}
+    network_calls = {"count": 0}
+
+    def fake_graph_summary(vendor_id, depth=2, **kwargs):
+        graph_calls["count"] += 1
+        assert depth == 2
+        return {
+            "entity_count": 1,
+            "relationship_count": 0,
+            "root_entity_ids": ["entity:a"],
+            "entities": [{"id": "entity:a", "canonical_name": "Passport Cache Vendor"}],
+            "relationships": [],
+            "entity_type_distribution": {"company": 1},
+            "relationship_type_distribution": {},
+        }
+
+    def fake_network_risk(vendor_id):
+        network_calls["count"] += 1
+        return {
+            "network_risk_score": 0.0,
+            "network_risk_level": "none",
+            "neighbor_count": 0,
+            "high_risk_neighbors": 0,
+            "risk_contributors": [],
+        }
+
+    monkeypatch.setattr(supplier_passport, "get_vendor_graph_summary", fake_graph_summary, raising=False)
+    monkeypatch.setattr(supplier_passport, "compute_network_risk", fake_network_risk, raising=False)
+    monkeypatch.setattr(supplier_passport, "_SUPPLIER_PASSPORT_CACHE", {}, raising=False)
+
+    first = supplier_passport.build_supplier_passport(case_id)
+    second = supplier_passport.build_supplier_passport(case_id)
+
+    assert first is not None
+    assert second is not None
+    assert graph_calls["count"] == 1
+    assert network_calls["count"] == 1
+
+
+def test_supplier_passport_marks_sam_identifiers_unverified_when_throttled(client):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="SAM Throttle Vendor")
+
+    server.db.save_enrichment(
+        case_id,
+        {
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 3, "connectors_with_data": 2, "findings_total": 2},
+            "identifiers": {"website": "https://example.test"},
+            "connector_status": {
+                "sam_gov": {
+                    "has_data": True,
+                    "error": "SAM.gov rate limit reached.",
+                    "structured_fields": {
+                        "sam_api_status": {
+                            "entity_lookup": {
+                                "status": 429,
+                                "throttled": True,
+                                "next_access_time": "2026-Mar-28 00:00:00+0000 UTC",
+                            },
+                            "exclusions_lookup": {
+                                "status": 429,
+                                "throttled": True,
+                                "next_access_time": "2026-Mar-28 00:00:00+0000 UTC",
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    import supplier_passport
+
+    passport = supplier_passport.build_supplier_passport(case_id)
+
+    assert passport is not None
+    assert passport["identity"]["identifier_status"]["cage"]["state"] == "unverified"
+    assert passport["identity"]["identifier_status"]["uei"]["state"] == "unverified"
+    assert passport["identity"]["identifier_status"]["cage"]["next_access_time"] == "2026-Mar-28 00:00:00+0000 UTC"
+    assert passport["identity"]["official_corroboration"]["blocked_connector_count"] == 1
+    assert passport["identity"]["official_corroboration"]["connectors"][0]["source"] == "sam_gov"
+
+
+def test_supplier_passport_attributes_public_identifier_sources_without_claiming_sam(client):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Public Identifier Vendor")
+
+    server.db.save_enrichment(
+        case_id,
+        {
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 4, "connectors_with_data": 2, "findings_total": 3},
+            "identifiers": {
+                "cage": "0EA28",
+                "uei": "V1HATBT1N7V5",
+                "duns": "123456789",
+                "ncage": "A1B2C",
+                "website": "https://berry.example",
+            },
+            "identifier_sources": {
+                "cage": ["public_search_ownership"],
+                "uei": ["public_search_ownership"],
+                "duns": ["public_search_ownership"],
+                "ncage": ["public_search_ownership"],
+                "website": ["public_search_ownership"],
+            },
+            "connector_status": {
+                "public_search_ownership": {
+                    "has_data": True,
+                    "error": "",
+                    "authority_level": "third_party_public",
+                    "access_model": "search_snippet_only",
+                    "structured_fields": {},
+                },
+                "sam_gov": {
+                    "has_data": True,
+                    "error": "SAM.gov rate limit reached.",
+                    "authority_level": "official_registry",
+                    "access_model": "public_api",
+                    "structured_fields": {
+                        "sam_api_status": {
+                            "entity_lookup": {
+                                "status": 429,
+                                "throttled": True,
+                                "next_access_time": "2026-Mar-28 00:00:00+0000 UTC",
+                            }
+                        }
+                    },
+                },
+            },
+        },
+    )
+
+    import supplier_passport
+
+    passport = supplier_passport.build_supplier_passport(case_id)
+
+    assert passport is not None
+    assert passport["identity"]["identifier_status"]["cage"]["state"] == "verified_present"
+    assert passport["identity"]["identifier_status"]["cage"]["source"] == "public_search_ownership"
+    assert passport["identity"]["identifier_status"]["cage"]["authority_level"] == "third_party_public"
+    assert passport["identity"]["identifier_status"]["cage"]["verification_label"] == "Publicly captured"
+    assert passport["identity"]["identifier_status"]["uei"]["source"] == "public_search_ownership"
+    assert passport["identity"]["identifier_status"]["uei"]["verification_tier"] == "publicly_captured"
+    assert passport["identity"]["identifier_status"]["duns"]["value"] == "123456789"
+    assert passport["identity"]["identifier_status"]["ncage"]["value"] == "A1B2C"
+    assert passport["identity"]["official_corroboration"]["coverage_level"] == "public_only"
+    assert passport["identity"]["official_corroboration"]["blocked_connector_count"] == 1
+    assert passport["identity"]["official_corroboration"]["official_identifiers_verified"] == []
+
+
 def test_graph_runtime_reports_active_database_paths(client, tmp_path):
     response = client.get("/api/graph/runtime")
 
@@ -228,6 +652,7 @@ def test_dossier_pdf_handles_datetime_decision_timestamps(client, monkeypatch):
         return decisions
 
     monkeypatch.setattr(server.db, "get_decisions", _get_decisions_with_datetime)
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *args, **kwargs: {"status": "queued"})
 
     response = client.post(f"/api/cases/{case_id}/dossier-pdf", json={})
 
@@ -976,10 +1401,11 @@ def test_case_monitoring_history_route_returns_recent_checks(client):
     assert "checked_at" in body["monitoring_history"][0]
 
 
-def test_dossier_route_requests_ai_hydration_by_default(client, monkeypatch):
+def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(client, name="Dossier Hydration Vendor")
     captured = {}
+    primed = {}
 
     def fake_generate_dossier(vendor_id, user_id="", hydrate_ai=False):
         captured["vendor_id"] = vendor_id
@@ -987,15 +1413,22 @@ def test_dossier_route_requests_ai_hydration_by_default(client, monkeypatch):
         captured["hydrate_ai"] = hydrate_ai
         return "<html><body>AI Narrative Brief</body></html>"
 
+    def fake_prime(case_id_arg, user_id_arg):
+        primed["case_id"] = case_id_arg
+        primed["user_id"] = user_id_arg
+        return {"status": "queued"}
+
     monkeypatch.setattr(server, "generate_dossier", fake_generate_dossier)
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", fake_prime)
 
     resp = client.post(f"/api/cases/{case_id}/dossier", json={"format": "html"})
     assert resp.status_code == 200
     assert captured == {
         "vendor_id": case_id,
         "user_id": "dev",
-        "hydrate_ai": True,
+        "hydrate_ai": False,
     }
+    assert primed == {"case_id": case_id, "user_id": "dev"}
     assert "AI Narrative Brief" in resp.get_data(as_text=True)
 
 
@@ -1003,6 +1436,7 @@ def test_dossier_route_returns_cache_busting_download_url(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(client, name="Dossier Cache Bust Vendor")
 
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *args, **kwargs: {"status": "queued"})
     monkeypatch.setattr(
         server,
         "generate_dossier",
@@ -1015,10 +1449,11 @@ def test_dossier_route_returns_cache_busting_download_url(client, monkeypatch):
     assert f"/api/dossiers/dossier-{case_id}-" in body["download_url"]
 
 
-def test_dossier_pdf_route_requests_ai_hydration_by_default(client, monkeypatch):
+def test_dossier_pdf_route_primes_ai_and_uses_cached_generation_by_default(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(client, name="PDF Dossier Hydration Vendor")
     captured = {}
+    primed = {}
 
     def fake_generate_pdf_dossier(vendor_id, user_id="", hydrate_ai=False):
         captured["vendor_id"] = vendor_id
@@ -1026,15 +1461,22 @@ def test_dossier_pdf_route_requests_ai_hydration_by_default(client, monkeypatch)
         captured["hydrate_ai"] = hydrate_ai
         return b"%PDF-1.4 mocked"
 
+    def fake_prime(case_id_arg, user_id_arg):
+        primed["case_id"] = case_id_arg
+        primed["user_id"] = user_id_arg
+        return {"status": "queued"}
+
     monkeypatch.setattr(server, "generate_pdf_dossier", fake_generate_pdf_dossier)
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", fake_prime)
 
     resp = client.post(f"/api/cases/{case_id}/dossier-pdf", json={})
     assert resp.status_code == 200
     assert captured == {
         "vendor_id": case_id,
         "user_id": "dev",
-        "hydrate_ai": True,
+        "hydrate_ai": False,
     }
+    assert primed == {"case_id": case_id, "user_id": "dev"}
     assert resp.data.startswith(b"%PDF-1.4")
 
 
@@ -1233,6 +1675,7 @@ def test_access_ticket_opens_dossier_without_bearer_in_query(auth_client, monkey
     headers = auth_client["headers"]
     case_id = _create_case(client, name="Access Ticket Dossier Vendor", headers=headers)
 
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *args, **kwargs: {"status": "queued"})
     monkeypatch.setattr(
         server,
         "generate_dossier",
@@ -1309,3 +1752,102 @@ def test_enrich_and_score_primes_ai_analysis(client, monkeypatch):
     body = resp.get_json()
     assert body["ai_analysis"]["status"] == "pending"
     assert body["ai_analysis"]["job_id"] == "ai-job-sync"
+
+
+def test_case_enrich_routes_pass_force_flag_to_enrichment(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Force Refresh Vendor")
+    enrich_calls = []
+
+    def fake_enrich_vendor(vendor_name, country="", connectors=None, parallel=True, timeout=60, force=False, **ids):
+        enrich_calls.append(
+            {
+                "vendor_name": vendor_name,
+                "country": country,
+                "connectors": connectors,
+                "parallel": parallel,
+                "force": force,
+            }
+        )
+        return {
+            "vendor_name": vendor_name,
+            "country": country,
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 1, "errors": 0},
+            "findings": [],
+            "identifiers": {},
+            "relationships": [],
+            "risk_signals": [],
+            "connector_status": {"sam_gov": {"has_data": False, "error": None}},
+            "total_elapsed_ms": 5,
+        }
+
+    monkeypatch.setattr(server, "enrich_vendor", fake_enrich_vendor)
+    monkeypatch.setattr(server, "_persist_enrichment_artifacts", lambda *_args, **_kwargs: {"events": [], "graph": {}})
+    monkeypatch.setattr(
+        server,
+        "_canonical_rescore_from_enrichment",
+        lambda *_args, **_kwargs: {
+            "augmentation": SimpleNamespace(changes={}, extra_risk_signals={}, verified_identifiers={}, provenance={}),
+            "score_dict": {
+                "composite_score": 10,
+                "is_hard_stop": False,
+                "calibrated": {"calibrated_tier": "TIER_4_CLEAR", "calibrated_probability": 0.1},
+            },
+        },
+    )
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *_args, **_kwargs: {"status": "pending"})
+
+    enrich_resp = client.post(
+        f"/api/cases/{case_id}/enrich",
+        json={"connectors": ["sam_gov"], "parallel": False, "force": True},
+    )
+    assert enrich_resp.status_code == 200
+
+    enrich_and_score_resp = client.post(
+        f"/api/cases/{case_id}/enrich-and-score",
+        json={"connectors": ["sam_gov"], "force": True},
+    )
+    assert enrich_and_score_resp.status_code == 200
+
+    assert len(enrich_calls) == 2
+    assert all(call["force"] is True for call in enrich_calls)
+    assert enrich_calls[0]["parallel"] is False
+    assert enrich_calls[0]["connectors"] == ["sam_gov"]
+
+
+def test_case_enrich_reuses_latest_enrichment_identifiers(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Identifier Seed Vendor")
+    enrich_calls = []
+
+    def fake_enrich_vendor(vendor_name, country="", connectors=None, parallel=True, timeout=60, force=False, **ids):
+        enrich_calls.append({"vendor_name": vendor_name, "ids": ids})
+        return {
+            "vendor_name": vendor_name,
+            "country": country,
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 1, "errors": 0},
+            "findings": [],
+            "identifiers": {},
+            "relationships": [],
+            "risk_signals": [],
+            "connector_status": {"public_html_ownership": {"has_data": False, "error": None}},
+            "total_elapsed_ms": 5,
+        }
+
+    monkeypatch.setattr(server, "enrich_vendor", fake_enrich_vendor)
+    monkeypatch.setattr(
+        server.db,
+        "get_latest_enrichment",
+        lambda _case_id: {"identifiers": {"website": "https://seeded.example/company", "lei": "LEI-123"}},
+    )
+    monkeypatch.setattr(server, "_persist_enrichment_artifacts", lambda *_args, **_kwargs: {"events": [], "graph": {}})
+
+    resp = client.post(f"/api/cases/{case_id}/enrich", json={})
+
+    assert resp.status_code == 200
+    assert enrich_calls
+    assert enrich_calls[0]["ids"]["website"] == "https://seeded.example/company"
+    assert enrich_calls[0]["ids"]["domain"] == "seeded.example"
+    assert enrich_calls[0]["ids"]["lei"] == "LEI-123"

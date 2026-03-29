@@ -1,12 +1,12 @@
 """
-Xiphos Regulatory Gate Engine v5.0 — Layer 1
+Xiphos Regulatory Gate Engine v5.1 — Layer 1
 DoD Supply Chain Compliance Deterministic Evaluation
 
-Implements 10 regulatory gates that are evaluated before probabilistic
+Implements 13 regulatory gates that are evaluated before probabilistic
 scoring. Each gate returns PASS / FAIL / PENDING. The combined status
 is COMPLIANT / NON_COMPLIANT / REQUIRES_REVIEW.
 
-Gates:
+Gates (Fixed):
   1.  Section 889 (FY2019 NDAA)         — Prohibited telecom entities
   2.  ITAR Compliance                    — US Munitions List items
   3.  EAR (Export Administration Regs)  — Dual-use item controls
@@ -18,7 +18,12 @@ Gates:
   9.  CFIUS Jurisdiction                — Foreign investment screening
   10. Berry Amendment 10 USC §4862      — Domestic source for food/clothing/etc.
 
-Model version: 3.0-RegulatoryGate-DoD
+Gates (Optional - ITAR profile only):
+  11. Deemed Export Risk (22 CFR 120.17) — Foreign national access to technical data
+  12. End-Use Red Flags (BIS/DDTC)       — Transaction diversion indicators
+  13. USML Category Control (22 CFR 121) — USML export to prohibited/elevated countries
+
+Model version: 3.1-RegulatoryGate-DoD-ITAR
 Author:        Xiphos Principal Risk Scientist
 Date:          March 2026
 """
@@ -26,6 +31,12 @@ Date:          March 2026
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+
+from itar_module import (
+    assess_deemed_export_risk,
+    check_red_flags,
+    USML_CATEGORIES,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -160,9 +171,47 @@ class BerryAmendmentInput:
 
 
 @dataclass
+class DeemedExportGateInput:
+    """Gate 11: Deemed Export Risk (22 CFR 120.17) assessment input."""
+    foreign_nationals: list[dict] = field(default_factory=list)
+    # Each dict in foreign_nationals should have: nationality (ISO code), role, access_level
+    tcp_status: str = "NOT_REQUIRED"            # IMPLEMENTED / PENDING / NOT_REQUIRED / MISSING
+    usml_category: int = 0                      # 0 = unknown/not specified, 1-21 = USML category
+    facility_clearance: str = "NONE"            # SECRET / CONFIDENTIAL / UNCLASSIFIED / NONE
+
+
+@dataclass
+class RedFlagGateInput:
+    """Gate 12: End-Use Red Flag (BIS/DDTC) assessment input."""
+    transaction: dict = field(default_factory=dict)
+    # Keys: routing, customer_reluctance_on_end_use, payment_method, order_quantity,
+    #       customer_prior_orders, end_use_stated, packaging_description,
+    #       delivery_to_freight_forwarder, declined_installation_training,
+    #       end_user_description_clarity
+    vendor_country: str = "US"                  # ISO country code of seller
+    end_user_country: str = "US"                # ISO country code of stated end-user
+    usml_category: int = 0                      # 0 = unknown, 1-21 = USML category
+
+
+@dataclass
+class USMLControlGateInput:
+    """Gate 13: USML Category Control (22 CFR 121) assessment input."""
+    usml_category: int = 0                      # 0 = not specified, 1-21 = USML category
+    vendor_country: str = "US"                  # ISO country code of vendor/export destination
+    # ITAR prohibited countries (no licenses available)
+    itar_prohibited_countries: list[str] = field(default_factory=lambda: [
+        "CN", "IR", "KP", "SY", "CU"             # China, Iran, North Korea, Syria, Cuba
+    ])
+    # ITAR elevated scrutiny countries (restricted licenses)
+    itar_elevated_scrutiny_countries: list[str] = field(default_factory=lambda: [
+        "RU", "BY", "VE", "ZW"                   # Russia, Belarus, Venezuela, Zimbabwe
+    ])
+
+
+@dataclass
 class RegulatoryGateInput:
     """
-    Unified input for all 10 regulatory gates.
+    Unified input for all 13 regulatory gates (10 fixed + 3 optional ITAR).
     Callers should populate only the fields relevant to their context.
     """
     # Identification
@@ -182,6 +231,14 @@ class RegulatoryGateInput:
     ndaa_1260h: NDAA1260HInput = field(default_factory=lambda: NDAA1260HInput(entity_name=""))
     cfius: CFIUSInput = field(default_factory=CFIUSInput)
     berry: BerryAmendmentInput = field(default_factory=BerryAmendmentInput)
+
+    # Optional ITAR-specific gates (11-13)
+    deemed_export: DeemedExportGateInput = field(default_factory=DeemedExportGateInput)
+    red_flag: RedFlagGateInput = field(default_factory=RedFlagGateInput)
+    usml_control: USMLControlGateInput = field(default_factory=USMLControlGateInput)
+
+    # Gate control: which gates to evaluate (list of gate IDs)
+    enabled_gates: list[int] = field(default_factory=lambda: list(range(1,14)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -604,7 +661,7 @@ def evaluate_ear(inp: EARInput) -> GateResult:
             gate_id=3, gate_name="EAR",
             state=GateState.PENDING, severity="MEDIUM",
             regulation="15 CFR Part 734.13 (Deemed Export)",
-            details=f"Export control documents complete but deemed export training not current.",
+            details="Export control documents complete but deemed export training not current.",
             mitigation="Complete deemed export training for all foreign nationals with access to controlled technology.",
             confidence=0.85,
         )
@@ -872,7 +929,7 @@ def evaluate_ndaa_1260h(inp: NDAA1260HInput) -> GateResult:
             state=GateState.PENDING, severity="HIGH",
             regulation="NDAA FY2021 Section 1260H",
             details=(
-                f"Chinese entity with military-adjacent naming. May be subject to NDAA 1260H. "
+                "Chinese entity with military-adjacent naming. May be subject to NDAA 1260H. "
                 "Manual review against current USD(P) CMC list required."
             ),
             mitigation="Conduct manual review against current USD(P) CMC designation list before contract award.",
@@ -982,7 +1039,7 @@ def evaluate_berry_amendment(inp: BerryAmendmentInput) -> GateResult:
             gate_id=10, gate_name="Berry Amendment",
             state=GateState.PASS, severity="MEDIUM",
             regulation="10 USC §4862 / DFARS 252.225-7012",
-            details=f"Berry Amendment compliance confirmed — item origin and manufacturing: US.",
+            details="Berry Amendment compliance confirmed — item origin and manufacturing: US.",
             mitigation="N/A", confidence=0.95,
         )
 
@@ -991,7 +1048,7 @@ def evaluate_berry_amendment(inp: BerryAmendmentInput) -> GateResult:
             gate_id=10, gate_name="Berry Amendment",
             state=GateState.PASS, severity="MEDIUM",
             regulation="10 USC §4862(c) / Non-availability exception",
-            details=f"Non-availability determination obtained — Berry Amendment exception applies.",
+            details="Non-availability determination obtained — Berry Amendment exception applies.",
             mitigation="N/A", confidence=0.92,
         )
 
@@ -1005,6 +1062,205 @@ def evaluate_berry_amendment(inp: BerryAmendmentInput) -> GateResult:
         ),
         mitigation="Source from US manufacturer, or obtain non-availability determination from DCSA.",
         confidence=0.92,
+    )
+
+
+# ── Gate 11: Deemed Export Risk ─────────────────────────────────────────────
+
+def evaluate_deemed_export_risk(inp: DeemedExportGateInput) -> GateResult:
+    """
+    Gate 11: Deemed Export Risk (22 CFR 120.17)
+    Assess risk of deemed export via foreign national access to ITAR technical data.
+    """
+    if not inp.foreign_nationals:
+        return GateResult(
+            gate_id=11, gate_name="Deemed Export Risk",
+            state=GateState.SKIP, severity="MEDIUM",
+            regulation="22 CFR 120.17",
+            details="No foreign national data provided — deemed export not applicable.",
+            mitigation="N/A", confidence=0.95,
+        )
+
+    # Call itar_module function
+    risk_assessment = assess_deemed_export_risk(
+        foreign_nationals=inp.foreign_nationals,
+        tcp_status=inp.tcp_status,
+        usml_category=inp.usml_category,
+        facility_clearance=inp.facility_clearance,
+    )
+
+    risk_score = risk_assessment.risk_score
+
+    if risk_score >= 0.70:
+        return GateResult(
+            gate_id=11, gate_name="Deemed Export Risk",
+            state=GateState.FAIL, severity="CRITICAL",
+            regulation="22 CFR 120.15-120.17",
+            details=(
+                f"High deemed export risk detected (score: {risk_score:.2f}). "
+                f"Foreign nationals have access to ITAR technical data without valid TCP. "
+                f"Foreign national count: {risk_assessment.foreign_national_count}, "
+                f"Nationalities: {', '.join(risk_assessment.nationalities)}"
+            ),
+            mitigation="Implement Technology Control Plan (TCP) per 22 CFR 120.37, restrict foreign national access, or obtain facility security clearance.",
+            confidence=0.90,
+        )
+
+    if 0.30 <= risk_score < 0.70:
+        return GateResult(
+            gate_id=11, gate_name="Deemed Export Risk",
+            state=GateState.PENDING, severity="HIGH",
+            regulation="22 CFR 120.17 / 22 CFR 120.37",
+            details=(
+                f"Moderate deemed export risk (score: {risk_score:.2f}). "
+                f"TCP status: {inp.tcp_status}. Foreign nationals present: {risk_assessment.foreign_national_count}."
+            ),
+            mitigation="Finalize TCP implementation or restrict technical data access to foreign nationals.",
+            confidence=0.85,
+        )
+
+    return GateResult(
+        gate_id=11, gate_name="Deemed Export Risk",
+        state=GateState.PASS, severity="MEDIUM",
+        regulation="22 CFR 120.17",
+        details=f"Deemed export risk acceptable (score: {risk_score:.2f}). TCP status: {inp.tcp_status}.",
+        mitigation="N/A", confidence=0.90,
+    )
+
+
+# ── Gate 12: End-Use Red Flags ──────────────────────────────────────────────
+
+def evaluate_red_flags(inp: RedFlagGateInput) -> GateResult:
+    """
+    Gate 12: End-Use Red Flags (BIS/DDTC Guidance)
+    Check transaction for diversion risk indicators.
+    """
+    if not inp.transaction:
+        return GateResult(
+            gate_id=12, gate_name="End-Use Red Flags",
+            state=GateState.SKIP, severity="MEDIUM",
+            regulation="BIS/DDTC Guidance",
+            details="No transaction data provided — red flag assessment not applicable.",
+            mitigation="N/A", confidence=0.95,
+        )
+
+    # Call itar_module function
+    flag_assessment = check_red_flags(
+        transaction=inp.transaction,
+        vendor_country=inp.vendor_country,
+        end_user_country=inp.end_user_country,
+        usml_category=inp.usml_category,
+    )
+
+    score = flag_assessment.score
+
+    if score >= 0.60:
+        flag_list = ", ".join(flag_assessment.flags_triggered[:5])
+        return GateResult(
+            gate_id=12, gate_name="End-Use Red Flags",
+            state=GateState.FAIL, severity="HIGH",
+            regulation="BIS Red Flag Indicators (15 CFR 730) / DDTC Enforcement",
+            details=(
+                f"Multiple red flags triggered (score: {score:.2f}). "
+                f"Flags: {flag_list}{'...' if len(flag_assessment.flags_triggered) > 5 else ''}. "
+                f"Transaction shows signs of diversion risk."
+            ),
+            mitigation="Obtain end-use statement, verify customer identity, decline transaction, or request interagency review.",
+            confidence=0.88,
+        )
+
+    if 0.25 <= score < 0.60:
+        flag_list = ", ".join(flag_assessment.flags_triggered[:3])
+        return GateResult(
+            gate_id=12, gate_name="End-Use Red Flags",
+            state=GateState.PENDING, severity="MEDIUM",
+            regulation="BIS Red Flag Indicators / DDTC Guidance",
+            details=(
+                f"Some red flags present (score: {score:.2f}). "
+                f"Flags: {flag_list}. "
+                f"Requires review and customer verification."
+            ),
+            mitigation="Request additional documentation, end-use certification, or customer verification before proceeding.",
+            confidence=0.82,
+        )
+
+    return GateResult(
+        gate_id=12, gate_name="End-Use Red Flags",
+        state=GateState.PASS, severity="LOW",
+        regulation="BIS Red Flag Indicators",
+        details=f"Red flag risk acceptable (score: {score:.2f}).",
+        mitigation="N/A", confidence=0.90,
+    )
+
+
+# ── Gate 13: USML Category Control ──────────────────────────────────────────
+
+def evaluate_usml_control(inp: USMLControlGateInput) -> GateResult:
+    """
+    Gate 13: USML Category Control (22 CFR 121)
+    Verify USML category is not exported to prohibited or elevated-scrutiny countries.
+    """
+    if inp.usml_category == 0:
+        return GateResult(
+            gate_id=13, gate_name="USML Category Control",
+            state=GateState.SKIP, severity="MEDIUM",
+            regulation="22 CFR 121",
+            details="USML category not specified (0) — category control not applicable.",
+            mitigation="N/A", confidence=0.95,
+        )
+
+    category = USML_CATEGORIES.get(inp.usml_category)
+    if not category:
+        return GateResult(
+            gate_id=13, gate_name="USML Category Control",
+            state=GateState.SKIP, severity="LOW",
+            regulation="22 CFR 121",
+            details=f"USML category {inp.usml_category} not recognized.",
+            mitigation="N/A", confidence=0.90,
+        )
+
+    vendor_country = inp.vendor_country.upper()
+
+    # CRITICAL + PROHIBITED = automatic FAIL
+    if category.risk_level == "CRITICAL" and vendor_country in inp.itar_prohibited_countries:
+        return GateResult(
+            gate_id=13, gate_name="USML Category Control",
+            state=GateState.FAIL, severity="CRITICAL",
+            regulation="22 CFR 121 / State Department ITAR Prohibition",
+            details=(
+                f"USML Category {inp.usml_category} ({category.name}) is CRITICAL "
+                f"and cannot be exported to {vendor_country} (prohibited country). "
+                f"No licenses available."
+            ),
+            mitigation="Redirect export to approved destination or seek Presidential determination.",
+            confidence=0.98,
+        )
+
+    # HIGH + ELEVATED SCRUTINY = PENDING
+    if category.risk_level == "HIGH" and vendor_country in inp.itar_elevated_scrutiny_countries:
+        return GateResult(
+            gate_id=13, gate_name="USML Category Control",
+            state=GateState.PENDING, severity="HIGH",
+            regulation="22 CFR 121 / Elevated Scrutiny Policy",
+            details=(
+                f"USML Category {inp.usml_category} ({category.name}) is HIGH risk "
+                f"and vendor country {vendor_country} is subject to elevated scrutiny. "
+                f"License required; approval not guaranteed."
+            ),
+            mitigation="Apply for ITAR license, prepare detailed end-use statement, expect extended review timeline.",
+            confidence=0.90,
+        )
+
+    # All other valid combinations PASS
+    return GateResult(
+        gate_id=13, gate_name="USML Category Control",
+        state=GateState.PASS, severity="MEDIUM",
+        regulation="22 CFR 121",
+        details=(
+            f"USML Category {inp.usml_category} ({category.name}) "
+            f"export to {vendor_country} is permitted under current controls."
+        ),
+        mitigation="N/A", confidence=0.92,
     )
 
 
@@ -1055,10 +1311,13 @@ def _compute_gate_proximity(
 
 def evaluate_regulatory_gates(inp: RegulatoryGateInput) -> RegulatoryAssessment:
     """
-    Evaluate all 10 regulatory gates and return a RegulatoryAssessment.
+    Evaluate selected regulatory gates and return a RegulatoryAssessment.
+
+    Evaluates gates 1-10 (fixed) plus optional gates 11-13 (ITAR-specific).
+    Gate selection is controlled by inp.enabled_gates list.
 
     Args:
-        inp: RegulatoryGateInput with all gate-specific sub-inputs.
+        inp: RegulatoryGateInput with all gate-specific sub-inputs and enabled_gates list.
 
     Returns:
         RegulatoryAssessment with:
@@ -1091,19 +1350,39 @@ def evaluate_regulatory_gates(inp: RegulatoryGateInput) -> RegulatoryAssessment:
     inp.foci.sensitivity = inp.sensitivity
     inp.specialty_metals.supply_chain_tier = inp.supply_chain_tier
 
-    # Run all gates
-    results = [
-        evaluate_section_889(inp.section_889),
-        evaluate_itar(inp.itar),
-        evaluate_ear(inp.ear),
-        evaluate_specialty_metals(inp.specialty_metals),
-        evaluate_cdi(inp.cdi),
-        evaluate_cmmc(inp.cmmc),
-        evaluate_foci(inp.foci),
-        evaluate_ndaa_1260h(inp.ndaa_1260h),
-        evaluate_cfius(inp.cfius),
-        evaluate_berry_amendment(inp.berry),
-    ]
+    # Determine which gates to run based on enabled_gates
+    enabled = set(inp.enabled_gates) if inp.enabled_gates else set(range(1, 11))
+
+    # Run gates 1-10 (fixed gates) based on enabled list
+    results = []
+    if 1 in enabled:
+        results.append(evaluate_section_889(inp.section_889))
+    if 2 in enabled:
+        results.append(evaluate_itar(inp.itar))
+    if 3 in enabled:
+        results.append(evaluate_ear(inp.ear))
+    if 4 in enabled:
+        results.append(evaluate_specialty_metals(inp.specialty_metals))
+    if 5 in enabled:
+        results.append(evaluate_cdi(inp.cdi))
+    if 6 in enabled:
+        results.append(evaluate_cmmc(inp.cmmc))
+    if 7 in enabled:
+        results.append(evaluate_foci(inp.foci))
+    if 8 in enabled:
+        results.append(evaluate_ndaa_1260h(inp.ndaa_1260h))
+    if 9 in enabled:
+        results.append(evaluate_cfius(inp.cfius))
+    if 10 in enabled:
+        results.append(evaluate_berry_amendment(inp.berry))
+
+    # Run optional gates 11-13 (ITAR-specific) if enabled
+    if 11 in enabled:
+        results.append(evaluate_deemed_export_risk(inp.deemed_export))
+    if 12 in enabled:
+        results.append(evaluate_red_flags(inp.red_flag))
+    if 13 in enabled:
+        results.append(evaluate_usml_control(inp.usml_control))
 
     passed   = [r for r in results if r.state == GateState.PASS]
     failed   = [r for r in results if r.state == GateState.FAIL]

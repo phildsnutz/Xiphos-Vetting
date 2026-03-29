@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - legacy fallback
     get_main_db_path = None  # type: ignore[assignment]
 
 
-DEFAULT_DB_PATH = "/data/xiphos.db"
+DEFAULT_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "var", "xiphos.db"))
 
 
 def _env_bool(name: str, default: bool) -> bool:

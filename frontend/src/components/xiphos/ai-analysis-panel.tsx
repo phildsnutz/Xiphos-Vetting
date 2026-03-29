@@ -4,8 +4,27 @@ import {
   Brain, Loader2, RefreshCw, CheckCircle, XCircle,
   AlertTriangle, Shield, Clock, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { runAIAnalysis, fetchAIAnalysis, fetchAIConfig, submitDecision, getDecisions } from "@/lib/api";
-import type { AIAnalysis, Decision } from "@/lib/api";
+import {
+  executeCaseAssistantPlan,
+  fetchCaseAssistantPlan,
+  submitCaseAssistantFeedback,
+  runAIAnalysis,
+  fetchAIAnalysis,
+  fetchAIConfig,
+  submitDecision,
+  getDecisions,
+} from "@/lib/api";
+import type {
+  AIAnalysis,
+  AssistantAssuranceHybridReview,
+  AssistantExportHybridReview,
+  AssistantFeedbackType,
+  AssistantFeedbackVerdict,
+  CaseAssistantExecutionResult,
+  CaseAssistantPlan,
+  CyberEvidenceSummary,
+  Decision,
+} from "@/lib/api";
 
 interface AIAnalysisPanelProps {
   caseId: string;
@@ -24,6 +43,13 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [assistantPrompt, setAssistantPrompt] = useState(`Why is ${vendorName} risky right now?`);
+  const [assistantPlan, setAssistantPlan] = useState<CaseAssistantPlan | null>(null);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantError, setAssistantError] = useState<string | null>(null);
+  const [assistantExecution, setAssistantExecution] = useState<CaseAssistantExecutionResult | null>(null);
+  const [assistantExecutionLoading, setAssistantExecutionLoading] = useState(false);
+  const [assistantExecutionError, setAssistantExecutionError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["summary", "concerns", "actions"])
   );
@@ -46,6 +72,14 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       .catch(() => {}); // No existing decisions, that's fine
   }, [caseId]);
 
+  useEffect(() => {
+    setAssistantPrompt(`Why is ${vendorName} risky right now?`);
+    setAssistantPlan(null);
+    setAssistantError(null);
+    setAssistantExecution(null);
+    setAssistantExecutionError(null);
+  }, [caseId, vendorName]);
+
   const toggleSection = (key: string) => {
     setExpandedSections((prev) => {
       const next = new Set(prev);
@@ -65,6 +99,45 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       setError(e instanceof Error ? e.message : "Analysis failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAssistantPlan = async (promptOverride?: string) => {
+    const nextPrompt = (promptOverride ?? assistantPrompt).trim();
+    if (!nextPrompt) {
+      setAssistantError("Ask Helios what you want checked first.");
+      return;
+    }
+    setAssistantPrompt(nextPrompt);
+    setAssistantLoading(true);
+    setAssistantError(null);
+    setAssistantExecution(null);
+    setAssistantExecutionError(null);
+    try {
+      const result = await fetchCaseAssistantPlan(caseId, nextPrompt);
+      setAssistantPlan(result);
+    } catch (e) {
+      setAssistantError(e instanceof Error ? e.message : "Planner request failed");
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+  const handleAssistantExecute = async () => {
+    if (!assistantPlan) {
+      setAssistantExecutionError("Plan the next steps before executing tools.");
+      return;
+    }
+    const approvedToolIds = assistantPlan.plan.filter((step) => step.required).map((step) => step.tool_id);
+    setAssistantExecutionLoading(true);
+    setAssistantExecutionError(null);
+    try {
+      const result = await executeCaseAssistantPlan(caseId, assistantPlan.analyst_prompt, approvedToolIds);
+      setAssistantExecution(result);
+    } catch (e) {
+      setAssistantExecutionError(e instanceof Error ? e.message : "Approved execution failed");
+    } finally {
+      setAssistantExecutionLoading(false);
     }
   };
 
@@ -115,6 +188,22 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           No AI provider configured. Go to <strong style={{ color: T.accent }}>Admin &gt; AI Settings</strong> to
           set up your API key for Claude, OpenAI, or Gemini.
         </div>
+        <div style={{ marginTop: 12 }}>
+          <ControlPlaneSection
+            caseId={caseId}
+            vendorName={vendorName}
+            prompt={assistantPrompt}
+            onPromptChange={setAssistantPrompt}
+            onRun={handleAssistantPlan}
+            onExecute={handleAssistantExecute}
+            plan={assistantPlan}
+            loading={assistantLoading}
+            error={assistantError}
+            execution={assistantExecution}
+            executionLoading={assistantExecutionLoading}
+            executionError={assistantExecutionError}
+          />
+        </div>
       </div>
     );
   }
@@ -122,6 +211,12 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
   const a = analysis?.analysis;
   const verdict = a?.verdict || "";
   const vs = VERDICT_STYLES[verdict] || VERDICT_STYLES.ENHANCED_DUE_DILIGENCE;
+  const decisionStyle =
+    latestDecision?.decision === "approve"
+      ? { color: T.green, bg: T.greenBg, icon: CheckCircle }
+      : latestDecision?.decision === "reject"
+        ? { color: T.red, bg: T.redBg, icon: XCircle }
+        : { color: T.amber, bg: T.amberBg, icon: AlertTriangle };
 
   return (
     <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
@@ -181,6 +276,23 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
         </div>
       )}
 
+      <div className="p-4" style={{ borderBottom: `1px solid ${T.border}` }}>
+        <ControlPlaneSection
+          caseId={caseId}
+          vendorName={vendorName}
+          prompt={assistantPrompt}
+          onPromptChange={setAssistantPrompt}
+          onRun={handleAssistantPlan}
+          onExecute={handleAssistantExecute}
+          plan={assistantPlan}
+          loading={assistantLoading}
+          error={assistantError}
+          execution={assistantExecution}
+          executionLoading={assistantExecutionLoading}
+          executionError={assistantExecutionError}
+        />
+      </div>
+
       {/* Loading state */}
       {loading && !analysis && (
         <div className="p-8 flex flex-col items-center gap-3">
@@ -212,11 +324,11 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           {latestDecision ? (
             <div
               className="flex items-center gap-2 p-3 rounded-lg"
-              style={{ background: T.greenBg, border: `1px solid ${T.green}33` }}
+              style={{ background: decisionStyle.bg, border: `1px solid ${decisionStyle.color}33` }}
             >
-              <CheckCircle size={14} color={T.green} />
+              <decisionStyle.icon size={14} color={decisionStyle.color} />
               <div className="flex flex-col gap-0.5" style={{ flex: 1 }}>
-                <span className="font-semibold" style={{ fontSize: FS.sm, color: T.green }}>
+                <span className="font-semibold" style={{ fontSize: FS.sm, color: decisionStyle.color }}>
                   Decision Recorded: {latestDecision.decision.toUpperCase()}
                 </span>
                 <span style={{ fontSize: FS.sm, color: T.dim }}>
@@ -398,6 +510,783 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
               {a.confidence_assessment}
             </p>
           </Section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getExportHybridReview(result: Record<string, unknown>): AssistantExportHybridReview | null {
+  const review = result.hybrid_review;
+  if (!review || typeof review !== "object") return null;
+  const candidate = review as Record<string, unknown>;
+  if (typeof candidate.deterministic_posture !== "string") return null;
+  if (typeof candidate.ai_proposed_posture !== "string") return null;
+  if (typeof candidate.final_posture !== "string") return null;
+  return review as AssistantExportHybridReview;
+}
+
+function getAssuranceHybridReview(result: Record<string, unknown>): AssistantAssuranceHybridReview | null {
+  const review = result.hybrid_review;
+  if (!review || typeof review !== "object") return null;
+  const candidate = review as Record<string, unknown>;
+  if (typeof candidate.deterministic_posture !== "string") return null;
+  if (typeof candidate.ai_proposed_posture !== "string") return null;
+  if (typeof candidate.final_posture !== "string") return null;
+  return review as AssistantAssuranceHybridReview;
+}
+
+function getCyberEvidenceSummary(result: Record<string, unknown>): CyberEvidenceSummary | null {
+  const summary = result.cyber_evidence_summary;
+  if (!summary || typeof summary !== "object") return null;
+  return summary as CyberEvidenceSummary;
+}
+
+function stringList(values: string[] | undefined): string[] {
+  if (!Array.isArray(values)) return [];
+  const deduped: string[] = [];
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text && !deduped.includes(text)) deduped.push(text);
+  }
+  return deduped;
+}
+
+function threatPressureTone(pressure?: string | null) {
+  switch (String(pressure || "").toLowerCase()) {
+    case "high":
+      return { color: T.red, background: T.redBg };
+    case "medium":
+      return { color: T.amber, background: T.amberBg };
+    case "low":
+      return { color: T.green, background: T.greenBg };
+    default:
+      return { color: T.muted, background: T.raised };
+  }
+}
+
+function ControlPlaneSection({
+  caseId,
+  vendorName,
+  prompt,
+  onPromptChange,
+  onRun,
+  onExecute,
+  plan,
+  loading,
+  error,
+  execution,
+  executionLoading,
+  executionError,
+}: {
+  caseId: string;
+  vendorName: string;
+  prompt: string;
+  onPromptChange: (value: string) => void;
+  onRun: (prompt?: string) => void;
+  onExecute: () => void;
+  plan: CaseAssistantPlan | null;
+  loading: boolean;
+  error: string | null;
+  execution: CaseAssistantExecutionResult | null;
+  executionLoading: boolean;
+  executionError: string | null;
+}) {
+  const [feedbackVerdict, setFeedbackVerdict] = useState<AssistantFeedbackVerdict>("partial");
+  const [feedbackType, setFeedbackType] = useState<AssistantFeedbackType>("tool_missing");
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [suggestedToolsInput, setSuggestedToolsInput] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
+
+  const quickPrompts = [
+    `Why is ${vendorName} risky right now?`,
+    "Trace the strongest control path and show the evidence.",
+    "Tell me which missing identifiers would most change the decision.",
+  ];
+  const anomalyTone = (severity: string) =>
+    severity === "high"
+      ? { color: T.red, background: T.redBg }
+      : severity === "medium"
+        ? { color: T.amber, background: T.amberBg }
+        : { color: T.muted, background: T.raised };
+  const stepTone = (mode: string) =>
+    mode === "generate"
+      ? { color: T.accent, background: `${T.accent}18` }
+      : mode === "error" || mode === "blocked"
+        ? { color: T.red, background: T.redBg }
+      : mode === "unavailable"
+          ? { color: T.muted, background: T.surface }
+      : mode === "review"
+        ? { color: T.amber, background: T.amberBg }
+        : { color: T.green, background: T.greenBg };
+
+  useEffect(() => {
+    setFeedbackVerdict("partial");
+    setFeedbackType("tool_missing");
+    setFeedbackComment("");
+    setSuggestedToolsInput("");
+    setFeedbackError(null);
+    setFeedbackSuccess(null);
+  }, [plan?.generated_at, execution?.executed_at, vendorName]);
+
+  const handleFeedbackSubmit = async () => {
+    if (!plan) {
+      setFeedbackError("Plan the assistant path before sending feedback.");
+      return;
+    }
+    setFeedbackSubmitting(true);
+    setFeedbackError(null);
+    setFeedbackSuccess(null);
+    try {
+      const suggestedToolIds = suggestedToolsInput
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const approvedToolIds = plan.plan.filter((step) => step.required).map((step) => step.tool_id);
+      const executedToolIds = execution?.executed_steps.map((step) => step.tool_id) ?? [];
+      const anomalyCodes = plan.anomalies.map((item) => item.code);
+      const result = await submitCaseAssistantFeedback(caseId, {
+        prompt: plan.analyst_prompt,
+        objective: plan.objective,
+        verdict: feedbackVerdict,
+        feedback_type: feedbackType,
+        comment: feedbackComment.trim(),
+        approved_tool_ids: approvedToolIds,
+        executed_tool_ids: executedToolIds,
+        suggested_tool_ids: suggestedToolIds,
+        anomaly_codes: anomalyCodes,
+      });
+      setFeedbackSuccess(`Captured signal #${result.feedback_id}`);
+    } catch (e) {
+      setFeedbackError(e instanceof Error ? e.message : "Failed to capture assistant feedback");
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: 12 }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2">
+            <Brain size={13} color={T.accent} />
+            <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
+              AI Control Plane
+            </span>
+          </div>
+          <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4, lineHeight: 1.5 }}>
+            Natural-language front door with typed tools, visible plan, and analyst guardrails.
+          </div>
+        </div>
+        {plan && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.text, background: T.surface, border: `1px solid ${T.border}` }}>
+              Objective: {plan.objective.replace(/_/g, " ")}
+            </span>
+            {plan.recommended_view && (
+              <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}18`, border: `1px solid ${T.accent}44` }}>
+                View: {plan.recommended_view}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3">
+        <textarea
+          value={prompt}
+          onChange={(event) => onPromptChange(event.target.value)}
+          placeholder="Ask Helios what to inspect, verify, or explain."
+          rows={3}
+          style={{
+            width: "100%",
+            borderRadius: 8,
+            border: `1px solid ${T.border}`,
+            background: T.surface,
+            color: T.text,
+            padding: 10,
+            fontSize: FS.sm,
+            resize: "vertical",
+          }}
+        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => onRun()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+            style={{
+              padding: "6px 12px",
+              fontSize: FS.sm,
+              background: loading ? T.border : `${T.accent}18`,
+              color: loading ? T.muted : T.accent,
+              borderColor: loading ? T.border : `${T.accent}44`,
+              opacity: loading ? 0.7 : 1,
+            }}
+          >
+            {loading ? <Loader2 size={11} className="animate-spin" /> : <Brain size={11} />}
+            {loading ? "Planning..." : "Plan next steps"}
+          </button>
+          {quickPrompts.map((quickPrompt) => (
+            <button
+              key={quickPrompt}
+              onClick={() => onRun(quickPrompt)}
+              disabled={loading}
+              className="rounded border cursor-pointer"
+              style={{
+                padding: "5px 10px",
+                fontSize: FS.sm,
+                background: T.surface,
+                color: T.muted,
+                borderColor: T.border,
+                opacity: loading ? 0.6 : 1,
+              }}
+            >
+              {quickPrompt}
+            </button>
+          ))}
+          <button
+            onClick={onExecute}
+            disabled={loading || executionLoading || !plan}
+            className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+            style={{
+              padding: "6px 12px",
+              fontSize: FS.sm,
+              background: loading || executionLoading || !plan ? T.border : T.greenBg,
+              color: loading || executionLoading || !plan ? T.muted : T.green,
+              borderColor: loading || executionLoading || !plan ? T.border : `${T.green}44`,
+              opacity: loading || executionLoading || !plan ? 0.7 : 1,
+            }}
+          >
+            {executionLoading ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+            {executionLoading ? "Executing..." : "Execute required tools"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 mt-3 rounded p-2.5" style={{ background: T.redBg, border: `1px solid ${T.red}33` }}>
+          <XCircle size={12} color={T.red} className="shrink-0" />
+          <span style={{ fontSize: FS.sm, color: T.red }}>{error}</span>
+        </div>
+      )}
+
+      {executionError && (
+        <div className="flex items-center gap-2 mt-3 rounded p-2.5" style={{ background: T.redBg, border: `1px solid ${T.red}33` }}>
+          <XCircle size={12} color={T.red} className="shrink-0" />
+          <span style={{ fontSize: FS.sm, color: T.red }}>{executionError}</span>
+        </div>
+      )}
+
+      {plan && (
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                Context Snapshot
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.text, marginTop: 8, lineHeight: 1.6 }}>
+                Tier: {plan.context_snapshot.tier || "Unknown"}<br />
+                Findings: {plan.context_snapshot.findings_total}<br />
+                Control paths: {plan.context_snapshot.control_path_count}<br />
+                Contradictions: {plan.context_snapshot.contradicted_claims}
+              </div>
+            </div>
+            <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                Guardrails
+              </div>
+              <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                {plan.guardrails.slice(0, 2).map((guardrail) => (
+                  <div key={guardrail} style={{ fontSize: FS.sm, color: T.muted, lineHeight: 1.5 }}>
+                    • {guardrail}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {plan.anomalies.length > 0 && (
+            <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                Outliers And Gaps
+              </div>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+                {plan.anomalies.map((anomaly) => {
+                  const tone = anomalyTone(anomaly.severity);
+                  return (
+                    <div key={`${anomaly.code}-${anomaly.message}`} className="rounded-lg" style={{ padding: "8px 10px", background: tone.background, color: tone.color, border: `1px solid ${tone.color}33`, minWidth: 180 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {anomaly.severity}
+                      </div>
+                      <div style={{ fontSize: FS.sm, marginTop: 4, lineHeight: 1.5 }}>
+                        {anomaly.message}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+            <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+              Planned Tool Path
+            </div>
+            <div className="flex flex-col gap-3" style={{ marginTop: 10 }}>
+              {plan.plan.map((step, index) => {
+                const tone = stepTone(step.mode);
+                return (
+                  <div key={`${step.tool_id}-${index}`} className="rounded-lg" style={{ padding: 12, background: T.raised, border: `1px solid ${T.border}` }}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: tone.color, background: tone.background }}>
+                          {step.mode}
+                        </span>
+                        <span style={{ fontSize: FS.sm, color: T.text, fontWeight: 600 }}>
+                          {index + 1}. {step.label}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: FS.sm, color: step.required ? T.text : T.muted }}>
+                        {step.required ? "required" : "optional"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                      {step.reason}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {execution && (
+            <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                  Approved Execution
+                </div>
+                <div style={{ fontSize: FS.sm, color: T.muted }}>
+                  {execution.executed_steps.length} step{execution.executed_steps.length === 1 ? "" : "s"} executed
+                </div>
+              </div>
+              <div className="flex flex-col gap-3" style={{ marginTop: 10 }}>
+                {execution.executed_steps.map((step) => {
+                  const tone = stepTone(step.status);
+                  const exportHybridReview = step.tool_id === "export_guidance" ? getExportHybridReview(step.result) : null;
+                  const assuranceHybridReview = step.tool_id === "cyber_evidence" ? getAssuranceHybridReview(step.result) : null;
+                  const cyberEvidenceSummary = step.tool_id === "cyber_evidence" ? getCyberEvidenceSummary(step.result) : null;
+                  return (
+                    <div key={`${step.tool_id}-${step.status}`} className="rounded-lg" style={{ padding: 12, background: T.raised, border: `1px solid ${T.border}` }}>
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: tone.color, background: tone.background }}>
+                            {step.status}
+                          </span>
+                          <span style={{ fontSize: FS.sm, color: T.text, fontWeight: 600 }}>
+                            {step.tool_id}
+                          </span>
+                        </div>
+                      </div>
+                      {exportHybridReview ? (
+                        <div className="mt-3 flex flex-col gap-3">
+                          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Rules Posture
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, marginTop: 6 }}>
+                                {exportHybridReview.deterministic_posture}
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                                {exportHybridReview.deterministic_reason_summary}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                AI Challenge
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.accent, fontWeight: 700, marginTop: 6 }}>
+                                {exportHybridReview.ai_proposed_posture}
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                                {exportHybridReview.ai_explanation}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Final Posture
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.green, fontWeight: 700, marginTop: 6 }}>
+                                {exportHybridReview.final_posture}
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                                {exportHybridReview.disagrees_with_deterministic
+                                  ? "AI elevated this case above the deterministic floor."
+                                  : "AI held the deterministic floor without escalation."}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Ambiguity Flags
+                              </div>
+                              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                                {(exportHybridReview.ambiguity_flags.length ? exportHybridReview.ambiguity_flags : ["none"]).map((flag) => (
+                                  <span key={flag} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: flag === "none" ? T.muted : T.amber, background: flag === "none" ? T.raised : T.amberBg }}>
+                                    {flag.replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Missing Facts
+                              </div>
+                              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                                {(exportHybridReview.missing_facts.length ? exportHybridReview.missing_facts : ["none"]).map((fact) => (
+                                  <span key={fact} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: fact === "none" ? T.muted : T.red, background: fact === "none" ? T.raised : T.redBg }}>
+                                    {fact.replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          {exportHybridReview.recommended_questions.length > 0 && (
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Next Questions
+                              </div>
+                              <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                                {exportHybridReview.recommended_questions.map((question) => (
+                                  <div key={question} style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.5 }}>
+                                    - {question}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : assuranceHybridReview ? (
+                        <div className="mt-3 flex flex-col gap-3">
+                          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Evidence Posture
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, marginTop: 6 }}>
+                                {assuranceHybridReview.deterministic_posture}
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                                {assuranceHybridReview.deterministic_reason_summary}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                AI Challenge
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.accent, fontWeight: 700, marginTop: 6 }}>
+                                {assuranceHybridReview.ai_proposed_posture}
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                                {assuranceHybridReview.ai_explanation}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Final Posture
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.green, fontWeight: 700, marginTop: 6 }}>
+                                {assuranceHybridReview.final_posture}
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                                {assuranceHybridReview.disagrees_with_deterministic
+                                  ? "AI changed the assurance posture because the artifact mix still leaves material uncertainty."
+                                  : "AI held the evidence floor without escalation."}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Ambiguity Flags
+                              </div>
+                              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                                {(assuranceHybridReview.ambiguity_flags.length ? assuranceHybridReview.ambiguity_flags : ["none"]).map((flag) => (
+                                  <span key={flag} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: flag === "none" ? T.muted : T.amber, background: flag === "none" ? T.raised : T.amberBg }}>
+                                    {flag.replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Missing Evidence
+                              </div>
+                              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                                {(assuranceHybridReview.missing_facts.length ? assuranceHybridReview.missing_facts : ["none"]).map((fact) => (
+                                  <span key={fact} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: fact === "none" ? T.muted : T.red, background: fact === "none" ? T.raised : T.redBg }}>
+                                    {fact.replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Artifact Sources
+                              </div>
+                              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                                {(assuranceHybridReview.artifact_sources.length ? assuranceHybridReview.artifact_sources : ["none"]).map((source) => (
+                                  <span key={source} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: source === "none" ? T.muted : T.accent, background: source === "none" ? T.raised : `${T.accent}18` }}>
+                                    {source.replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Safe Boundary
+                              </div>
+                              <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.5 }}>
+                                  - AI can elevate: {assuranceHybridReview.safe_boundary.ai_can_elevate ? "yes" : "no"}
+                                </div>
+                                <div style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.5 }}>
+                                  - AI can downgrade blocked: {assuranceHybridReview.safe_boundary.ai_can_downgrade_blocked ? "yes" : "no"}
+                                </div>
+                                <div style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.5 }}>
+                                  - AI can downgrade review with strong evidence: {assuranceHybridReview.safe_boundary.ai_can_downgrade_review_with_artifact_backed_evidence ? "yes" : "no"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {(assuranceHybridReview.threat_pressure
+                            || assuranceHybridReview.attack_technique_ids.length
+                            || assuranceHybridReview.cisa_advisory_ids.length
+                            || assuranceHybridReview.attack_actor_families.length
+                            || assuranceHybridReview.threat_sectors.length
+                            || assuranceHybridReview.open_source_advisory_count > 0
+                            || assuranceHybridReview.scorecard_low_repo_count > 0) && (
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  Active Threat Signal
+                                </div>
+                                <span
+                                  className="rounded-full"
+                                  style={{
+                                    padding: "4px 8px",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: threatPressureTone(assuranceHybridReview.threat_pressure).color,
+                                    background: threatPressureTone(assuranceHybridReview.threat_pressure).background,
+                                  }}
+                                >
+                                  {String(assuranceHybridReview.threat_pressure || "none").replace(/_/g, " ")}
+                                </span>
+                              </div>
+                              <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", marginTop: 8 }}>
+                                <div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>ATT&CK</div>
+                                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, marginTop: 4 }}>
+                                    {assuranceHybridReview.attack_technique_ids.length} techniques
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>CISA</div>
+                                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, marginTop: 4 }}>
+                                    {assuranceHybridReview.cisa_advisory_ids.length} advisories
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>OSS</div>
+                                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, marginTop: 4 }}>
+                                    {assuranceHybridReview.open_source_advisory_count} advisories
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>Repo Hygiene</div>
+                                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, marginTop: 4 }}>
+                                    {assuranceHybridReview.scorecard_low_repo_count} low-score repos
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                                {stringList(assuranceHybridReview.attack_actor_families).slice(0, 3).map((family) => (
+                                  <span key={family} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.red, background: T.redBg }}>
+                                    {family}
+                                  </span>
+                                ))}
+                                {stringList(assuranceHybridReview.threat_sectors).slice(0, 3).map((sector) => (
+                                  <span key={sector} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}18` }}>
+                                    {sector}
+                                  </span>
+                                ))}
+                                {stringList(assuranceHybridReview.attack_technique_ids).slice(0, 4).map((technique) => (
+                                  <span key={technique} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.amber, background: T.amberBg }}>
+                                    {technique}
+                                  </span>
+                                ))}
+                                {stringList(assuranceHybridReview.cisa_advisory_ids).slice(0, 3).map((advisory) => (
+                                  <span key={advisory} className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.text, background: T.raised }}>
+                                    {advisory}
+                                  </span>
+                                ))}
+                                {assuranceHybridReview.open_source_risk_level && (
+                                  <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.text, background: T.raised }}>
+                                    OSS risk {assuranceHybridReview.open_source_risk_level}
+                                  </span>
+                                )}
+                              </div>
+                              {cyberEvidenceSummary?.threat_intel_sources && cyberEvidenceSummary.threat_intel_sources.length > 0 && (
+                                <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+                                  Sources: {stringList(cyberEvidenceSummary.threat_intel_sources).join(", ")}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {assuranceHybridReview.recommended_questions.length > 0 && (
+                            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Next Questions
+                              </div>
+                              <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                                {assuranceHybridReview.recommended_questions.map((question) => (
+                                  <div key={question} style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.5 }}>
+                                    - {question}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <pre style={{ margin: "10px 0 0 0", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, color: T.muted }}>
+                          {JSON.stringify(step.result, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  );
+                })}
+                {execution.blocked_tools.length > 0 && (
+                  <div className="rounded-lg" style={{ padding: 12, background: T.amberBg, border: `1px solid ${T.amber}33` }}>
+                    <div style={{ fontSize: FS.sm, color: T.amber, fontWeight: 700 }}>
+                      Blocked tools
+                    </div>
+                    <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                      {execution.blocked_tools.map((tool) => (
+                        <div key={`${tool.tool_id}-${tool.reason}`} style={{ fontSize: FS.sm, color: T.text }}>
+                          {tool.tool_id}: {tool.message}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                Analyst Feedback Loop
+              </div>
+              <span style={{ fontSize: FS.sm, color: T.dim }}>
+                Turn plan corrections into structured training signals
+              </span>
+            </div>
+            <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Verdict
+                </span>
+                <select
+                  value={feedbackVerdict}
+                  onChange={(event) => setFeedbackVerdict(event.target.value as AssistantFeedbackVerdict)}
+                  style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.raised, color: T.text, padding: "8px 10px", fontSize: FS.sm }}
+                >
+                  <option value="accepted">Accepted</option>
+                  <option value="partial">Partial</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Feedback Type
+                </span>
+                <select
+                  value={feedbackType}
+                  onChange={(event) => setFeedbackType(event.target.value as AssistantFeedbackType)}
+                  style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.raised, color: T.text, padding: "8px 10px", fontSize: FS.sm }}
+                >
+                  <option value="tool_missing">Tool missing</option>
+                  <option value="tool_noise">Tool noise</option>
+                  <option value="objective_wrong">Wrong objective</option>
+                  <option value="missing_evidence">Missing evidence</option>
+                  <option value="wrong_explanation">Wrong explanation</option>
+                  <option value="helpful">Helpful</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Suggested Tools
+                </span>
+                <input
+                  value={suggestedToolsInput}
+                  onChange={(event) => setSuggestedToolsInput(event.target.value)}
+                  placeholder="graph_probe, enrichment_findings"
+                  style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.raised, color: T.text, padding: "8px 10px", fontSize: FS.sm }}
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 mt-3">
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Analyst Comment
+              </span>
+              <textarea
+                value={feedbackComment}
+                onChange={(event) => setFeedbackComment(event.target.value)}
+                placeholder="Tell Helios what was missing, noisy, or wrong."
+                rows={3}
+                style={{ borderRadius: 8, border: `1px solid ${T.border}`, background: T.raised, color: T.text, padding: 10, fontSize: FS.sm, resize: "vertical" }}
+              />
+            </label>
+            <div className="flex items-center justify-between gap-3 flex-wrap mt-3">
+              <div style={{ fontSize: FS.sm, color: T.muted }}>
+                Helios will store the prompt, objective, executed tools, anomaly codes, and your correction as a structured signal.
+              </div>
+              <button
+                onClick={handleFeedbackSubmit}
+                disabled={feedbackSubmitting || !plan}
+                className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+                style={{
+                  padding: "6px 12px",
+                  fontSize: FS.sm,
+                  background: feedbackSubmitting || !plan ? T.border : `${T.accent}18`,
+                  color: feedbackSubmitting || !plan ? T.muted : T.accent,
+                  borderColor: feedbackSubmitting || !plan ? T.border : `${T.accent}44`,
+                  opacity: feedbackSubmitting || !plan ? 0.7 : 1,
+                }}
+              >
+                {feedbackSubmitting ? <Loader2 size={11} className="animate-spin" /> : <Shield size={11} />}
+                {feedbackSubmitting ? "Saving..." : "Save assistant feedback"}
+              </button>
+            </div>
+            {feedbackError && (
+              <div className="mt-3 rounded p-2.5" style={{ background: T.redBg, border: `1px solid ${T.red}33`, color: T.red, fontSize: FS.sm }}>
+                {feedbackError}
+              </div>
+            )}
+            {feedbackSuccess && (
+              <div className="mt-3 rounded p-2.5" style={{ background: T.greenBg, border: `1px solid ${T.green}33`, color: T.green, fontSize: FS.sm }}>
+                {feedbackSuccess}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

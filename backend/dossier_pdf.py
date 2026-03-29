@@ -12,46 +12,25 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 
-import db
-from event_extraction import compute_report_hash
 from dossier import PROGRAM_LABELS
-from dossier import _build_dossier_storyline
+from dossier import build_dossier_context
 from dossier import _curate_dossier_findings
 from dossier import _summarize_recent_change
-from dossier import _get_dossier_analysis_data
 from dossier import _is_clear_or_low_signal_event
 from dossier import _is_connector_gap_finding
 from dossier import _source_display_name
 from dossier import _workflow_lane_context
 from dossier import _workflow_lane_brief
-
-try:
-    from foci_evidence import get_latest_foci_summary
-    HAS_FOCI_EVIDENCE = True
-except ImportError:
-    HAS_FOCI_EVIDENCE = False
-
-try:
-    from cyber_evidence import get_latest_cyber_evidence_summary
-    HAS_CYBER_EVIDENCE = True
-except ImportError:
-    HAS_CYBER_EVIDENCE = False
-
-try:
-    from export_evidence import get_export_evidence_summary
-    HAS_EXPORT_EVIDENCE = True
-except ImportError:
-    HAS_EXPORT_EVIDENCE = False
+from dossier import _identifier_state_label
 
 try:
     from workflow_control_summary import build_workflow_control_summary
     HAS_WORKFLOW_CONTROL = True
 except ImportError:
     HAS_WORKFLOW_CONTROL = False
-
 
 def _severity_color(severity: str) -> str:
     """Map severity level to hex color."""
@@ -239,7 +218,7 @@ def _append_storyline_section(story, storyline, styles_bundle) -> None:
 
         card_table = Table(
             [
-                [Paragraph(f"{int(card.get('rank') or 0) or '•'}  {_storyline_type_label(card.get('type', ''))}".upper(), label_style)],
+                [Paragraph(f"{int(card.get('rank') or 0) or '-'}  {_storyline_type_label(card.get('type', ''))}".upper(), label_style)],
                 [Paragraph(str(card.get("title", "Storyline item")), title_style)],
                 [Paragraph(str(card.get("body", "")), body_style)],
                 [Paragraph(" | ".join(meta_bits), meta_style)],
@@ -372,6 +351,8 @@ def _append_cyber_evidence_section(story, cyber_summary, styles_bundle) -> None:
     open_poam_items = int(cyber_summary.get("open_poam_items") or 0)
     critical_cves = int(cyber_summary.get("critical_cve_count") or 0)
     kev_count = int(cyber_summary.get("kev_flagged_cve_count") or 0)
+    public_evidence_present = bool(cyber_summary.get("public_evidence_present"))
+    vex_status = str(cyber_summary.get("vex_status") or "").strip()
 
     meta_bits = []
     if current_level > 0:
@@ -386,6 +367,21 @@ def _append_cyber_evidence_section(story, cyber_summary, styles_bundle) -> None:
         meta_bits.append(f"{critical_cves} critical CVE{'s' if critical_cves != 1 else ''}")
     if kev_count > 0:
         meta_bits.append(f"{kev_count} KEV-linked issue{'s' if kev_count != 1 else ''}")
+    if public_evidence_present:
+        meta_bits.append("Public assurance evidence")
+    if cyber_summary.get("sbom_present"):
+        sbom_format = str(cyber_summary.get("sbom_format") or "SBOM")
+        sbom_age = cyber_summary.get("sbom_fresh_days")
+        meta_bits.append(
+            f"{sbom_format} SBOM"
+            + (f" ({int(sbom_age)}d)" if isinstance(sbom_age, int) and sbom_age >= 0 else "")
+        )
+    if vex_status and vex_status.lower() not in {"missing", "unknown", "none"}:
+        meta_bits.append(f"VEX {vex_status.replace('_', ' ')}")
+    if int(cyber_summary.get("open_source_advisory_count") or 0) > 0:
+        meta_bits.append(f"{int(cyber_summary.get('open_source_advisory_count') or 0)} OSS advisories")
+    if int(cyber_summary.get("scorecard_low_repo_count") or 0) > 0:
+        meta_bits.append(f"{int(cyber_summary.get('scorecard_low_repo_count') or 0)} low-score repos")
 
     posture = "Customer cyber evidence"
     if current_level > 0 and current_level < 2:
@@ -394,6 +390,8 @@ def _append_cyber_evidence_section(story, cyber_summary, styles_bundle) -> None:
         posture = "Cyber readiness supported"
     elif poam_active or critical_cves > 0 or kev_count > 0:
         posture = "Remediation pressure present"
+    elif public_evidence_present:
+        posture = "Public assurance evidence in view"
 
     body_bits = []
     if current_level > 0:
@@ -411,17 +409,48 @@ def _append_cyber_evidence_section(story, cyber_summary, styles_bundle) -> None:
         if kev_count > 0:
             vuln_bits.append(f"{kev_count} KEV-linked issue{'s' if kev_count != 1 else ''}")
         body_bits.append("NVD overlay shows " + " and ".join(vuln_bits))
+    if public_evidence_present:
+        public_bits = []
+        if cyber_summary.get("sbom_present"):
+            sbom_desc = str(cyber_summary.get("sbom_format") or "SBOM")
+            sbom_age = cyber_summary.get("sbom_fresh_days")
+            if isinstance(sbom_age, int) and sbom_age >= 0:
+                public_bits.append(f"{sbom_desc} SBOM published ({sbom_age} days old)")
+            else:
+                public_bits.append(f"{sbom_desc} SBOM published")
+        if vex_status and vex_status.lower() not in {"missing", "unknown", "none"}:
+            public_bits.append(f"VEX status {vex_status.replace('_', ' ')}")
+        if cyber_summary.get("security_txt_present"):
+            public_bits.append("security.txt available")
+        if cyber_summary.get("psirt_contact_present"):
+            public_bits.append("PSIRT contact published")
+        if cyber_summary.get("support_lifecycle_published"):
+            public_bits.append("support lifecycle published")
+        if cyber_summary.get("provenance_attested"):
+            public_bits.append("provenance attestation disclosed")
+        if public_bits:
+            body_bits.append("First-party public assurance evidence shows " + ", ".join(public_bits))
+        if not cyber_summary.get("sprs_artifact_id") and not cyber_summary.get("oscal_artifact_id"):
+            body_bits.append("Customer-controlled assurance artifacts are still missing")
+    if int(cyber_summary.get("open_source_advisory_count") or 0) > 0:
+        body_bits.append(
+            f"Open-source package intelligence surfaced {int(cyber_summary.get('open_source_advisory_count') or 0)} advisory references across the declared package inventory"
+        )
+    if int(cyber_summary.get("scorecard_low_repo_count") or 0) > 0:
+        body_bits.append(
+            f"Repository hygiene remains weak across {int(cyber_summary.get('scorecard_low_repo_count') or 0)} source repositories based on OpenSSF Scorecard"
+        )
     body_text = ". ".join(body_bits).strip()
     if body_text and not body_text.endswith("."):
         body_text += "."
     if not body_text:
-        body_text = "Customer cyber-trust artifacts are attached for CMMC, POA&M, and product vulnerability context."
+        body_text = "Customer and first-party public supply chain assurance evidence is available for CMMC, remediation, provenance, and product vulnerability context."
 
-    story.append(Paragraph("CYBER EVIDENCE SUMMARY", heading_style))
+    story.append(Paragraph("SUPPLY CHAIN ASSURANCE EVIDENCE SUMMARY", heading_style))
     card = Table(
         [
-            [Paragraph("Customer cyber evidence", meta_style)],
-            [Paragraph("Supplier cyber-readiness context", title_style)],
+            [Paragraph("Supply chain assurance evidence", meta_style)],
+            [Paragraph("Supplier, software, and dependency assurance context", title_style)],
             [Paragraph(body_text, body_style)],
             [Paragraph(" | ".join([posture] + meta_bits) if meta_bits else posture, meta_style)],
         ],
@@ -527,6 +556,206 @@ def _make_signal_bar(width_inches: float, fill_pct: int, color_hex: str) -> Tabl
     return bar
 
 
+def _append_pdf_chapter_header(story, kicker: str, title: str, summary: str, dark: bool = False) -> None:
+    kicker_color = "#D4BF89" if dark else "#C4A052"
+    title_color = "#FFFFFF" if dark else "#111827"
+    body_color = "#D6DEE8" if dark else "#4B5563"
+    background = HexColor("#0F1E2F" if dark else "#F8FAFC")
+    border = HexColor("#1F334A" if dark else "#D8E0EA")
+
+    kicker_style = ParagraphStyle(
+        f"ChapterKicker{title}",
+        fontSize=7.4,
+        leading=9,
+        textColor=HexColor(kicker_color),
+        fontName="Helvetica-Bold",
+        spaceAfter=4,
+    )
+    title_style = ParagraphStyle(
+        f"ChapterTitle{title}",
+        fontSize=17,
+        leading=20,
+        textColor=HexColor(title_color),
+        fontName="Helvetica-Bold",
+        spaceAfter=6,
+    )
+    summary_style = ParagraphStyle(
+        f"ChapterSummary{title}",
+        fontSize=8.6,
+        leading=12,
+        textColor=HexColor(body_color),
+    )
+    chapter_table = Table(
+        [
+            [Paragraph(kicker.upper(), kicker_style)],
+            [Paragraph(title, title_style)],
+            [Paragraph(summary, summary_style)],
+        ],
+        colWidths=[7.2 * inch],
+    )
+    chapter_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), background),
+        ("BOX", (0, 0), (-1, -1), 0.6, border),
+        ("LEFTPADDING", (0, 0), (-1, -1), 16),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 16),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    story.append(chapter_table)
+    story.append(Spacer(1, 0.1 * inch))
+
+
+def _append_supplier_passport_pdf_section(story, passport, styles_bundle) -> None:
+    if not isinstance(passport, dict):
+        return
+
+    heading_style = styles_bundle["heading"]
+    muted_style = styles_bundle["muted"]
+
+    identity = passport.get("identity") if isinstance(passport.get("identity"), dict) else {}
+    score = passport.get("score") if isinstance(passport.get("score"), dict) else {}
+    graph = passport.get("graph") if isinstance(passport.get("graph"), dict) else {}
+    artifacts = passport.get("artifacts") if isinstance(passport.get("artifacts"), dict) else {}
+    monitoring = passport.get("monitoring") if isinstance(passport.get("monitoring"), dict) else {}
+    identifiers = identity.get("identifier_status") if isinstance(identity.get("identifier_status"), dict) else {}
+    control_paths = graph.get("control_paths") if isinstance(graph.get("control_paths"), list) else []
+
+    story.append(Paragraph("SUPPLIER PASSPORT", heading_style))
+
+    probability = score.get("calibrated_probability")
+    probability_label = f"{float(probability) * 100:.1f}%" if isinstance(probability, (int, float)) else "Unknown"
+    latest_check = monitoring.get("latest_check") if isinstance(monitoring.get("latest_check"), dict) else {}
+    metric_rows = [
+        ["Posture", str(passport.get("posture") or "Pending").replace("_", " ").title()],
+        ["Tier", str(score.get("calibrated_tier") or "Pending").replace("_", " ")],
+        ["Risk estimate", probability_label],
+        ["Connectors with data", str(identity.get("connectors_with_data", 0))],
+        ["Control paths", str(len(control_paths))],
+        ["Artifacts", str(artifacts.get("count", 0))],
+        ["Latest monitoring", _format_timestamp_value(latest_check.get("checked_at"), "%Y-%m-%d %H:%M") or "No monitoring yet"],
+    ]
+    metric_table = Table(metric_rows, colWidths=[2.1 * inch, 5.0 * inch])
+    metric_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), HexColor("#F3F4F6")),
+        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#E5E7EB")),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0, 0), (-1, -1), HexColor("#1F2937")),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(metric_table)
+    story.append(Spacer(1, 0.08 * inch))
+
+    if identifiers:
+        id_rows = [["Identifier", "Value", "Trust state"]]
+        for key in ("cage", "uei", "duns", "ncage", "lei", "website"):
+            item = identifiers.get(key)
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("value") or "Not captured")
+            id_rows.append([key.upper(), value, _identifier_state_label(item)])
+        id_table = Table(id_rows, colWidths=[1.1 * inch, 4.0 * inch, 2.0 * inch])
+        id_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#102033")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#FFFFFF")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#E5E7EB")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#FFFFFF"), HexColor("#F9FAFB")]),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(id_table)
+        story.append(Spacer(1, 0.08 * inch))
+
+    if control_paths:
+        control_rows = [["Relationship", "Confidence", "Evidence basis"]]
+        for path in control_paths[:4]:
+            rel = f"{path.get('source_name') or 'Subject'} -> {str(path.get('rel_type') or 'related').replace('_', ' ')} -> {path.get('target_name') or 'Target'}"
+            confidence = f"{round(float(path.get('confidence') or 0.0) * 100)}%"
+            evidence = ", ".join(_source_display_name(src) for src in (path.get("data_sources") or [])[:3]) or "Captured control-path signal"
+            control_rows.append([rel, confidence, evidence])
+        control_table = Table(control_rows, colWidths=[3.6 * inch, 0.8 * inch, 2.8 * inch])
+        control_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#102033")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#FFFFFF")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#E5E7EB")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#FFFFFF"), HexColor("#F9FAFB")]),
+            ("FONTSIZE", (0, 0), (-1, -1), 7.8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(control_table)
+    else:
+        story.append(Paragraph(
+            "No analyst-grade control path is captured yet. This case still needs ownership and intermediary enrichment.",
+            muted_style,
+        ))
+    story.append(Spacer(1, 0.12 * inch))
+
+
+def _append_graph_provenance_pdf_section(story, graph_summary, styles_bundle) -> None:
+    if not isinstance(graph_summary, dict):
+        return
+
+    relationships = graph_summary.get("relationships") or []
+    if not relationships:
+        return
+
+    heading_style = styles_bundle["heading"]
+    muted_style = styles_bundle["muted"]
+
+    source_counts: dict[str, int] = {}
+    corroborated = 0
+    for rel in relationships:
+        data_sources = rel.get("data_sources") or []
+        if not data_sources and rel.get("data_source"):
+            data_sources = [rel.get("data_source")]
+        if int(rel.get("corroboration_count") or len(data_sources) or 1) > 1:
+            corroborated += 1
+        for source in data_sources:
+            if source:
+                source_counts[source] = source_counts.get(source, 0) + 1
+
+    story.append(Paragraph("GRAPH PROVENANCE SNAPSHOT", heading_style))
+    metrics = [
+        ["Relationships", str(graph_summary.get("relationship_count") or len(relationships))],
+        ["Entities", str(graph_summary.get("entity_count") or len(graph_summary.get("entities") or []))],
+        ["Corroborated", str(corroborated)],
+        ["Sources", str(len(source_counts))],
+    ]
+    metric_table = Table(metrics, colWidths=[2.1 * inch, 1.2 * inch])
+    metric_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), HexColor("#F3F4F6")),
+        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#E5E7EB")),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    top_sources = ", ".join(
+        f"{_source_display_name(source)} ({count})"
+        for source, count in sorted(source_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+    )
+    story.append(metric_table)
+    if top_sources:
+        story.append(Spacer(1, 0.05 * inch))
+        story.append(Paragraph(f"<b>Strongest graph sources:</b> {top_sources}", muted_style))
+    story.append(Spacer(1, 0.12 * inch))
+
+
 def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False) -> bytes:
     """
     Generate a professional PDF dossier for a vendor.
@@ -534,35 +763,24 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
     Returns:
         bytes: PDF file content
     """
-    # Gather all data
-    vendor = db.get_vendor(vendor_id)
-    if not vendor:
+    context = build_dossier_context(vendor_id, user_id=user_id, hydrate_ai=hydrate_ai)
+    if not context:
         raise ValueError(f"Vendor {vendor_id} not found")
 
-    score = db.get_latest_score(vendor_id)
-    enrichment = db.get_latest_enrichment(vendor_id)
-    decisions = db.get_decisions(vendor_id, limit=50)
-    monitoring_history = db.get_monitoring_history(vendor_id, limit=10)
-    report_hash = compute_report_hash(enrichment) if enrichment else ""
-    case_events = db.get_case_events(vendor_id, report_hash) if report_hash else []
-    intel_summary = db.get_latest_intel_summary(vendor_id, user_id=user_id, report_hash=report_hash) if report_hash else None
-    foci_summary = get_latest_foci_summary(vendor_id) if HAS_FOCI_EVIDENCE else None
-    cyber_summary = get_latest_cyber_evidence_summary(vendor_id) if HAS_CYBER_EVIDENCE else None
-    vendor_input = vendor.get("vendor_input", {}) if isinstance(vendor.get("vendor_input"), dict) else {}
-    export_summary = (
-        get_export_evidence_summary(vendor_id, vendor_input.get("export_authorization"))
-        if HAS_EXPORT_EVIDENCE else None
-    )
-    storyline = _build_dossier_storyline(vendor_id, vendor, score, enrichment, case_events, intel_summary)
-
-    analysis_data = _get_dossier_analysis_data(
-        vendor_id,
-        vendor,
-        score,
-        enrichment,
-        user_id=user_id,
-        hydrate_ai=hydrate_ai,
-    )
+    vendor = context["vendor"]
+    score = context["score"]
+    enrichment = context["enrichment"]
+    decisions = context["decisions"]
+    monitoring_history = context["monitoring_history"]
+    case_events = context["case_events"]
+    intel_summary = context["intel_summary"]
+    storyline = context["storyline"]
+    supplier_passport = context["supplier_passport"]
+    graph_summary = context["graph_summary"]
+    foci_summary = context["foci_summary"]
+    cyber_summary = context["cyber_summary"]
+    export_summary = context["export_summary"]
+    analysis_data = context["analysis_data"]
 
     # Create PDF in memory
     pdf_buffer = BytesIO()
@@ -582,15 +800,6 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
     styles = getSampleStyleSheet()
 
     # Create custom styles
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        textColor=HexColor("#FFFFFF"),
-        spaceAfter=6,
-        fontName='Helvetica-Bold',
-    )
-
     heading_style = ParagraphStyle(
         'CustomHeading',
         parent=styles['Heading2'],
@@ -655,15 +864,17 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         alignment=1,  # center
         fontName='Helvetica-Bold',
     )
-    story.append(Table(
+    cui_banner = Table(
         [[Paragraph("CONTROLLED UNCLASSIFIED INFORMATION (CUI)", cui_style)]],
         colWidths=[7.5*inch]
-    ).setStyle(TableStyle([
+    )
+    cui_banner.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), HexColor("#DC2626")),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ])))
+    ]))
+    story.append(cui_banner)
 
     story.append(Spacer(1, 0.1*inch))
 
@@ -898,7 +1109,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
                 leading=10.5,
             )
             missing_items = (control_summary.get("missing_inputs") or [])[:3]
-            missing_text = "<br/>".join(f"• {item}" for item in missing_items) if missing_items else "• No major intake gap is currently flagged."
+            missing_text = "<br/>".join(f"- {item}" for item in missing_items) if missing_items else "- No major intake gap is currently flagged."
             control_table = Table([[
                 Table([
                     [Paragraph("CONTROL POSTURE", control_label_style)],
@@ -1015,25 +1226,12 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         story.append(signal_table)
         story.append(Spacer(1, 0.18 * inch))
 
-    _append_storyline_section(
+    _append_pdf_chapter_header(
         story,
-        storyline,
-        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
-    )
-    _append_foci_evidence_section(
-        story,
-        foci_summary,
-        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
-    )
-    _append_cyber_evidence_section(
-        story,
-        cyber_summary,
-        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
-    )
-    _append_export_evidence_section(
-        story,
-        export_summary,
-        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+        "Chapter 1",
+        "Decision brief",
+        "Start with the core recommendation, identity context, and portable trust artifact before moving into raw evidence.",
+        dark=True,
     )
 
     # === ENTITY SUMMARY ===
@@ -1129,6 +1327,44 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
 
     story.append(Spacer(1, 0.15*inch))
 
+    _append_storyline_section(
+        story,
+        storyline,
+        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+    )
+    _append_supplier_passport_pdf_section(
+        story,
+        supplier_passport,
+        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+    )
+    _append_graph_provenance_pdf_section(
+        story,
+        graph_summary,
+        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+    )
+
+    _append_pdf_chapter_header(
+        story,
+        "Chapter 2",
+        "Control evidence",
+        "This section explains why the posture should be believed, challenged, or escalated across ownership, supply chain assurance, and export controls.",
+    )
+    _append_foci_evidence_section(
+        story,
+        foci_summary,
+        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+    )
+    _append_cyber_evidence_section(
+        story,
+        cyber_summary,
+        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+    )
+    _append_export_evidence_section(
+        story,
+        export_summary,
+        {"heading": heading_style, "normal": normal_style, "muted": muted_style},
+    )
+
     # === CONTRIBUTING FACTORS ===
     if score and cal.get("contributions"):
         story.append(Paragraph("CONTRIBUTING RISK FACTORS", heading_style))
@@ -1196,6 +1432,13 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
 
         story.append(Spacer(1, 0.1*inch))
 
+    _append_pdf_chapter_header(
+        story,
+        "Chapter 3",
+        "Analyst narrative",
+        "Use this layer to understand Helios' qualitative judgment, the strongest intelligence context, and what an analyst should do next.",
+    )
+
     # === AI ANALYSIS ===
     if analysis_data and isinstance(analysis_data.get("analysis"), dict):
         analysis = analysis_data.get("analysis") or {}
@@ -1254,7 +1497,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
             )))
             if items:
                 for item in items[:5]:
-                    story.append(Paragraph(f"• {item}", normal_style))
+                    story.append(Paragraph(f"- {item}", normal_style))
             else:
                 story.append(Paragraph("No additional items surfaced in this category.", muted_style))
             story.append(Spacer(1, 0.04 * inch))
@@ -1293,6 +1536,13 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
                 story.append(Paragraph(f"<b>Recommended action:</b> {item.get('recommended_action')}", normal_style))
             story.append(Spacer(1, 0.08*inch))
         story.append(Spacer(1, 0.08*inch))
+
+    _append_pdf_chapter_header(
+        story,
+        "Chapter 4",
+        "Operations appendix",
+        "Full event, finding, freshness, and decision traceability for audit, challenge, and downstream review.",
+    )
 
     # === NORMALIZED EVENTS ===
     material_events = [event for event in case_events if not _is_clear_or_low_signal_event(event)]
@@ -1467,7 +1717,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
                 _format_timestamp_value(decision.get("created_at")),
                 decision.get("decision", "").upper(),
                 decision.get("decided_by", "Unknown")[:20],
-                decision.get("reason", "")[:40] if decision.get("reason") else "—",
+                decision.get("reason", "")[:40] if decision.get("reason") else "N/A",
             ])
 
         decision_table = Table(decision_data, colWidths=[1.5*inch, 1.2*inch, 2*inch, 2.8*inch])
@@ -1491,7 +1741,8 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
     footer_table = Table(
         [[Paragraph("CONTROLLED UNCLASSIFIED INFORMATION (CUI)", cui_style)]],
         colWidths=[7.5*inch]
-    ).setStyle(TableStyle([
+    )
+    footer_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), HexColor("#DC2626")),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('TOPPADDING', (0, 0), (-1, -1), 4),

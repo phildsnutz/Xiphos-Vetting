@@ -24,7 +24,6 @@ import time
 import urllib.request
 import urllib.error
 import urllib.parse
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 

@@ -16,8 +16,22 @@ Original scoring weights (from deep-research-report.md):
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional
-from fgamlogit import VendorInputV5, OwnershipProfile, DataQuality, ExecProfile, DoDContext
+from fgamlogit import VendorInputV5, OwnershipProfile, DataQuality, ExecProfile
+
+
+def _relationship_supports_control_resolution(relationship: dict) -> bool:
+    rel_type = str(relationship.get("type") or "").strip().lower()
+    if rel_type in {"beneficially_owned_by", "ultimate_parent"}:
+        return True
+    if rel_type not in {"owned_by", "parent_of", "subsidiary_of"}:
+        return False
+    access_model = str(relationship.get("access_model") or "").strip().lower()
+    confidence = float(relationship.get("confidence") or 0.0)
+    if not access_model and confidence <= 0.0:
+        return True
+    if access_model == "search_snippet_only":
+        return confidence >= 0.62
+    return confidence >= 0.60
 
 
 # =============================================================================
@@ -35,6 +49,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "trade_csl": 0.95,            # Consolidated Screening List (Commerce/State/Treasury)
     "un_sanctions": 0.95,         # UN Security Council (direct XML)
     "sam_gov": 0.95,              # SAM.gov Entity Registration (GSA)
+    "sam_subaward_reporting": 0.95,  # SAM.gov Acquisition Subaward Reporting (GSA)
     "fpds_contracts": 0.90,       # FPDS federal procurement (USAspending)
     "epa_echo": 0.90,             # EPA Enforcement (government)
     "osha_safety": 0.90,          # OSHA Violations (DOL)
@@ -45,6 +60,13 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "sec_edgar": 0.85,            # SEC EDGAR (public company filings)
     "gleif_lei": 0.85,            # GLEIF LEI Registry
     "uk_companies_house": 0.85,   # UK Companies House (government)
+    "corporations_canada": 0.85,  # Corporations Canada (government)
+    "australia_abn_asic": 0.85,   # ABR / ASIC (government)
+    "singapore_acra": 0.85,       # Singapore ACRA (government)
+    "new_zealand_companies_office": 0.85,  # NZ Companies Office / NZBN
+    "norway_brreg": 0.85,         # Norway Brreg (government)
+    "netherlands_kvk": 0.85,      # Netherlands KVK (government)
+    "france_inpi_rne": 0.85,      # France INPI / RNE (government)
     "worldbank_debarred": 0.85,   # World Bank Debarment
     "opensanctions_pep": 0.80,    # OpenSanctions (aggregated, well-maintained)
     "courtlistener": 0.80,        # CourtListener (federal court records)
@@ -118,6 +140,12 @@ def augment_from_enrichment(
     identifiers = enrichment.get("identifiers", {})
     findings = enrichment.get("findings", [])
     risk_signals = enrichment.get("risk_signals", [])
+    relationships = enrichment.get("relationships", [])
+    ownership_relationships = [
+        rel
+        for rel in relationships
+        if rel.get("type") in {"owned_by", "beneficially_owned_by", "ultimate_parent"}
+    ]
 
     def _track(factor: str, source: str, detail: str):
         """Record which source contributed to a scoring factor."""
@@ -199,7 +227,7 @@ def augment_from_enrichment(
             changes.append(f"[INFERRED] CAGE inferred from {fpds_count} federal contract awards in FPDS")
         if not dq.has_duns:
             dq.has_duns = True
-            changes.append(f"[INFERRED] DUNS/UEI inferred from federal contract history")
+            changes.append("[INFERRED] DUNS/UEI inferred from federal contract history")
 
     # Wikidata employee count and stock exchange are strong identity signals
     if identifiers.get("employee_count") and dq.years_of_records == 0:
@@ -228,48 +256,185 @@ def augment_from_enrichment(
                     changes.append("Audited financials verified via SEC EDGAR filings")
                     break
 
-    # Publicly traded detection: ticker, CIK, or explicit flag from OSINT
+    # Publicly traded detection: ticker, confident CIK, or explicit flag from
+    # validated OSINT. Low-confidence CIKs often reflect a parent, lender, or
+    # counterparty and should not flip the vendor into a public-company profile.
     is_public = identifiers.get("publicly_traded", False)
     has_ticker = bool(identifiers.get("ticker"))
     has_cik = bool(identifiers.get("cik"))
+    has_confident_cik = has_cik and str(identifiers.get("cik_confidence") or "").lower() != "low"
+    has_public_market_signal = bool(is_public or has_ticker or has_confident_cik)
 
-    if (is_public or has_ticker or has_cik) and not own.publicly_traded:
+    # Clear stale public-company classifications when the current enrichment run
+    # does not validate a current market signal. This keeps auto-augmented
+    # ownership state from persisting across later reruns.
+    had_stale_public_company_state = own.publicly_traded and not has_public_market_signal
+    if had_stale_public_company_state:
+        own.publicly_traded = False
+        changes.append("Cleared stale publicly traded classification (no current ticker or confident CIK)")
+
+    if has_public_market_signal and not own.publicly_traded:
         own.publicly_traded = True
         source = identifiers.get("ticker") or f"CIK {identifiers.get('cik', '')}"
         changes.append(f"Publicly traded: {source}")
 
-    # SEC-registered entities have public financial disclosures
-    if has_cik or has_ticker:
-        if not own.beneficial_owner_known:
-            own.beneficial_owner_known = True
-            # Beneficial ownership is INFERRED from SEC CIK; requires manual verification
-            changes.append("[INFERRED] Beneficial ownership inferred from SEC CIK -- requires manual verification")
-        # Lower confidence on ownership percentage: CIK presence doesn't guarantee we found real beneficial owner
-        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.60)
+    # SEC-registered entities have public financial disclosures, but that does
+    # not by itself establish beneficial ownership or a control path.
+    if has_confident_cik or has_ticker:
         if not dq.has_audited_financials:
             dq.has_audited_financials = True
-            changes.append("Audited financials inferred from SEC registration")
+            changes.append("Audited financials confirmed via SEC registration")
+        changes.append("Public market disclosure verified via current ticker / SEC registration")
 
-    # LEI holders have verified legal entity identity
-    if identifiers.get("lei"):
-        if not own.beneficial_owner_known:
-            own.beneficial_owner_known = True
-            # LEI verifies entity identity but not ultimate beneficial ownership
-            changes.append("[INFERRED] Beneficial ownership inferred from LEI registration -- requires manual verification")
-        # Lower confidence: LEI doesn't guarantee we have ultimate beneficial ownership
-        own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.60)
+    # LEI holders have verified legal entity identity, not automatically
+    # beneficial ownership resolution.
+    has_lei = bool(identifiers.get("lei"))
+    if has_lei:
+        dq.has_lei = True
+        changes.append(f"LEI verified: {identifiers.get('lei', '')[:20]}")
+
+    # Reset stale ownership inflation when the current run only proves identity
+    # transparency, not an actual ownership/control relationship.
+    if not ownership_relationships and not own.state_owned:
+        transparency_cap = None
+        if has_public_market_signal and has_lei:
+            transparency_cap = 0.55
+        elif has_public_market_signal:
+            transparency_cap = 0.45
+        elif has_lei:
+            transparency_cap = 0.30
+        elif had_stale_public_company_state:
+            transparency_cap = 0.35
+
+        if transparency_cap is not None and own.ownership_pct_resolved > transparency_cap:
+            own.ownership_pct_resolved = transparency_cap
+            changes.append(
+                f"Ownership control resolution capped at {int(transparency_cap * 100)}% "
+                "without direct ownership/control evidence"
+            )
+
+        if (
+            (has_public_market_signal or has_lei or had_stale_public_company_state)
+            and own.beneficial_owner_known
+        ):
+            own.beneficial_owner_known = False
+            changes.append(
+                "Cleared beneficial-owner status: current evidence verifies identity/disclosure, not control path"
+            )
+
+    # SAM.gov CAGE code = government-verified entity identity
+    if identifiers.get("cage"):
+        dq.has_cage = True
+        changes.append(f"CAGE verified: {identifiers.get('cage')}")
+    if identifiers.get("uei"):
+        dq.has_duns = True  # UEI replaces DUNS for SAM-registered entities
+        changes.append(f"UEI verified: {identifiers.get('uei')}")
 
     # -------------------------------------------------------------------
-    # 2. Ownership: update from corporate registry and LEI parent chains
+    # 1b. Executive identity extraction from OSINT findings
     # -------------------------------------------------------------------
-    relationships = enrichment.get("relationships", [])
+    # Extract executive/officer names from SEC EDGAR, SAM.gov, GLEIF,
+    # OpenCorporates, and UK Companies House findings. This fills the
+    # "No executive data available" gap.
+    exec_names_found = set()
+    for f in findings:
+        src = f.get("source", "")
+        detail = f.get("detail", "")
+        title = f.get("title", "")
+        cat = f.get("category", "")
 
+        # SAM.gov POC (Points of Contact) and registered officers
+        if src == "sam_gov" and any(kw in detail.lower() for kw in (
+            "point of contact", "poc", "registered", "authorized representative"
+        )):
+            import re
+            # Look for name patterns in SAM data
+            for pattern in [r"Name:\s*([A-Z][a-z]+ [A-Z][a-z]+)", r"POC:\s*([A-Z][a-z]+ [A-Z][a-z]+)"]:
+                for match in re.finditer(pattern, detail):
+                    exec_names_found.add(match.group(1))
+
+        # SEC EDGAR officer/director data from proxy statements
+        if src == "sec_edgar" and any(kw in (title + detail).lower() for kw in (
+            "def 14a", "proxy", "officer", "director", "executive",
+        )):
+            import re
+            for match in re.finditer(r"(?:officer|director|executive)[:\s]+([A-Z][a-z]+ [A-Z][a-z]+)", detail, re.IGNORECASE):
+                exec_names_found.add(match.group(1))
+
+        # OpenCorporates officer listings
+        if src == "opencorporates" and "officer" in cat.lower():
+            import re
+            for match in re.finditer(r"(?:Officer|Director|Secretary):\s*([A-Z][a-z]+ [A-Z][a-z]+)", detail):
+                exec_names_found.add(match.group(1))
+
+        # GLEIF authorized officials
+        if src == "gleif_lei" and "authorized" in detail.lower():
+            import re
+            for match in re.finditer(r"(?:Official|Representative):\s*([A-Z][a-z]+ [A-Z][a-z]+)", detail):
+                exec_names_found.add(match.group(1))
+
+        # Leadership appointments in collected public reporting
+        if src in {"google_news", "gdelt_media", "public_search", "rss_public", "public_html_ownership"}:
+            import re
+            haystack = f"{title}. {detail}"
+            for pattern in (
+                r"\b(?:promotes?|appointed?|names?)\s+([A-Z][a-z]+ [A-Z][a-z]+)\s+to\s+(?:president|ceo|chief executive officer|chair(?:man|woman)?|vice president|chief operating officer|chief financial officer)\b",
+                r"\b([A-Z][a-z]+ [A-Z][a-z]+)\s+(?:named|appointed|promoted)\s+(?:as|to)\s+(?:the\s+)?(?:president|ceo|chief executive officer|chair(?:man|woman)?|vice president|chief operating officer|chief financial officer)\b",
+            ):
+                for match in re.finditer(pattern, haystack, re.IGNORECASE):
+                    exec_names_found.add(match.group(1))
+
+    # Update exec profile with discovered names
+    if exec_names_found:
+        exec_count = len(exec_names_found)
+        if exec_count > ex.known_execs:
+            ex.known_execs = exec_count
+            changes.append(f"Executive roster: {exec_count} officers identified from OSINT ({', '.join(list(exec_names_found)[:3])}{'...' if exec_count > 3 else ''})")
+
+    # For publicly traded companies, even without individual names,
+    # we know officers exist because SEC requires disclosure
+    if own.publicly_traded and ex.known_execs == 0:
+        # SEC-registered public companies are required to disclose officers
+        ex.known_execs = 5  # Conservative minimum for a publicly traded company
+        changes.append("Executive roster: 5+ officers inferred (SEC disclosure requirement for publicly traded entity)")
+
+    # -------------------------------------------------------------------
+    # 2. Ownership: update from corporate registry and current control-path
+    #    evidence
+    # -------------------------------------------------------------------
     if relationships:
         ultimate_parents = [r for r in relationships if r.get("type") == "ultimate_parent"]
         if ultimate_parents:
             own.beneficial_owner_known = True
             own.ownership_pct_resolved = max(own.ownership_pct_resolved, 0.85)
             changes.append(f"Ultimate parent identified via GLEIF: {ultimate_parents[0].get('parent_name', 'N/A')}")
+        if ownership_relationships:
+            strong_ownership_relationships = [
+                relationship for relationship in ownership_relationships if _relationship_supports_control_resolution(relationship)
+            ]
+            target_names = [
+                str(r.get("target_entity") or r.get("parent_name") or "").strip()
+                for r in strong_ownership_relationships
+            ]
+            unique_targets = [name for name in dict.fromkeys(target_names) if name]
+            if strong_ownership_relationships:
+                own.beneficial_owner_known = True
+                relationship_resolution = (
+                    0.85
+                    if any(r.get("type") in {"beneficially_owned_by", "ultimate_parent"} for r in strong_ownership_relationships)
+                    else 0.65
+                )
+                own.ownership_pct_resolved = max(own.ownership_pct_resolved, relationship_resolution)
+                if has_public_market_signal or has_lei or had_stale_public_company_state:
+                    own.ownership_pct_resolved = min(own.ownership_pct_resolved, relationship_resolution)
+                if unique_targets:
+                    changes.append(
+                        "Ownership path identified via current enrichment relationships: "
+                        + ", ".join(unique_targets[:2])
+                        + ("..." if len(unique_targets) > 2 else "")
+                    )
+            else:
+                changes.append("Weak ownership hints observed but not enough to resolve beneficial owner")
 
     # Check for OpenCorporates officer data
     for f in findings:
@@ -288,7 +453,11 @@ def augment_from_enrichment(
     # -------------------------------------------------------------------
     # 2b. Years of records: extract incorporation date from OSINT
     # -------------------------------------------------------------------
-    incorporation_date = identifiers.get("incorporation_date") or identifiers.get("initial_registration_date")
+    incorporation_date = (
+        identifiers.get("incorporation_date")
+        or identifiers.get("initial_registration_date")
+        or identifiers.get("founded_year")
+    )
     if not incorporation_date:
         # Try to find it in OpenCorporates findings
         for f in findings:
@@ -309,6 +478,13 @@ def augment_from_enrichment(
                 year_match = re.search(r'(\d{4})', detail)
                 if year_match:
                     incorporation_date = year_match.group(1)
+                    break
+    if not incorporation_date:
+        for f in findings:
+            if f.get("source") == "public_html_ownership" and str(f.get("title", "")).lower().startswith("public site operating history hint"):
+                value = (f.get("structured_fields", {}) or {}).get("identifier_value")
+                if value:
+                    incorporation_date = value
                     break
 
     if incorporation_date and dq.years_of_records == 0:
@@ -338,7 +514,7 @@ def augment_from_enrichment(
         for f in findings:
             src = f.get("source", "")
             title = f.get("title", "")
-            if src in ("opencorporates", "uk_companies_house") and "officer" in title.lower():
+            if src in ("opencorporates", "uk_companies_house", "corporations_canada", "australia_abn_asic", "singapore_acra", "new_zealand_companies_office", "norway_brreg", "netherlands_kvk", "france_inpi_rne") and "officer" in title.lower():
                 import re
                 nums = re.findall(r'(\d+)', title)
                 if nums:
@@ -414,7 +590,7 @@ def augment_from_enrichment(
         for f in findings:
             src = f.get("source", "")
             detail = (f.get("detail", "") + " " + f.get("title", "")).lower()
-            if src in ("opencorporates", "gleif_lei", "uk_companies_house"):
+            if src in ("opencorporates", "gleif_lei", "uk_companies_house", "corporations_canada", "australia_abn_asic", "singapore_acra", "new_zealand_companies_office", "norway_brreg", "netherlands_kvk", "france_inpi_rne"):
                 if any(kw in detail for kw in ("state-owned", "state owned", "government", "soe", "crown corporation", "public body")):
                     # Keyword matching is not definitive; flag for review, do NOT change state_owned boolean
                     changes.append(f"[INFERRED] Possible state-owned entity (keyword match '{src}') -- requires manual verification")
@@ -423,7 +599,7 @@ def augment_from_enrichment(
                         "signal": "possible_state_owned",
                         "severity": "medium",
                         "source": src,
-                        "detail": f"Keyword match suggests possible state ownership",
+                        "detail": "Keyword match suggests possible state ownership",
                         "scoring_impact": "ownership_risk_increase",
                     })
                     break
@@ -617,11 +793,26 @@ def augment_from_enrichment(
             # Increase shell layers for corporate PSCs
             if own.shell_layers < 2:
                 own.shell_layers += 1
-                changes.append(f"Shell risk: corporate beneficial owner detected via UK PSC register")
+                changes.append("Shell risk: corporate beneficial owner detected via UK PSC register")
 
     # UK company number as identifier
     if identifiers.get("uk_company_number"):
         changes.append(f"UK Company Number verified: {identifiers['uk_company_number']}")
+
+    if identifiers.get("ca_corporation_number"):
+        changes.append(f"Canada Corporation Number verified: {identifiers['ca_corporation_number']}")
+
+    if identifiers.get("abn"):
+        changes.append(f"ABN verified: {identifiers['abn']}")
+
+    if identifiers.get("uen"):
+        changes.append(f"UEN verified: {identifiers['uen']}")
+
+    if identifiers.get("nz_company_number"):
+        changes.append(f"NZ Company Number verified: {identifiers['nz_company_number']}")
+
+    if identifiers.get("nzbn"):
+        changes.append(f"NZBN verified: {identifiers['nzbn']}")
 
     # -------------------------------------------------------------------
     # 5. FARA (Foreign Agents Registration Act) signals (v2.5)
@@ -644,7 +835,7 @@ def augment_from_enrichment(
                     "detail": sig["detail"],
                     "scoring_impact": "ownership_risk_increase",
                 })
-                changes.append(f"[INFO] Historical FARA registration found (terminated) -- no active foreign agent status")
+                changes.append("[INFO] Historical FARA registration found (terminated) -- no active foreign agent status")
             else:
                 # Active FARA registration: this is a significant signal
                 scoring_impact = "sanctions_raw_override" if sev == "critical" else "hard_stop_candidate"
@@ -658,7 +849,7 @@ def augment_from_enrichment(
                 # Active FARA implies foreign government connection
                 if not own.state_owned and sev in ("critical", "high"):
                     own.state_owned = False  # Don't set as hard fact; mark as risk signal
-                    changes.append(f"[INFERRED] Foreign government connection inferred from active FARA registration -- requires verification")
+                    changes.append("[INFERRED] Foreign government connection inferred from active FARA registration -- requires verification")
                     extra_signals.append({
                         "signal": "fara_foreign_connection",
                         "severity": sev,

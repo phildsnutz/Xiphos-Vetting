@@ -26,9 +26,12 @@ import base64
 import urllib.request
 import urllib.error
 import re
+import logging
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
 from runtime_paths import get_ai_config_secret, get_main_db_path
+import db
 
 
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -38,8 +41,9 @@ _PROMPT_DIRECTIVE_RE = re.compile(
 )
 _WHITESPACE_RE = re.compile(r"\s+")
 _CODE_FENCE_RE = re.compile(r"`{3,}")
-_ANALYSIS_PROMPT_VERSION = os.environ.get("XIPHOS_AI_PROMPT_VERSION", "ai-analysis-2026-03-19")
+_ANALYSIS_PROMPT_VERSION = os.environ.get("XIPHOS_AI_PROMPT_VERSION", "ai-analysis-2026-03-27")
 _LOCAL_FALLBACK_MODEL = "heuristic-v1"
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_prompt_fragment(value: object, max_len: int = 160) -> str:
@@ -49,6 +53,18 @@ def _sanitize_prompt_fragment(value: object, max_len: int = 160) -> str:
     text = _CODE_FENCE_RE.sub("", text)
     text = _WHITESPACE_RE.sub(" ", text).strip()
     return text[:max_len]
+
+
+def _utc_now() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _load_json_field(value: object) -> object:
+    if isinstance(value, (dict, list)):
+        return value
+    if value in (None, ""):
+        return {}
+    return json.loads(str(value))
 
 
 def _local_fallback_enabled() -> bool:
@@ -288,8 +304,134 @@ def _decrypt_key(encrypted: str) -> str:
     return decrypted.decode("utf-8")
 
 
+def _load_legacy_ai_config_rows(legacy_db_path: str | None = None) -> list[dict]:
+    """Read legacy AI config rows from the SQLite main DB, if present."""
+    path = legacy_db_path or get_main_db_path()
+    if not path or not os.path.exists(path):
+        return []
+
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "ai_config" not in tables:
+            return []
+
+        rows = conn.execute(
+            """
+            SELECT user_id, provider, model, api_key_enc, created_at, updated_at
+            FROM ai_config
+            ORDER BY user_id
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _migrate_legacy_ai_config_rows(target_conn, legacy_db_path: str | None = None) -> int:
+    """Copy missing legacy AI config rows into the active DB without overwriting."""
+    legacy_rows = _load_legacy_ai_config_rows(legacy_db_path)
+    if not legacy_rows:
+        return 0
+
+    existing_rows = target_conn.execute("SELECT user_id FROM ai_config").fetchall()
+    existing_ids = {row["user_id"] for row in existing_rows}
+    migrated = 0
+
+    for row in legacy_rows:
+        if row["user_id"] in existing_ids:
+            continue
+        target_conn.execute(
+            """
+            INSERT INTO ai_config (user_id, provider, model, api_key_enc, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO NOTHING
+            """,
+            (
+                row["user_id"],
+                row["provider"],
+                row["model"],
+                row["api_key_enc"],
+                row.get("created_at") or _utc_now(),
+                row.get("updated_at") or row.get("created_at") or _utc_now(),
+            ),
+        )
+        existing_ids.add(row["user_id"])
+        migrated += 1
+
+    if migrated:
+        logger.info(
+            "Migrated %s legacy ai_config row(s) from %s into active database",
+            migrated,
+            legacy_db_path or get_main_db_path(),
+        )
+    return migrated
+
+
 def init_ai_tables():
     """Create AI config, analysis cache, and async job tables."""
+    use_postgres = bool(getattr(db, "_use_postgres", False))
+    if use_postgres:
+        with db.get_conn() as conn:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS ai_config (
+                    user_id     TEXT PRIMARY KEY,
+                    provider    TEXT NOT NULL DEFAULT 'anthropic',
+                    model       TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+                    api_key_enc TEXT NOT NULL,
+                    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS ai_analyses (
+                    id          SERIAL PRIMARY KEY,
+                    vendor_id   TEXT NOT NULL,
+                    provider    TEXT NOT NULL,
+                    model       TEXT NOT NULL,
+                    prompt_tokens INTEGER DEFAULT 0,
+                    completion_tokens INTEGER DEFAULT 0,
+                    elapsed_ms  INTEGER DEFAULT 0,
+                    analysis    JSONB NOT NULL,
+                    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+                    created_by  TEXT,
+                    input_hash  TEXT,
+                    prompt_version TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS ai_analysis_jobs (
+                    id          TEXT PRIMARY KEY,
+                    case_id     TEXT NOT NULL,
+                    created_by  TEXT,
+                    input_hash  TEXT,
+                    status      TEXT NOT NULL DEFAULT 'pending',
+                    analysis_id INTEGER,
+                    error       TEXT,
+                    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+                    started_at  TIMESTAMP,
+                    completed_at TIMESTAMP
+                );
+
+                ALTER TABLE ai_analyses ADD COLUMN IF NOT EXISTS created_by TEXT;
+                ALTER TABLE ai_analyses ADD COLUMN IF NOT EXISTS input_hash TEXT;
+                ALTER TABLE ai_analyses ADD COLUMN IF NOT EXISTS prompt_version TEXT;
+                ALTER TABLE ai_analysis_jobs ADD COLUMN IF NOT EXISTS created_by TEXT;
+                ALTER TABLE ai_analysis_jobs ADD COLUMN IF NOT EXISTS input_hash TEXT;
+                ALTER TABLE ai_analysis_jobs ADD COLUMN IF NOT EXISTS analysis_id INTEGER;
+                ALTER TABLE ai_analysis_jobs ADD COLUMN IF NOT EXISTS error TEXT;
+                ALTER TABLE ai_analysis_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
+                ALTER TABLE ai_analysis_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+
+                CREATE INDEX IF NOT EXISTS idx_ai_analyses_vendor ON ai_analyses(vendor_id);
+                CREATE INDEX IF NOT EXISTS idx_ai_analyses_vendor_user_hash ON ai_analyses(vendor_id, created_by, input_hash);
+                CREATE INDEX IF NOT EXISTS idx_ai_jobs_case_user_hash ON ai_analysis_jobs(case_id, created_by, input_hash);
+            """)
+            _migrate_legacy_ai_config_rows(conn)
+        return
+
     db_path = get_main_db_path()
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -366,34 +508,26 @@ def save_ai_config(user_id: str, provider: str, model: str, api_key: str):
         raise ValueError(f"Unknown model for {provider}: {model}. Valid: {', '.join(p.models)}")
 
     encrypted = _encrypt_key(api_key)
-    db_path = get_main_db_path()
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        INSERT INTO ai_config (user_id, provider, model, api_key_enc, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(user_id) DO UPDATE SET
-            provider=excluded.provider,
-            model=excluded.model,
-            api_key_enc=excluded.api_key_enc,
-            updated_at=datetime('now')
-    """, (user_id, provider, model, encrypted))
-    conn.commit()
-    conn.close()
+    now = _utc_now()
+    with db.get_conn() as conn:
+        conn.execute("""
+            INSERT INTO ai_config (user_id, provider, model, api_key_enc, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                provider=excluded.provider,
+                model=excluded.model,
+                api_key_enc=excluded.api_key_enc,
+                updated_at=excluded.updated_at
+        """, (user_id, provider, model, encrypted, now, now))
 
 
 def get_ai_config(user_id: str) -> Optional[dict]:
     """Get a user's AI config. Returns None if not configured."""
-    db_path = get_main_db_path()
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM ai_config WHERE user_id = ?", (user_id,)).fetchone()
-    conn.close()
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT * FROM ai_config WHERE user_id = ?", (user_id,)).fetchone()
     if not row:
-        # Try org default (user_id = '__org_default__')
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM ai_config WHERE user_id = '__org_default__'").fetchone()
-        conn.close()
+        with db.get_conn() as conn:
+            row = conn.execute("SELECT * FROM ai_config WHERE user_id = '__org_default__'").fetchone()
     if not row:
         return None
     return {
@@ -405,12 +539,9 @@ def get_ai_config(user_id: str) -> Optional[dict]:
 
 def delete_ai_config(user_id: str) -> bool:
     """Delete a user's AI config."""
-    db_path = get_main_db_path()
-    conn = sqlite3.connect(db_path)
-    cursor = conn.execute("DELETE FROM ai_config WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    return cursor.rowcount > 0
+    with db.get_conn() as conn:
+        cursor = conn.execute("DELETE FROM ai_config WHERE user_id = ?", (user_id,))
+        return cursor.rowcount > 0
 
 
 # ---- Analysis Storage ----
@@ -420,26 +551,25 @@ def save_analysis(vendor_id: str, provider: str, model: str,
                   completion_tokens: int = 0, elapsed_ms: int = 0,
                   created_by: str = "", input_hash: str = "",
                   prompt_version: str = _ANALYSIS_PROMPT_VERSION) -> int:
-    db_path = get_main_db_path()
-    conn = sqlite3.connect(db_path)
-    cursor = conn.execute("""
-        INSERT INTO ai_analyses
-            (vendor_id, provider, model, prompt_tokens, completion_tokens,
-             elapsed_ms, analysis, created_by, input_hash, prompt_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (vendor_id, provider, model, prompt_tokens, completion_tokens,
-          elapsed_ms, json.dumps(analysis), created_by, input_hash, prompt_version))
-    conn.commit()
-    row_id = cursor.lastrowid
-    conn.close()
-    return row_id
+    now = _utc_now()
+    with db.get_conn() as conn:
+        cursor = conn.execute("""
+            INSERT INTO ai_analyses
+                (vendor_id, provider, model, prompt_tokens, completion_tokens,
+                 elapsed_ms, analysis, created_by, input_hash, prompt_version, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+        """, (vendor_id, provider, model, prompt_tokens, completion_tokens,
+              elapsed_ms, json.dumps(analysis), created_by, input_hash, prompt_version, now))
+        row = cursor.fetchone()
+        if row and row["id"] is not None:
+            return int(row["id"])
+        if cursor.lastrowid is not None:
+            return int(cursor.lastrowid)
+    raise RuntimeError("Failed to persist AI analysis row")
 
 
 def get_latest_analysis(vendor_id: str, user_id: str = "", input_hash: str = "") -> Optional[dict]:
-    db_path = get_main_db_path()
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-
     query = "SELECT * FROM ai_analyses WHERE vendor_id = ?"
     params: list[object] = [vendor_id]
     if user_id:
@@ -450,10 +580,11 @@ def get_latest_analysis(vendor_id: str, user_id: str = "", input_hash: str = "")
         params.append(input_hash)
     query += " ORDER BY created_at DESC, id DESC LIMIT 1"
 
-    row = conn.execute(query, params).fetchone()
-    conn.close()
+    with db.get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
     if not row:
         return None
+    analysis_payload = row["analysis"]
     return {
         "id": row["id"],
         "vendor_id": row["vendor_id"],
@@ -462,7 +593,7 @@ def get_latest_analysis(vendor_id: str, user_id: str = "", input_hash: str = "")
         "prompt_tokens": row["prompt_tokens"],
         "completion_tokens": row["completion_tokens"],
         "elapsed_ms": row["elapsed_ms"],
-        "analysis": json.loads(row["analysis"]),
+        "analysis": _load_json_field(analysis_payload),
         "created_at": row["created_at"],
         "created_by": row["created_by"],
         "input_hash": row["input_hash"],
@@ -530,7 +661,13 @@ Provide your analysis in the following JSON format:
   "verdict": "APPROVE | CONDITIONAL_APPROVE | ENHANCED_DUE_DILIGENCE | REJECT"
 }}
 
-Be specific and cite the data provided. Do not hedge or use vague language. If the data clearly indicates a prohibition, say so directly."""
+Be specific and cite the data provided. Do not hedge or use vague language. If the data clearly indicates a prohibition, say so directly.
+
+Critical evidence-handling rules:
+- Treat connector rate limits, outages, or unavailable lookups as UNVERIFIED, not as confirmed absence.
+- Do not say an identifier is missing unless the data explicitly confirms it is absent. If a registry lookup was throttled or unavailable, say the identifier could not be verified.
+- Do not infer public-company status unless the data includes a ticker, exchange listing, or a high-confidence CIK / public-market filing match.
+- When ownership evidence is media-reported or search-derived instead of registry-grade, say that plainly in the confidence or diligence language."""
 
 
 def _sanitize_enrichment_data(enrichment_data: Optional[dict]) -> Optional[dict]:
@@ -781,7 +918,7 @@ def _parse_analysis_json(text: str) -> dict:
     if text.startswith("```"):
         lines = text.split("\n")
         # Remove first line (```json or ```) and last line (```)
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         text = "\n".join(lines).strip()
 
     try:

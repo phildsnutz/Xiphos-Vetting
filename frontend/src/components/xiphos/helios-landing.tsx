@@ -6,24 +6,31 @@
  *       User confirms -> Set context -> Create case -> Enrich -> Hand off
  */
 
-import { useState, useRef, useEffect } from "react";
-import { Shield, ArrowRight, CheckCircle, Loader2, XCircle, Building2, Truck, GitBranch, Zap, Sparkles, ChevronDown } from "lucide-react";
-import { T, FS, tierBand, parseTier } from "@/lib/tokens";
-import { createCase, enrichAndScore, resolveEntity, searchContractVehicle, batchAssessVehicle, submitResolveFeedback } from "@/lib/api";
-import type { EntityCandidate, VehicleVendor, VehicleSearchResult, EntityResolution } from "@/lib/api";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { ArrowRight, CheckCircle, Loader2, XCircle, Building2, Truck, GitBranch, Zap, Sparkles, ChevronDown, Globe2 } from "lucide-react";
+import { T, FS, FX, tierBand, parseTier, displayName } from "@/lib/tokens";
+import { createCase, resolveEntity, searchContractVehicle, batchAssessVehicle, submitResolveFeedback, fetchHealth } from "@/lib/api";
+import type { EntityCandidate, VehicleVendor, VehicleSearchResult, EntityResolution, ExportAuthorizationCaseInput } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { SupplyChainGraph } from "./supply-chain-graph";
+import { EnrichmentStream } from "./enrichment-stream";
+import { WORKFLOW_LANE_META, workflowLaneForCase } from "./portfolio-utils";
 
-const GOLD = "#C4A052";
-const GOLD_DIM = "#9A7B3E";
+const GOLD = T.gold;
+const GOLD_DIM = T.goldDim;
 
 interface HeliosLandingProps {
   onCaseCreated: (caseId: string) => void;
   onNavigate: (tab: string) => void;
+  onCasesRefresh?: () => Promise<void>;
   cases?: VettingCase[];
+  preferredLane?: DecisionLane;
+  onPreferredLaneChange?: (lane: DecisionLane) => void;
 }
 
 type Phase = "idle" | "resolving" | "candidates" | "confirm" | "creating" | "enriching" | "done" | "error" | "vehicle-searching" | "vehicle-results";
+type EntityWorkflow = "counterparty" | "cyber";
+type DecisionLane = "counterparty" | "cyber" | "export";
 
 interface ConfirmedEntity {
   name: string;
@@ -39,6 +46,63 @@ interface ConfirmedEntity {
   highestOwner: string;
   highestOwnerCountry: string;
   sbaCerts: string[];
+}
+
+const EXPORT_REQUEST_TYPE_OPTIONS: Array<{ value: ExportAuthorizationCaseInput["request_type"]; label: string; description: string }> = [
+  { value: "technical_data_release", label: "Technical data release", description: "Assess whether controlled drawings, source, or engineering data can be released." },
+  { value: "foreign_person_access", label: "Foreign-person access", description: "Review whether a foreign national can access a controlled environment, system, or program." },
+  { value: "item_transfer", label: "Item transfer", description: "Assess whether a controlled item or component can be transferred to the named party and destination." },
+];
+
+const EXPORT_JURISDICTION_OPTIONS: Array<{ value: NonNullable<ExportAuthorizationCaseInput["jurisdiction_guess"]>; label: string }> = [
+  { value: "unknown", label: "Unknown / needs classification" },
+  { value: "itar", label: "ITAR / USML" },
+  { value: "ear", label: "EAR / ECCN" },
+  { value: "ofac_overlay", label: "OFAC / sanctions overlay" },
+];
+
+const LANE_BRIEFS: Record<DecisionLane, { title: string; question: string; outputs: string; evidence: string; useWhen: string }> = {
+  counterparty: {
+    title: "Defense counterparty trust",
+    question: "Can we award, keep, or qualify this supplier given ownership, foreign-influence, and network evidence?",
+    outputs: "Approved / Qualified / Review / Blocked",
+    evidence: "Form 328, ownership charts, SAM.gov registration, SAM.gov subaward reporting, sanctions, and network context",
+    useWhen: "Use this for pre-award adjudication, FOCI-sensitive review, and supplier trust decisions.",
+  },
+  cyber: {
+    title: "Supply chain assurance",
+    question: "Can this supplier, product, and dependency stack be trusted with CUI-sensitive or mission-critical work given attestation, remediation, provenance, and vulnerability evidence?",
+    outputs: "Ready / Qualified / Review / Blocked",
+    evidence: "SPRS exports, OSCAL SSP or POA&M artifacts, SBOM or VEX evidence, and product vulnerability overlays",
+    useWhen: "Use this when the decision depends on CMMC readiness, software or firmware assurance, dependency risk, or cyber posture.",
+  },
+  export: {
+    title: "Export authorization",
+    question: "Can this item, technical-data release, or foreign-person access request move forward under current control posture?",
+    outputs: "Likely prohibited / License required / Exception path / Likely NLR / Escalate",
+    evidence: "Classification memos, license history, access-control records, and BIS or DDTC rule guidance",
+    useWhen: "Use this for item transfers, technical-data release, and foreign-person access decisions.",
+  },
+};
+
+function createEmptyExportForm(): ExportAuthorizationCaseInput {
+  return {
+    request_type: "technical_data_release",
+    recipient_name: "",
+    recipient_type: "subcontractor",
+    destination_country: "",
+    jurisdiction_guess: "unknown",
+    classification_guess: "",
+    item_or_data_summary: "",
+    end_use_summary: "",
+    access_context: "",
+    foreign_person_nationalities: [],
+  };
+}
+
+function defaultExportProgram(input: ExportAuthorizationCaseInput): string {
+  if (input.jurisdiction_guess === "itar") return "cat_xxi_misc";
+  return "dual_use_ear";
 }
 
 function candidateFacts(candidate: EntityCandidate): string[] {
@@ -66,9 +130,17 @@ function candidateFacts(candidate: EntityCandidate): string[] {
   return facts.slice(0, 3);
 }
 
-export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosLandingProps) {
+export function HeliosLanding({
+  onCaseCreated,
+  onNavigate,
+  onCasesRefresh,
+  cases = [],
+  preferredLane = "counterparty",
+  onPreferredLaneChange,
+}: HeliosLandingProps) {
   const [input, setInput] = useState("");
-  const [searchMode, setSearchMode] = useState<"entity" | "vehicle">("entity");
+  const [searchMode, setSearchMode] = useState<"entity" | "vehicle" | "export">("entity");
+  const [entityWorkflow, setEntityWorkflow] = useState<EntityWorkflow>("counterparty");
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusText, setStatusText] = useState("");
   const [errorText, setErrorText] = useState("");
@@ -81,8 +153,12 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
   const [showGraph, setShowGraph] = useState(false);
   const [batchStatus, setBatchStatus] = useState<"idle" | "running" | "done">("idle");
   const [batchResults, setBatchResults] = useState<{total: number; created: number} | null>(null);
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
+  const [connectorCount, setConnectorCount] = useState(29);
+  const [exportForm, setExportForm] = useState<ExportAuthorizationCaseInput>(() => createEmptyExportForm());
   const inputRef = useRef<HTMLInputElement>(null);
-  const priorityReviewCount = cases.filter((c) => {
+  const exportRecipientRef = useRef<HTMLInputElement>(null);
+  const _priorityReviewCount = cases.filter((c) => {
     const hasStops = (c.cal?.stops?.length ?? 0) > 0;
     if (hasStops) return true;
     if (!c.cal?.tier) return false;
@@ -96,13 +172,102 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
   const fallbackCandidates = recommendedCandidate
     ? candidates.filter((candidate) => candidate.candidate_id !== recommendedCandidate.candidate_id)
     : candidates;
+  const entityWorkflowLabel = entityWorkflow === "cyber" ? "Supply chain assurance" : "Defense counterparty trust";
+  const _entityWorkflowIntro = entityWorkflow === "cyber"
+    ? "Open a supply chain assurance case and prepare the SPRS, OSCAL, SBOM, VEX, and vulnerability evidence lanes behind the decision."
+    : "Open a defense counterparty trust case for ownership, FOCI, and pre-award supplier adjudication.";
+  const entityInputPlaceholder = entityWorkflow === "cyber"
+    ? "Enter supplier name for supply chain assurance review..."
+    : "Enter company name for counterparty trust review...";
+  const confirmIntro = entityWorkflow === "cyber"
+    ? "Final check before Helios begins supply chain assurance review."
+    : "Final check before Helios begins defense counterparty review.";
+  const confirmPrimaryAction = entityWorkflow === "cyber" ? "Begin Cyber Review" : "Begin Counterparty Review";
+  const activeLane: DecisionLane = searchMode === "export" ? "export" : entityWorkflow === "cyber" ? "cyber" : "counterparty";
+  const activeLaneBrief = LANE_BRIEFS[activeLane];
+  const activeLaneMeta = WORKFLOW_LANE_META[activeLane];
+  const recentLaneCases = cases
+    .filter((c) => workflowLaneForCase(c) === activeLane)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 6);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    fetchHealth()
+      .then((health) => {
+        if ((health.osint_connector_count ?? 0) > 0) {
+          setConnectorCount(health.osint_connector_count ?? 29);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "idle") return;
+    if (preferredLane === "export") {
+      setSearchMode("export");
+      return;
+    }
+    setSearchMode("entity");
+    setEntityWorkflow(preferredLane === "cyber" ? "cyber" : "counterparty");
+  }, [phase, preferredLane]);
+
+  const focusEntityInput = useCallback(() => {
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, []);
+
+  const _focusActiveLaneEntry = useCallback(() => {
+    if (activeLane === "export") {
+      window.setTimeout(() => {
+        exportRecipientRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        exportRecipientRef.current?.focus();
+      }, 0);
+      return;
+    }
+    focusEntityInput();
+  }, [activeLane, focusEntityInput]);
+
+  const _openCounterpartyLane = useCallback(() => {
+    onPreferredLaneChange?.("counterparty");
+    setSearchMode("entity");
+    setEntityWorkflow("counterparty");
+    setInput("");
+    setErrorText("");
+    focusEntityInput();
+  }, [focusEntityInput, onPreferredLaneChange]);
+
+  const _openCyberLane = useCallback(() => {
+    onPreferredLaneChange?.("cyber");
+    setSearchMode("entity");
+    setEntityWorkflow("cyber");
+    setInput("");
+    setErrorText("");
+    focusEntityInput();
+  }, [focusEntityInput, onPreferredLaneChange]);
+
+  const _openExportLane = useCallback(() => {
+    onPreferredLaneChange?.("export");
+    setSearchMode("export");
+    setInput("");
+    setErrorText("");
+  }, [onPreferredLaneChange]);
+
+  const openVehicleUtility = useCallback(() => {
+    setSearchMode("vehicle");
+    setEntityWorkflow("counterparty");
+    setInput("");
+    setErrorText("");
+    focusEntityInput();
+  }, [focusEntityInput]);
 
   // Step 1: User submits a name -> resolve entity
   const handleSubmit = async () => {
     if (searchMode === "vehicle") {
       await handleVehicleSearch();
+      return;
+    }
+    if (searchMode === "export") {
+      await handleExportSubmit();
       return;
     }
 
@@ -137,6 +302,68 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
       });
       setPhase("confirm");
       setStatusText("");
+    }
+  };
+
+  const handleExportField = <K extends keyof ExportAuthorizationCaseInput>(field: K, value: ExportAuthorizationCaseInput[K]) => {
+    setExportForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleExportSubmit = async () => {
+    const recipientName = exportForm.recipient_name?.trim() || "";
+    const destinationCountry = exportForm.destination_country?.trim().toUpperCase() || "";
+
+    if (!recipientName || !destinationCountry || phase !== "idle") {
+      return;
+    }
+
+    setEntityName(recipientName);
+    setPhase("creating");
+    setStatusText("Creating export authorization case...");
+    setErrorText("");
+
+    try {
+      const createResp = await createCase({
+        name: recipientName,
+        country: destinationCountry,
+        ownership: {
+          publicly_traded: false,
+          state_owned: false,
+          beneficial_owner_known: false,
+          ownership_pct_resolved: 0.2,
+          shell_layers: 0,
+          pep_connection: false,
+        },
+        data_quality: {
+          has_lei: false,
+          has_cage: false,
+          has_duns: false,
+          has_tax_id: false,
+          has_audited_financials: false,
+          years_of_records: 0,
+        },
+        exec: { known_execs: 0, adverse_media: 0, pep_execs: 0, litigation_history: 0 },
+        program: defaultExportProgram(exportForm),
+        profile: "itar_trade_compliance",
+        export_authorization: {
+          ...exportForm,
+          recipient_name: recipientName,
+          destination_country: destinationCountry,
+          classification_guess: exportForm.classification_guess?.trim() || "",
+          item_or_data_summary: exportForm.item_or_data_summary?.trim() || "",
+          end_use_summary: exportForm.end_use_summary?.trim() || "",
+          access_context: exportForm.access_context?.trim() || "",
+          foreign_person_nationalities: (exportForm.foreign_person_nationalities ?? []).filter(Boolean),
+        },
+      });
+
+      const caseId = createResp.case_id;
+      setActiveCaseId(caseId);
+      setPhase("enriching");
+      setStatusText(`Running ${connectorCount} live OSINT connectors and 10 regulatory gates...`);
+    } catch (err: unknown) {
+      setPhase("error");
+      setErrorText((err as Error)?.message || "Export authorization request failed.");
     }
   };
 
@@ -208,14 +435,9 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
       });
 
       const caseId = createResp.case_id;
+      setActiveCaseId(caseId);
       setPhase("enriching");
-      setStatusText("Running 27 live OSINT connectors and 10 regulatory gates...");
-
-      await enrichAndScore(caseId);
-
-      setPhase("done");
-      setStatusText("Assessment complete.");
-      setTimeout(() => { onCaseCreated(caseId); }, 800);
+      setStatusText(`Running ${connectorCount} live OSINT connectors and 10 regulatory gates...`);
     } catch (err: unknown) {
       setPhase("error");
       setErrorText((err as Error)?.message || "Assessment failed.");
@@ -254,6 +476,7 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
 
   // Assess a vendor from vehicle results
   const assessVehicleVendor = (v: VehicleVendor) => {
+    setEntityWorkflow("counterparty");
     setConfirmed({
       name: v.vendor_name,
       legalName: v.vendor_name,
@@ -273,6 +496,7 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
     try {
       const allVendors = vehicleResults.unique_vendors;
       const result = await batchAssessVehicle(allVendors);
+      await onCasesRefresh?.();
       setBatchResults({ total: result.total, created: result.created });
       setBatchStatus("done");
     } catch {
@@ -280,102 +504,320 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
     }
   };
 
+  const handleViewDraftCases = async () => {
+    await onCasesRefresh?.();
+    onNavigate("portfolio");
+  };
+
   const reset = () => {
     setPhase("idle"); setStatusText(""); setErrorText("");
-    setSearchMode("entity");
+    if (preferredLane === "export") {
+      setSearchMode("export");
+    } else {
+      setSearchMode("entity");
+      setEntityWorkflow(preferredLane === "cyber" ? "cyber" : "counterparty");
+    }
+    setExportForm(createEmptyExportForm());
     setEntityName(""); setCandidates([]); setConfirmed(null);
     setResolution(null); setShowRationale(false);
     setVehicleResults(null);
     setShowGraph(false); setBatchStatus("idle"); setBatchResults(null);
-    inputRef.current?.focus();
+    setActiveCaseId(null);
+    if (preferredLane !== "export") {
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleInitialEnrichmentComplete = () => {
+    if (!activeCaseId) return;
+    setPhase("done");
+    setStatusText("Assessment complete.");
+    setTimeout(() => { onCaseCreated(activeCaseId); }, 700);
   };
 
 
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "80vh", padding: "0 24px" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "82vh", padding: "8px 24px 24px", width: "100%" }}>
 
       {/* ── IDLE ── */}
       {phase === "idle" && (
         <>
-          <div style={{ position: "relative", width: 72, height: 72, marginBottom: 28 }}>
-            <div style={{ position: "absolute", inset: -8, borderRadius: "50%", border: `1px solid ${GOLD}15`, animation: "hr 4s ease-in-out infinite" }} />
-            <div style={{ position: "absolute", inset: -16, borderRadius: "50%", border: `1px solid ${GOLD}08`, animation: "hr 4s ease-in-out 0.5s infinite" }} />
-            <div style={{ width: 72, height: 72, borderRadius: "50%", background: `linear-gradient(135deg, ${GOLD}18, ${GOLD}08)`, border: `1px solid ${GOLD}25`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Shield size={28} color={GOLD} strokeWidth={1.5} />
+          <div style={{ width: "100%", maxWidth: 680 }}>
+          {/* Operating lane status bar (single line, minimal) */}
+          <div style={{ fontSize: FS.sm, color: T.textSecondary, marginBottom: 24, textAlign: "center", letterSpacing: "0.01em" }}>
+            {activeLaneBrief.title} · {cases.length} active · {cases.filter(c => (c.cal?.stops?.length ?? 0) > 0).length} blocked
+          </div>
+
+          {/* Hero section: heading + subtitle */}
+          <div style={{ marginBottom: 32, textAlign: "center" }}>
+            <div style={{ fontSize: FS.lg, fontWeight: 600, color: T.text, marginBottom: 8, letterSpacing: "-0.02em" }}>
+              Start a review
+            </div>
+            <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.6 }}>
+              Resolve the entity, create the case, and build the first decision package without dropping into a separate workflow.
             </div>
           </div>
-          <div style={{ fontSize: 12, color: GOLD_DIM, letterSpacing: "0.12em", fontWeight: 600, marginBottom: 10 }}>Helios</div>
-          <div style={{ fontSize: 32, fontWeight: 300, color: T.text, lineHeight: 1.3, textAlign: "center", maxWidth: 480, fontFamily: "Georgia, 'Times New Roman', serif", marginBottom: 6 }}>What do you want to assess?</div>
-          <div style={{ fontSize: FS.base, color: T.dim, textAlign: "center", maxWidth: 400, lineHeight: 1.5, marginBottom: 24 }}>
-            {searchMode === "vehicle"
-              ? "Enter a contract vehicle name to search public award relationships."
-              : "Enter a company name to begin assessment."}
-          </div>
 
-          <div style={{ position: "relative", width: "100%", maxWidth: 560, marginBottom: 24 }}>
-            <input ref={inputRef} value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-              placeholder={searchMode === "vehicle" ? "Enter contract vehicle (OASIS, CIO-SP3, SEWP...)" : "Enter company name to assess..."}
-              style={{ width: "100%", padding: "16px 56px 16px 20px", borderRadius: 28, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.md, outline: "none", transition: "border-color 0.3s", fontFamily: "inherit" }}
-              onFocus={e => e.target.style.borderColor = GOLD + "55"} onBlur={e => e.target.style.borderColor = T.border} />
-            <button onClick={handleSubmit} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 40, height: 40, borderRadius: 20, border: "none", background: input.trim() ? GOLD : T.border, color: input.trim() ? "#000" : T.muted, cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.25s" }}>
-              <ArrowRight size={18} />
-            </button>
-          </div>
+          {/* Primary action: search input (large, centered) */}
+          {searchMode !== "export" ? (
+            <div style={{ position: "relative", width: "100%", marginBottom: 28 }}>
+              <input ref={inputRef} value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSubmit()}
+                placeholder={searchMode === "entity" ? "Enter company name to assess" : searchMode === "vehicle" ? "Enter contract vehicle (OASIS, CIO-SP3, SEWP, ITES...)" : "Enter recipient or item under review"}
+                className="helios-focus-ring"
+                style={{ width: "100%", padding: "16px 56px 16px 20px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.base, outline: "none", transition: "all 0.3s", fontFamily: "inherit" }}
+                onFocus={e => { e.target.style.borderColor = activeLaneMeta.softBorder; e.target.style.boxShadow = `0 0 0 3px ${activeLaneMeta.softBackground}`; }} 
+                onBlur={e => { e.target.style.borderColor = T.border; e.target.style.boxShadow = "none"; }} />
+              <button onClick={handleSubmit} className="helios-focus-ring" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 40, height: 40, borderRadius: 10, border: "none", background: input.trim() ? activeLaneMeta.accent : T.border, color: input.trim() ? "#04101f" : T.textTertiary, cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          ) : null}
 
-          <div style={{ marginBottom: 24 }}>
+          {/* Secondary action: contract vehicle search button */}
+          {searchMode !== "vehicle" && searchMode !== "export" && (
             <button
-              onClick={() => {
-                setSearchMode((current) => current === "entity" ? "vehicle" : "entity");
-                setInput("");
-                setTimeout(() => inputRef.current?.focus(), 0);
+              onClick={openVehicleUtility}
+              className="helios-focus-ring"
+              style={{
+                marginBottom: 28,
+                padding: "10px 16px",
+                borderRadius: 10,
+                border: `1px solid ${T.border}`,
+                background: T.surface,
+                color: T.textSecondary,
+                cursor: "pointer",
+                fontSize: FS.sm,
+                fontWeight: 500,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                transition: "all 0.2s",
               }}
-              style={{ fontSize: FS.sm, color: T.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = activeLaneMeta.softBorder; e.currentTarget.style.color = T.text; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSecondary; }}
             >
-              {searchMode === "vehicle" ? "Back to company search" : "Or search by contract vehicle"}
+              <GitBranch size={14} />
+              Search contract vehicle
             </button>
-          </div>
+          )}
 
-          {cases && cases.length > 0 && (
-            <div style={{ marginBottom: 24, width: "100%", maxWidth: 560 }}>
-              <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.muted, marginBottom: 8 }}>Recent work</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {cases.slice(0, 5).map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => onCaseCreated(c.id)}
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 6,
-                      border: `1px solid ${T.border}`,
-                      background: T.surface,
-                      color: T.text,
-                      fontSize: FS.sm,
-                      textAlign: "left",
-                      cursor: "pointer",
-                      transition: "all 0.2s",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}
-                  >
-                    <div style={{ fontWeight: 500 }}>{c.name}</div>
-                    <div style={{ fontSize: FS.sm, color: T.muted }}>{c.date}</div>
-                  </button>
-                ))}
+          {searchMode === "export" && (
+            <div
+              className="helios-glass"
+              style={{
+                width: "100%",
+                maxWidth: 760,
+                marginBottom: 24,
+                padding: 20,
+                borderRadius: 24,
+                background: FX.panelStrong,
+                border: `1px solid ${T.borderStrong}`,
+                boxShadow: FX.cardGlow,
+              }}
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Authorization request
+                  </div>
+                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Request type</label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                    {EXPORT_REQUEST_TYPE_OPTIONS.map((option) => {
+                      const active = exportForm.request_type === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          onClick={() => handleExportField("request_type", option.value)}
+                          style={{
+                            textAlign: "left",
+                            padding: "11px 12px",
+                            borderRadius: 12,
+                            border: `1px solid ${active ? `${GOLD}44` : T.border}`,
+                            background: active ? `${GOLD}10` : T.surface,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: FS.sm, color: active ? T.text : T.dim, fontWeight: 700 }}>{option.label}</div>
+                          <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 4, lineHeight: 1.45 }}>{option.description}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Recipient or access subject</label>
+                  <input
+                    ref={exportRecipientRef}
+                    value={exportForm.recipient_name ?? ""}
+                    onChange={(e) => handleExportField("recipient_name", e.target.value)}
+                    placeholder="Company, affiliate, foreign national, or subcontractor"
+                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", marginBottom: 12 }}
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Destination or access country</label>
+                      <input
+                        value={exportForm.destination_country ?? ""}
+                        onChange={(e) => handleExportField("destination_country", e.target.value.toUpperCase())}
+                        placeholder="DE, JP, SG"
+                        maxLength={3}
+                        style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Jurisdiction guess</label>
+                      <select
+                        value={exportForm.jurisdiction_guess ?? "unknown"}
+                        onChange={(e) => handleExportField("jurisdiction_guess", e.target.value as ExportAuthorizationCaseInput["jurisdiction_guess"])}
+                        style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
+                      >
+                        {EXPORT_JURISDICTION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Classification guess</label>
+                  <input
+                    value={exportForm.classification_guess ?? ""}
+                    onChange={(e) => handleExportField("classification_guess", e.target.value)}
+                    placeholder="USML Cat XI, ECCN 3A001, EAR99..."
+                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", marginBottom: 12 }}
+                  />
+
+                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Item, software, or data summary</label>
+                  <textarea
+                    value={exportForm.item_or_data_summary ?? ""}
+                    onChange={(e) => handleExportField("item_or_data_summary", e.target.value)}
+                    placeholder="Briefly describe the item, technical data, source code, or controlled environment under review."
+                    rows={4}
+                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", resize: "vertical", marginBottom: 12, fontFamily: "inherit" }}
+                  />
+
+                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>End use or access context</label>
+                  <textarea
+                    value={exportForm.end_use_summary ?? ""}
+                    onChange={(e) => handleExportField("end_use_summary", e.target.value)}
+                    placeholder="Program, end use, destination, collaboration, or review context."
+                    rows={3}
+                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", resize: "vertical", marginBottom: 12, fontFamily: "inherit" }}
+                  />
+
+                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Foreign-person nationalities (optional)</label>
+                  <input
+                    value={(exportForm.foreign_person_nationalities ?? []).join(", ")}
+                    onChange={(e) => handleExportField("foreign_person_nationalities", e.target.value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean))}
+                    placeholder="CN, IN, AE"
+                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.muted, fontSize: FS.sm }}>
+                  <Globe2 size={14} color={GOLD} />
+                  Helios will open a case, run the live screening stack, and structure the decision around likely prohibited / license required / escalation paths.
+                </div>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!exportForm.recipient_name?.trim() || !exportForm.destination_country?.trim()}
+                  style={{
+                    padding: "11px 16px",
+                    borderRadius: 12,
+                    border: "none",
+                    background: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? GOLD : T.border,
+                    color: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "#000" : T.muted,
+                    cursor: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "pointer" : "default",
+                    fontSize: FS.sm,
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  Open export authorization case
+                  <ArrowRight size={14} />
+                </button>
               </div>
             </div>
           )}
 
-          {cases && cases.length > 0 && (
-            <div style={{ marginTop: 24, fontSize: FS.sm, color: T.muted, display: "flex", alignItems: "center", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-              <span>{cases.length} vendors</span><span style={{ color: T.border }}>•</span>
-              <span>{priorityReviewCount} priority reviews</span><span style={{ color: T.border }}>•</span>
-              <span>{cases.filter(c => (c.cal?.stops?.length ?? 0) > 0).length} blocked</span>
+          {/* Recent cases: clean minimal table */}
+          {cases && cases.length > 0 && recentLaneCases.length > 0 && (
+            <div style={{ width: "100%", marginBottom: 24 }}>
+              <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.textSecondary, marginBottom: 12, letterSpacing: "0.02em", textTransform: "uppercase" }}>
+                Recent cases
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                {recentLaneCases.map((c, idx) => {
+                  const band = c.cal?.tier ? tierBand(parseTier(c.cal.tier)) : "clear";
+                  const bandColors: Record<string, string> = { critical: "#ef4444", elevated: "#f97316", conditional: "#f59e0b", clear: "#10b981" };
+                  const bandLabels: Record<string, string> = { critical: "BLOCKED", elevated: "REVIEW", conditional: "WATCH", clear: "APPROVED" };
+                  const dotColor = bandColors[band] || "#10b981";
+                  const label = bandLabels[band] || "APPROVED";
+                  const dateStr = c.date || "";
+                  let displayDate = dateStr;
+                  try {
+                    const d = new Date(dateStr.replace(" ", "T"));
+                    const now = new Date();
+                    const diffMs = now.getTime() - d.getTime();
+                    const diffH = Math.floor(diffMs / 3600000);
+                    const diffD = Math.floor(diffMs / 86400000);
+                    if (diffH < 1) displayDate = "Now";
+                    else if (diffH < 24) displayDate = `${diffH}h`;
+                    else if (diffD === 1) displayDate = "Yesterday";
+                    else if (diffD < 7) displayDate = `${diffD}d`;
+                    else displayDate = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  } catch { /* keep raw */ }
+                  const dn = displayName(c.name);
+
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => onCaseCreated(c.id)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 14px",
+                        borderTop: idx > 0 ? `1px solid ${T.border}` : "none",
+                        background: idx % 2 === 0 ? "transparent" : T.surface,
+                        color: T.text,
+                        fontSize: FS.sm,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        transition: "background 0.15s ease",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        justifyContent: "space-between",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = T.surfaceElevated; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? "transparent" : T.surface; }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+                        <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{dn}</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                        <span style={{ fontSize: FS.caption, color: T.textSecondary, fontVariantNumeric: "tabular-nums", minWidth: "40px", textAlign: "right" }}>{displayDate}</span>
+                        <span style={{ fontSize: FS.caption, fontWeight: 700, letterSpacing: "0.04em", padding: "3px 6px", borderRadius: 4, color: dotColor, background: `${dotColor}15`, border: `1px solid ${dotColor}30`, minWidth: "max-content" }}>
+                          {label}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
+
+
+          </div>
         </>
       )}
 
@@ -609,7 +1051,7 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
                  `${batchResults?.created || 0} draft cases created`}
               </button>
               {batchStatus === "done" && (
-                <button onClick={() => onNavigate("portfolio")}
+                <button onClick={() => { void handleViewDraftCases(); }}
                   style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.green}40`,
                     background: `${T.green}10`, color: T.green, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   View Draft Cases
@@ -704,10 +1146,10 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
       {/* ── CONFIRM ── */}
       {phase === "confirm" && confirmed && (
         <div style={{ maxWidth: 540, width: "100%", textAlign: "center" }}>
-          <div style={{ fontSize: 12, color: GOLD_DIM, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>Confirm entity</div>
+          <div style={{ fontSize: 12, color: GOLD_DIM, letterSpacing: "0.08em", fontWeight: 600, marginBottom: 12 }}>{entityWorkflowLabel}</div>
           <div style={{ fontSize: FS.xl, fontWeight: 600, color: T.text, marginBottom: 8 }}>Ready to assess</div>
           <div style={{ fontSize: FS.sm, color: T.dim, marginBottom: 24 }}>
-            Final check before Helios begins screening.
+            {confirmIntro}
           </div>
 
           <div style={{ padding: "24px", borderRadius: 12, background: T.surface, border: `1px solid ${GOLD}20`, textAlign: "left", marginBottom: 20 }}>
@@ -748,7 +1190,7 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.02em", display: "block", marginBottom: 6 }}>Contract type</label>
+                <label style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.02em", display: "block", marginBottom: 6 }}>Mission context</label>
                 <select value={confirmed.program} onChange={e => setConfirmed({ ...confirmed, program: e.target.value })}
                   style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: FS.sm, outline: "none" }}>
                   <option value="dod_classified" title="Classified programs, SAP/SCI, intelligence community. Highest scrutiny.">DoD / IC (Classified)</option>
@@ -766,9 +1208,19 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
             <div style={{ padding: "12px 14px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}` }}>
               <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.02em", marginBottom: 6 }}>What Helios will do</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: FS.sm, color: T.dim }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Confirm the entity and its identifiers</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Run live OSINT and regulatory screening</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend a disposition</div>
+                {entityWorkflow === "cyber" ? (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Confirm the supplier and identifiers</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Run live screening and prepare cyber-readiness evidence lanes</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend a supplier trust posture</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Confirm the entity and its identifiers</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Run live OSINT and ownership / FOCI screening</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend a counterparty disposition</div>
+                  </>
+                )}
               </div>
               <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>Estimated: 30-60 seconds</div>
             </div>
@@ -779,7 +1231,7 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
               Cancel
             </button>
             <button onClick={handleConfirm} style={{ flex: 2, padding: "14px 20px", borderRadius: 10, border: "none", background: GOLD, color: "#000", fontSize: FS.base, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <CheckCircle size={16} /> Begin Assessment
+              <CheckCircle size={16} /> {confirmPrimaryAction}
             </button>
           </div>
         </div>
@@ -787,16 +1239,26 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
 
       {/* ── CREATING / ENRICHING ── */}
       {(phase === "creating" || phase === "enriching") && (
-        <div style={{ textAlign: "center", maxWidth: 480 }}>
-          <Loader2 size={40} color={GOLD} style={{ animation: "hs 1.5s linear infinite", marginBottom: 20 }} />
-          <div style={{ fontSize: FS.lg, fontWeight: 600, color: T.text, marginBottom: 8 }}>{confirmed?.legalName || entityName}</div>
-          <div style={{ fontSize: FS.base, color: T.dim, marginBottom: 16 }}>{statusText}</div>
-          {phase === "enriching" && (
-            <div style={{ width: "100%", maxWidth: 320, margin: "0 auto" }}>
-              <div style={{ height: 4, borderRadius: 2, background: `${GOLD}15`, overflow: "hidden" }}>
-                <div style={{ width: "60%", height: "100%", borderRadius: 2, background: GOLD, animation: "hp 2s ease-in-out infinite" }} />
+        <div style={{ width: "100%", maxWidth: 760 }}>
+          {phase === "creating" && (
+            <div style={{ textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
+              <Loader2 size={40} color={GOLD} style={{ animation: "hs 1.5s linear infinite", marginBottom: 20 }} />
+              <div style={{ fontSize: FS.lg, fontWeight: 600, color: T.text, marginBottom: 8 }}>{confirmed?.legalName || entityName}</div>
+              <div style={{ fontSize: FS.base, color: T.dim, marginBottom: 16 }}>{statusText}</div>
+            </div>
+          )}
+
+          {phase === "enriching" && activeCaseId && (
+            <div>
+              <div style={{ textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: FS.lg, fontWeight: 600, color: T.text, marginBottom: 8 }}>{confirmed?.legalName || entityName}</div>
+                <div style={{ fontSize: FS.base, color: T.dim }}>{statusText}</div>
               </div>
-              <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>This typically takes 30-60 seconds</div>
+              <EnrichmentStream
+                caseId={activeCaseId}
+                apiBase={import.meta.env.VITE_API_URL ?? ""}
+                onComplete={handleInitialEnrichmentComplete}
+              />
             </div>
           )}
         </div>
@@ -824,7 +1286,6 @@ export function HeliosLanding({ onCaseCreated, onNavigate, cases = [] }: HeliosL
       <style>{`
         @keyframes hr { 0%,100% { opacity:0.3; transform:scale(1) } 50% { opacity:0.7; transform:scale(1.08) } }
         @keyframes hs { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
-        @keyframes hp { 0% { width:10% } 50% { width:80% } 100% { width:10% } }
       `}</style>
     </div>
   );

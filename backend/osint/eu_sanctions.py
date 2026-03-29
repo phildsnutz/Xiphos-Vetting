@@ -29,7 +29,6 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
         root = ET.fromstring(resp.content)
 
-        vendor_lower = vendor_name.lower()
         vendor_words = [w.lower() for w in vendor_name.split() if len(w) >= 3]
 
         matches = []

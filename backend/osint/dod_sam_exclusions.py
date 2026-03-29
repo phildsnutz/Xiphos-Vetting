@@ -14,33 +14,116 @@ import json
 import time
 import urllib.request
 import urllib.error
-from typing import Optional
+import urllib.parse
+from datetime import datetime, timezone
 
 from . import EnrichmentResult, Finding
 
-BASE = "https://api.sam.gov/entity-information/v3/exclusions"
+BASE = "https://api.sam.gov/entity-information/v4/exclusions"
 
 import os
 # Use the same SAM API key as entity resolver (configured in docker-compose)
 API_KEY = os.environ.get("SAM_GOV_API_KEY", os.environ.get("XIPHOS_SAM_API_KEY", ""))
 
 USER_AGENT = "Xiphos-Vetting/2.1"
+_RATE_LIMIT_UNTIL: str = ""
 
 
-def _get(url: str) -> dict | None:
-    """GET with optional API key."""
-    sep = "&" if "?" in url else "?"
-    url_with_key = f"{url}{sep}api_key={API_KEY}"
+def _get_api_key() -> str:
+    return (
+        API_KEY
+        or os.environ.get("XIPHOS_SAM_API_KEY", "")
+        or os.environ.get("SAM_GOV_API_KEY", "")
+        or os.environ.get("XIPHOS_SAM_GOV_API_KEY", "")
+    )
 
-    req = urllib.request.Request(url_with_key, headers={
+
+def _parse_next_access_time(raw: str) -> datetime | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    normalized = text.replace(" UTC", "")
+    try:
+        return datetime.strptime(normalized, "%Y-%b-%d %H:%M:%S%z")
+    except Exception:
+        return None
+
+
+def _rate_limit_active() -> bool:
+    until = _parse_next_access_time(_RATE_LIMIT_UNTIL)
+    if until is None:
+        return False
+    return datetime.now(timezone.utc) < until.astimezone(timezone.utc)
+
+
+def _mark_rate_limit(next_access_time: str = "") -> None:
+    global _RATE_LIMIT_UNTIL
+    _RATE_LIMIT_UNTIL = str(next_access_time or "").strip()
+
+
+def _rate_limit_meta() -> dict:
+    return {
+        "status": 429,
+        "throttled": True,
+        "next_access_time": _RATE_LIMIT_UNTIL,
+        "error": (
+            f"SAM.gov exclusions rate limit reached. API access resumes at {_RATE_LIMIT_UNTIL}."
+            if _RATE_LIMIT_UNTIL
+            else "SAM.gov exclusions rate limit reached."
+        ),
+    }
+
+
+def _get(url: str) -> tuple[dict | None, dict]:
+    """GET with optional API key and explicit status metadata."""
+    if _rate_limit_active():
+        return None, _rate_limit_meta()
+
+    api_key = _get_api_key()
+    if api_key:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}api_key={api_key}"
+
+    req = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
     })
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
-            return json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
-        return None
+            payload = json.loads(resp.read())
+            return payload, {"status": getattr(resp, "status", 200), "throttled": False, "error": ""}
+    except urllib.error.HTTPError as exc:
+        payload = None
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            payload = None
+        if exc.code == 429:
+            next_access_time = ""
+            if isinstance(payload, dict):
+                next_access_time = str(payload.get("nextAccessTime", "") or "")
+            _mark_rate_limit(next_access_time)
+            return payload, _rate_limit_meta()
+        message = ""
+        if isinstance(payload, dict):
+            message = str(payload.get("message", "") or payload.get("description", "") or "")
+        return payload, {
+            "status": exc.code,
+            "throttled": False,
+            "error": message or f"SAM.gov exclusions API returned HTTP {exc.code}.",
+        }
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return None, {
+            "status": 0,
+            "throttled": False,
+            "error": f"SAM.gov exclusions API unavailable: {exc}",
+        }
+    except json.JSONDecodeError as exc:
+        return None, {
+            "status": 0,
+            "throttled": False,
+            "error": f"SAM.gov exclusions API returned invalid JSON: {exc}",
+        }
 
 
     # _simulated_finding REMOVED: no fake/notional data in production code
@@ -50,12 +133,13 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     """Query SAM.gov EPLS for vendor exclusion status."""
     t0 = time.time()
     result = EnrichmentResult(source="dod_sam_exclusions", vendor_name=vendor_name)
+    result.structured_fields = {}
 
     try:
         # Try to query the API
-        encoded = urllib.request.quote(vendor_name)
+        encoded = urllib.parse.quote(vendor_name)
         url = f"{BASE}?q={encoded}&page=0&size=10"
-        data = _get(url)
+        data, meta = _get(url)
 
         api_available = data is not None
 
@@ -102,18 +186,34 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 ))
 
         else:
-            # API unreachable: report honestly, no simulation/fabrication
-            result.findings.append(Finding(
-                source="dod_sam_exclusions",
-                category="clearance",
-                title="DoD EPLS: Unable to verify (API unavailable)",
-                detail=(
-                    f"Cannot reach SAM.gov Exclusions API. "
-                    f"Recommendation: verify '{vendor_name}' manually at https://sam.gov/content/exclusions"
-                ),
-                severity="info",
-                confidence=0.3,
-            ))
+            result.structured_fields["sam_api_status"] = dict(meta)
+            if meta.get("throttled"):
+                detail = meta.get("error") or "SAM.gov exclusions lookup rate-limited."
+                result.error = detail
+                result.findings.append(Finding(
+                    source="dod_sam_exclusions",
+                    category="availability",
+                    title="DoD EPLS: Unable to verify (rate limit reached)",
+                    detail=detail,
+                    severity="info",
+                    confidence=1.0,
+                    structured_fields=dict(meta),
+                ))
+            else:
+                detail = (
+                    str(meta.get("error") or "")
+                    or f"Cannot reach SAM.gov Exclusions API. Recommendation: verify '{vendor_name}' manually at https://sam.gov/content/exclusions"
+                )
+                result.error = detail
+                result.findings.append(Finding(
+                    source="dod_sam_exclusions",
+                    category="clearance",
+                    title="DoD EPLS: Unable to verify (API unavailable)",
+                    detail=detail,
+                    severity="info",
+                    confidence=0.3,
+                    structured_fields=dict(meta),
+                ))
 
     except Exception as e:
         result.error = str(e)

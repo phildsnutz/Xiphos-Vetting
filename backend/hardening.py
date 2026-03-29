@@ -95,7 +95,6 @@ def rate_limit(max_requests: int = 10, window_seconds: int = 60, key_func=None):
                 key = _default_rate_limit_key()
 
             if not _limiter.is_allowed(key, max_requests, window_seconds):
-                remaining = _limiter.remaining(key, max_requests, window_seconds)
                 return jsonify({
                     "error": "Rate limit exceeded. Try again later.",
                     "retry_after_seconds": window_seconds,

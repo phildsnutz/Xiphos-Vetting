@@ -7,14 +7,21 @@ Tests database integration, sweep execution, and status tracking.
 
 import sys
 import time
-import json
 import sqlite3
 import os
+import tempfile
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
+
+# Isolate this suite from any runtime/test DB path that other modules set.
+TEST_DB_PATH = os.path.join(tempfile.gettempdir(), "xiphos-monitor-scheduler-test.db")
+os.environ["XIPHOS_DB_PATH"] = TEST_DB_PATH
 
 # Import modules
 import db
-from monitor_scheduler import MonitorScheduler, init_scheduler, get_scheduler
+from monitor_scheduler import MonitorScheduler
 
 def test_db_init():
     """Test database initialization with new tables."""
@@ -25,8 +32,8 @@ def test_db_init():
     if os.path.exists(db_path):
         try:
             os.remove(db_path)
-        except:
-            pass
+        except OSError as e:
+            logger.warning(f"Failed to remove old test database: {e}")
 
     db.init_db()
 

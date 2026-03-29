@@ -12,7 +12,6 @@ Date: March 2026
 import unicodedata
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 # Entity suffixes that should be stripped during normalization

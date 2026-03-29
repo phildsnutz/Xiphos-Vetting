@@ -1,5 +1,5 @@
 /**
- * Xiphos Bayesian Scoring Engine
+ * Helios Bayesian Scoring Engine
  *
  * Real probabilistic risk scoring using Beta-distributed priors,
  * evidence accumulation, and calibrated posterior estimation.

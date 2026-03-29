@@ -1,5 +1,5 @@
 /**
- * Xiphos Auth Module
+ * Helios Auth Module
  *
  * Manages JWT bearer tokens, user identity, and session state.
  * Tokens are stored in sessionStorage (cleared on tab close).
@@ -24,8 +24,8 @@ export interface SetupResponse {
   user: AuthUser;
 }
 
-const TOKEN_KEY = "xiphos_token";
-const USER_KEY = "xiphos_user";
+const TOKEN_KEY = "helios_token";
+const USER_KEY = "helios_user";
 
 // ---- Token storage ----
 
@@ -106,9 +106,16 @@ export async function checkAuthEnabled(): Promise<boolean> {
     const res = await fetch(`${BASE}/api/health`);
     if (res.status === 401) return true;
     const data = await res.json();
-    return data.auth_enabled === true;
+    if (data.auth_enabled === true) return true;
+    if (data.auth_enabled === false) {
+      const probe = await fetch(`${BASE}/api/cases?limit=1`);
+      return probe.status === 401;
+    }
+    return true;
   } catch {
-    return false;
+    // Default to auth-required when the probe fails so the UI does not
+    // silently downgrade into an unauthenticated state on transport errors.
+    return true;
   }
 }
 

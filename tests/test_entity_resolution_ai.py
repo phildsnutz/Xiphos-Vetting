@@ -25,8 +25,7 @@ def app_env(tmp_path, monkeypatch):
     if "server" in sys.modules:
         server = importlib.reload(sys.modules["server"])
     else:
-        import server  # type: ignore
-        server = sys.modules["server"]
+        server = importlib.import_module("server")
 
     server.db.init_db()
     server.init_auth_db()

@@ -13,18 +13,22 @@ Timeout: 12 seconds (GDELT can be slow)
 
 import json
 import time
+import logging
 import urllib.request
 import urllib.error
 import urllib.parse
-from typing import Optional
 
 from . import EnrichmentResult, Finding
+
+logger = logging.getLogger(__name__)
 
 # Try to load ML classifier
 _ml_available = False
 _ml_classify = None
 try:
-    import sys, os
+    import os
+    import sys
+
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
     from ml.inference import is_model_available, classify_finding
     if is_model_available():
@@ -66,7 +70,7 @@ def _get(url: str, retries: int = 2) -> dict | None:
             "Accept": "application/json",
         })
         try:
-            with urllib.request.urlopen(req, timeout=12) as resp:
+            with urllib.request.urlopen(req, timeout=20) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 raw = resp.read()
                 if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
@@ -96,7 +100,8 @@ def _extract_domain(url: str) -> str:
         from urllib.parse import urlparse
         parsed = urlparse(url)
         return parsed.netloc or "unknown"
-    except:
+    except Exception as e:
+        logger.debug(f"Failed to extract domain from URL: {e}")
         return "unknown"
 
 
@@ -232,24 +237,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                                   f"({adversary_coverage}/{total_coverage} articles)",
                     })
 
-        # Step 3c: Use tone to weight adverse findings
-        # Strongly negative tone (< -5.0) increases severity, mildly negative is less concerning
-        if avg_tone < -5.0 and high_confidence_count > 0:
-            result.risk_signals.append({
-                "signal": "strongly_negative_media_tone",
-                "severity": "high",
-                "detail": f"Average media tone is strongly negative ({avg_tone:.1f}) across adverse articles. "
-                          f"GDELT tone scale: -100 (extremely negative) to +100 (extremely positive).",
-            })
-        elif avg_tone < -2.0 and high_confidence_count > 0:
-            result.identifiers["gdelt_tone_assessment"] = "moderately_negative"
-
         # Step 4: Process findings with title-level filtering
         # Only flag as "adverse" if the vendor name AND a risk keyword appear in the TITLE
         # Body-only matches are noise (vendor mentioned in passing in a sanctions policy article)
         high_confidence_count = 0
         low_confidence_count = 0
-        vendor_lower = vendor_name.lower()
         vendor_words = [w.lower() for w in vendor_name.split() if len(w) > 3]
 
         for article in articles:
@@ -322,6 +314,18 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     "tone": avg_tone,
                 },
             ))
+
+        # Step 4b: Use tone to weight adverse findings after confidence counts are known
+        # Strongly negative tone (< -5.0) increases severity, mildly negative is less concerning
+        if avg_tone < -5.0 and high_confidence_count > 0:
+            result.risk_signals.append({
+                "signal": "strongly_negative_media_tone",
+                "severity": "high",
+                "detail": f"Average media tone is strongly negative ({avg_tone:.1f}) across adverse articles. "
+                          f"GDELT tone scale: -100 (extremely negative) to +100 (extremely positive).",
+            })
+        elif avg_tone < -2.0 and high_confidence_count > 0:
+            result.identifiers["gdelt_tone_assessment"] = "moderately_negative"
 
         # Add risk signal only if we found TITLE-LEVEL adverse matches
         if high_confidence_count > 0:

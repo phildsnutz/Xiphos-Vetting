@@ -1,6 +1,7 @@
 import importlib
 import os
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -16,12 +17,12 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
     monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
     monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("XIPHOS_AI_WARMUP_WAIT_SECONDS", "0")
 
     if "server" in sys.modules:
         server = importlib.reload(sys.modules["server"])
     else:
-        import server  # type: ignore
-        server = sys.modules["server"]
+        server = importlib.import_module("server")
 
     server.db.init_db()
     server.init_auth_db()
@@ -378,9 +379,241 @@ def test_dossier_includes_risk_storyline_section(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
+    assert "How to read this dossier" in html
+    assert "Decision brief" in html
+    assert "Control evidence" in html
     assert "Risk Storyline" in html
     assert "What matters first" in html
     assert "Regulatory gates pass cleanly" in html or "No material blockers detected" in html
+
+
+def test_ai_narrative_handles_datetime_created_at():
+    import dossier
+
+    html = dossier._generate_ai_narrative(
+        "case-123",
+        {"id": "case-123", "name": "Datetime Vendor"},
+        analysis_data={
+            "provider": "openai",
+            "model": "gpt-5.4",
+            "created_at": datetime(2026, 3, 27, 14, 30, 45),
+            "analysis": {
+                "verdict": "CONDITIONAL_APPROVE",
+                "executive_summary": "Datetime-safe narrative.",
+                "confidence_assessment": "Moderate",
+                "critical_concerns": ["One concern"],
+                "mitigating_factors": ["One mitigant"],
+                "recommended_actions": ["One action"],
+            },
+        },
+    )
+
+    assert "AI Narrative Brief" in html
+    assert "Generated 2026-03-27 14:30:45" in html
+    assert "Datetime-safe narrative." in html
+
+
+def test_audit_trail_handles_datetime_history(monkeypatch):
+    import dossier
+
+    monkeypatch.setattr(
+        dossier.db,
+        "get_score_history",
+        lambda vendor_id, limit=5: [
+            {
+                "scored_at": datetime(2026, 3, 27, 15, 0, 0),
+                "calibrated_tier": "watch",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        dossier.db,
+        "get_enrichment_history",
+        lambda vendor_id, limit=5: [
+            {
+                "enriched_at": datetime(2026, 3, 27, 15, 5, 0),
+                "findings_total": 3,
+                "overall_risk": "HIGH",
+            }
+        ],
+    )
+
+    html = dossier._generate_audit_trail("case-123", {}, None)
+
+    assert "2026-03-27 15:00:00" in html
+    assert "2026-03-27 15:05:00" in html
+    assert "3 findings" in html
+
+
+def test_dossier_includes_graph_provenance_section(client, monkeypatch):
+    case_id = _create_case(client, name="Graph Provenance Vendor")
+    import dossier
+
+    monkeypatch.setattr(dossier, "HAS_GRAPH_SUMMARY", True, raising=False)
+    monkeypatch.setattr(
+        dossier,
+        "get_vendor_graph_summary",
+        lambda vendor_id, depth=2, include_provenance=True, max_claim_records=2, max_evidence_records=2: {
+            "vendor_id": vendor_id,
+            "entity_count": 3,
+            "relationship_count": 2,
+            "entities": [
+                {"id": "entity:vendor", "canonical_name": "Graph Provenance Vendor", "entity_type": "company"},
+                {"id": "entity:owner", "canonical_name": "Frontier Holdings", "entity_type": "holding_company"},
+                {"id": "bank:alpha", "canonical_name": "Alpha Trade Bank", "entity_type": "bank"},
+            ],
+            "relationships": [
+                {
+                    "id": "rel-1",
+                    "source_entity_id": "entity:vendor",
+                    "target_entity_id": "entity:owner",
+                    "rel_type": "beneficially_owned_by",
+                    "confidence": 0.93,
+                    "corroboration_count": 2,
+                    "data_sources": ["opencorporates", "gleif_bods_ownership_fixture"],
+                    "evidence_summary": "Ownership registry and standards-modeled control path point to the same parent chain.",
+                    "first_seen_at": "2026-03-25T12:00:00Z",
+                    "last_seen_at": "2026-03-26T09:30:00Z",
+                },
+                {
+                    "id": "rel-2",
+                    "source_entity_id": "entity:owner",
+                    "target_entity_id": "bank:alpha",
+                    "rel_type": "routes_payment_through",
+                    "confidence": 0.88,
+                    "corroboration_count": 1,
+                    "data_sources": ["gleif_bods_ownership_fixture"],
+                    "evidence_summary": "Trade finance path routes through Alpha Trade Bank for supplier settlement.",
+                    "first_seen_at": "2026-03-24T08:00:00Z",
+                    "last_seen_at": "2026-03-26T08:45:00Z",
+                },
+            ],
+        },
+        raising=False,
+    )
+
+    html = dossier.generate_dossier(case_id, user_id="dev")
+
+    assert "Graph Provenance Snapshot" in html
+    assert "Frontier Holdings" in html
+    assert "Alpha Trade Bank" in html
+    assert "Corporate Registry (OpenCorporates)" in html
+    assert "Control-path edges" in html
+
+
+def test_dossier_includes_supplier_passport_section(client, monkeypatch):
+    case_id = _create_case(client, name="Supplier Passport Dossier Vendor")
+    import dossier
+
+    monkeypatch.setattr(dossier, "HAS_SUPPLIER_PASSPORT", True, raising=False)
+    monkeypatch.setattr(
+        dossier,
+        "build_supplier_passport",
+        lambda vendor_id, **kwargs: {
+            "case_id": vendor_id,
+            "posture": "review",
+            "vendor": {
+                "name": "Supplier Passport Dossier Vendor",
+                "program": "dod_unclassified",
+                "program_label": "DoD (Unclassified)",
+            },
+            "score": {
+                "calibrated_probability": 0.41,
+                "calibrated_tier": "TIER_3_REVIEW",
+            },
+            "identity": {
+                "identifiers": {"cage": "1ABC2", "uei": "UEI123456"},
+                "identifier_status": {
+                    "cage": {
+                        "state": "verified_present",
+                        "value": "1ABC2",
+                        "source": "sam_gov",
+                    },
+                    "uei": {
+                        "state": "unverified",
+                        "source": "sam_gov",
+                        "reason": "SAM.gov rate limit reached.",
+                        "next_access_time": "2026-Mar-28 00:00:00+0000 UTC",
+                    },
+                },
+                "connectors_with_data": 4,
+            },
+            "threat_intel": {
+                "shared_threat_intel_present": True,
+                "attack_actor_families": ["Volt Typhoon"],
+                "attack_technique_ids": ["T1190", "T1078"],
+                "cisa_advisory_ids": ["AA24-057A"],
+                "threat_pressure": "medium",
+                "threat_intel_sources": ["mitre_attack_fixture", "cisa_advisory_fixture"],
+                "threat_sectors": ["defense industrial base"],
+            },
+            "ownership": {
+                "workflow_control": {
+                    "label": "Foreign interest in view",
+                    "review_basis": "Foreign ownership signal needs adjudication.",
+                    "action_owner": "Analyst review",
+                },
+            },
+            "graph": {
+                "claim_health": {
+                    "corroborated_paths": 2,
+                    "contradicted_claims": 1,
+                    "stale_paths": 0,
+                    "freshest_observation_at": "2026-03-26T09:15:00Z",
+                },
+                "control_paths": [
+                    {
+                        "rel_type": "beneficially_owned_by",
+                        "source_name": "Supplier Passport Dossier Vendor",
+                        "target_name": "Frontier Holdings",
+                        "confidence": 0.93,
+                        "corroboration_count": 2,
+                        "data_sources": ["gleif_bods_ownership_fixture"],
+                        "last_seen_at": "2026-03-26T09:15:00Z",
+                        "evidence_refs": [
+                            {
+                                "title": "Ownership Registry Extract",
+                                "source": "GLEIF Level 2",
+                                "artifact_ref": "artifact://ownership-1",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "artifacts": {"count": 2},
+            "monitoring": {"latest_check": {"checked_at": "2026-03-26T09:30:00Z"}},
+            "tribunal": {
+                "recommended_label": "Watch / Conditional",
+                "consensus_level": "moderate",
+                "decision_gap": 0.14,
+                "views": [
+                    {
+                        "stance": "watch",
+                        "reasons": [
+                            "Foreign control evidence is present and still matters operationally.",
+                            "Control-path coverage is still thin and should be improved before a clean decision.",
+                        ],
+                    }
+                ],
+            },
+        },
+        raising=False,
+    )
+
+    html = dossier.generate_dossier(case_id, user_id="dev")
+
+    assert "Supplier passport" in html
+    assert "Portable trust artifact" in html
+    assert "Identity anchors" in html
+    assert "Threat context" in html
+    assert "AA24-057A" in html
+    assert "Frontier Holdings" in html
+    assert "Foreign interest in view" in html
+    assert "Decision tribunal" in html
+    assert "Claim health" in html
+    assert "Ownership Registry Extract" in html
+    assert "Unverified" in html
+    assert "Retry after 2026-Mar-28 00:00:00+0000 UTC" in html
 
 
 def test_dossier_hero_uses_monitoring_change_language(client):
@@ -449,9 +682,9 @@ def test_dossier_includes_customer_cyber_evidence_section(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Supplier cyber trust dossier" in html
+    assert "Supply chain assurance dossier" in html
     assert "Current workflow lane" in html
-    assert "Supplier cyber trust" in html
+    assert "Supply chain assurance" in html
     assert "SPRS / CMMC" in html
     assert "Cyber Evidence Summary" in html
     assert "CMMC Level 1" in html
@@ -577,6 +810,62 @@ def test_analyze_async_enqueues_job(client, monkeypatch):
     assert started["started"] is True
 
 
+def test_analysis_status_waits_for_running_job_to_finish(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Running AI Vendor")
+
+    monkeypatch.setattr(server, "_current_analysis_input_hash", lambda *args, **kwargs: "hash-running")
+    monkeypatch.setattr(server, "_AI_STATUS_WAIT_SECONDS", 0.01)
+
+    cached_calls = {"count": 0}
+
+    def fake_get_latest_analysis(*_args, **_kwargs):
+        cached_calls["count"] += 1
+        if cached_calls["count"] < 2:
+            return None
+        return {
+            "id": "analysis-running-ready",
+            "analysis": {
+                "executive_summary": "Ready after short wait",
+                "risk_narrative": "",
+                "critical_concerns": [],
+                "mitigating_factors": [],
+                "recommended_actions": [],
+                "regulatory_exposure": "",
+                "confidence_assessment": "",
+                "verdict": "APPROVE",
+            },
+            "provider": "openai",
+            "model": "gpt-4o",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "elapsed_ms": 30,
+            "created_at": "2026-03-19T00:00:00Z",
+            "created_by": "dev",
+            "input_hash": "hash-running",
+            "prompt_version": "2026-03-19",
+        }
+
+    monkeypatch.setattr(server, "get_latest_analysis", fake_get_latest_analysis)
+    monkeypatch.setattr(server.time, "sleep", lambda *_args, **_kwargs: None)
+
+    server._ensure_ai_job_tables()
+    with server.db.get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO ai_analysis_jobs (id, case_id, created_by, input_hash, status)
+            VALUES (?, ?, ?, ?, 'running')
+            """,
+            ("ai-job-running", case_id, "dev", "hash-running"),
+        )
+
+    resp = client.get(f"/api/cases/{case_id}/analysis-status")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["status"] == "ready"
+    assert body["analysis"]["id"] == "analysis-running-ready"
+
+
 def test_analyze_vendor_without_ai_config_uses_local_fallback(monkeypatch):
     import ai_analysis
 
@@ -619,6 +908,41 @@ def test_analyze_vendor_without_ai_config_uses_local_fallback(monkeypatch):
     assert result["analysis"]["verdict"] == "CONDITIONAL_APPROVE"
     assert "no external ai provider is configured" in result["analysis"]["confidence_assessment"].lower()
     assert persisted["payload"]["provider"] == "local_fallback"
+
+
+def test_analysis_prompt_distinguishes_unverified_identifiers_from_absence():
+    import ai_analysis
+
+    prompt = ai_analysis._build_prompt(
+        vendor_data={"name": "Example Rotorcraft", "country": "US", "program": "dod_unclassified"},
+        score_data={
+            "composite_score": 12,
+            "calibrated": {
+                "calibrated_tier": "TIER_4_CLEAR",
+                "calibrated_probability": 0.11,
+                "interval": {"lower": 0.08, "upper": 0.15},
+                "hard_stop_decisions": [],
+                "soft_flags": [],
+                "contributions": [],
+                "narratives": {"findings": []},
+            },
+        },
+        enrichment_data={
+            "overall_risk": "LOW",
+            "summary": {"findings_total": 1},
+            "identifiers": {},
+            "findings": [
+                {
+                    "title": "SAM.gov registration lookup deferred by rate limit",
+                    "severity": "medium",
+                    "source": "sam_gov",
+                }
+            ],
+        },
+    )
+
+    assert "Treat connector rate limits, outages, or unavailable lookups as UNVERIFIED" in prompt
+    assert "Do not say an identifier is missing unless the data explicitly confirms it is absent." in prompt
 
 
 def test_prime_ai_analysis_for_case_enqueues_background_job(client, monkeypatch):
@@ -709,12 +1033,66 @@ def test_prime_ai_analysis_for_case_without_config_still_enqueues_job(client, mo
     assert started["started"] is True
 
 
+def test_prime_ai_analysis_for_case_returns_ready_when_warmup_completes(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Prime AI Warm Ready Vendor")
+    started = {}
+    cached_calls = {"count": 0}
+
+    monkeypatch.setattr(server, "HAS_AI", True)
+    monkeypatch.setattr(server, "_current_analysis_input_hash", lambda *_args, **_kwargs: "hash-ready")
+    monkeypatch.setattr(
+        server.db,
+        "get_latest_score",
+        lambda vendor_id: {"composite_score": 11, "calibrated": {"calibrated_tier": "TIER_4_CLEAR"}},
+    )
+    monkeypatch.setattr(server.db, "get_vendor", lambda vendor_id: {"id": vendor_id, "name": "Prime AI Warm Ready Vendor", "country": "US"})
+
+    import ai_analysis
+
+    def fake_get_latest_analysis(*_args, **_kwargs):
+        cached_calls["count"] += 1
+        if cached_calls["count"] < 2:
+            return None
+        return {"id": "analysis-ready"}
+
+    monkeypatch.setattr(ai_analysis, "get_latest_analysis", fake_get_latest_analysis)
+    monkeypatch.setattr(
+        server,
+        "enqueue_analysis_job",
+        lambda *args, **kwargs: {
+            "created": True,
+            "job": {
+                "id": "ai-job-ready",
+                "status": "pending",
+                "analysis_id": None,
+            },
+        },
+    )
+
+    class FakeThread:
+        def __init__(self, target=None, args=(), daemon=None):
+            started["target"] = target
+            started["args"] = args
+
+        def start(self):
+            started["started"] = True
+
+    monkeypatch.setattr(server.threading, "Thread", FakeThread)
+    monkeypatch.setattr(server.time, "sleep", lambda *_args, **_kwargs: None)
+
+    warmed = server._prime_ai_analysis_for_case(case_id, "dev", wait_seconds=0.01, poll_seconds=0.0)
+    assert warmed["status"] == "ready"
+    assert warmed["job_id"] == "ai-job-ready"
+    assert warmed["analysis_id"] == "analysis-ready"
+    assert started["started"] is True
+
+
 def test_ai_worker_marks_job_completed(monkeypatch):
     if "server" in sys.modules:
         server = importlib.reload(sys.modules["server"])
     else:
-        import server  # type: ignore
-        server = sys.modules["server"]
+        server = importlib.import_module("server")
 
     calls = []
 

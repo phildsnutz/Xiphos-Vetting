@@ -29,6 +29,86 @@ function ActionStep({ number, text, isDone = false }: { number: number; text: st
   );
 }
 
+function fmtPct(value?: number, digits = 0): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "N/A";
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function PolicyBasisDisclosure({ case: c }: ActionPanelProps) {
+  const cal = c.cal;
+  if (!cal?.policy) return null;
+
+  const screeningPolicy = cal.policy.screening;
+  const sanctionsPolicy = cal.policy.sanctions_policy;
+  const uncertainty = cal.policy.uncertainty;
+  const screening = cal.screening;
+
+  return (
+    <details
+      className="mt-4 rounded-lg"
+      style={{ background: T.raised, border: `1px solid ${T.border}` }}
+    >
+      <summary
+        className="cursor-pointer select-none px-3 py-2"
+        style={{ fontSize: FS.sm, color: T.text, fontWeight: 600 }}
+      >
+        Policy Basis
+      </summary>
+      <div className="px-3 pb-3 pt-1 space-y-3">
+        <div style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5 }}>
+          {cal.modelVersion || "Model"} · {cal.policy.mode || "layered"} scoring · {cal.policy.profile || "default"} profile
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 6 }}>Sanctions Screening</div>
+            <div style={{ fontSize: FS.sm, color: T.text }}>Composite threshold: {fmtPct(screeningPolicy?.composite_threshold)}</div>
+            <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4 }}>
+              Prefilter JW floor: {fmtPct(screeningPolicy?.prefilter?.jaro_winkler_floor)}
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 2 }}>
+              Token overlap floor: {fmtPct(screeningPolicy?.prefilter?.token_overlap_ratio)}
+            </div>
+            {screening && (
+              <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 6 }}>
+                Latest screen: {screening.matched ? fmtPct(screening.bestScore) : "No active match"} from {screening.dbLabel}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 6 }}>Escalation Thresholds</div>
+            <div style={{ fontSize: FS.sm, color: T.text }}>
+              Hard stop: {fmtPct(sanctionsPolicy?.hard_stop_threshold_default)}
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4 }}>
+              Allied cross-country hard stop: {fmtPct(sanctionsPolicy?.hard_stop_threshold_allied_cross_country)}
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 2 }}>
+              Soft flag floor: {fmtPct(sanctionsPolicy?.soft_flag_floor)}
+            </div>
+          </div>
+        </div>
+
+        {uncertainty && (
+          <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 6 }}>Uncertainty Model</div>
+            <div style={{ fontSize: FS.sm, color: T.text }}>
+              Effective evidence strength: {uncertainty.effective_n_final?.toFixed(1) ?? "N/A"}
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4 }}>
+              Base n: {uncertainty.effective_n_base?.toFixed(1) ?? "N/A"} · source reliability {fmtPct(uncertainty.source_reliability_avg)}
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 2 }}>
+              Identifier boost: {typeof uncertainty.identifier_boost === "number" ? uncertainty.identifier_boost : "N/A"}
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function ActionPanel({ case: c }: ActionPanelProps) {
   if (!c.cal) return null;
 
@@ -90,6 +170,8 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
             Estimated risk reduction: <strong style={{ color: T.text }}>N/A (categorical prohibition)</strong>
           </div>
         </div>
+
+        <PolicyBasisDisclosure case={c} />
       </div>
     );
   }
@@ -249,6 +331,8 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
             ))}
           </div>
         )}
+
+        <PolicyBasisDisclosure case={c} />
       </div>
     );
   }
@@ -310,6 +394,8 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
             </strong>
           </div>
         </div>
+
+        <PolicyBasisDisclosure case={c} />
       </div>
     );
   }
@@ -350,6 +436,8 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
             Assessment confidence: <strong style={{ color: T.green }}>{meanConfidence}%</strong>
           </div>
         </div>
+
+        <PolicyBasisDisclosure case={c} />
       </div>
     );
   }

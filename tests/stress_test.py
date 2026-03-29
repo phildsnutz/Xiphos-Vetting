@@ -15,7 +15,6 @@ Usage:
 """
 
 import sys
-import os
 import json
 import time
 import argparse
@@ -416,7 +415,7 @@ def run_stress_test(base_url: str, token: str = "", dry_run: bool = False):
 
     # Summary
     print(f"\n{'='*60}")
-    print(f"  RESULTS")
+    print("  RESULTS")
     print(f"{'='*60}")
     total = sum(results.values())
     print(f"  Total vendors:   {total}")
@@ -433,7 +432,7 @@ def run_stress_test(base_url: str, token: str = "", dry_run: bool = False):
         for err in errors:
             print(f"    - {err}")
     else:
-        print(f"\n  No errors.")
+        print("\n  No errors.")
     print(f"{'='*60}\n")
 
     return len(errors) == 0

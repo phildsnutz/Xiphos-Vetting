@@ -1,5 +1,8 @@
 """
-SQLite persistence layer for Xiphos v2.0.
+Persistence layer for Xiphos v2.0.
+
+Supports both SQLite (default) and PostgreSQL backends.
+Set HELIOS_DB_ENGINE=postgres and XIPHOS_PG_URL to use PostgreSQL.
 
 Stores vendors, scoring results, alerts, and screening history.
 Survives server restarts. Auto-creates schema on first run.
@@ -8,18 +11,86 @@ Survives server restarts. Auto-creates schema on first run.
 import sqlite3
 import json
 import os
+import re
+import shutil
+import logging
 from datetime import datetime
 from contextlib import contextmanager
-from runtime_paths import get_main_db_path
+from pathlib import Path
+from runtime_paths import get_main_db_path, get_secure_artifacts_dir
+
+
+def _safe_json_loads(value):
+    """Parse JSON string, or return value as-is if already a dict/list (PostgreSQL JSONB)."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    return json.loads(value)
 from event_extraction import compute_report_hash
+
+logger = logging.getLogger(__name__)
+
+_LEGAL_SUFFIX_TOKENS = {
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "company",
+    "llc",
+    "ltd",
+    "limited",
+    "lp",
+    "llp",
+    "plc",
+    "gmbh",
+    "ag",
+    "sa",
+    "srl",
+    "bv",
+    "nv",
+}
+
+
+def _normalize_vendor_name_for_match(name: str) -> str:
+    tokens = re.findall(r"[a-z0-9]+", str(name or "").lower())
+    while tokens and tokens[-1] in _LEGAL_SUFFIX_TOKENS:
+        tokens.pop()
+    return " ".join(tokens)
+
+
+def _row_to_enrichment_report(row) -> dict | None:
+    if not row:
+        return None
+    result = _safe_json_loads(row["full_report"])
+    result["enriched_at"] = row["enriched_at"]
+    result["report_hash"] = row["report_hash"] or result.get("report_hash") or compute_report_hash(result)
+    return result
+
+# ---------------------------------------------------------------------------
+# Engine selection: set HELIOS_DB_ENGINE=postgres to use PostgreSQL
+# ---------------------------------------------------------------------------
+_DB_ENGINE = os.environ.get("HELIOS_DB_ENGINE", "sqlite").lower().strip()
+_use_postgres = _DB_ENGINE in ("postgres", "postgresql", "pg")
+
+if _use_postgres:
+    try:
+        from db_postgres import get_conn as _pg_get_conn, init_db as _pg_init_db
+        logger.info("PostgreSQL backend selected (HELIOS_DB_ENGINE=%s)", _DB_ENGINE)
+    except ImportError as e:
+        logger.error("PostgreSQL backend requested but db_postgres.py failed to import: %s", e)
+        logger.warning("Falling back to SQLite backend")
+        _use_postgres = False
+
 
 def get_db_path() -> str:
     return get_main_db_path()
 
 
 @contextmanager
-def get_conn():
-    """Context manager for database connections with WAL mode."""
+def _sqlite_get_conn():
+    """SQLite context manager for database connections with WAL mode."""
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -34,9 +105,19 @@ def get_conn():
         conn.close()
 
 
+def get_conn():
+    """Context manager for database connections. Routes to PostgreSQL or SQLite."""
+    if _use_postgres:
+        return _pg_get_conn()
+    return _sqlite_get_conn()
+
+
 def init_db():
     """Create tables if they don't exist. Includes migration for existing databases."""
-    with get_conn() as conn:
+    if _use_postgres:
+        _pg_init_db()
+        return
+    with _sqlite_get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS vendors (
                 id TEXT PRIMARY KEY,
@@ -254,6 +335,89 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_case_events_case_hash ON case_events(case_id, report_hash);
             CREATE INDEX IF NOT EXISTS idx_case_events_event_type ON case_events(event_type);
+
+            CREATE TABLE IF NOT EXISTS artifact_records (
+                id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES vendors(id),
+                artifact_type TEXT NOT NULL,
+                source_system TEXT NOT NULL DEFAULT '',
+                source_class TEXT NOT NULL DEFAULT '',
+                authority_level TEXT NOT NULL DEFAULT '',
+                access_model TEXT NOT NULL DEFAULT '',
+                uploaded_by TEXT NOT NULL DEFAULT '',
+                filename TEXT NOT NULL,
+                content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                sha256 TEXT NOT NULL DEFAULT '',
+                storage_ref TEXT NOT NULL UNIQUE,
+                retention_class TEXT NOT NULL DEFAULT 'standard',
+                sensitivity TEXT NOT NULL DEFAULT 'controlled',
+                effective_date TEXT,
+                parse_status TEXT NOT NULL DEFAULT 'pending',
+                structured_fields JSON,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_artifact_records_case ON artifact_records(case_id);
+            CREATE INDEX IF NOT EXISTS idx_artifact_records_type ON artifact_records(artifact_type);
+            CREATE INDEX IF NOT EXISTS idx_artifact_records_created ON artifact_records(created_at);
+
+            CREATE TABLE IF NOT EXISTS beta_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                user_email TEXT,
+                user_role TEXT,
+                case_id TEXT REFERENCES vendors(id),
+                workflow_lane TEXT NOT NULL DEFAULT '',
+                screen TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'general',
+                severity TEXT NOT NULL DEFAULT 'medium',
+                summary TEXT NOT NULL,
+                details TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                metadata JSON,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_beta_feedback_created ON beta_feedback(created_at);
+            CREATE INDEX IF NOT EXISTS idx_beta_feedback_status ON beta_feedback(status);
+            CREATE INDEX IF NOT EXISTS idx_beta_feedback_lane ON beta_feedback(workflow_lane);
+
+            CREATE TABLE IF NOT EXISTS beta_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                user_email TEXT,
+                user_role TEXT,
+                case_id TEXT REFERENCES vendors(id),
+                workflow_lane TEXT NOT NULL DEFAULT '',
+                screen TEXT NOT NULL DEFAULT '',
+                event_name TEXT NOT NULL,
+                metadata JSON,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_beta_events_created ON beta_events(created_at);
+            CREATE INDEX IF NOT EXISTS idx_beta_events_lane ON beta_events(workflow_lane);
+            CREATE INDEX IF NOT EXISTS idx_beta_events_name ON beta_events(event_name);
+
+            CREATE TABLE IF NOT EXISTS graph_workspaces (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                pinned_nodes TEXT DEFAULT '[]',
+                annotations TEXT DEFAULT '{}',
+                filter_state TEXT DEFAULT '{}',
+                layout_mode TEXT DEFAULT 'cose',
+                viewport TEXT DEFAULT '{}',
+                node_positions TEXT DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_by ON graph_workspaces(created_by);
+            CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_at ON graph_workspaces(created_at);
         """)
 
         for statement in (
@@ -309,7 +473,7 @@ def get_vendor(vendor_id: str) -> dict | None:
         return {
             "id": row["id"], "name": row["name"], "country": row["country"],
             "program": row["program"], "profile": profile,
-            "vendor_input": json.loads(row["vendor_input"]),
+            "vendor_input": _safe_json_loads(row["vendor_input"]),
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 
@@ -322,16 +486,102 @@ def list_vendors(limit: int = 100) -> list[dict]:
         return [
             {"id": r["id"], "name": r["name"], "country": r["country"],
              "program": r["program"], "profile": r["profile"] if "profile" in r.keys() else "defense_acquisition",
-             "vendor_input": json.loads(r["vendor_input"]),
+             "vendor_input": _safe_json_loads(r["vendor_input"]),
              "created_at": r["created_at"]}
             for r in rows
         ]
 
 
-def delete_vendor(vendor_id: str) -> bool:
+def list_vendors_with_scores(limit: int = 100) -> list[dict]:
+    """Fetch vendors with their latest scores in a single query (avoids N+1)."""
     with get_conn() as conn:
-        cursor = conn.execute("DELETE FROM vendors WHERE id = ?", (vendor_id,))
-        return cursor.rowcount > 0
+        rows = conn.execute("""
+            SELECT v.id, v.name, v.country, v.program, v.profile, v.vendor_input,
+                   v.created_at, sr.full_result, sr.scored_at
+            FROM vendors v
+            LEFT JOIN scoring_results sr ON sr.vendor_id = v.id
+                AND sr.id = (
+                    SELECT id FROM scoring_results
+                    WHERE vendor_id = v.id
+                    ORDER BY scored_at DESC, id DESC
+                    LIMIT 1
+                )
+            ORDER BY v.updated_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        results = []
+        for r in rows:
+            score = None
+            if r["full_result"]:
+                score = _safe_json_loads(r["full_result"])
+                score["scored_at"] = r["scored_at"]
+            results.append({
+                "id": r["id"], "name": r["name"], "country": r["country"],
+                "program": r["program"],
+                "profile": r["profile"] if "profile" in r.keys() else "defense_acquisition",
+                "vendor_input": _safe_json_loads(r["vendor_input"]),
+                "created_at": r["created_at"],
+                "latest_score": score,
+            })
+        return results
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def delete_vendor(vendor_id: str) -> bool:
+    secure_case_dir = Path(get_secure_artifacts_dir()) / vendor_id
+    dossier_dir = Path(__file__).resolve().parent / "dossiers"
+
+    with get_conn() as conn:
+        vendor_exists = conn.execute(
+            "SELECT 1 FROM vendors WHERE id = ?",
+            (vendor_id,),
+        ).fetchone()
+        if not vendor_exists:
+            return False
+
+        for table_name, key_name in (
+            ("artifact_records", "case_id"),
+            ("case_events", "case_id"),
+            ("intel_summary_jobs", "case_id"),
+            ("intel_summaries", "case_id"),
+            ("person_screenings", "case_id"),
+            ("transaction_authorizations", "case_id"),
+            ("authorization_audit", "case_id"),
+            ("monitoring_log", "vendor_id"),
+            ("decisions", "vendor_id"),
+            ("enrichment_reports", "vendor_id"),
+            ("alerts", "vendor_id"),
+            ("scoring_results", "vendor_id"),
+            ("batch_items", "case_id"),
+            ("ai_analysis_jobs", "case_id"),
+            ("ai_analyses", "vendor_id"),
+            ("beta_feedback", "case_id"),
+            ("beta_events", "case_id"),
+        ):
+            if _table_exists(conn, table_name):
+                conn.execute(f"DELETE FROM {table_name} WHERE {key_name} = ?", (vendor_id,))
+
+        conn.execute("DELETE FROM vendors WHERE id = ?", (vendor_id,))
+
+    try:
+        import knowledge_graph as kg  # type: ignore
+
+        kg.clear_vendor_links(vendor_id)
+    except Exception:
+        pass
+
+    shutil.rmtree(secure_case_dir, ignore_errors=True)
+    if dossier_dir.exists():
+        for path in dossier_dir.glob(f"dossier-{vendor_id}-*.html"):
+            path.unlink(missing_ok=True)
+    return True
 
 
 # ---- Scoring results ----
@@ -363,11 +613,13 @@ def get_latest_score(vendor_id: str) -> dict | None:
     with get_conn() as conn:
         row = conn.execute("""
             SELECT full_result, scored_at FROM scoring_results
-            WHERE vendor_id = ? ORDER BY scored_at DESC LIMIT 1
+            WHERE vendor_id = ?
+            ORDER BY scored_at DESC, id DESC
+            LIMIT 1
         """, (vendor_id,)).fetchone()
         if not row:
             return None
-        result = json.loads(row["full_result"])
+        result = _safe_json_loads(row["full_result"])
         result["scored_at"] = row["scored_at"]
         return result
 
@@ -377,7 +629,7 @@ def get_score_history(vendor_id: str, limit: int = 10) -> list[dict]:
         rows = conn.execute("""
             SELECT calibrated_probability, calibrated_tier, composite_score, scored_at
             FROM scoring_results WHERE vendor_id = ?
-            ORDER BY scored_at DESC LIMIT ?
+            ORDER BY scored_at DESC, id DESC LIMIT ?
         """, (vendor_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
@@ -392,6 +644,28 @@ def save_alert(vendor_id: str, entity_name: str, severity: str,
             VALUES (?, ?, ?, ?, ?)
         """, (vendor_id, entity_name, severity, title, description))
         return cursor.lastrowid
+
+
+def save_alerts_batch(alerts: list[dict]) -> int:
+    """Insert multiple alerts in a single transaction. Each dict needs:
+    vendor_id, entity_name, severity, title, description (optional)."""
+    if not alerts:
+        return 0
+    with get_conn() as conn:
+        conn.executemany("""
+            INSERT INTO alerts (vendor_id, entity_name, severity, title, description)
+            VALUES (:vendor_id, :entity_name, :severity, :title, :description)
+        """, [
+            {
+                "vendor_id": a["vendor_id"],
+                "entity_name": a["entity_name"],
+                "severity": a["severity"],
+                "title": a["title"],
+                "description": a.get("description", ""),
+            }
+            for a in alerts
+        ])
+        return len(alerts)
 
 
 def list_alerts(limit: int = 50, unresolved_only: bool = False) -> list[dict]:
@@ -474,12 +748,61 @@ def get_latest_enrichment(vendor_id: str) -> dict | None:
             SELECT full_report, enriched_at, report_hash FROM enrichment_reports
             WHERE vendor_id = ? ORDER BY enriched_at DESC LIMIT 1
         """, (vendor_id,)).fetchone()
-        if not row:
+        return _row_to_enrichment_report(row)
+
+
+def get_latest_peer_enrichment(vendor_name: str, *, exclude_vendor_id: str = "", candidate_limit: int = 100) -> dict | None:
+    normalized = _normalize_vendor_name_for_match(vendor_name)
+    if not normalized:
+        return None
+
+    lower_name = str(vendor_name or "").strip().lower()
+    exclude_clause = "AND v.id != ?" if exclude_vendor_id else ""
+    params: list[object] = [lower_name]
+    if exclude_vendor_id:
+        params.append(exclude_vendor_id)
+
+    with get_conn() as conn:
+        exact_row = conn.execute(
+            f"""
+            SELECT er.full_report, er.enriched_at, er.report_hash
+            FROM vendors v
+            JOIN enrichment_reports er ON er.vendor_id = v.id
+            WHERE lower(v.name) = ?
+            {exclude_clause}
+            ORDER BY er.enriched_at DESC
+            LIMIT 1
+            """,
+            tuple(params),
+        ).fetchone()
+        if exact_row:
+            return _row_to_enrichment_report(exact_row)
+
+        primary_token = normalized.split()[0] if normalized.split() else ""
+        if not primary_token:
             return None
-        result = json.loads(row["full_report"])
-        result["enriched_at"] = row["enriched_at"]
-        result["report_hash"] = row["report_hash"] or result.get("report_hash") or compute_report_hash(result)
-        return result
+
+        like_params: list[object] = [f"%{primary_token}%"]
+        if exclude_vendor_id:
+            like_params.append(exclude_vendor_id)
+        like_params.append(int(candidate_limit))
+        candidate_rows = conn.execute(
+            f"""
+            SELECT v.name, er.full_report, er.enriched_at, er.report_hash
+            FROM vendors v
+            JOIN enrichment_reports er ON er.vendor_id = v.id
+            WHERE lower(v.name) LIKE ?
+            {exclude_clause}
+            ORDER BY er.enriched_at DESC
+            LIMIT ?
+            """,
+            tuple(like_params),
+        ).fetchall()
+
+    for row in candidate_rows:
+        if _normalize_vendor_name_for_match(row["name"]) == normalized:
+            return _row_to_enrichment_report(row)
+    return None
 
 
 def get_enrichment_history(vendor_id: str, limit: int = 10) -> list[dict]:
@@ -491,6 +814,306 @@ def get_enrichment_history(vendor_id: str, limit: int = 10) -> list[dict]:
             ORDER BY enriched_at DESC LIMIT ?
         """, (vendor_id, limit)).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---- Secure artifact vault ----
+
+def create_artifact_record(
+    artifact_id: str,
+    case_id: str,
+    artifact_type: str,
+    *,
+    source_system: str = "",
+    source_class: str = "",
+    authority_level: str = "",
+    access_model: str = "",
+    uploaded_by: str = "",
+    filename: str,
+    content_type: str = "application/octet-stream",
+    size_bytes: int = 0,
+    sha256: str = "",
+    storage_ref: str,
+    retention_class: str = "standard",
+    sensitivity: str = "controlled",
+    effective_date: str | None = None,
+    parse_status: str = "pending",
+    structured_fields: dict | None = None,
+) -> str:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO artifact_records
+                (id, case_id, artifact_type, source_system, source_class, authority_level, access_model,
+                 uploaded_by, filename, content_type, size_bytes, sha256, storage_ref,
+                 retention_class, sensitivity, effective_date, parse_status, structured_fields)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                artifact_id,
+                case_id,
+                artifact_type,
+                source_system,
+                source_class,
+                authority_level,
+                access_model,
+                uploaded_by,
+                filename,
+                content_type,
+                int(size_bytes),
+                sha256,
+                storage_ref,
+                retention_class,
+                sensitivity,
+                effective_date,
+                parse_status,
+                json.dumps(structured_fields or {}),
+            ),
+        )
+    return artifact_id
+
+
+def update_artifact_record(artifact_id: str, **updates) -> bool:
+    allowed = {
+        "source_system",
+        "source_class",
+        "authority_level",
+        "access_model",
+        "uploaded_by",
+        "filename",
+        "content_type",
+        "size_bytes",
+        "sha256",
+        "storage_ref",
+        "retention_class",
+        "sensitivity",
+        "effective_date",
+        "parse_status",
+        "structured_fields",
+    }
+    payload = {key: value for key, value in updates.items() if key in allowed}
+    if not payload:
+        return False
+    if "structured_fields" in payload:
+        payload["structured_fields"] = json.dumps(payload["structured_fields"] or {})
+    payload["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    assignments = ", ".join(f"{field} = ?" for field in payload)
+    with get_conn() as conn:
+        cursor = conn.execute(
+            f"UPDATE artifact_records SET {assignments} WHERE id = ?",
+            (*payload.values(), artifact_id),
+        )
+        return cursor.rowcount > 0
+
+
+def get_artifact_record(artifact_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM artifact_records WHERE id = ?",
+            (artifact_id,),
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["structured_fields"] = _safe_json_loads(row["structured_fields"]) if row["structured_fields"] else {}
+        return result
+
+
+def list_artifact_records(case_id: str, artifact_type: str | None = None, limit: int = 100) -> list[dict]:
+    with get_conn() as conn:
+        if artifact_type:
+            rows = conn.execute(
+                """
+                SELECT * FROM artifact_records
+                WHERE case_id = ? AND artifact_type = ?
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (case_id, artifact_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM artifact_records
+                WHERE case_id = ?
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (case_id, limit),
+            ).fetchall()
+        records = []
+        for row in rows:
+            item = dict(row)
+            item["structured_fields"] = _safe_json_loads(row["structured_fields"]) if row["structured_fields"] else {}
+            records.append(item)
+        return records
+
+
+# ---- Beta ops ----
+
+def save_beta_feedback(
+    *,
+    user_id: str = "",
+    user_email: str = "",
+    user_role: str = "",
+    case_id: str | None = None,
+    workflow_lane: str = "",
+    screen: str = "",
+    category: str = "general",
+    severity: str = "medium",
+    summary: str,
+    details: str = "",
+    status: str = "open",
+    metadata: dict | None = None,
+) -> int:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO beta_feedback
+                (user_id, user_email, user_role, case_id, workflow_lane, screen,
+                 category, severity, summary, details, status, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id or None,
+                user_email or None,
+                user_role or None,
+                case_id,
+                workflow_lane,
+                screen,
+                category,
+                severity,
+                summary,
+                details,
+                status,
+                json.dumps(metadata or {}),
+            ),
+        )
+        return cursor.lastrowid
+
+
+def list_beta_feedback(limit: int = 100, status: str = "", workflow_lane: str = "") -> list[dict]:
+    query = "SELECT * FROM beta_feedback WHERE 1=1"
+    params: list[object] = []
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    if workflow_lane:
+        query += " AND workflow_lane = ?"
+        params.append(workflow_lane)
+    query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+        entries = []
+        for row in rows:
+            item = dict(row)
+            item["metadata"] = _safe_json_loads(row["metadata"]) if row["metadata"] else {}
+            entries.append(item)
+        return entries
+
+
+def save_beta_event(
+    *,
+    user_id: str = "",
+    user_email: str = "",
+    user_role: str = "",
+    case_id: str | None = None,
+    workflow_lane: str = "",
+    screen: str = "",
+    event_name: str,
+    metadata: dict | None = None,
+) -> int:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO beta_events
+                (user_id, user_email, user_role, case_id, workflow_lane, screen, event_name, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id or None,
+                user_email or None,
+                user_role or None,
+                case_id,
+                workflow_lane,
+                screen,
+                event_name,
+                json.dumps(metadata or {}),
+            ),
+        )
+        return cursor.lastrowid
+
+
+def get_beta_ops_summary(hours: int = 168) -> dict:
+    window_clause = f"-{max(1, int(hours))} hours"
+    with get_conn() as conn:
+        open_feedback = conn.execute(
+            "SELECT COUNT(*) FROM beta_feedback WHERE status = 'open'"
+        ).fetchone()[0]
+        feedback_last_24h = conn.execute(
+            "SELECT COUNT(*) FROM beta_feedback WHERE created_at >= datetime('now', '-24 hours')"
+        ).fetchone()[0]
+        event_count = conn.execute(
+            "SELECT COUNT(*) FROM beta_events WHERE created_at >= datetime('now', ?)",
+            (window_clause,),
+        ).fetchone()[0]
+        feedback_by_severity = [
+            dict(row) for row in conn.execute(
+                """
+                SELECT severity, COUNT(*) AS count
+                FROM beta_feedback
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY severity
+                ORDER BY count DESC, severity ASC
+                """,
+                (window_clause,),
+            ).fetchall()
+        ]
+        feedback_by_lane = [
+            dict(row) for row in conn.execute(
+                """
+                SELECT workflow_lane, COUNT(*) AS count
+                FROM beta_feedback
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY workflow_lane
+                ORDER BY count DESC, workflow_lane ASC
+                """,
+                (window_clause,),
+            ).fetchall()
+        ]
+        event_counts = [
+            dict(row) for row in conn.execute(
+                """
+                SELECT event_name, COUNT(*) AS count
+                FROM beta_events
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY event_name
+                ORDER BY count DESC, event_name ASC
+                LIMIT 10
+                """,
+                (window_clause,),
+            ).fetchall()
+        ]
+        event_counts_by_lane = [
+            dict(row) for row in conn.execute(
+                """
+                SELECT workflow_lane, COUNT(*) AS count
+                FROM beta_events
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY workflow_lane
+                ORDER BY count DESC, workflow_lane ASC
+                """,
+                (window_clause,),
+            ).fetchall()
+        ]
+        return {
+            "hours": max(1, int(hours)),
+            "open_feedback_count": open_feedback,
+            "feedback_last_24h": feedback_last_24h,
+            "recent_event_count": event_count,
+            "feedback_by_severity": feedback_by_severity,
+            "feedback_by_lane": feedback_by_lane,
+            "event_counts": event_counts,
+            "event_counts_by_lane": event_counts_by_lane,
+        }
 
 
 def replace_case_events(case_id: str, report_hash: str, events: list[dict]) -> None:
@@ -545,9 +1168,9 @@ def get_case_events(case_id: str, report_hash: str | None = None) -> list[dict]:
         return [
             {
                 **dict(row),
-                "date_range": json.loads(row["date_range"]) if row["date_range"] else {},
-                "source_refs": json.loads(row["source_refs"]) if row["source_refs"] else [],
-                "source_finding_ids": json.loads(row["source_finding_ids"]) if row["source_finding_ids"] else [],
+                "date_range": _safe_json_loads(row["date_range"]) if row["date_range"] else {},
+                "source_refs": _safe_json_loads(row["source_refs"]) if row["source_refs"] else [],
+                "source_finding_ids": _safe_json_loads(row["source_finding_ids"]) if row["source_finding_ids"] else [],
             }
             for row in rows
         ]
@@ -615,7 +1238,7 @@ def get_latest_intel_summary(case_id: str, user_id: str = "", report_hash: str =
             "prompt_tokens": row["prompt_tokens"],
             "completion_tokens": row["completion_tokens"],
             "elapsed_ms": row["elapsed_ms"],
-            "summary": json.loads(row["summary"]),
+            "summary": _safe_json_loads(row["summary"]),
             "created_at": row["created_at"],
         }
 
@@ -908,9 +1531,9 @@ def migrate_add_profile_column():
                 conn.execute("""
                     ALTER TABLE vendors ADD COLUMN profile TEXT NOT NULL DEFAULT 'defense_acquisition'
                 """)
-                print("  [Migration] Added 'profile' column to vendors table")
-            except Exception as e:
-                print(f"  [Migration] Profile column already exists or skipped: {e}")
+                logger.info("Migration: Added 'profile' column to vendors table")
+            except Exception as migration_e:
+                logger.warning(f"Migration: Profile column already exists or skipped: {migration_e}")
 
 
 def migrate_intelligence_tables():
@@ -921,20 +1544,40 @@ def migrate_intelligence_tables():
         ):
             try:
                 conn.execute(statement)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Migration: Column likely already exists, skipping: {e}")
 
 
 # ---- Monitoring schedules ----
 
-def create_sweep(sweep_id: str, total_vendors: int) -> str:
+def create_sweep(sweep_id: str, total_vendors: int, status: str = "running") -> str:
     """Create a new monitoring sweep record. Returns the sweep_id."""
+    started_at = "datetime('now')" if status == "running" else "NULL"
     with get_conn() as conn:
-        conn.execute("""
+        conn.execute(
+            f"""
             INSERT INTO monitor_schedules (sweep_id, status, total_vendors, started_at)
-            VALUES (?, 'running', ?, datetime('now'))
-        """, (sweep_id, total_vendors))
+            VALUES (?, ?, ?, {started_at})
+            """,
+            (sweep_id, status, total_vendors),
+        )
     return sweep_id
+
+
+def start_sweep(sweep_id: str, total_vendors: int) -> bool:
+    """Mark a queued monitoring sweep as running and set its workload size."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE monitor_schedules
+            SET status = 'running',
+                total_vendors = ?,
+                started_at = COALESCE(started_at, datetime('now'))
+            WHERE sweep_id = ?
+            """,
+            (total_vendors, sweep_id),
+        )
+        return cursor.rowcount > 0
 
 
 def update_sweep_progress(sweep_id: str, processed: int, risk_changes: int, new_alerts: int, status: str) -> bool:
@@ -990,3 +1633,107 @@ def set_monitor_config(key: str, value: str) -> None:
             VALUES (?, ?, datetime('now'))
             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')
         """, (key, value))
+
+
+# ---- Graph Workspace CRUD ----
+
+def create_workspace(workspace_id: str, name: str, created_by: str, description: str = "",
+                     pinned_nodes: list | None = None, annotations: dict | None = None,
+                     filter_state: dict | None = None, layout_mode: str = "cose",
+                     viewport: dict | None = None, node_positions: dict | None = None) -> dict:
+    """Create a new graph workspace. Returns the workspace dict."""
+    pinned_nodes_json = json.dumps(pinned_nodes or [])
+    annotations_json = json.dumps(annotations or {})
+    filter_state_json = json.dumps(filter_state or {})
+    viewport_json = json.dumps(viewport or {})
+    node_positions_json = json.dumps(node_positions or {})
+
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO graph_workspaces
+            (id, name, description, created_by, pinned_nodes, annotations, filter_state, layout_mode, viewport, node_positions)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (workspace_id, name, description, created_by, pinned_nodes_json, annotations_json,
+              filter_state_json, layout_mode, viewport_json, node_positions_json))
+
+    return get_workspace(workspace_id)
+
+
+def get_workspace(workspace_id: str) -> dict | None:
+    """Get a workspace by ID."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM graph_workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        if not row:
+            return None
+        ws = dict(row)
+        # Parse JSON fields
+        ws["pinned_nodes"] = _safe_json_loads(ws["pinned_nodes"])
+        ws["annotations"] = _safe_json_loads(ws["annotations"])
+        ws["filter_state"] = _safe_json_loads(ws["filter_state"])
+        ws["viewport"] = _safe_json_loads(ws["viewport"])
+        ws["node_positions"] = _safe_json_loads(ws["node_positions"])
+        return ws
+
+
+def list_workspaces(created_by: str | None = None) -> list[dict]:
+    """List all workspaces, optionally filtered by creator."""
+    with get_conn() as conn:
+        if created_by:
+            rows = conn.execute(
+                "SELECT * FROM graph_workspaces WHERE created_by = ? ORDER BY updated_at DESC",
+                (created_by,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM graph_workspaces ORDER BY updated_at DESC"
+            ).fetchall()
+
+        workspaces = []
+        for row in rows:
+            ws = dict(row)
+            ws["pinned_nodes"] = _safe_json_loads(ws["pinned_nodes"])
+            ws["annotations"] = _safe_json_loads(ws["annotations"])
+            ws["filter_state"] = _safe_json_loads(ws["filter_state"])
+            ws["viewport"] = _safe_json_loads(ws["viewport"])
+            ws["node_positions"] = _safe_json_loads(ws["node_positions"])
+            workspaces.append(ws)
+        return workspaces
+
+
+def update_workspace(workspace_id: str, **updates) -> dict | None:
+    """Update a workspace with provided fields. Returns updated workspace."""
+    allowed_fields = {
+        "name", "description", "pinned_nodes", "annotations", "filter_state",
+        "layout_mode", "viewport", "node_positions"
+    }
+
+    # Filter to allowed fields
+    updates = {k: v for k, v in updates.items() if k in allowed_fields}
+    if not updates:
+        return get_workspace(workspace_id)
+
+    # Convert JSON fields
+    json_fields = {"pinned_nodes", "annotations", "filter_state", "viewport", "node_positions"}
+    for field in json_fields:
+        if field in updates and updates[field] is not None:
+            updates[field] = json.dumps(updates[field])
+
+    # Build update query
+    set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+    set_clause += ", updated_at = datetime('now')"
+    values = list(updates.values()) + [workspace_id]
+
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE graph_workspaces SET {set_clause} WHERE id = ?",
+            values
+        )
+
+    return get_workspace(workspace_id)
+
+
+def delete_workspace(workspace_id: str) -> bool:
+    """Delete a workspace by ID. Returns True if deleted."""
+    with get_conn() as conn:
+        cursor = conn.execute("DELETE FROM graph_workspaces WHERE id = ?", (workspace_id,))
+        return cursor.rowcount > 0

@@ -47,7 +47,6 @@ Graph Workspace Endpoints:
 """
 
 import os
-import sys
 import json
 import uuid
 import csv
@@ -56,13 +55,15 @@ import time
 import logging
 import threading
 import argparse
+import importlib.util
 from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import Flask, Response, g, jsonify, request, send_file, stream_with_context
 
 from fgamlogit import (
     score_vendor, VendorInputV5, OwnershipProfile, DataQuality,
-    ExecProfile, DoDContext, integrate_layers, PROGRAM_TO_SENSITIVITY,
+    ExecProfile, DoDContext, PROGRAM_TO_SENSITIVITY,
 )
 from ofac import screen_name, get_active_db, invalidate_cache
 import db
@@ -70,7 +71,7 @@ from auth import (
     init_auth_db, register_auth_routes, require_auth, log_audit, AUTH_ENABLED, decode_access_ticket
 )
 from hardening import (
-    rate_limit, validate_vendor_input, validate_auth_input,
+    rate_limit, validate_vendor_input,
     configure_cors, add_security_headers,
 )
 from runtime_paths import get_data_dir
@@ -85,16 +86,12 @@ except ImportError:
     HAS_SYNC = False
 
 # Optional: BIS CSL and person screening modules
-try:
-    import bis_csl
-    HAS_BIS = True
-except ImportError:
-    HAS_BIS = False
+HAS_BIS = importlib.util.find_spec("bis_csl") is not None
 
 try:
     from person_screening import (
         screen_person, screen_person_batch, get_case_screenings,
-        init_person_screening_db, PersonScreeningResult
+        init_person_screening_db,
     )
     HAS_PERSON_SCREENING = True
 except ImportError:
@@ -119,7 +116,7 @@ except ImportError:
     HAS_EXPORT_MONITOR = False
 
 try:
-    from transaction_authorization import authorize_transaction, TransactionOrchestrator
+    from transaction_authorization import authorize_transaction
     HAS_TX_AUTH = True
 except ImportError:
     HAS_TX_AUTH = False
@@ -136,7 +133,6 @@ except ImportError:
 
 # Optional: Entity resolution + knowledge graph
 try:
-    from entity_resolution import EntityResolver
     import knowledge_graph as kg
     HAS_KG = True
 except ImportError:
@@ -225,6 +221,34 @@ except ImportError:
     HAS_WORKFLOW_CONTROL = False
 
 try:
+    from supplier_passport import build_supplier_passport
+    HAS_SUPPLIER_PASSPORT = True
+except ImportError:
+    HAS_SUPPLIER_PASSPORT = False
+
+try:
+    from ai_control_plane import (
+        build_case_assistant_plan,
+        prepare_case_assistant_execution,
+        prepare_case_assistant_feedback,
+    )
+    HAS_AI_CONTROL_PLANE = True
+except ImportError:
+    HAS_AI_CONTROL_PLANE = False
+
+try:
+    from export_ai_challenge import build_hybrid_export_review
+    HAS_EXPORT_AI_CHALLENGE = True
+except ImportError:
+    HAS_EXPORT_AI_CHALLENGE = False
+
+try:
+    from supply_chain_assurance_ai_challenge import build_hybrid_assurance_review
+    HAS_SUPPLY_CHAIN_ASSURANCE_AI = True
+except ImportError:
+    HAS_SUPPLY_CHAIN_ASSURANCE_AI = False
+
+try:
     from artifact_vault import get_artifact_record, list_case_artifacts, read_artifact_bytes
     HAS_ARTIFACT_VAULT = True
 except ImportError:
@@ -265,7 +289,7 @@ except ImportError:
     HAS_SPRS_IMPORT = False
 
 try:
-    from oscal_intake import ingest_oscal_artifact, OSCAL_ARTIFACT_TYPES
+    from oscal_intake import ingest_oscal_artifact
     HAS_OSCAL_INTAKE = HAS_ARTIFACT_VAULT
 except ImportError:
     HAS_OSCAL_INTAKE = False
@@ -278,7 +302,7 @@ except ImportError:
 
 # Optional: Cyber graph ingest (CVE/KEV to knowledge graph)
 try:
-    from cyber_graph_ingest import ingest_cve_findings, ingest_nvd_overlay as ingest_nvd_to_graph, build_cyber_subgraph
+    from cyber_graph_ingest import ingest_cve_findings, build_cyber_subgraph
     HAS_CYBER_GRAPH = True
 except ImportError:
     HAS_CYBER_GRAPH = False
@@ -301,7 +325,7 @@ except ImportError:
 try:
     from regulatory_gates import (
         evaluate_regulatory_gates, quick_screen,
-        RegulatoryGateInput, Section889Input, NDAA1260HInput,
+        RegulatoryGateInput,
         FOCIInput, CFIUSInput, CMMCInput, ITARInput, EARInput,
         DeemedExportGateInput, USMLControlGateInput,
     )
@@ -528,6 +552,17 @@ def _score_to_api_dict(result) -> dict:
         "regulatory_status": result.regulatory_status,
         "regulatory_findings": result.regulatory_findings,
         "model_version": result.model_version,
+        "policy": result.policy_metadata,
+        "screening": {
+            "matched": result.screening.matched,
+            "best_score": result.screening.best_score,
+            "best_raw_jw": result.screening.best_raw_jw,
+            "matched_name": result.screening.matched_name,
+            "db_label": result.screening.db_label,
+            "screening_ms": result.screening.screening_ms,
+            "match_details": result.screening.match_details,
+            "policy_basis": result.screening.policy_basis,
+        },
         # Decision Engine (v5.1): alert classification with audit trail
         "alert_disposition": {
             "category": result.alert_disposition.category,
@@ -682,6 +717,90 @@ def _current_enrichment_report(case_id: str) -> dict | None:
     if report and HAS_INTEL and not report.get("report_hash"):
         report["report_hash"] = compute_report_hash(report)
     return report
+
+
+def _seed_payload_from_report(report: dict | None) -> dict[str, dict]:
+    identifiers = report.get("identifiers") if isinstance(report, dict) else {}
+    identifier_sources = report.get("identifier_sources") if isinstance(report, dict) else {}
+    connector_status = report.get("connector_status") if isinstance(report, dict) else {}
+    return {
+        "identifiers": dict(identifiers) if isinstance(identifiers, dict) else {},
+        "identifier_sources": dict(identifier_sources) if isinstance(identifier_sources, dict) else {},
+        "connector_status": dict(connector_status) if isinstance(connector_status, dict) else {},
+    }
+
+
+def _merge_seed_payload(primary: dict[str, dict], secondary: dict[str, dict]) -> dict[str, dict]:
+    merged_identifiers = dict(primary.get("identifiers") or {})
+    merged_sources = {
+        str(key): list(values)
+        for key, values in (primary.get("identifier_sources") or {}).items()
+        if isinstance(values, list)
+    }
+    merged_status = dict(primary.get("connector_status") or {})
+
+    for key, value in (secondary.get("identifiers") or {}).items():
+        if str(key).startswith("__") or value in (None, "", []):
+            continue
+        if merged_identifiers.get(key) in (None, "", []):
+            merged_identifiers[key] = value
+        if merged_identifiers.get(key) == value:
+            for source in secondary.get("identifier_sources", {}).get(key, []) or []:
+                merged_sources.setdefault(str(key), [])
+                if source not in merged_sources[str(key)]:
+                    merged_sources[str(key)].append(source)
+
+    for connector_name, status in (secondary.get("connector_status") or {}).items():
+        merged_status.setdefault(connector_name, status)
+
+    return {
+        "identifiers": merged_identifiers,
+        "identifier_sources": merged_sources,
+        "connector_status": merged_status,
+    }
+
+
+def _enrichment_seed_identifiers(case_id: str) -> dict:
+    report = db.get_latest_enrichment(case_id)
+    seed_payload = _seed_payload_from_report(report)
+
+    vendor = db.get_vendor(case_id)
+    if vendor:
+        peer_report = db.get_latest_peer_enrichment(vendor.get("name", ""), exclude_vendor_id=case_id)
+        if peer_report:
+            seed_payload = _merge_seed_payload(seed_payload, _seed_payload_from_report(peer_report))
+
+    seed_ids = dict(seed_payload.get("identifiers") or {})
+    if vendor:
+        seed_metadata = {}
+        if isinstance(vendor.get("seed_metadata"), dict):
+            seed_metadata.update(vendor["seed_metadata"])
+        vendor_input = vendor.get("vendor_input") if isinstance(vendor.get("vendor_input"), dict) else {}
+        nested_seed_metadata = vendor_input.get("seed_metadata") if isinstance(vendor_input.get("seed_metadata"), dict) else {}
+        seed_metadata.update(nested_seed_metadata)
+        for key, value in seed_metadata.items():
+            if str(key).startswith("__") or value in (None, "", []):
+                continue
+            seed_ids.setdefault(str(key), value)
+    latest_nvd_overlay = _latest_case_artifact(case_id, source_system="nvd_overlay")
+    nvd_structured = (latest_nvd_overlay or {}).get("structured_fields") or {}
+    product_terms = [
+        str(term).strip()
+        for term in (nvd_structured.get("product_terms") or [])
+        if str(term).strip()
+    ]
+    if product_terms and not seed_ids.get("product_terms"):
+        seed_ids["product_terms"] = product_terms
+    website = seed_ids.get("website") or seed_ids.get("official_website")
+    if isinstance(website, str) and website.strip() and not seed_ids.get("domain"):
+        parsed = urlparse(website if "://" in website else f"https://{website}")
+        if parsed.netloc:
+            seed_ids["domain"] = parsed.netloc
+    if seed_payload.get("identifier_sources"):
+        seed_ids["__seed_identifier_sources"] = seed_payload["identifier_sources"]
+    if seed_payload.get("connector_status"):
+        seed_ids["__seed_connector_status"] = seed_payload["connector_status"]
+    return seed_ids
 
 
 def _current_intel_report_hash(case_id: str) -> str:
@@ -935,6 +1054,10 @@ def _current_analysis_input_hash(case_id: str) -> str:
         return ""
 
 
+_AI_WARMUP_WAIT_SECONDS = float(os.environ.get("XIPHOS_AI_WARMUP_WAIT_SECONDS", "6"))
+_AI_STATUS_WAIT_SECONDS = float(os.environ.get("XIPHOS_AI_STATUS_WAIT_SECONDS", "8"))
+
+
 def enqueue_analysis_job(case_id: str, user_id: str, input_hash: str) -> dict:
     _ensure_ai_job_tables()
     with db.get_conn() as conn:
@@ -1005,8 +1128,58 @@ def _run_ai_analysis_job(job_id: str, case_id: str, user_id: str) -> None:
     update_analysis_job(job_id, status="completed", analysis_id=result.get("analysis_id"))
 
 
-def _prime_ai_analysis_for_case(case_id: str, user_id: str) -> dict:
-    """Warm the AI narrative for a case after enrichment/rescore without blocking the request."""
+def _wait_for_primed_ai_analysis(
+    case_id: str,
+    user_id: str,
+    input_hash: str,
+    job_id: str,
+    get_latest_analysis_fn,
+    *,
+    wait_seconds: float,
+    poll_seconds: float,
+) -> dict | None:
+    if wait_seconds <= 0:
+        return None
+
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        cached = get_latest_analysis_fn(case_id, user_id=user_id, input_hash=input_hash)
+        if cached:
+            return {
+                "status": "ready",
+                "job_id": job_id,
+                "analysis_id": cached.get("id"),
+                "input_hash": input_hash,
+            }
+
+        _ensure_ai_job_tables()
+        with db.get_conn() as conn:
+            row = conn.execute("SELECT * FROM ai_analysis_jobs WHERE id = ?", (job_id,)).fetchone()
+        if row:
+            job = _analysis_job_row_to_dict(row)
+            if job.get("status") == "failed":
+                return {
+                    "status": "failed",
+                    "job_id": job_id,
+                    "analysis_id": job.get("analysis_id"),
+                    "input_hash": input_hash,
+                    "error": job.get("error"),
+                }
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(max(poll_seconds, 0.0), remaining))
+
+
+def _prime_ai_analysis_for_case(
+    case_id: str,
+    user_id: str,
+    *,
+    wait_seconds: float | None = None,
+    poll_seconds: float = 0.25,
+) -> dict:
+    """Warm the AI narrative for a case after enrichment/rescore with a short bounded ready wait."""
     if not HAS_AI or not user_id:
         return {"status": "disabled"}
 
@@ -1039,6 +1212,17 @@ def _prime_ai_analysis_for_case(case_id: str, user_id: str) -> dict:
         if payload["created"]:
             worker = threading.Thread(target=_run_ai_analysis_job, args=(job["id"], case_id, user_id), daemon=True)
             worker.start()
+        warmed = _wait_for_primed_ai_analysis(
+            case_id,
+            user_id,
+            input_hash,
+            job["id"],
+            get_latest_analysis,
+            wait_seconds=_AI_WARMUP_WAIT_SECONDS if wait_seconds is None else max(wait_seconds, 0.0),
+            poll_seconds=poll_seconds,
+        )
+        if warmed:
+            return warmed
         return {
             "status": job["status"],
             "job_id": job["id"],
@@ -1239,7 +1423,7 @@ def _run_regulatory_gates(
     explicit_dod = v.get("dod", {}) if isinstance(v.get("dod"), dict) else {}
 
     # Quick screen: Section 889 + NDAA 1260H name-based checks
-    screen = quick_screen(
+    quick_screen(
         entity_name=name,
         parent_companies=ownership.get("parent_companies", []),
         entity_country=country,
@@ -1348,16 +1532,16 @@ def _run_regulatory_gates(
 
     # Convert gate results to serializable findings
     findings = []
-    for g in assessment.failed_gates + assessment.pending_gates:
+    for gate_result in assessment.failed_gates + assessment.pending_gates:
         findings.append({
-            "gate": g.gate_id,
-            "name": g.gate_name,
-            "status": g.state.value,
-            "severity": g.severity,
-            "explanation": g.details,
-            "regulation": g.regulation,
-            "remediation": g.mitigation,
-            "confidence": g.confidence,
+            "gate": gate_result.gate_id,
+            "name": gate_result.gate_name,
+            "status": gate_result.state.value,
+            "severity": gate_result.severity,
+            "explanation": gate_result.details,
+            "regulation": gate_result.regulation,
+            "remediation": gate_result.mitigation,
+            "confidence": gate_result.confidence,
         })
 
     return (assessment.status.value, findings, assessment.gate_proximity_score)
@@ -2238,6 +2422,371 @@ def api_get_case(case_id):
     return jsonify(result)
 
 
+@app.route("/api/cases/<case_id>/supplier-passport")
+@require_auth("cases:read")
+def api_get_supplier_passport(case_id):
+    """Return a portable supplier-passport summary for the requested case."""
+    if not HAS_SUPPLIER_PASSPORT:
+        return jsonify({"error": "Supplier passport generator not available"}), 501
+
+    passport = build_supplier_passport(case_id, mode=request.args.get("mode", "full"))
+    if not passport:
+        return jsonify({"error": "Case not found"}), 404
+    return jsonify(passport)
+
+
+@app.route("/api/cases/<case_id>/assistant-plan", methods=["POST"])
+@require_auth("cases:read")
+def api_get_case_assistant_plan(case_id):
+    """Build a typed hybrid-control-plane plan for a natural-language analyst request."""
+    if not HAS_AI_CONTROL_PLANE:
+        return jsonify({"error": "AI control plane planner not available"}), 501
+
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
+
+    score = db.get_latest_score(case_id)
+    enrichment = db.get_latest_enrichment(case_id)
+    passport = build_supplier_passport(case_id) if HAS_SUPPLIER_PASSPORT else None
+    network_risk = passport.get("network_risk") if isinstance(passport, dict) else None
+    storyline = _build_case_storyline_payload(case_id, vendor, score, network_risk=network_risk)
+
+    return jsonify(
+        build_case_assistant_plan(
+            case_id=case_id,
+            analyst_prompt=prompt,
+            vendor=vendor,
+            score=score,
+            enrichment=enrichment,
+            supplier_passport=passport,
+            storyline=storyline,
+        )
+    )
+
+
+def _serialize_person_screenings_for_assistant(case_id: str) -> dict:
+    if not HAS_PERSON_SCREENING:
+        return {"status": "unavailable", "error": "person screening module not available"}
+    try:
+        init_person_screening_db()
+        results = get_case_screenings(case_id)
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+    return {
+        "status": "ok",
+        "count": len(results),
+        "screenings": [
+            {
+                "id": result.id,
+                "person_name": result.person_name,
+                "nationalities": result.nationalities,
+                "employer": result.employer,
+                "screening_status": result.screening_status,
+                "composite_score": round(result.composite_score, 4),
+                "recommended_action": result.recommended_action,
+            }
+            for result in results
+        ],
+    }
+
+
+def _execute_case_assistant_tool(
+    tool_id: str,
+    *,
+    case_id: str,
+    vendor: dict,
+    score: dict | None,
+    enrichment: dict | None,
+    supplier_passport: dict | None,
+    storyline: dict | None,
+    anomalies: list[dict],
+) -> dict:
+    if tool_id == "case_snapshot":
+        network_risk = (supplier_passport or {}).get("network_risk") if isinstance(supplier_passport, dict) else None
+        return {
+            "tool_id": tool_id,
+            "status": "ok",
+            "result": {
+                "case": {
+                    "id": vendor["id"],
+                    "vendor_name": vendor["name"],
+                    "country": vendor.get("country"),
+                    "program": vendor.get("program"),
+                    "profile": _normalize_profile_id(vendor.get("profile", "defense_acquisition")),
+                    "workflow_lane": _workflow_lane_for_vendor(vendor),
+                    "status": ((score or {}).get("calibrated") or {}).get("calibrated_tier", "pending"),
+                    "network_risk": network_risk,
+                    "storyline": storyline,
+                }
+            },
+        }
+    if tool_id == "supplier_passport":
+        return {
+            "tool_id": tool_id,
+            "status": "ok" if supplier_passport else "unavailable",
+            "result": supplier_passport or {"error": "Supplier passport unavailable"},
+        }
+    if tool_id == "graph_probe":
+        graph = (supplier_passport or {}).get("graph") if isinstance(supplier_passport, dict) else None
+        return {
+            "tool_id": tool_id,
+            "status": "ok" if graph else "unavailable",
+            "result": graph or {"error": "Graph probe unavailable"},
+        }
+    if tool_id == "network_risk":
+        if not HAS_NETWORK_RISK:
+            return {"tool_id": tool_id, "status": "unavailable", "result": {"error": "Network risk module unavailable"}}
+        try:
+            return {"tool_id": tool_id, "status": "ok", "result": compute_network_risk(case_id)}
+        except Exception as exc:
+            return {"tool_id": tool_id, "status": "error", "result": {"error": str(exc)}}
+    if tool_id == "enrichment_findings":
+        return {
+            "tool_id": tool_id,
+            "status": "ok" if enrichment else "unavailable",
+            "result": enrichment or {"error": "Enrichment report unavailable"},
+        }
+    if tool_id == "identity_repair":
+        identity = (supplier_passport or {}).get("identity") if isinstance(supplier_passport, dict) else None
+        identity_anomalies = [item for item in anomalies if item.get("code", "").startswith(("missing_", "thin_identity", "passport_"))]
+        return {
+            "tool_id": tool_id,
+            "status": "ok" if identity else "unavailable",
+            "result": {
+                "identity": identity or {},
+                "anomalies": identity_anomalies,
+            },
+        }
+    if tool_id == "export_guidance":
+        export_auth_input = (vendor.get("vendor_input") or {}).get("export_authorization") if isinstance(vendor.get("vendor_input"), dict) else None
+        guidance = None
+        if export_auth_input and HAS_EXPORT_RULES:
+            guidance = build_graph_aware_guidance(export_auth_input) if HAS_GRAPH_AWARE_AUTH else build_export_authorization_guidance(export_auth_input)
+        hybrid_review = None
+        if export_auth_input and HAS_EXPORT_AI_CHALLENGE:
+            hybrid_review = build_hybrid_export_review(export_auth_input)
+        return {
+            "tool_id": tool_id,
+            "status": "ok" if guidance or export_auth_input else "unavailable",
+            "result": {
+                "export_authorization": export_auth_input,
+                "guidance": guidance,
+                "hybrid_review": hybrid_review,
+            },
+        }
+    if tool_id == "cyber_evidence":
+        if not HAS_CYBER_EVIDENCE:
+            return {"tool_id": tool_id, "status": "unavailable", "result": {"error": "Cyber evidence module unavailable"}}
+        try:
+            cyber_summary = get_latest_cyber_evidence_summary(case_id)
+            hybrid_review = None
+            if cyber_summary and HAS_SUPPLY_CHAIN_ASSURANCE_AI:
+                hybrid_review = build_hybrid_assurance_review(
+                    cyber_summary,
+                    vendor=vendor,
+                    supplier_passport=supplier_passport,
+                )
+            return {
+                "tool_id": tool_id,
+                "status": "ok",
+                "result": {
+                    "cyber_evidence_summary": cyber_summary,
+                    "hybrid_review": hybrid_review,
+                },
+            }
+        except Exception as exc:
+            return {"tool_id": tool_id, "status": "error", "result": {"error": str(exc)}}
+    if tool_id == "person_screening":
+        return {
+            "tool_id": tool_id,
+            "status": "ok",
+            "result": _serialize_person_screenings_for_assistant(case_id),
+        }
+    if tool_id == "monitoring_history":
+        return {
+            "tool_id": tool_id,
+            "status": "ok",
+            "result": {
+                "history": db.get_monitoring_history(case_id, limit=10),
+            },
+        }
+
+    return {
+        "tool_id": tool_id,
+        "status": "blocked",
+        "result": {"error": "Tool is outside the approved execution boundary"},
+    }
+
+
+@app.route("/api/cases/<case_id>/assistant-execute", methods=["POST"])
+@require_auth("cases:read")
+def api_execute_case_assistant_plan(case_id):
+    """Execute analyst-approved assistant tools within the current safe boundary."""
+    if not HAS_AI_CONTROL_PLANE:
+        return jsonify({"error": "AI control plane planner not available"}), 501
+
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    prompt = str(payload.get("prompt") or "").strip()
+    approved_tool_ids = payload.get("approved_tool_ids") or []
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
+    if not isinstance(approved_tool_ids, list) or not approved_tool_ids:
+        return jsonify({"error": "approved_tool_ids must be a non-empty list"}), 400
+
+    score = db.get_latest_score(case_id)
+    enrichment = db.get_latest_enrichment(case_id)
+    passport = build_supplier_passport(case_id) if HAS_SUPPLIER_PASSPORT else None
+    network_risk = passport.get("network_risk") if isinstance(passport, dict) else None
+    storyline = _build_case_storyline_payload(case_id, vendor, score, network_risk=network_risk)
+    plan_payload = build_case_assistant_plan(
+        case_id=case_id,
+        analyst_prompt=prompt,
+        vendor=vendor,
+        score=score,
+        enrichment=enrichment,
+        supplier_passport=passport,
+        storyline=storyline,
+    )
+
+    executable_ids, blocked_tools = prepare_case_assistant_execution(plan_payload.get("plan", []), approved_tool_ids)
+    if not executable_ids:
+        return jsonify(
+            {
+                "error": "No approved tools were eligible for execution",
+                "blocked_tools": blocked_tools,
+                "plan": plan_payload,
+            }
+        ), 400
+
+    executed_steps = [
+        _execute_case_assistant_tool(
+            tool_id,
+            case_id=case_id,
+            vendor=vendor,
+            score=score,
+            enrichment=enrichment,
+            supplier_passport=passport,
+            storyline=storyline,
+            anomalies=plan_payload.get("anomalies", []),
+        )
+        for tool_id in executable_ids
+    ]
+
+    return jsonify(
+        {
+            "version": "ai-control-plane-execution-v1",
+            "executed_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+            "case_id": case_id,
+            "objective": plan_payload.get("objective"),
+            "analyst_prompt": prompt,
+            "approved_tool_ids": approved_tool_ids,
+            "executed_steps": executed_steps,
+            "blocked_tools": blocked_tools,
+            "approval_boundary": "analyst-approved typed tools only; no silent live reruns or state mutation",
+        }
+    )
+
+
+@app.route("/api/cases/<case_id>/assistant-feedback", methods=["POST"])
+@require_auth("cases:read")
+@rate_limit(max_requests=60, window_seconds=60)
+def api_record_case_assistant_feedback(case_id):
+    """Persist structured analyst feedback about assistant planning and execution."""
+    if not HAS_AI_CONTROL_PLANE:
+        return jsonify({"error": "AI control plane planner not available"}), 501
+
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    prompt = str(body.get("prompt") or "").strip()
+    objective = str(body.get("objective") or "").strip()
+    verdict = str(body.get("verdict") or "").strip().lower()
+    feedback_type = str(body.get("feedback_type") or "").strip().lower()
+    comment = str(body.get("comment") or "").strip()
+    approved_tool_ids = body.get("approved_tool_ids") or []
+    executed_tool_ids = body.get("executed_tool_ids") or []
+    suggested_tool_ids = body.get("suggested_tool_ids") or []
+    anomaly_codes = body.get("anomaly_codes") or []
+
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
+    if not objective:
+        return jsonify({"error": "objective is required"}), 400
+    if not isinstance(approved_tool_ids, list):
+        return jsonify({"error": "approved_tool_ids must be a list"}), 400
+    if not isinstance(executed_tool_ids, list):
+        return jsonify({"error": "executed_tool_ids must be a list"}), 400
+    if not isinstance(suggested_tool_ids, list):
+        return jsonify({"error": "suggested_tool_ids must be a list"}), 400
+    if not isinstance(anomaly_codes, list):
+        return jsonify({"error": "anomaly_codes must be a list"}), 400
+
+    try:
+        signal = prepare_case_assistant_feedback(
+            prompt=prompt,
+            objective=objective,
+            verdict=verdict,
+            feedback_type=feedback_type,
+            comment=comment,
+            approved_tool_ids=approved_tool_ids,
+            executed_tool_ids=executed_tool_ids,
+            suggested_tool_ids=suggested_tool_ids,
+            anomaly_codes=anomaly_codes,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    workflow_lane = _workflow_lane_for_vendor(vendor)
+    feedback_id = db.save_beta_feedback(
+        user_id=_current_user_id(),
+        user_email=_current_user_email(),
+        user_role=_current_user_role(),
+        case_id=case_id,
+        workflow_lane=workflow_lane,
+        screen="assistant_control_plane",
+        category=signal["category"],
+        severity=signal["severity"],
+        summary=signal["summary"],
+        details=signal["details"],
+        metadata=signal["training_signal"],
+    )
+    db.save_beta_event(
+        user_id=_current_user_id(),
+        user_email=_current_user_email(),
+        user_role=_current_user_role(),
+        case_id=case_id,
+        workflow_lane=workflow_lane,
+        screen="assistant_control_plane",
+        event_name="assistant_feedback_recorded",
+        metadata={
+            "feedback_id": feedback_id,
+            "objective": objective,
+            "verdict": verdict,
+            "feedback_type": feedback_type,
+        },
+    )
+    return jsonify(
+        {
+            "status": "ok",
+            "feedback_id": feedback_id,
+            "training_signal": signal["training_signal"],
+        }
+    ), 201
+
+
 @app.route("/api/cases", methods=["POST"])
 @require_auth("cases:create")
 # Analysts routinely batch-seed training and review queues. Keep the limit
@@ -2341,7 +2890,10 @@ def api_generate_dossier(case_id):
 
     body = request.get_json(silent=True) or {}
     include_ai = body.get("include_ai", True)
-    html = generate_dossier(case_id, user_id=_current_user_id(), hydrate_ai=include_ai)
+    user_id = _current_user_id()
+    if include_ai:
+        _prime_ai_analysis_for_case(case_id, user_id)
+    html = generate_dossier(case_id, user_id=user_id, hydrate_ai=False)
 
     # Save to static dir for download
     dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
@@ -2379,7 +2931,10 @@ def api_generate_dossier_pdf(case_id):
     try:
         body = request.get_json(silent=True) or {}
         include_ai = body.get("include_ai", True)
-        pdf_bytes = generate_pdf_dossier(case_id, user_id=_current_user_id(), hydrate_ai=include_ai)
+        user_id = _current_user_id()
+        if include_ai:
+            _prime_ai_analysis_for_case(case_id, user_id)
+        pdf_bytes = generate_pdf_dossier(case_id, user_id=user_id, hydrate_ai=False)
         return pdf_bytes, 200, {"Content-Type": "application/pdf",
                                "Content-Disposition": f"attachment; filename=dossier-{case_id}.pdf"}
     except Exception as e:
@@ -2650,6 +3205,37 @@ def api_get_ai_analysis_status(case_id):
         ).fetchone()
     if row:
         job = _analysis_job_row_to_dict(row)
+        if job.get("status") in {"pending", "running"}:
+            warmed = _wait_for_primed_ai_analysis(
+                case_id,
+                user_id,
+                input_hash,
+                job["id"],
+                get_latest_analysis,
+                wait_seconds=_AI_STATUS_WAIT_SECONDS,
+                poll_seconds=0.25,
+            )
+            if warmed:
+                if warmed.get("status") == "ready":
+                    cached = get_latest_analysis(case_id, user_id=user_id, input_hash=input_hash)
+                    if cached:
+                        return jsonify({
+                            "status": "ready",
+                            "case_id": case_id,
+                            "vendor_name": vendor["name"],
+                            "analysis": cached,
+                        })
+                if warmed.get("status") == "failed":
+                    return jsonify({
+                        "status": "failed",
+                        "case_id": case_id,
+                        "vendor_name": vendor["name"],
+                        "job": {
+                            **job,
+                            "status": "failed",
+                            "error": warmed.get("error"),
+                        },
+                    })
         return jsonify({
             "status": job["status"],
             "case_id": case_id,
@@ -2913,7 +3499,7 @@ def api_monitor_changes():
 
 try:
     from portfolio_intelligence import (
-        ScoreDriftDetector, AnomalyDetectorBank, PortfolioAnalytics
+        ScoreDriftDetector, PortfolioAnalytics
     )
     HAS_PORTFOLIO_INTEL = True
 except ImportError:
@@ -3697,12 +4283,15 @@ def api_enrich_case(case_id):
     body = request.get_json(silent=True) or {}
     connectors = body.get("connectors", None)  # Optional: run specific connectors only
     parallel = body.get("parallel", True)
+    force = bool(body.get("force", False))
 
     report = enrich_vendor(
         vendor_name=v["name"],
         country=v["country"],
         connectors=connectors,
         parallel=parallel,
+        force=force,
+        **_enrichment_seed_identifiers(case_id),
     )
 
     _persist_enrichment_artifacts(case_id, v, report)
@@ -3721,6 +4310,7 @@ def api_enrich_case_stream(case_id):
     vendor = db.get_vendor(case_id)
     if not vendor:
         return jsonify({"error": "Case not found"}), 404
+    force = str(request.args.get("force", "")).strip().lower() in {"1", "true", "yes", "on"}
 
     def _sse(event: str, payload: dict | None = None):
         body = json.dumps(payload or {})
@@ -3733,6 +4323,8 @@ def api_enrich_case_stream(case_id):
             for event_name, payload in enrich_vendor_streaming(
                 vendor_name=vendor["name"],
                 country=vendor["country"],
+                force=force,
+                **_enrichment_seed_identifiers(case_id),
             ):
                 if event_name == "complete":
                     report = payload
@@ -4192,12 +4784,15 @@ def api_enrich_and_score(case_id):
 
     body = request.get_json(silent=True) or {}
     connectors = body.get("connectors", None)
+    force = bool(body.get("force", False))
 
     # Step 1: Run OSINT enrichment
     report = enrich_vendor(
         vendor_name=v["name"],
         country=v["country"],
         connectors=connectors,
+        force=force,
+        **_enrichment_seed_identifiers(case_id),
     )
     persisted = _persist_enrichment_artifacts(case_id, v, report)
     rescored = _canonical_rescore_from_enrichment(case_id, v, report)
@@ -4262,6 +4857,7 @@ def api_screen_vendor():
         ],
         "screening_db": result.db_label,
         "screening_ms": result.screening_ms,
+        "policy_basis": result.policy_basis,
     }
 
     # Log the screening
@@ -5026,7 +5622,7 @@ def api_export_authorize():
         return jsonify(result)
 
     except Exception as e:
-        logger.exception(f"Transaction authorization failed: {e}")
+        LOGGER.exception("Transaction authorization failed: %s", e)
         return jsonify({"error": f"Authorization pipeline failed: {str(e)}"}), 500
 
 
@@ -5242,7 +5838,7 @@ def main():
 
     stats = db.get_stats()
     print(f"\n{'='*50}")
-    print(f"  HELIOS v5.0 -- Intelligence-Grade Vendor Assurance (FGAMLogit DoD Dual-Vertical)")
+    print("  HELIOS v5.0 -- Intelligence-Grade Vendor Assurance (FGAMLogit DoD Dual-Vertical)")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
     print(f"  http://{args.host}:{args.port}")
@@ -5287,9 +5883,8 @@ def api_generate_graph_briefing():
         from reportlab.lib.units import inch
         from reportlab.platypus import (
             SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-            PageBreak, KeepTogether, Flowable
         )
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from reportlab.lib.enums import TA_CENTER
         from io import BytesIO
     except ImportError:
         return jsonify({"error": "reportlab not available"}), 501
@@ -5331,7 +5926,6 @@ def api_generate_graph_briefing():
     try:
         # Professional color palette
         NAVY = colors.HexColor("#1a2332")
-        DARK_BG = colors.HexColor("#0f172a")
         LIGHT_TEXT = colors.HexColor("#f0f4f8")
         SECONDARY_TEXT = colors.HexColor("#94a3b8")
         ACCENT = colors.HexColor("#3b82f6")
@@ -5525,7 +6119,7 @@ def api_generate_graph_briefing():
                             entity_name = kg_entity.get("canonical_name", entity_name)
                             entity_type = kg_entity.get("entity_type", entity_type)
                             risk_level = kg_entity.get("risk_level", risk_level)
-                    except:
+                    except Exception:
                         pass
 
                 # Add annotation if present
@@ -5694,7 +6288,7 @@ def api_bulk_ingest_status():
         try:
             with open(status_path) as f:
                 return jsonify(json.load(f))
-        except Exception as e:
+        except Exception:
             pass
 
     # Fall back to completed results file
@@ -5971,7 +6565,7 @@ def api_export_re_authorize(auth_id):
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 404
     except Exception as e:
-        logger.exception(f"Re-authorization failed: {e}")
+        LOGGER.exception("Re-authorization failed: %s", e)
         return jsonify({"error": f"Re-authorization failed: {str(e)}"}), 500
 
 
@@ -6011,7 +6605,7 @@ def api_case_authorization_history(case_id):
         })
     
     except Exception as e:
-        logger.exception(f"Failed to fetch authorization history: {e}")
+        LOGGER.exception("Failed to fetch authorization history: %s", e)
         return jsonify({"error": f"Failed to fetch authorization history: {str(e)}"}), 500
 
 
@@ -6090,7 +6684,7 @@ def api_export_authorize_batch():
         return jsonify(result)
 
     except Exception as e:
-        logger.exception(f"Batch authorization failed: {e}")
+        LOGGER.exception("Batch authorization failed: %s", e)
         return jsonify({"error": f"Batch authorization failed: {str(e)}"}), 500
 
 
@@ -6140,7 +6734,7 @@ def api_export_templates_list():
         })
 
     except Exception as e:
-        logger.exception(f"Failed to list templates: {e}")
+        LOGGER.exception("Failed to list templates: %s", e)
         return jsonify({"error": f"Failed to list templates: {str(e)}"}), 500
 
 
@@ -6200,7 +6794,7 @@ def api_export_templates_create():
         return jsonify(result), 201
 
     except Exception as e:
-        logger.exception(f"Failed to save template: {e}")
+        LOGGER.exception("Failed to save template: %s", e)
         return jsonify({"error": f"Failed to save template: {str(e)}"}), 500
 
 
@@ -6235,7 +6829,7 @@ def api_export_templates_execute(template_id):
         return jsonify(result)
 
     except Exception as e:
-        logger.exception(f"Failed to execute template: {e}")
+        LOGGER.exception("Failed to execute template: %s", e)
         return jsonify({"error": f"Failed to execute template: {str(e)}"}), 500
 
 
@@ -6271,7 +6865,7 @@ def api_graph_ingest_persons(case_id):
         return jsonify(result)
 
     except Exception as e:
-        logger.exception(f"Failed to ingest persons: {e}")
+        LOGGER.exception("Failed to ingest persons: %s", e)
         return jsonify({"error": f"Failed to ingest persons: {str(e)}"}), 500
 
 
@@ -6355,7 +6949,7 @@ def api_graph_person_details(entity_id):
         return jsonify(result)
 
     except Exception as e:
-        logger.exception(f"Failed to get person details: {e}")
+        LOGGER.exception("Failed to get person details: %s", e)
         return jsonify({"error": f"Failed to get person details: {str(e)}"}), 500
 
 
@@ -6397,7 +6991,7 @@ def api_compliance_dashboard():
         return jsonify(result)
 
     except Exception as e:
-        logger.exception(f"Failed to get compliance dashboard: {e}")
+        LOGGER.exception("Failed to get compliance dashboard: %s", e)
         return jsonify({"error": f"Failed to get compliance dashboard: {str(e)}"}), 500
 
 

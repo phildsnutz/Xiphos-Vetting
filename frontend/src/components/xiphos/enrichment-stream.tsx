@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { T, FS, tierBand, type TierKey } from "@/lib/tokens";
 import { CONNECTOR_META } from "@/lib/connectors";
+import { buildProtectedUrl } from "@/lib/api";
 import { Radar, CheckCircle, XCircle, Loader, Zap } from "lucide-react";
 
 type ConnectorState = "pending" | "running" | "done" | "error";
@@ -23,12 +24,20 @@ interface ScoringResult {
 
 interface EnrichmentStreamProps {
   caseId: string;
-  token: string;
   apiBase: string;
   onComplete?: () => void;
 }
 
-export function EnrichmentStream({ caseId, token, apiBase, onComplete }: EnrichmentStreamProps) {
+function parseStreamEvent<T>(event: Event, label: string): T | null {
+  try {
+    return JSON.parse((event as MessageEvent).data) as T;
+  } catch (error) {
+    console.warn(`Failed to parse enrichment stream event: ${label}`, error);
+    return null;
+  }
+}
+
+export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStreamProps) {
   const [connectors, setConnectors] = useState<ConnectorProgress[]>([]);
   const [totalConnectors, setTotalConnectors] = useState(0);
   const [completedCount, setCompletedCount] = useState(0);
@@ -51,15 +60,18 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
 
   // SSE connection
   useEffect(() => {
-    // SSE (EventSource) does not support Authorization headers.
-    // Token is passed via query param -- the backend SSE endpoint should
-    // validate and rate-limit this. TODO: replace with short-lived SSE session token.
-    const url = `${apiBase}/api/cases/${caseId}/enrich-stream?sse_token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
+    let cancelled = false;
+    let es: EventSource | null = null;
 
-    es.addEventListener("start", (e) => {
-      const data = JSON.parse(e.data);
+    const failStream = () => {
+      setPhase("error");
+      if (timerRef.current) clearInterval(timerRef.current);
+      eventSourceRef.current?.close();
+    };
+
+    const handleStart = (e: Event) => {
+      const data = parseStreamEvent<{ total_connectors: number; connector_names: string[] }>(e, "start");
+      if (!data) return failStream();
       setTotalConnectors(data.total_connectors);
       setPhase("enriching");
       setConnectors(
@@ -68,10 +80,11 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
           state: "running" as ConnectorState,
         }))
       );
-    });
+    };
 
-    es.addEventListener("connector_done", (e) => {
-      const data = JSON.parse(e.data);
+    const handleConnectorDone = (e: Event) => {
+      const data = parseStreamEvent<{ name: string; has_data: boolean; findings_count: number; elapsed_ms: number; index: number }>(e, "connector_done");
+      if (!data) return failStream();
       setConnectors((prev) =>
         prev.map((c) =>
           c.name === data.name
@@ -81,10 +94,11 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
       );
       setCompletedCount(data.index);
       setTotalFindings((prev) => prev + (data.findings_count || 0));
-    });
+    };
 
-    es.addEventListener("connector_error", (e) => {
-      const data = JSON.parse(e.data);
+    const handleConnectorError = (e: Event) => {
+      const data = parseStreamEvent<{ name: string; error: string; index: number }>(e, "connector_error");
+      if (!data) return failStream();
       setConnectors((prev) =>
         prev.map((c) =>
           c.name === data.name
@@ -93,35 +107,62 @@ export function EnrichmentStream({ caseId, token, apiBase, onComplete }: Enrichm
         )
       );
       setCompletedCount(data.index);
-    });
+    };
 
-    es.addEventListener("complete", () => {
+    const handleComplete = () => {
       setPhase("scoring");
-    });
+    };
 
-    es.addEventListener("scored", (e) => {
-      const data = JSON.parse(e.data);
+    const handleScored = (e: Event) => {
+      const data = parseStreamEvent<ScoringResult>(e, "scored");
+      if (!data) return failStream();
       setScoring(data);
-    });
+    };
 
-    es.addEventListener("done", () => {
+    const handleDone = () => {
       setPhase("done");
       if (timerRef.current) clearInterval(timerRef.current);
-      es.close();
+      eventSourceRef.current?.close();
       onComplete?.();
-    });
-
-    es.onerror = () => {
-      setPhase("error");
-      if (timerRef.current) clearInterval(timerRef.current);
-      es.close();
     };
+
+    const handleError = () => {
+      failStream();
+    };
+
+    (async () => {
+      try {
+        const protectedPath = await buildProtectedUrl(`/api/cases/${caseId}/enrich-stream`);
+        if (cancelled) return;
+        es = new EventSource(`${apiBase}${protectedPath}`);
+        const currentEs = es;
+        eventSourceRef.current = currentEs;
+        currentEs.addEventListener("start", handleStart);
+        currentEs.addEventListener("connector_done", handleConnectorDone);
+        currentEs.addEventListener("connector_error", handleConnectorError);
+        currentEs.addEventListener("complete", handleComplete);
+        currentEs.addEventListener("scored", handleScored);
+        currentEs.addEventListener("done", handleDone);
+        currentEs.addEventListener("error", handleError);
+      } catch {
+        setPhase("error");
+        if (timerRef.current) clearInterval(timerRef.current);
+      }
+    })();
 
     return () => {
-      es.close();
+      cancelled = true;
+      es?.removeEventListener("start", handleStart);
+      es?.removeEventListener("connector_done", handleConnectorDone);
+      es?.removeEventListener("connector_error", handleConnectorError);
+      es?.removeEventListener("complete", handleComplete);
+      es?.removeEventListener("scored", handleScored);
+      es?.removeEventListener("done", handleDone);
+      es?.removeEventListener("error", handleError);
+      es?.close();
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [caseId, token, apiBase, onComplete]);
+  }, [caseId, apiBase, onComplete]);
 
   const pct = totalConnectors > 0 ? Math.round((completedCount / totalConnectors) * 100) : 0;
 

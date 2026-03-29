@@ -6,6 +6,7 @@ import {
   AlertTriangle, CheckCircle, XOctagon, Eye, Zap,
   Radar, Loader, XCircle,
 } from "lucide-react";
+import { getToken } from "@/lib/auth";
 
 /* ---- Types ---- */
 interface ProfileResult {
@@ -158,6 +159,15 @@ interface ConnectorProgress {
   error?: string;
 }
 
+function parseStreamEvent<T>(event: MessageEvent<string>, label: string): T | null {
+  try {
+    return JSON.parse(event.data) as T;
+  } catch (error) {
+    console.warn(`Failed to parse demo compare stream event: ${label}`, error);
+    return null;
+  }
+}
+
 /* ---- Demo Compare Component ---- */
 export function DemoCompare() {
   const [name, setName] = useState("");
@@ -202,9 +212,13 @@ export function DemoCompare() {
     setEnriching(false);
 
     try {
+      const token = getToken();
       const res = await fetch(`${BASE}/api/demo/compare`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ name: name.trim(), country }),
       });
       if (!res.ok) {
@@ -244,8 +258,16 @@ export function DemoCompare() {
     const es = new EventSource(url);
     esRef.current = es;
 
+    const failStream = () => {
+      setEnrichPhase("error");
+      setEnriching(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      es.close();
+    };
+
     es.addEventListener("start", (e) => {
-      const data = JSON.parse(e.data);
+      const data = parseStreamEvent<{ total_connectors: number; connector_names: string[] }>(e as MessageEvent<string>, "start");
+      if (!data) return failStream();
       setTotalConnectors(data.total_connectors);
       setEnrichPhase("enriching");
       setConnectors(
@@ -257,7 +279,8 @@ export function DemoCompare() {
     });
 
     es.addEventListener("connector_done", (e) => {
-      const data = JSON.parse(e.data);
+      const data = parseStreamEvent<{ name: string; has_data: boolean; findings_count: number; elapsed_ms: number; index: number }>(e as MessageEvent<string>, "connector_done");
+      if (!data) return failStream();
       setConnectors((prev) =>
         prev.map((c) =>
           c.name === data.name
@@ -270,7 +293,8 @@ export function DemoCompare() {
     });
 
     es.addEventListener("connector_error", (e) => {
-      const data = JSON.parse(e.data);
+      const data = parseStreamEvent<{ name: string; error: string; index: number }>(e as MessageEvent<string>, "connector_error");
+      if (!data) return failStream();
       setConnectors((prev) =>
         prev.map((c) =>
           c.name === data.name
@@ -286,7 +310,8 @@ export function DemoCompare() {
     });
 
     es.addEventListener("scored", (e) => {
-      const data = JSON.parse(e.data);
+      const data = parseStreamEvent<{ profiles?: ProfileResult[] }>(e as MessageEvent<string>, "scored");
+      if (!data) return failStream();
       if (data.profiles) {
         setEnrichedProfiles(data.profiles);
       }
@@ -300,10 +325,7 @@ export function DemoCompare() {
     });
 
     es.onerror = () => {
-      setEnrichPhase("error");
-      setEnriching(false);
-      if (timerRef.current) clearInterval(timerRef.current);
-      es.close();
+      failStream();
     };
   }, [result, enriching, BASE]);
 
@@ -339,7 +361,7 @@ export function DemoCompare() {
             className="font-mono font-bold uppercase tracking-wider"
             style={{ fontSize: 18, color: T.text, letterSpacing: "0.12em" }}
           >
-            XIPHOS
+            HELIOS
           </span>
         </div>
         <h1

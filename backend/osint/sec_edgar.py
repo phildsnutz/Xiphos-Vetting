@@ -12,33 +12,561 @@ User-Agent header with contact email required.
 """
 
 import json
+import re
 import time
+import logging
 import urllib.request
 import urllib.error
 import urllib.parse
-from typing import Optional
+from difflib import SequenceMatcher
 
 from . import EnrichmentResult, Finding
 
+logger = logging.getLogger(__name__)
+
 EFTS = "https://efts.sec.gov/LATEST"
-USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
+USER_AGENT = "Xiphos/5.2 (compliance-tool@xiphos.dev)"
+
+# Corporate suffixes to strip for name comparison
+_CORP_SUFFIXES = re.compile(
+    r"\b(LLC|INC|CORP|CORPORATION|INCORPORATED|LIMITED|LTD|PLC|LP|LLP|CO|COMPANY|HOLDINGS|GROUP|ENTERPRISES)\b\.?",
+    re.IGNORECASE,
+)
+
+
+def _normalize_for_match(name: str) -> str:
+    """Normalize a company name for fuzzy matching."""
+    name = name.upper().strip()
+    name = _CORP_SUFFIXES.sub("", name)
+    name = re.sub(r"[^A-Z0-9\s]", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
+
+
+def _name_match_score(vendor_name: str, sec_name: str) -> float:
+    """
+    Score how well a SEC-registered name matches the vendor being assessed.
+    Returns 0.0-1.0. Threshold for acceptance is 0.65.
+    """
+    v = _normalize_for_match(vendor_name)
+    s = _normalize_for_match(sec_name)
+
+    if not v or not s:
+        return 0.0
+
+    # Exact normalized match
+    if v == s:
+        return 1.0
+
+    # One contains the other (e.g., "LOCKHEED MARTIN" in "LOCKHEED MARTIN CORPORATION")
+    if v in s or s in v:
+        return 0.95
+
+    # SequenceMatcher ratio
+    return SequenceMatcher(None, v, s).ratio()
 
 
 def _get(url: str) -> dict | list | None:
-    """GET request with proper headers."""
+    """GET request with proper headers.
+
+    Note: SEC EDGAR sometimes serves valid JSON with Content-Type: text/html
+    (e.g. index.json endpoints).  We therefore try JSON parsing first and only
+    reject as HTML if the body genuinely starts with an HTML doctype.
+    """
     req = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            content_type = resp.headers.get("Content-Type", "")
             raw = resp.read()
-            if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
+            # Reject actual HTML pages (starts with DOCTYPE or <html)
+            if raw[:20].lstrip().startswith(b"<!DOCTYPE") or raw[:20].lstrip().startswith(b"<html"):
                 return None
             return json.loads(raw)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
         return None
+
+
+def _deep_parse_company(cik: str, vendor_name: str, result: EnrichmentResult):
+    """
+    Deep parse SEC EDGAR company data to extract:
+    - Officers and directors (from company submissions API)
+    - Recent insider transactions (Forms 3, 4, 5)
+    - Beneficial ownership (Schedule 13D/13G)
+    - Subsidiaries and relationships
+
+    Includes CIK validation: confirms the SEC-registered entity name matches
+    the vendor being assessed before extracting identifiers.
+    """
+    try:
+        # 1. Fetch company submissions (officers, filings, metadata)
+        padded_cik = cik.zfill(10)
+        company_url = f"https://data.sec.gov/submissions/CIK{padded_cik}.json"
+        company_data = _get(company_url)
+
+        if not company_data:
+            return
+
+        # ---- CIK VALIDATION ----
+        # Confirm the SEC-registered name actually matches our vendor.
+        # This prevents the Lockheed/Leidos problem where a search for
+        # "Lockheed Martin" returns CIK for Leidos (a former subsidiary).
+        sec_registered_name = company_data.get("name", "")
+        match_score = _name_match_score(vendor_name, sec_registered_name)
+
+        if match_score < 0.65:
+            # Check former names as fallback (entity may have been renamed)
+            former_names = company_data.get("formerNames", [])
+            best_former_score = 0.0
+            best_former_name = ""
+            for fn in former_names:
+                fn_name = fn.get("name", "")
+                fn_score = _name_match_score(vendor_name, fn_name)
+                if fn_score > best_former_score:
+                    best_former_score = fn_score
+                    best_former_name = fn_name
+
+            if best_former_score >= 0.65:
+                logger.info(
+                    "CIK %s: current name '%s' doesn't match vendor '%s' (%.0f%%), "
+                    "but former name '%s' matches (%.0f%%). Proceeding with caution.",
+                    cik, sec_registered_name, vendor_name,
+                    match_score * 100, best_former_name, best_former_score * 100,
+                )
+                # Store the relationship but proceed
+                result.relationships.append({
+                    "type": "former_name_match",
+                    "entity": sec_registered_name,
+                    "former_name": best_former_name,
+                    "match_score": round(best_former_score, 2),
+                })
+            else:
+                # CIK does NOT belong to this vendor. Log and skip.
+                logger.warning(
+                    "CIK MISMATCH: CIK %s is registered to '%s', not '%s' (score: %.0f%%). "
+                    "Skipping deep parse to avoid cross-contamination.",
+                    cik, sec_registered_name, vendor_name, match_score * 100,
+                )
+                result.findings.append(Finding(
+                    source="sec_edgar", category="identity",
+                    title=f"CIK mismatch: {sec_registered_name} (CIK {cik}) is a different entity",
+                    detail=(
+                        f"SEC EDGAR search returned CIK {cik} which is registered to "
+                        f"'{sec_registered_name}', not '{vendor_name}' "
+                        f"(name similarity: {match_score:.0%}). "
+                        f"This may be a subsidiary, spin-off, or coincidental name match. "
+                        f"Identifiers from this CIK have NOT been applied to avoid data contamination."
+                    ),
+                    severity="low", confidence=0.85,
+                    url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}",
+                ))
+                # Clear the CIK from identifiers since it's wrong
+                result.identifiers.pop("cik", None)
+                return
+
+        logger.info(
+            "CIK %s validated: SEC name '%s' matches vendor '%s' (score: %.0f%%)",
+            cik, sec_registered_name, vendor_name, match_score * 100,
+        )
+        result.identifiers["sec_registered_name"] = sec_registered_name
+        # ---- END CIK VALIDATION ----
+
+        # Extract company metadata
+        sic = company_data.get("sic", "")
+        sic_desc = company_data.get("sicDescription", "")
+        state = company_data.get("stateOfIncorporation", "")
+        fiscal_year = company_data.get("fiscalYearEnd", "")
+        exchanges = company_data.get("exchanges", [])
+        tickers = company_data.get("tickers", [])
+        ein = company_data.get("ein", "")
+
+        # Store discovered identifiers (safe now -- CIK is validated)
+        if ein:
+            result.identifiers["ein"] = ein
+        if tickers:
+            result.identifiers["tickers"] = tickers
+        if exchanges:
+            result.identifiers["exchanges"] = exchanges
+        if sic:
+            result.identifiers["sic_code"] = sic
+            result.identifiers["sic_description"] = sic_desc
+        if state:
+            result.identifiers["state_of_incorporation"] = state
+
+        # Extract officers/directors from former names or addresses
+        officers = company_data.get("officers", [])
+        if not officers:
+            # Try the 'formerNames' array for historical data
+            former_names = company_data.get("formerNames", [])
+            if former_names:
+                for fn in former_names[:5]:
+                    result.relationships.append({
+                        "type": "former_name",
+                        "entity": fn.get("name", ""),
+                        "date_from": fn.get("from", ""),
+                        "date_to": fn.get("to", ""),
+                    })
+
+        # Parse recent filings to detect key patterns
+        recent = company_data.get("filings", {}).get("recent", {})
+        if recent:
+            forms = recent.get("form", [])
+            dates = recent.get("filingDate", [])
+            accessions = recent.get("accessionNumber", [])
+
+            # Count insider transaction filings (Forms 3, 4, 5)
+            insider_forms = [(f, d) for f, d in zip(forms, dates) if f in ("3", "4", "5")]
+            if insider_forms:
+                recent_insider = [d for _, d in insider_forms if d >= "2024-01-01"]
+                if len(recent_insider) >= 10:
+                    result.risk_signals.append({
+                        "signal": "sec_high_insider_activity",
+                        "severity": "low",
+                        "detail": f"{len(recent_insider)} insider transaction filings since 2024. "
+                                  "High volume may indicate significant ownership changes.",
+                    })
+                result.findings.append(Finding(
+                    source="sec_edgar", category="ownership",
+                    title=f"SEC insider filings: {len(insider_forms)} transactions on record",
+                    detail=(
+                        f"Found {len(insider_forms)} insider transaction filings (Forms 3/4/5). "
+                        f"{len(recent_insider)} filed since 2024-01-01. "
+                        "These disclose officer/director equity transactions."
+                    ),
+                    severity="info", confidence=0.95,
+                    url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=4&dateb=&owner=include&count=40",
+                ))
+
+            # Check for Schedule 13D/13G (beneficial ownership > 5%)
+            ownership_forms = [(f, d, a) for f, d, a in zip(forms, dates, accessions) if "SC 13" in f]
+            if ownership_forms:
+                result.findings.append(Finding(
+                    source="sec_edgar", category="ownership",
+                    title=f"Beneficial ownership disclosures: {len(ownership_forms)} filings",
+                    detail=(
+                        f"Found {len(ownership_forms)} Schedule 13D/13G filings indicating investors "
+                        f"with >5% beneficial ownership stakes. Most recent: {ownership_forms[0][1]}. "
+                        "Review for concentrated ownership risk or activist investor activity."
+                    ),
+                    severity="low", confidence=0.9,
+                    url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=SC+13&dateb=&owner=include&count=10",
+                ))
+                result.risk_signals.append({
+                    "signal": "sec_beneficial_ownership",
+                    "severity": "info",
+                    "detail": f"{len(ownership_forms)} beneficial ownership (>5%) disclosures on file",
+                })
+
+            # Check for enforcement actions (litigation releases)
+            enforcement = [f for f in forms if any(k in f.upper() for k in ["ADMIN", "ORDER", "JUDGMENT"])]
+            if enforcement:
+                result.findings.append(Finding(
+                    source="sec_edgar", category="enforcement",
+                    title=f"SEC enforcement: {len(enforcement)} administrative filings detected",
+                    detail=f"Found {len(enforcement)} filings that may indicate SEC enforcement actions.",
+                    severity="high", confidence=0.7,
+                ))
+
+            # --- Layer 3: Exhibit 21 subsidiary extraction ---
+            # Exhibit 21 lists all subsidiaries of a registrant. We look for the
+            # most recent 10-K that has an EX-21 attachment and fetch the XBRL
+            # subsidiary data from the SEC's companion files API.
+            try:
+                _extract_subsidiaries(cik, padded_cik, forms, accessions, dates, vendor_name, result)
+            except Exception as ex21_err:
+                logger.debug("Exhibit 21 extraction failed for CIK %s: %s", cik, ex21_err)
+
+        # Company metadata finding
+        meta_parts = [f"SIC: {sic} ({sic_desc})"] if sic else []
+        if state:
+            meta_parts.append(f"Incorporated: {state}")
+        if fiscal_year:
+            meta_parts.append(f"Fiscal year ends: {fiscal_year}")
+        if tickers:
+            meta_parts.append(f"Tickers: {', '.join(tickers)}")
+        if exchanges:
+            meta_parts.append(f"Exchanges: {', '.join(exchanges)}")
+        if ein:
+            meta_parts.append(f"EIN: {ein}")
+
+        if meta_parts:
+            result.findings.append(Finding(
+                source="sec_edgar", category="identity",
+                title=f"SEC corporate profile: {vendor_name}",
+                detail="\n".join(meta_parts),
+                severity="info", confidence=0.95,
+                url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}",
+            ))
+
+    except Exception as e:
+        logger.debug("SEC EDGAR deep parse error for CIK %s: %s", cik, e)
+
+
+def _extract_subsidiaries(cik: str, padded_cik: str, forms: list, accessions: list,
+                           dates: list, vendor_name: str, result: EnrichmentResult):
+    """
+    Layer 3: Extract subsidiary list from Exhibit 21 filings.
+
+    SEC rules require public companies to list significant subsidiaries in
+    Exhibit 21 of their annual 10-K filing. This data is the authoritative
+    source for corporate parent/subsidiary relationships.
+
+    Strategy:
+      1. Find the most recent 10-K filing in the recent filings list
+      2. Fetch the filing index to find EX-21 attachment
+      3. Parse the EX-21 document for subsidiary names and jurisdictions
+    """
+    # Find the most recent 10-K filing
+    annual_filings = [
+        (f, d, a.replace("-", "")) for f, d, a in zip(forms, dates, accessions)
+        if f == "10-K"
+    ]
+    if not annual_filings:
+        return
+
+    _, filing_date, accession_clean = annual_filings[0]  # Most recent
+
+    # Fetch the filing index to find Exhibit 21
+    # Format: https://www.sec.gov/Archives/edgar/data/{CIK}/{accession}/
+    index_url = f"https://www.sec.gov/Archives/edgar/data/{padded_cik}/{accession_clean}/"
+
+    import time as _time
+    _time.sleep(0.3)  # Rate limit
+
+    index_data = _get(f"{index_url}index.json")
+    if not index_data:
+        return
+
+    # Look for EX-21 in the filing directory
+    directory = index_data.get("directory", {})
+    items = directory.get("item", [])
+
+    ex21_doc = None
+    for item in items:
+        name = item.get("name", "").lower()
+        if "ex-21" in name or "ex21" in name or "exhibit21" in name:
+            ex21_doc = item.get("name", "")
+            break
+
+    if not ex21_doc:
+        # Try the companion files API for structured data
+        # We already have this data from the main deep parse, so just check
+        # recent filings for EX-21 form types
+        ex21_filings = [
+            (f, d) for f, d in zip(forms, dates) if "EX-21" in f.upper()
+        ]
+        if not ex21_filings:
+            return
+        # We found an EX-21 reference but can't get the document directly
+        result.findings.append(Finding(
+            source="sec_edgar", category="subsidiaries",
+            title=f"Exhibit 21 subsidiary filing detected (filed {ex21_filings[0][1]})",
+            detail=(
+                f"SEC annual filing includes Exhibit 21 (subsidiary list). "
+                f"Most recent: {ex21_filings[0][1]}. "
+                "Subsidiary extraction requires full-text parse of filing document."
+            ),
+            severity="info", confidence=0.8,
+            raw_data={"has_exhibit_21": True, "filing_date": ex21_filings[0][1]},
+        ))
+        return
+
+    # Fetch the Exhibit 21 document
+    _time.sleep(0.3)
+    ex21_url = f"{index_url}{ex21_doc}"
+
+    try:
+        req = urllib.request.Request(ex21_url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            ex21_text = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return
+
+    # Parse subsidiaries from EX-21 text
+    # Format varies but typically: "Subsidiary Name    State/Jurisdiction"
+    # or HTML tables with subsidiary name and jurisdiction columns
+    subsidiaries = _parse_exhibit_21(ex21_text, vendor_name)
+
+    if subsidiaries:
+        sub_lines = [
+            f"  {s['name']} ({s.get('jurisdiction', 'Unknown')})"
+            for s in subsidiaries[:20]
+        ]
+        result.findings.append(Finding(
+            source="sec_edgar", category="subsidiaries",
+            title=f"Exhibit 21: {len(subsidiaries)} subsidiary/ies identified",
+            detail=(
+                f"SEC 10-K Exhibit 21 (filed {filing_date}) lists the following subsidiaries:\n"
+                + "\n".join(sub_lines)
+                + (f"\n  ... and {len(subsidiaries) - 20} more" if len(subsidiaries) > 20 else "")
+            ),
+            severity="info", confidence=0.9,
+            raw_data={
+                "subsidiaries": subsidiaries[:50],
+                "filing_date": filing_date,
+                "total_count": len(subsidiaries),
+            },
+        ))
+
+        # Store subsidiary relationships for graph ingestion
+        for sub in subsidiaries[:30]:
+            result.relationships.append({
+                "type": "subsidiary_of",
+                "entity": sub["name"],
+                "jurisdiction": sub.get("jurisdiction", ""),
+                "data_source": "sec_edgar_ex21",
+                "confidence": 0.9,
+            })
+
+        logger.info("Exhibit 21: found %d subsidiaries for %s (CIK %s)", len(subsidiaries), vendor_name, cik)
+
+
+def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
+    """Parse subsidiary names and jurisdictions from Exhibit 21 text.
+
+    Handles both plain text and HTML formats. Returns list of
+    {name, jurisdiction} dicts.
+
+    SEC EDGAR wraps Exhibit 21 in an SGML envelope like:
+        <DOCUMENT><TYPE>EX-21<SEQUENCE>7<FILENAME>ex21q42025.htm
+        <DESCRIPTION>EX-21<TEXT> ... actual HTML ...
+    The parser strips this preamble before processing.
+    """
+    import html as _html
+
+    placeholder_names = {
+        "entity",
+        "entity name",
+        "name",
+        "name of entity",
+        "name of subsidiary",
+        "subsidiary name",
+        "subsidiary",
+        "legal entity name",
+    }
+
+    # ---- Strip SGML envelope ----
+    # Find the <TEXT> marker that precedes actual content
+    text_marker = re.search(r"<TEXT>\s*", text, re.IGNORECASE)
+    if text_marker:
+        text = text[text_marker.end():]
+    # Also strip trailing </TEXT></DOCUMENT>
+    text = re.sub(r"</TEXT>\s*</DOCUMENT>\s*$", "", text, flags=re.IGNORECASE)
+
+    # ---- Strip HTML tags if present ----
+    if "<html" in text.lower() or "<table" in text.lower():
+        clean = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+        clean = re.sub(r"</?(?:td|th|tr|p|div|span)[^>]*>", "\n", clean, flags=re.IGNORECASE)
+        clean = re.sub(r"<[^>]+>", "", clean)
+        clean = _html.unescape(clean)
+    else:
+        clean = text
+
+    # Normalize whitespace artifacts
+    clean = clean.replace("\xa0", " ")  # non-breaking space
+    clean = re.sub(r"&#160;", " ", clean)
+
+    lines = clean.split("\n")
+    subsidiaries = []
+    seen_names = set()
+    vendor_upper = vendor_name.upper()
+
+    # Known jurisdiction values for matching standalone jurisdiction lines
+    _JURISDICTIONS = {
+        "delaware", "nevada", "california", "new york", "texas", "maryland",
+        "virginia", "florida", "illinois", "ohio", "pennsylvania", "georgia",
+        "new jersey", "massachusetts", "north carolina", "washington",
+        "colorado", "connecticut", "michigan", "minnesota", "missouri",
+        "wisconsin", "arizona", "indiana", "oregon", "tennessee", "utah",
+        "district of columbia",
+        "united kingdom", "uk", "england", "canada", "germany", "france",
+        "japan", "australia", "india", "ireland", "netherlands", "singapore",
+        "switzerland", "cayman islands", "british virgin islands", "bermuda",
+        "brazil", "china", "south korea", "israel", "italy", "poland",
+        "spain", "sweden", "mexico", "hong kong", "taiwan",
+    }
+
+    # First pass: collect candidate lines (skip obvious non-data lines)
+    candidate_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line or len(line) < 3 or len(line) > 200:
+            continue
+        # Skip header/footer lines
+        if any(h in line.lower() for h in (
+            "exhibit", "subsidiaries of", "name of", "jurisdiction",
+            "state of", "place of", "------", "======",
+            "significant", "registrant", "regulation s-k",
+            "consolidated", "financial statements", "item 601",
+            "rule 1-02", "document", "in accordance", "entity name",
+        )):
+            continue
+        # Skip lines that are just the parent company
+        if line.upper().startswith(vendor_upper[:20]):
+            continue
+        # Skip filenames and purely numeric lines
+        if re.match(r"^[\d.]+$", line) or re.match(r"^.+\.(htm|html|txt|xml)$", line, re.I):
+            continue
+        candidate_lines.append(line)
+
+    # Second pass: pair names with jurisdictions
+    # SEC Exhibit 21 often alternates: subsidiary name, then jurisdiction on next line
+    i = 0
+    while i < len(candidate_lines):
+        line = candidate_lines[i]
+
+        # Check if this line is itself a standalone jurisdiction
+        if line.lower().strip() in _JURISDICTIONS:
+            i += 1
+            continue
+
+        # Try to split inline: name   jurisdiction (tab or multi-space separated)
+        parts = re.split(r"\s{3,}|\t|\|", line, maxsplit=1)
+        name = parts[0].strip().rstrip(",").rstrip(".")
+        jurisdiction = ""
+
+        if len(parts) > 1:
+            jurisdiction = parts[1].strip().rstrip(",").rstrip(".")
+        else:
+            # Check parenthesized jurisdiction: "Name (Delaware)"
+            j_match = re.search(r"\(([^)]+)\)\s*$", name)
+            if j_match:
+                jurisdiction = j_match.group(1)
+                name = name[:j_match.start()].strip()
+
+        # If no jurisdiction found inline, peek at next line
+        if not jurisdiction and i + 1 < len(candidate_lines):
+            next_line = candidate_lines[i + 1].strip()
+            if next_line.lower() in _JURISDICTIONS:
+                jurisdiction = next_line
+                i += 1  # consume the jurisdiction line
+
+        # Validate entity name
+        if not name or len(name) < 3:
+            i += 1
+            continue
+        if not re.search(r"[A-Za-z]", name):
+            i += 1
+            continue
+        if name.lower() in ("none", "n/a", "not applicable", "total", "end"):
+            i += 1
+            continue
+        if name.lower() in placeholder_names:
+            i += 1
+            continue
+
+        name_upper = name.upper()
+        if name_upper not in seen_names:
+            seen_names.add(name_upper)
+            subsidiaries.append({
+                "name": name,
+                "jurisdiction": jurisdiction or "Unknown",
+            })
+
+        i += 1
+
+    return subsidiaries
 
 
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
@@ -81,8 +609,13 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        # Process results
+        # Process results -- validate CIK ownership before accepting
         seen_ciks = set()
+        best_cik = None
+        best_cik_score = 0.0
+        best_cik_name = ""
+        matched_form_types: list[str] = []
+
         for hit in hits:
             src = hit.get("_source", {})
             ciks = src.get("ciks", [])
@@ -99,9 +632,24 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
             seen_ciks.add(cik)
 
-            # Track identifiers
-            if not result.identifiers.get("cik"):
+            # Validate CIK belongs to the vendor we're assessing
+            filing_entity = company_name or (display_names[0] if display_names else "")
+            name_score = _name_match_score(vendor_name, filing_entity) if filing_entity else 0.0
+
+            # Track the best-matching CIK
+            if name_score > best_cik_score:
+                best_cik_score = name_score
+                best_cik = cik
+                best_cik_name = filing_entity
+
+            # Only set as primary CIK if name match is strong enough
+            if not result.identifiers.get("cik") and name_score >= 0.65:
                 result.identifiers["cik"] = cik
+                result.identifiers["cik_confidence"] = "high"
+                logger.info("SEC EDGAR: accepted CIK %s for '%s' (filing entity: '%s', score: %.0f%%)",
+                           cik, vendor_name, filing_entity, name_score * 100)
+            if name_score >= 0.65:
+                matched_form_types.append(form_type)
 
             # Create finding for company/filing
             display_name = company_name or (display_names[0] if display_names else "") or vendor_name
@@ -131,9 +679,10 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 raw_data={"cik": cik, "form": form_type, "date": file_date},
             ))
 
-        # Set identifier for public trading status if we found 10-K
-        form_types_found = [h.get("_source", {}).get("form", "") for h in hits]
-        if "10-K" in form_types_found or "10-Q" in form_types_found:
+        # Treat SEC public-company evidence as valid only when the filings belong
+        # to the matched vendor, not merely some related counterparty in search hits.
+        form_types_found = matched_form_types
+        if "10-K" in form_types_found or "10-Q" in form_types_found or "DEF 14A" in form_types_found:
             result.identifiers["publicly_traded"] = True
 
         # Risk signal: 8-K filings (material events)
@@ -151,6 +700,24 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 "severity": "info",
                 "detail": "Entity has proxy statement (DEF 14A) on file",
             })
+
+        # If no CIK passed validation, use best match with a warning
+        if not result.identifiers.get("cik") and best_cik:
+            if best_cik_score >= 0.5:
+                logger.warning(
+                    "SEC EDGAR: no strong CIK match for '%s'. Best: CIK %s ('%s', score: %.0f%%). Using with caution.",
+                    vendor_name, best_cik, best_cik_name, best_cik_score * 100,
+                )
+                result.identifiers["cik"] = best_cik
+                result.identifiers["cik_confidence"] = "low"
+            else:
+                logger.info("SEC EDGAR: no CIK match for '%s' above threshold. Best was %.0f%%.",
+                           vendor_name, best_cik_score * 100)
+
+        # Deep parsing: extract officers/executives from company data
+        cik = result.identifiers.get("cik")
+        if cik and result.identifiers.get("cik_confidence") != "low":
+            _deep_parse_company(cik, vendor_name, result)
 
     except Exception as e:
         result.error = str(e)

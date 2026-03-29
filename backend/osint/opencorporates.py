@@ -14,10 +14,10 @@ API docs: https://api.opencorporates.com/documentation/API-Reference
 """
 
 import json
+import os
 import time
 import urllib.request
 import urllib.error
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 
@@ -25,7 +25,6 @@ BASE = "https://api.opencorporates.com/v0.4"
 USER_AGENT = "Xiphos-Vetting/2.1"
 
 # Set XIPHOS_OPENCORP_KEY for higher rate limits
-import os
 API_KEY = os.environ.get("XIPHOS_OPENCORP_KEY", "")
 
 
@@ -139,8 +138,6 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         co_dissolution_date = company.get("dissolution_date", "")
         co_registered_address = company.get("registered_address_in_full", "")
         co_url = company.get("opencorporates_url", "")
-        co_registry_url = company.get("registry_url", "")
-
         result.identifiers["opencorporates_url"] = co_url
         result.identifiers["company_number"] = co_number
         result.identifiers["jurisdiction"] = co_jurisdiction
@@ -218,6 +215,33 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
                     if off_name:
                         officer_names.append(f"{off_name} ({off_position})")
+                        if not off_inactive:
+                            result.relationships.append({
+                                "type": "officer_of",
+                                "source_entity": off_name,
+                                "target_entity": co_name,
+                                "source_entity_type": "person",
+                                "target_entity_type": "company",
+                                "data_source": "opencorporates",
+                                "confidence": 0.82,
+                                "evidence": (
+                                    f"OpenCorporates lists {off_name} as {off_position or 'an officer'} "
+                                    f"of {co_name} in {co_jurisdiction}."
+                                ),
+                                "evidence_url": f"{co_url}/officers" if co_url else "",
+                                "structured_fields": {
+                                    "position": off_position,
+                                    "start_date": off_start,
+                                    "end_date": off_end,
+                                    "inactive": bool(off_inactive),
+                                    "company_number": co_number,
+                                    "jurisdiction": co_jurisdiction,
+                                    "standards": ["OpenCorporates Officers"],
+                                },
+                                "authority_level": "public_registry_aggregator",
+                                "access_model": "public_api",
+                                "source_class": "public_connector",
+                            })
 
                 active_count = sum(1 for o in officers if not o.get("inactive", False))
                 result.identifiers["officers_count"] = active_count

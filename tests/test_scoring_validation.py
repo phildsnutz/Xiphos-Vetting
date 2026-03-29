@@ -15,10 +15,8 @@ Date: March 2026
 import csv
 import sys
 import os
-from pathlib import Path
 from dataclasses import dataclass
 from collections import defaultdict
-from typing import Optional
 
 # Add backend to path so we can import fgamlogit
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
@@ -26,6 +24,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from fgamlogit import (
     VendorInputV5, OwnershipProfile, DataQuality, ExecProfile, DoDContext,
     score_vendor, PROGRAM_TO_SENSITIVITY
+)
+
+from regulatory_gates import (
+    RegulatoryGateInput, Section889Input, NDAA1260HInput, ITARInput,
+    FOCIInput, evaluate_regulatory_gates
 )
 
 
@@ -313,6 +316,315 @@ def run_validation(csv_path: str) -> None:
     return 0 if accuracy >= 80.0 else 1
 
 
+def _make_clean_gate_input(entity_name: str, entity_country: str = "US",
+                           sensitivity: str = "COMMERCIAL") -> RegulatoryGateInput:
+    """Helper: minimal RegulatoryGateInput with all gates defaulted (should PASS/SKIP)."""
+    return RegulatoryGateInput(
+        entity_name=entity_name,
+        entity_country=entity_country,
+        sensitivity=sensitivity,
+        section_889=Section889Input(entity_name=entity_name),
+        ndaa_1260h=NDAA1260HInput(entity_name=entity_name),
+    )
+
+
+def _make_vendor(name, country, sensitivity="COMMERCIAL",
+                 publicly_traded=True, state_owned=False,
+                 beneficial_owner_known=True, ownership_pct_resolved=1.0,
+                 shell_layers=0, pep_connection=False,
+                 foreign_ownership_pct=0.0, foreign_ownership_is_allied=True,
+                 has_lei=True, has_cage=True, has_duns=True, has_tax_id=True,
+                 has_audited_financials=True, years_of_records=15,
+                 known_execs=30, adverse_media=0, pep_execs=0,
+                 litigation_history=0, supply_chain_tier=0) -> VendorInputV5:
+    """Helper: build VendorInputV5 with sensible defaults."""
+    return VendorInputV5(
+        name=name,
+        country=country,
+        ownership=OwnershipProfile(
+            publicly_traded=publicly_traded, state_owned=state_owned,
+            beneficial_owner_known=beneficial_owner_known,
+            ownership_pct_resolved=ownership_pct_resolved,
+            shell_layers=shell_layers, pep_connection=pep_connection,
+            foreign_ownership_pct=foreign_ownership_pct,
+            foreign_ownership_is_allied=foreign_ownership_is_allied,
+        ),
+        data_quality=DataQuality(
+            has_lei=has_lei, has_cage=has_cage, has_duns=has_duns,
+            has_tax_id=has_tax_id, has_audited_financials=has_audited_financials,
+            years_of_records=years_of_records,
+        ),
+        exec_profile=ExecProfile(
+            known_execs=known_execs, adverse_media=adverse_media,
+            pep_execs=pep_execs, litigation_history=litigation_history,
+        ),
+        dod=DoDContext(sensitivity=sensitivity, supply_chain_tier=supply_chain_tier),
+    )
+
+
+def run_pipeline_validation() -> int:
+    """
+    Validate the full Layer 1 -> Layer 2 pipeline.
+    Tests regulatory gates feeding into scoring engine with hardcoded scenarios.
+    Uses tier-LEVEL matching (TIER_1/2/3/4) not exact sub-tier strings.
+    """
+    print("\n" + "=" * 100)
+    print("LAYER 1 -> LAYER 2 PIPELINE VALIDATION")
+    print("=" * 100 + "\n")
+
+    pipeline_cases = []
+
+    # ── Case 1: Section 889 entity (Huawei) -> NON_COMPLIANT -> TIER_1 ──
+    pipeline_cases.append({
+        "name": "Section 889 Entity (Huawei)",
+        "gate_input": RegulatoryGateInput(
+            entity_name="Huawei Technologies",
+            entity_country="CN",
+            section_889=Section889Input(entity_name="Huawei Technologies"),
+            ndaa_1260h=NDAA1260HInput(entity_name="Huawei Technologies"),
+        ),
+        "vendor": _make_vendor("Huawei Technologies", "CN",
+                               state_owned=True, foreign_ownership_is_allied=False),
+        "expected_status": "NON_COMPLIANT",
+        "expected_tier_level": 1,
+    })
+
+    # ── Case 2: Clean US vendor -> COMPLIANT -> TIER_4 ──
+    pipeline_cases.append({
+        "name": "Clean US Vendor (Lockheed Martin)",
+        "gate_input": _make_clean_gate_input("Lockheed Martin", "US"),
+        "vendor": _make_vendor("Lockheed Martin", "US", known_execs=50,
+                               years_of_records=20),
+        "expected_status": "COMPLIANT",
+        "expected_tier_level": 4,
+    })
+
+    # ── Case 3: ITAR pending -- Tier 2 sub with ITAR item, no cert -> REQUIRES_REVIEW -> TIER_2 ──
+    # A Tier 2+ supplier handling ITAR items without compliance cert triggers PENDING.
+    case3_gate = _make_clean_gate_input("Precision Aero Components", "US")
+    case3_gate.supply_chain_tier = 2  # Tier 2 sub -- gate engine copies this to itar sub-input
+    case3_gate.itar = ITARInput(
+        item_is_itar_controlled=True,
+        entity_has_itar_compliance_certification=False,
+        entity_manufacturing_process_certified=False,
+        entity_nationality_of_control="US",
+        entity_foci_status="NOT_APPLICABLE",
+    )
+    pipeline_cases.append({
+        "name": "ITAR Pending (Tier 2 Sub, no cert)",
+        "gate_input": case3_gate,
+        "vendor": _make_vendor("Precision Aero Components", "US",
+                               publicly_traded=False, years_of_records=8,
+                               known_execs=10, supply_chain_tier=2),
+        "expected_status": "REQUIRES_REVIEW",
+        "expected_tier_level": 2,
+    })
+
+    # ── Case 4: NDAA 1260H entity (AVIC) -> NON_COMPLIANT -> TIER_1 ──
+    pipeline_cases.append({
+        "name": "NDAA 1260H Entity (AVIC)",
+        "gate_input": RegulatoryGateInput(
+            entity_name="Aviation Industry Corporation of China",
+            entity_country="CN",
+            section_889=Section889Input(
+                entity_name="Aviation Industry Corporation of China"),
+            ndaa_1260h=NDAA1260HInput(
+                entity_name="Aviation Industry Corporation of China",
+                entity_country="CN"),
+        ),
+        "vendor": _make_vendor("Aviation Industry Corporation of China", "CN",
+                               state_owned=True, foreign_ownership_is_allied=False),
+        "expected_status": "NON_COMPLIANT",
+        "expected_tier_level": 1,
+    })
+
+    # ── Case 5: FOCI concern (allied nation) -> REQUIRES_REVIEW -> TIER_2 ──
+    case5_gate = _make_clean_gate_input("Siemens AG", "DE")
+    case5_gate.foci = FOCIInput(
+        entity_foreign_ownership_pct=0.60,
+        entity_foreign_control_pct=0.40,
+        foreign_controlling_country="DE",
+        entity_foci_mitigation_status="IN_PROGRESS",
+        entity_has_facility_clearance=False,
+        sensitivity="ELEVATED",
+    )
+    pipeline_cases.append({
+        "name": "FOCI Concern (Siemens)",
+        "gate_input": case5_gate,
+        "vendor": _make_vendor("Siemens AG", "DE", sensitivity="ELEVATED",
+                               foreign_ownership_pct=0.60,
+                               foreign_ownership_is_allied=True,
+                               ownership_pct_resolved=0.6, has_cage=False,
+                               years_of_records=30, known_execs=40,
+                               adverse_media=1, litigation_history=2),
+        "expected_status": "REQUIRES_REVIEW",
+        "expected_tier_level": 2,
+    })
+
+    # ── Case 6: Extra hard stops override clean vendor -> TIER_1 ──
+    pipeline_cases.append({
+        "name": "Hard Stops Override (SAM Exclusion)",
+        "gate_input": _make_clean_gate_input("Acme Corp", "US"),
+        "vendor": _make_vendor("Acme Corp", "US", publicly_traded=False,
+                               years_of_records=5, known_execs=5),
+        "expected_status": "COMPLIANT",
+        "expected_tier_level": 1,
+        "extra_hard_stops": [{"trigger": "SAM_EXCLUSION", "source": "SAM.gov"}],
+    })
+
+    # ── Case 7a/7b: Sensitivity escalation ──
+    mid_tier_vendor_commercial = _make_vendor(
+        "Mid-Tier Defense Contractor", "US", sensitivity="COMMERCIAL",
+        publicly_traded=False, has_lei=False, ownership_pct_resolved=0.8,
+        shell_layers=1, foreign_ownership_pct=0.2,
+        years_of_records=8, known_execs=12, adverse_media=1,
+        litigation_history=1,
+    )
+    mid_tier_vendor_critical = _make_vendor(
+        "Mid-Tier Defense Contractor", "US", sensitivity="CRITICAL_SCI",
+        publicly_traded=False, has_lei=False, ownership_pct_resolved=0.8,
+        shell_layers=1, foreign_ownership_pct=0.2,
+        years_of_records=8, known_execs=12, adverse_media=1,
+        litigation_history=1,
+    )
+    mid_gate = _make_clean_gate_input("Mid-Tier Defense Contractor", "US")
+
+    pipeline_cases.append({
+        "name": "Sensitivity: COMMERCIAL (lenient)",
+        "gate_input": mid_gate,
+        "vendor": mid_tier_vendor_commercial,
+        "expected_status": "COMPLIANT",
+        "expected_tier_level": 4,  # COMMERCIAL is lenient
+    })
+    pipeline_cases.append({
+        "name": "Sensitivity: CRITICAL_SCI (strict)",
+        "gate_input": mid_gate,
+        "vendor": mid_tier_vendor_critical,
+        "expected_status": "COMPLIANT",
+        "expected_tier_level_max": 3,  # Must be worse (lower tier number) than COMMERCIAL
+        "sensitivity_compare": True,
+    })
+
+    # ── Run all pipeline cases ──
+    print(f"Running {len(pipeline_cases)} pipeline validation cases...\n")
+    print("-" * 150)
+    print(
+        f"{'Case Name':<45} {'Gate Status':<20} {'Expected':<12} "
+        f"{'Actual Tier':<30} {'Score':<10} {'Match':<8}"
+    )
+    print("-" * 150)
+
+    passed = 0
+    failed = 0
+    failures = []
+    commercial_tier_level = None  # For sensitivity comparison
+
+    for case in pipeline_cases:
+        try:
+            # Evaluate regulatory gates
+            gate_result = evaluate_regulatory_gates(case["gate_input"])
+            regulatory_status = gate_result.status.value
+
+            # Build regulatory_findings from gate details
+            regulatory_findings = []
+            for g in gate_result.failed_gates:
+                regulatory_findings.append({"gate": g.gate_name, "state": "FAIL",
+                                            "details": g.details})
+            for g in gate_result.pending_gates:
+                regulatory_findings.append({"gate": g.gate_name, "state": "PENDING",
+                                            "details": g.details})
+
+            # Score vendor
+            extra_hard_stops = case.get("extra_hard_stops", None)
+            score_result = score_vendor(
+                case["vendor"],
+                regulatory_status=regulatory_status,
+                regulatory_findings=regulatory_findings,
+                extra_hard_stops=extra_hard_stops,
+            )
+
+            actual_tier = score_result.combined_tier
+            actual_score = score_result.calibrated_probability
+            actual_level = tier_to_level(actual_tier)
+
+            # Determine pass/fail
+            if case.get("sensitivity_compare"):
+                # For sensitivity escalation: CRITICAL_SCI level must be <= max
+                tier_match = actual_level <= case["expected_tier_level_max"]
+                expected_str = f"<= TIER_{case['expected_tier_level_max']}"
+                # Also verify it's stricter than COMMERCIAL
+                if commercial_tier_level is not None:
+                    tier_match = tier_match and (actual_level <= commercial_tier_level)
+            else:
+                expected_level = case["expected_tier_level"]
+                tier_match = (actual_level == expected_level)
+                expected_str = f"TIER_{expected_level}"
+
+                # Track commercial tier for comparison
+                if "COMMERCIAL" in case["name"]:
+                    commercial_tier_level = actual_level
+
+            # Check expected regulatory status if specified
+            if "expected_status" in case:
+                status_match = (regulatory_status == case["expected_status"])
+                tier_match = tier_match and status_match
+
+            if tier_match:
+                passed += 1
+                match_str = "PASS"
+            else:
+                failed += 1
+                match_str = "FAIL"
+                failures.append({
+                    "name": case["name"],
+                    "expected": expected_str,
+                    "actual_tier": actual_tier,
+                    "actual_level": actual_level,
+                    "regulatory_status": regulatory_status,
+                    "expected_status": case.get("expected_status", ""),
+                })
+
+            print(
+                f"{case['name']:<45} {regulatory_status:<20} {expected_str:<12} "
+                f"{actual_tier:<30} {actual_score:.3f}     {match_str:<8}"
+            )
+
+        except Exception as e:
+            failed += 1
+            print(f"{case['name']:<45} ERROR: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            failures.append({
+                "name": case["name"],
+                "error": str(e),
+            })
+
+    # Summary
+    print("\n" + "=" * 100)
+    print("PIPELINE VALIDATION SUMMARY")
+    print("=" * 100)
+    print(f"Total Cases:   {len(pipeline_cases)}")
+    print(f"Passed:        {passed}")
+    print(f"Failed:        {failed}")
+
+    if failed > 0:
+        print("\nFailed Cases:")
+        for failure in failures:
+            if "error" in failure:
+                print(f"  - {failure['name']}: ERROR - {failure['error']}")
+            else:
+                print(
+                    f"  - {failure['name']}: expected {failure['expected']}, "
+                    f"got {failure['actual_tier']} (level {failure['actual_level']}) "
+                    f"[gate_status={failure['regulatory_status']}, "
+                    f"expected_status={failure['expected_status']}]"
+                )
+
+    print("\n" + "=" * 100 + "\n")
+
+    return 0 if failed == 0 else 1
+
+
 if __name__ == "__main__":
     csv_path = os.path.join(os.path.dirname(__file__), "validation_cases.csv")
 
@@ -320,5 +632,11 @@ if __name__ == "__main__":
         print(f"ERROR: Validation CSV not found at {csv_path}")
         sys.exit(1)
 
-    exit_code = run_validation(csv_path)
-    sys.exit(exit_code)
+    # Run CSV-based validation
+    csv_exit = run_validation(csv_path)
+
+    # Run pipeline validation
+    pipeline_exit = run_pipeline_validation()
+
+    # Exit with worst code
+    sys.exit(max(csv_exit, pipeline_exit))

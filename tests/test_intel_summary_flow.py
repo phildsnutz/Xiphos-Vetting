@@ -20,8 +20,7 @@ def client(tmp_path, monkeypatch):
     if "server" in sys.modules:
         server = importlib.reload(sys.modules["server"])
     else:
-        import server  # type: ignore
-        server = sys.modules["server"]
+        server = importlib.import_module("server")
 
     server.db.init_db()
     server.db.migrate_intelligence_tables()
@@ -160,6 +159,80 @@ def test_build_report_assigns_stable_finding_ids(monkeypatch):
     assert report_a["findings"][0]["finding_id"]
     assert report_a["findings"][0]["finding_id"] == report_b["findings"][0]["finding_id"]
     assert report_a["report_hash"] == report_b["report_hash"]
+
+
+def test_build_report_includes_evidence_lane_metadata():
+    from osint import EnrichmentResult, Finding
+    from osint import enrichment
+
+    results = [
+        EnrichmentResult(
+            source="sam_gov",
+            vendor_name="Metadata Vendor",
+            findings=[
+                Finding(
+                    source="sam_gov",
+                    category="registration",
+                    title="Active SAM registration",
+                    detail="UEI and CAGE confirmed",
+                    severity="low",
+                    confidence=0.91,
+                    structured_fields={"uei": "ABC123XYZ"},
+                )
+            ],
+            elapsed_ms=7,
+        )
+    ]
+
+    report = enrichment._build_report("Metadata Vendor", "US", results, time.time())
+
+    finding = report["findings"][0]
+    assert finding["source_class"] == "public_connector"
+    assert finding["authority_level"] == "official_registry"
+    assert finding["access_model"] == "public_api"
+    assert finding["structured_fields"]["uei"] == "ABC123XYZ"
+    assert report["connector_status"]["sam_gov"]["authority_level"] == "official_registry"
+    assert report["evidence_lanes"]["authority_levels"]["official_registry"] == 1
+
+
+def test_cached_connector_results_backfill_evidence_metadata(monkeypatch):
+    from osint import enrichment
+
+    class FakeCache:
+        enabled = True
+
+        def get(self, vendor_name, connector_name, country=""):
+            return {
+                "findings": [
+                    {
+                        "source": "sam_gov",
+                        "category": "registration",
+                        "title": "Cached SAM registration",
+                        "detail": "Cached registration hit",
+                        "severity": "low",
+                        "confidence": 0.8,
+                    }
+                ],
+                "identifiers": {"uei": "ABC123"},
+                "relationships": [],
+                "risk_signals": [],
+            }
+
+        def put(self, vendor_name, connector_name, country, result_data):
+            raise AssertionError("cache put should not run on a cache hit")
+
+    class FakeConnector:
+        @staticmethod
+        def enrich(*_args, **_kwargs):
+            raise AssertionError("live connector should not run on a cache hit")
+
+    monkeypatch.setattr(enrichment, "get_cache", lambda: FakeCache())
+
+    result = enrichment._run_connector_cached(FakeConnector, "Metadata Vendor", "US", {}, connector_name="sam_gov")
+
+    assert result.findings[0].source_class == "public_connector"
+    assert result.findings[0].authority_level == "official_registry"
+    assert result.findings[0].access_model == "public_api"
 
 
 def test_event_extraction_normalizes_key_findings():

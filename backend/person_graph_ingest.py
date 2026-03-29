@@ -33,7 +33,6 @@ Usage:
 
 import logging
 import hashlib
-import json
 from datetime import datetime
 from typing import Optional
 
@@ -180,7 +179,6 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
         status = screening_result.screening_status
         matched_lists = screening_result.matched_lists or []
         deemed_export = screening_result.deemed_export
-        composite_score = screening_result.composite_score
         screening_id = screening_result.id
     else:
         name = screening_result.get("person_name", "")
@@ -189,8 +187,11 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
         status = screening_result.get("screening_status", "CLEAR")
         matched_lists = screening_result.get("matched_lists", [])
         deemed_export = screening_result.get("deemed_export")
-        composite_score = screening_result.get("composite_score", 0.0)
         screening_id = screening_result.get("id", "")
+    effective_case_id = case_id or (
+        screening_result.case_id if hasattr(screening_result, 'case_id') else screening_result.get("case_id")
+    )
+    relationship_vendor_id = effective_case_id or ""
 
     if not name:
         logger.warning("Cannot ingest person screening without a name")
@@ -263,6 +264,7 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
                 confidence=CONFIDENCE["nationality"],
                 data_source="person_screening",
                 evidence=f"Declared nationality: {nat_code}",
+                vendor_id=relationship_vendor_id,
             )
             relationships_created += 1
         except Exception:
@@ -300,6 +302,7 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
                 confidence=CONFIDENCE["employer_match"] if status == "PARTIAL_MATCH" else 0.70,
                 data_source="person_screening",
                 evidence=f"{name} employed by {employer}",
+                vendor_id=relationship_vendor_id,
             )
             relationships_created += 1
         except Exception:
@@ -342,6 +345,7 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
                     confidence=min(match_score, 1.0),
                     data_source="ofac_screening",
                     evidence=f"Person {name} matched {matched_name} on {list_name} (score: {match_score:.2f})",
+                    vendor_id=relationship_vendor_id,
                 )
                 relationships_created += 1
             except Exception:
@@ -385,6 +389,7 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
                     confidence=min(match_score, 1.0),
                     data_source="ofac_screening",
                     evidence=f"Employer {employer} matched {matched_name} on {list_name} (score: {match_score:.2f})",
+                    vendor_id=relationship_vendor_id,
                 )
                 relationships_created += 1
             except Exception:
@@ -426,6 +431,7 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
                 confidence=CONFIDENCE["deemed_export"],
                 data_source="deemed_export_eval",
                 evidence=rationale,
+                vendor_id=relationship_vendor_id,
             )
             relationships_created += 1
         except Exception:
@@ -434,11 +440,11 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
     # -----------------------------------------------------------------------
     # 7. Link to case (screened_for)
     # -----------------------------------------------------------------------
-    effective_case_id = case_id or (screening_result.case_id if hasattr(screening_result, 'case_id') else screening_result.get("case_id"))
     if effective_case_id:
+        case_entity_id = f"case:{effective_case_id}"
         # Create case entity if it doesn't exist
         case_entity = er.ResolvedEntity(
-            id=f"case:{effective_case_id}",
+            id=case_entity_id,
             canonical_name=f"Case {effective_case_id}",
             entity_type="case",
             aliases=[],
@@ -451,17 +457,19 @@ def ingest_person_screening(screening_result, case_id: Optional[str] = None) -> 
         try:
             kg.save_entity(case_entity)
             entities_created += 1
+            linked_entity_ids.append(case_entity_id)
         except Exception:
             pass
 
         try:
             kg.save_relationship(
                 source_entity_id=person_id,
-                target_entity_id=f"case:{effective_case_id}",
+                target_entity_id=case_entity_id,
                 rel_type=REL_SCREENED_FOR,
                 confidence=CONFIDENCE["screening_association"],
                 data_source="person_screening",
                 evidence=f"Screened {name} for case {effective_case_id} (status: {status})",
+                vendor_id=relationship_vendor_id,
             )
             relationships_created += 1
         except Exception:

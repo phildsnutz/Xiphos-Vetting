@@ -119,7 +119,7 @@ export function generateDossierHTML(c: VettingCase): string {
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>XIPHOS Dossier: ${esc(c.name)}</title>
+<title>Helios Dossier: ${esc(c.name)}</title>
 <style>
   @page { margin: 1in; size: letter; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -188,7 +188,7 @@ export function generateDossierHTML(c: VettingCase): string {
   </div>
 
   <div class="header">
-    <h1>XIPHOS Vendor Intelligence Dossier</h1>
+    <h1>Helios Vendor Intelligence Dossier</h1>
     <div class="subtitle">Automated risk assessment generated ${now}</div>
     <div class="classification" style="background:${tierColorValue}">
       ${tierLabel}
@@ -232,7 +232,7 @@ export function generateDossierHTML(c: VettingCase): string {
   ${mivHTML}
 
   <div class="footer">
-    <span>XIPHOS Dual-Engine Vendor Vetting System</span>
+    <span>Helios Dual-Engine Vendor Vetting System</span>
     <span>CONFIDENTIAL -- Generated ${now}</span>
   </div>
 </body>

@@ -26,8 +26,32 @@ Date:          March 2026
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional
 from ofac import screen_name, ScreeningResult
+from decision_engine import classify_alert, AlertDisposition
+from compliance_profiles import apply_weight_overrides, get_profile, normalize_profile_id
+
+
+# =============================================================================
+# TIER DISPLAY LABELS: normalized output labels for external consumers
+# =============================================================================
+
+TIER_DISPLAY_LABELS = {
+    "TIER_1_DISQUALIFIED": "BLOCKED",
+    "TIER_1_CRITICAL_CONCERN": "BLOCKED",
+    "TIER_2_ELEVATED": "REVIEW",
+    "TIER_2_ELEVATED_REVIEW": "REVIEW",
+    "TIER_2_CONDITIONAL_ACCEPTABLE": "REVIEW",
+    "TIER_2_HIGH_CONCERN": "REVIEW",
+    "TIER_2_CAUTION": "REVIEW",
+    "TIER_2_CAUTION_COMMERCIAL": "REVIEW",
+    "TIER_3_CONDITIONAL": "WATCH",
+    "TIER_3_CRITICAL_ACCEPTABLE": "WATCH",
+    "TIER_4_STANDARD": "QUALIFIED",
+    "TIER_4_APPROVED": "QUALIFIED",
+    "TIER_4_CRITICAL_QUALIFIED": "QUALIFIED",
+    "TIER_4_CLEAR": "QUALIFIED",
+    "TIER_5_PREFERRED": "APPROVED",
+}
 
 
 # =============================================================================
@@ -92,6 +116,16 @@ ALLIED_NATIONS = {
 
 COMPREHENSIVELY_SANCTIONED = {"RU", "IR", "KP", "SY", "CU"}
 
+SANCTIONS_HARD_STOP_THRESHOLD_DEFAULT = 0.82
+SANCTIONS_HARD_STOP_THRESHOLD_ALLIED_CROSS_COUNTRY = 0.90
+SANCTIONS_SOFT_FLAG_FLOOR = 0.60
+
+STANDALONE_TIER_THRESHOLDS = {
+    "critical_concern": 0.82,
+    "elevated_review": 0.50,
+    "conditional": 0.30,
+}
+
 # ISO 3166 alpha-3 to alpha-2 for common defense countries
 _ALPHA3_TO_ALPHA2 = {
     "USA": "US", "GBR": "GB", "CAN": "CA", "AUS": "AU", "NZL": "NZ",
@@ -109,12 +143,12 @@ def _normalize_country(cc: str) -> str:
     """Normalize country code to 2-letter ISO 3166 alpha-2."""
     cc = cc.strip().upper()
     if len(cc) == 3:
-        return _ALPHA3_TO_ALPHA2.get(cc, cc[:2])
+        return _ALPHA3_TO_ALPHA2.get(cc, cc)
     return cc
 
 
 def geo_risk(cc: str) -> float:
-    return GEO_RISK.get(_normalize_country(cc), 0.30)
+    return GEO_RISK.get(_normalize_country(cc), 0.15)
 
 
 # =============================================================================
@@ -180,6 +214,7 @@ class VendorInputV5:
     data_quality: DataQuality
     exec_profile: ExecProfile
     dod: DoDContext = field(default_factory=DoDContext)
+    compliance_profile: str = "defense_acquisition"
 
 
 # =============================================================================
@@ -347,23 +382,33 @@ TIER_MULTIPLIED_FACTORS = {
 def _compute_ownership_risk(o: OwnershipProfile) -> float:
     """Opacity / structure risk: 0 = transparent, 1 = opaque / risky."""
     r = 0.0
-    if o.state_owned: r += 0.30
-    if not o.beneficial_owner_known: r += 0.25
+    if o.state_owned:
+        r += 0.30
+    if not o.beneficial_owner_known:
+        r += 0.25
     r += (1.0 - o.ownership_pct_resolved) * 0.20
-    if o.shell_layers > 0: r += min(o.shell_layers * 0.10, 0.30)
-    if o.pep_connection: r += 0.15
-    if o.publicly_traded: r -= 0.15
+    if o.shell_layers > 0:
+        r += min(o.shell_layers * 0.10, 0.30)
+    if o.pep_connection:
+        r += 0.15
+    if o.publicly_traded:
+        r -= 0.15
     return max(0.0, min(1.0, r))
 
 
 def _compute_data_quality_risk(d: DataQuality) -> float:
     """Missing KYC data risk: 0 = complete, 1 = severely deficient."""
     missing = 0.0
-    if not d.has_lei: missing += 0.15
-    if not d.has_cage: missing += 0.12
-    if not d.has_duns: missing += 0.10
-    if not d.has_tax_id: missing += 0.15
-    if not d.has_audited_financials: missing += 0.18
+    if not d.has_lei:
+        missing += 0.15
+    if not d.has_cage:
+        missing += 0.12
+    if not d.has_duns:
+        missing += 0.10
+    if not d.has_tax_id:
+        missing += 0.15
+    if not d.has_audited_financials:
+        missing += 0.18
     age = 0.15 if d.years_of_records < 3 else (0.08 if d.years_of_records < 5 else 0.0)
     return min(1.0, missing + age)
 
@@ -395,14 +440,18 @@ def _compute_foreign_ownership_depth(o: OwnershipProfile) -> float:
     if pct == 0.0:
         return 0.0
     if o.foreign_ownership_is_allied:
-        if pct < 0.10: return 0.20
-        if pct < 0.25: return 0.40
+        if pct < 0.10:
+            return 0.20
+        if pct < 0.25:
+            return 0.40
         return 0.50
-    else:
-        if pct < 0.10: return 0.35
-        if pct < 0.25: return 0.55
-        if pct < 0.50: return 0.70
-        return 0.90
+    if pct < 0.10:
+        return 0.35
+    if pct < 0.25:
+        return 0.55
+    if pct < 0.50:
+        return 0.70
+    return 0.90
 
 
 # =============================================================================
@@ -424,7 +473,7 @@ def _evaluate_hard_stops(
 
     # Rule 1: Sanctions match with allied-nation cross-country mitigation
     if screening.matched:
-        sanctions_threshold = 0.82  # v3.0 recalibrated composite threshold
+        sanctions_threshold = SANCTIONS_HARD_STOP_THRESHOLD_DEFAULT
         matched_country = ""
         if screening.matched_entry:
             matched_country = (screening.matched_entry.country or "").upper()
@@ -433,7 +482,7 @@ def _evaluate_hard_stops(
 
         # Allied vendor matching a DIFFERENT country's entry = raise threshold
         if vendor_is_allied and not same_country:
-            sanctions_threshold = 0.90
+            sanctions_threshold = SANCTIONS_HARD_STOP_THRESHOLD_ALLIED_CROSS_COUNTRY
 
         if screening.best_score > sanctions_threshold:
             stops.append({
@@ -502,7 +551,7 @@ def _evaluate_soft_flags(
     cc = country.upper()
 
     # Fuzzy sanctions match (below hard stop, above noise)
-    if screening.matched and 0.60 < screening.best_score <= 0.82:
+    if screening.matched and SANCTIONS_SOFT_FLAG_FLOOR < screening.best_score <= SANCTIONS_HARD_STOP_THRESHOLD_DEFAULT:
         flags.append({
             "trigger": "Fuzzy Sanctions Match",
             "explanation": (
@@ -514,7 +563,7 @@ def _evaluate_soft_flags(
         })
 
     # Allied-nation cross-country near-miss (above 0.82 but below allied threshold 0.90)
-    if screening.matched and 0.82 < screening.best_score <= 0.90:
+    if screening.matched and SANCTIONS_HARD_STOP_THRESHOLD_DEFAULT < screening.best_score <= SANCTIONS_HARD_STOP_THRESHOLD_ALLIED_CROSS_COUNTRY:
         matched_country = ""
         if screening.matched_entry:
             matched_country = (screening.matched_entry.country or "").upper()
@@ -635,15 +684,20 @@ def _factor_description(
     if factor == "geography":
         cc = _normalize_country(inp.country)
         gv = geo_risk(cc)
-        if gv < 0.10: return f"Allied jurisdiction ({cc}) -- minimal geographic risk."
-        if gv < 0.25: return f"Moderate-risk jurisdiction ({cc})."
-        if gv < 0.50: return f"Elevated-risk jurisdiction ({cc})."
+        if gv < 0.10:
+            return f"Allied jurisdiction ({cc}) -- minimal geographic risk."
+        if gv < 0.25:
+            return f"Moderate-risk jurisdiction ({cc})."
+        if gv < 0.50:
+            return f"Elevated-risk jurisdiction ({cc})."
         return f"High-risk / adversarial jurisdiction ({cc})."
     if factor == "ownership":
-        if inp.ownership.state_owned: return "State-owned enterprise."
+        if inp.ownership.state_owned:
+            return "State-owned enterprise."
         if not inp.ownership.beneficial_owner_known:
             return f"Beneficial ownership unresolved ({round(inp.ownership.ownership_pct_resolved * 100)}% traced)."
-        if inp.ownership.publicly_traded: return "Publicly traded -- transparent ownership structure."
+        if inp.ownership.publicly_traded:
+            return "Publicly traded -- transparent ownership structure."
         return f"Private entity, {round(inp.ownership.ownership_pct_resolved * 100)}% ownership resolved."
     if factor == "data_quality":
         gaps = [k for k, v in {
@@ -653,43 +707,58 @@ def _factor_description(
         }.items() if not v]
         return f"Missing identifiers: {', '.join(gaps)}." if gaps else "Complete identifier coverage."
     if factor == "executive":
-        if inp.exec_profile.known_execs == 0: return "No executive data available."
+        if inp.exec_profile.known_execs == 0:
+            return "No executive data available."
         if inp.exec_profile.adverse_media > 0:
             return f"{inp.exec_profile.adverse_media} adverse media hit(s) on {inp.exec_profile.known_execs} executive(s)."
         return f"{inp.exec_profile.known_execs} executive(s) screened -- no adverse findings."
     if factor == "regulatory_gate_proximity":
-        if score < 0.1: return "All regulatory gates PASS cleanly."
-        if score < 0.5: return f"Gate proximity {score:.2f} -- one or more gates PENDING, remediation on track."
+        if score < 0.1:
+            return "All regulatory gates PASS cleanly."
+        if score < 0.5:
+            return f"Gate proximity {score:.2f} -- one or more gates PENDING, remediation on track."
         return f"Gate proximity {score:.2f} -- multiple gates PENDING or approaching failure."
     if factor == "itar_exposure":
-        if score == 0.0: return "Non-ITAR item."
+        if score == 0.0:
+            return "Non-ITAR item."
         return f"ITAR exposure {score:.2f} -- item is ITAR-controlled, Tier {inp.dod.supply_chain_tier} accountability."
     if factor == "ear_control_status":
-        if score == 0.0: return "Not EAR-controlled."
+        if score == 0.0:
+            return "Not EAR-controlled."
         return f"EAR control score {score:.2f} -- dual-use item with foreign content considerations."
     if factor == "foreign_ownership_depth":
         pct = inp.ownership.foreign_ownership_pct
-        if pct == 0.0: return "No foreign ownership detected."
+        if pct == 0.0:
+            return "No foreign ownership detected."
         allied = "allied" if inp.ownership.foreign_ownership_is_allied else "non-allied"
         return f"{pct * 100:.0f}% foreign ownership from {allied} country."
     if factor == "cmmc_readiness":
-        if score == 0.0: return "CMMC not required for this context."
+        if score == 0.0:
+            return "CMMC not required for this context."
         return f"CMMC readiness gap {score:.2f} -- certification distance from program requirement."
     if factor == "single_source_risk":
-        if score < 0.2: return "Multiple qualified alternative suppliers available."
-        if score < 0.6: return f"Limited supplier pool (score {score:.2f})."
+        if score < 0.2:
+            return "Multiple qualified alternative suppliers available."
+        if score < 0.6:
+            return f"Limited supplier pool (score {score:.2f})."
         return f"Single/sole-source critical component (score {score:.2f})."
     if factor == "geopolitical_sector_exposure":
-        if score < 0.2: return "Non-sensitive sector, stable location."
-        if score < 0.6: return f"Moderately sensitive sector (score {score:.2f})."
+        if score < 0.2:
+            return "Non-sensitive sector, stable location."
+        if score < 0.6:
+            return f"Moderately sensitive sector (score {score:.2f})."
         return f"High geopolitical sector exposure (score {score:.2f})."
     if factor == "financial_stability":
-        if score < 0.2: return "Strong financial position."
-        if score < 0.5: return f"Acceptable financial health (score {score:.2f}) -- monitor for deterioration."
+        if score < 0.2:
+            return "Strong financial position."
+        if score < 0.5:
+            return f"Acceptable financial health (score {score:.2f}) -- monitor for deterioration."
         return f"Elevated financial distress (score {score:.2f}) -- business continuity risk."
     if factor == "compliance_history":
-        if score < 0.1: return "Clean compliance record."
-        if score < 0.4: return f"Minor historical violations, resolved (score {score:.2f})."
+        if score < 0.1:
+            return "Clean compliance record."
+        if score < 0.4:
+            return f"Minor historical violations, resolved (score {score:.2f})."
         return f"Pattern of compliance violations (score {score:.2f})."
     return f"Score {score:.2f}."
 
@@ -727,8 +796,9 @@ class ScoringResultV5:
     """Complete output from the v5.0 two-layer scoring engine."""
     # Core probabilistic
     calibrated_probability: float
-    calibrated_tier: str                    # combined_tier from integrate_layers()
+    calibrated_tier: str                    # canonical TIER_* contract used across API/db/tests
     combined_tier: str                      # explicit combined tier field
+    display_tier: str                       # operator-facing label derived from calibrated_tier
     interval_lower: float
     interval_upper: float
     interval_coverage: float               # CI width as proportion of [0,1] range
@@ -754,14 +824,22 @@ class ScoringResultV5:
     regulatory_status: str = "NOT_EVALUATED"
     regulatory_findings: list = field(default_factory=list)
 
+    # Decision Engine (v5.1)
+    alert_disposition: AlertDisposition = None
+
+    # Compliance Profile (v5.2)
+    compliance_profile: str = "defense_acquisition"
+
     # Metadata
-    model_version: str = "5.0-FGAMLogit-DoD-Dual-Vertical"
+    model_version: str = "5.2-FGAMLogit-DoD-ProfileAware"
+    policy_metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "calibrated_probability": self.calibrated_probability,
             "calibrated_tier": self.calibrated_tier,
             "combined_tier": self.combined_tier,
+            "display_tier": self.display_tier,
             "interval_lower": self.interval_lower,
             "interval_upper": self.interval_upper,
             "contributions": self.contributions,
@@ -776,7 +854,9 @@ class ScoringResultV5:
             "supply_chain_tier": self.supply_chain_tier,
             "regulatory_status": self.regulatory_status,
             "regulatory_findings": self.regulatory_findings,
+            "compliance_profile": self.compliance_profile,
             "model_version": self.model_version,
+            "policy": self.policy_metadata,
             "screening": {
                 "matched": self.screening.matched,
                 "best_score": self.screening.best_score,
@@ -785,8 +865,69 @@ class ScoringResultV5:
                 "db_label": self.screening.db_label,
                 "screening_ms": self.screening.screening_ms,
                 "match_details": self.screening.match_details,
+                "policy_basis": self.screening.policy_basis,
             },
+            "alert_disposition": {
+                "category": self.alert_disposition.category,
+                "confidence_band": self.alert_disposition.confidence_band,
+                "recommended_action": self.alert_disposition.recommended_action,
+                "override_risk_weight": self.alert_disposition.override_risk_weight,
+                "explanation": self.alert_disposition.explanation,
+                "classification_factors": self.alert_disposition.classification_factors,
+            } if self.alert_disposition else None,
         }
+
+
+# =============================================================================
+# HELPER FUNCTIONS FOR TIER NORMALIZATION
+# =============================================================================
+
+def _normalize_tier_label(internal_tier: str) -> str:
+    """
+    Map internal tier names to normalized external display labels.
+    Consumers should use these labels instead of internal TIER_N names.
+    """
+    return TIER_DISPLAY_LABELS.get(internal_tier, internal_tier)
+
+
+def _build_scoring_policy_metadata(
+    *,
+    sensitivity: str,
+    profile_id: str,
+    profile_baseline_shift: float,
+    tier_mult: float,
+    regulatory_status: str,
+    screening: ScreeningResult,
+    source_reliability_avg: float,
+    source_reliability_multiplier: float,
+    id_boost: int,
+    n_base: float,
+    n_eff: float,
+) -> dict:
+    metadata = {
+        "mode": "layered" if regulatory_status != "NOT_EVALUATED" else "standalone",
+        "sensitivity": sensitivity,
+        "profile": profile_id,
+        "baseline_logodds": BASELINE_LOGODDS[sensitivity],
+        "profile_baseline_shift": round(profile_baseline_shift, 4),
+        "tier_weight_multiplier": round(tier_mult, 4),
+        "screening": screening.policy_basis,
+        "sanctions_policy": {
+            "hard_stop_threshold_default": SANCTIONS_HARD_STOP_THRESHOLD_DEFAULT,
+            "hard_stop_threshold_allied_cross_country": SANCTIONS_HARD_STOP_THRESHOLD_ALLIED_CROSS_COUNTRY,
+            "soft_flag_floor": SANCTIONS_SOFT_FLAG_FLOOR,
+        },
+        "uncertainty": {
+            "effective_n_base": round(n_base, 4),
+            "source_reliability_avg": round(source_reliability_avg, 4),
+            "source_reliability_multiplier": round(source_reliability_multiplier, 4),
+            "identifier_boost": id_boost,
+            "effective_n_final": round(n_eff, 4),
+        },
+    }
+    if regulatory_status == "NOT_EVALUATED":
+        metadata["standalone_thresholds"] = STANDALONE_TIER_THRESHOLDS
+    return metadata
 
 
 # =============================================================================
@@ -918,7 +1059,7 @@ def _compute_mivs(
         shift = probability - prob_cf
         shift_pp = shift * 100.0
 
-        if abs(shift_pp) >= 1.0:
+        if abs(shift_pp) >= 0.5:
             tier_prob = min(0.90, abs(shift_pp) / 50.0)
             mivs.append({
                 "factor": fname,
@@ -967,15 +1108,25 @@ def score_vendor(
     if extra_hard_stops is None:
         extra_hard_stops = []
 
+    profile_id = normalize_profile_id(inp.compliance_profile)
+
     sensitivity = inp.dod.sensitivity
     if sensitivity not in BASELINE_LOGODDS:
+        import logging
+        logging.getLogger("xiphos").warning(
+            f"Unknown sensitivity tier '{inp.dod.sensitivity}', falling back to COMMERCIAL"
+        )
         sensitivity = "COMMERCIAL"
 
-    # Step 1: Sanctions screening
-    screening = screen_name(inp.name)
+    # Step 1: Sanctions screening with decision engine classification
+    screening = screen_name(inp.name, vendor_country=inp.country)
+    disposition = classify_alert(screening, vendor_country=inp.country)
 
     # Step 2: Compute raw factor scores
-    sanctions_score = screening.best_score if screening.matched else 0.0
+    # v5.1: Use decision engine override_risk_weight instead of raw composite.
+    # This prevents barely-above-threshold matches (0.76) from inflating risk
+    # scores the same way perfect matches (1.0) do.
+    sanctions_score = disposition.override_risk_weight
     geography_score = geo_risk(inp.country)
     ownership_score = _compute_ownership_risk(inp.ownership)
     dq_score = _compute_data_quality_risk(inp.data_quality)
@@ -1004,18 +1155,27 @@ def score_vendor(
     }
 
     # Step 2b: Apply DoD factor priors for unknown values
-    # When a DoD factor is 0.0 and was never explicitly set, use tier-based prior
+    # LIMITATION (L5): Cannot distinguish missing data (unknown factor) from explicit zero (zero risk).
+    # Both cases produce factor_scores[key] == 0.0. When a DoD factor is 0.0, we assume it was
+    # never set and apply the tier-based prior. If a vendor truly has zero risk in a category,
+    # the caller should pass 0.001 (near-zero) instead of 0.0 to avoid prior injection.
     supply_tier = inp.dod.supply_chain_tier
     for dod_factor, tier_priors in DOD_FACTOR_PRIORS.items():
         if factor_scores.get(dod_factor, 0.0) == 0.0:
             prior = tier_priors.get(supply_tier, tier_priors.get(1, 0.15))
             factor_scores[dod_factor] = prior
 
+    # Step 2c: Build profile-aware factor weights
+    # Start with canonical weights for this sensitivity tier, then apply profile overrides
+    base_weights = {fname: FACTOR_WEIGHTS[fname].get(sensitivity, 0.0) for fname in FACTOR_NAMES}
+    profile_config = get_profile(profile_id)
+    adjusted_weights = apply_weight_overrides(base_weights, profile_id)
+
     # Step 3: FGAMLogit log-odds computation with tier weight multiplier
     tier_mult = TIER_WEIGHT_MULTIPLIER.get(supply_tier, 1.0)
-    eta = BASELINE_LOGODDS[sensitivity]
+    eta = BASELINE_LOGODDS[sensitivity] + profile_config.baseline_shift
     for fname, fx in factor_scores.items():
-        w = FACTOR_WEIGHTS[fname].get(sensitivity, 0.0)
+        w = adjusted_weights.get(fname, 0.0)
         # Apply tier multiplier to uncertainty-sensitive factors
         if fname in TIER_MULTIPLIED_FACTORS:
             w *= tier_mult
@@ -1036,15 +1196,19 @@ def score_vendor(
         probability = 1.0
 
     # Step 5: Layer integration -> combined tier
+    # NOTE (L4): NOT_EVALUATED branch is a fallback when Layer 1 (regulatory gates) is skipped.
+    # In normal two-layer operation, regulatory_status is always "COMPLIANT", "NON_COMPLIANT",
+    # or "REQUIRES_REVIEW" from Layer 1. This branch provides a probabilistic-only fallback
+    # for standalone scoring or if Layer 1 is disabled.
     if regulatory_status == "NOT_EVALUATED":
         if stops:
             # Hard stop: categorical disqualification
             combined_tier = "TIER_1_DISQUALIFIED"
-        elif probability >= 0.82:
+        elif probability >= STANDALONE_TIER_THRESHOLDS["critical_concern"]:
             combined_tier = "TIER_1_CRITICAL_CONCERN"
-        elif probability >= 0.50:
+        elif probability >= STANDALONE_TIER_THRESHOLDS["elevated_review"]:
             combined_tier = "TIER_2_ELEVATED_REVIEW"
-        elif probability >= 0.30:
+        elif probability >= STANDALONE_TIER_THRESHOLDS["conditional"]:
             combined_tier = "TIER_3_CONDITIONAL"
         else:
             combined_tier = "TIER_4_CLEAR"
@@ -1063,11 +1227,32 @@ def score_vendor(
     else:
         n_eff = n_base
     # Source reliability modulation: scale n_eff by 0.6x (low reliability) to 1.3x (high reliability)
+    reliability_multiplier = 1.0
     if source_reliability_avg > 0.0:
         # Map reliability 0.45->0.6x, 0.70->1.0x, 0.95->1.3x
-        reliability_multiplier = 0.6 + (source_reliability_avg - 0.45) * (0.7 / 0.5)
+        # Slope: (1.3 - 0.6) / (0.95 - 0.45) = 0.7 / 0.5 = 1.4, but we need 0.70->1.0
+        # Actually: (1.0 - 0.6) / (0.70 - 0.45) = 0.4 / 0.25 = 1.6
+        reliability_multiplier = 0.6 + (source_reliability_avg - 0.45) * 1.6
         reliability_multiplier = max(0.5, min(1.4, reliability_multiplier))
         n_eff *= reliability_multiplier
+
+    # Data quality boost: well-identified vendors with multiple verified identifiers
+    # get a higher n_eff because we have more independent evidence to base the score on.
+    id_boost = 0
+    if inp.data_quality.has_lei:
+        id_boost += 20
+    if inp.data_quality.has_cage:
+        id_boost += 20
+    if inp.data_quality.has_duns:
+        id_boost += 15
+    if inp.data_quality.has_tax_id:
+        id_boost += 10
+    if inp.data_quality.has_audited_financials:
+        id_boost += 15
+    if inp.ownership.publicly_traded:
+        id_boost += 30
+    n_eff += id_boost
+
     ci_lo, ci_hi = _wilson_ci(probability, n_eff)
 
     # Step 7: Per-factor signed contributions
@@ -1181,13 +1366,29 @@ def score_vendor(
 
     recommendation = _program_recommendation(regulatory_status, probability, combined_tier)
 
+    display_tier = _normalize_tier_label(combined_tier)
+    policy_metadata = _build_scoring_policy_metadata(
+        sensitivity=sensitivity,
+        profile_id=profile_id,
+        profile_baseline_shift=profile_config.baseline_shift,
+        tier_mult=tier_mult,
+        regulatory_status=regulatory_status,
+        screening=screening,
+        source_reliability_avg=source_reliability_avg,
+        source_reliability_multiplier=reliability_multiplier,
+        id_boost=id_boost,
+        n_base=n_base,
+        n_eff=n_eff,
+    )
+
     return ScoringResultV5(
         calibrated_probability=round(probability, 4),
         calibrated_tier=combined_tier,
         combined_tier=combined_tier,
+        display_tier=display_tier,
         interval_lower=ci_lo,
         interval_upper=ci_hi,
-        interval_coverage=round(ci_hi - ci_lo, 4),
+        interval_coverage=round(ci_hi - ci_lo, 4),  # Width of CI: smaller = more confident
         contributions=contributions,
         hard_stop_decisions=stops,
         soft_flags=flags,
@@ -1201,7 +1402,10 @@ def score_vendor(
         supply_chain_tier=inp.dod.supply_chain_tier,
         regulatory_status=regulatory_status,
         regulatory_findings=regulatory_findings,
-        model_version="5.0-FGAMLogit-DoD-Dual-Vertical",
+        alert_disposition=disposition,
+        compliance_profile=profile_id,
+        model_version="5.2-FGAMLogit-DoD-ProfileAware",
+        policy_metadata=policy_metadata,
     )
 
 

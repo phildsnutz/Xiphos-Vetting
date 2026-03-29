@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Users, Plus, Shield, Clock, ChevronUp, AlertTriangle, Brain } from "lucide-react";
+import { Users, Plus, Shield, Clock, ChevronUp, AlertTriangle, Brain, MessageSquare, Activity } from "lucide-react";
 import { T, FS } from "@/lib/tokens";
-import { fetchUsers, createUser, fetchAuditLog } from "@/lib/api";
-import type { ApiUser, AuditEntry } from "@/lib/api";
+import { fetchUsers, createUser, fetchAuditLog, fetchBetaFeedback, fetchBetaOpsSummary } from "@/lib/api";
+import type { ApiUser, AuditEntry, BetaFeedbackEntry, BetaOpsSummary } from "@/lib/api";
 import { roleLabel } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 import { AISettings } from "./ai-settings";
@@ -19,9 +19,16 @@ const ROLE_COLORS: Record<string, { color: string; bg: string }> = {
 };
 
 export function AdminPanel({ currentUser }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<"users" | "audit" | "ai">("users");
+  const isAdmin = currentUser.role === "admin";
+  const canViewAudit = currentUser.role === "admin" || currentUser.role === "auditor";
+  const canViewBetaOps = canViewAudit;
+  const canManageUsers = isAdmin;
+  const canManageAI = isAdmin;
+  const [activeTab, setActiveTab] = useState<"users" | "audit" | "beta" | "ai">(isAdmin ? "users" : "audit");
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [betaFeedback, setBetaFeedback] = useState<BetaFeedbackEntry[]>([]);
+  const [betaSummary, setBetaSummary] = useState<BetaOpsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
@@ -37,19 +44,26 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      if (activeTab === "users") {
+      if (activeTab === "users" && canManageUsers) {
         const u = await fetchUsers();
         setUsers(u);
-      } else {
+      } else if (activeTab === "audit" && canViewAudit) {
         const log = await fetchAuditLog(200);
         setAuditLog(log);
+      } else if (activeTab === "beta" && canViewBetaOps) {
+        const [feedback, summary] = await Promise.all([
+          fetchBetaFeedback(100),
+          fetchBetaOpsSummary(168),
+        ]);
+        setBetaFeedback(feedback);
+        setBetaSummary(summary);
       }
     } catch {
       // Permission denied or API error
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, [activeTab, canManageUsers, canViewAudit, canViewBetaOps]);
 
   useEffect(() => {
     void loadData();
@@ -79,8 +93,6 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
     }
   }
 
-  const isAdmin = currentUser.role === "admin";
-
   return (
     <div className="h-full flex flex-col gap-4">
       {/* Header */}
@@ -88,51 +100,72 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
         <div className="flex items-center gap-2">
           <Shield size={16} color={T.accent} />
           <span style={{ fontSize: FS.md, fontWeight: 600, color: T.text }}>
-            System Administration
+            Admin tools
           </span>
         </div>
 
         {/* Tab switcher */}
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => setActiveTab("users")}
-            className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
-            style={{
-              fontSize: FS.sm,
-              border: "none",
-              background: activeTab === "users" ? T.accent + "22" : "transparent",
-              color: activeTab === "users" ? T.accent : T.muted,
-            }}
-          >
-            <Users size={12} />
-            Users
-          </button>
-          <button
-            onClick={() => setActiveTab("audit")}
-            className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
-            style={{
-              fontSize: FS.sm,
-              border: "none",
-              background: activeTab === "audit" ? T.accent + "22" : "transparent",
-              color: activeTab === "audit" ? T.accent : T.muted,
-            }}
-          >
-            <Clock size={12} />
-            Audit Log
-          </button>
-          <button
-            onClick={() => setActiveTab("ai")}
-            className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
-            style={{
-              fontSize: FS.sm,
-              border: "none",
-              background: activeTab === "ai" ? T.accent + "22" : "transparent",
-              color: activeTab === "ai" ? T.accent : T.muted,
-            }}
-          >
-            <Brain size={12} />
-            AI Settings
-          </button>
+          {canManageUsers && (
+            <button
+              onClick={() => setActiveTab("users")}
+              className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
+              style={{
+                fontSize: FS.sm,
+                border: "none",
+                background: activeTab === "users" ? T.accent + "22" : "transparent",
+                color: activeTab === "users" ? T.accent : T.muted,
+              }}
+            >
+              <Users size={12} />
+              Users
+            </button>
+          )}
+          {canViewAudit && (
+            <button
+              onClick={() => setActiveTab("audit")}
+              className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
+              style={{
+                fontSize: FS.sm,
+                border: "none",
+                background: activeTab === "audit" ? T.accent + "22" : "transparent",
+                color: activeTab === "audit" ? T.accent : T.muted,
+              }}
+            >
+              <Clock size={12} />
+              Activity
+            </button>
+          )}
+          {canViewBetaOps && (
+            <button
+              onClick={() => setActiveTab("beta")}
+              className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
+              style={{
+                fontSize: FS.sm,
+                border: "none",
+                background: activeTab === "beta" ? T.accent + "22" : "transparent",
+                color: activeTab === "beta" ? T.accent : T.muted,
+              }}
+            >
+              <MessageSquare size={12} />
+              Beta Ops
+            </button>
+          )}
+          {canManageAI && (
+            <button
+              onClick={() => setActiveTab("ai")}
+              className="inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer"
+              style={{
+                fontSize: FS.sm,
+                border: "none",
+                background: activeTab === "ai" ? T.accent + "22" : "transparent",
+                color: activeTab === "ai" ? T.accent : T.muted,
+              }}
+            >
+              <Brain size={12} />
+              AI Settings
+            </button>
+          )}
         </div>
       </div>
 
@@ -155,7 +188,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
       )}
 
       {/* Users tab */}
-      {activeTab === "users" && (
+      {activeTab === "users" && canManageUsers && (
         <div className="flex-1 flex flex-col gap-3">
           {/* Create user button (admin only) */}
           {isAdmin && (
@@ -171,7 +204,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                 }}
               >
                 {showCreateForm ? <ChevronUp size={12} /> : <Plus size={12} />}
-                {showCreateForm ? "Cancel" : "Create User"}
+                {showCreateForm ? "Cancel" : "Add user"}
               </button>
             </div>
           )}
@@ -185,7 +218,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
               <div className="flex items-center gap-2 mb-3">
                 <Plus size={13} color={T.accent} />
                 <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>
-                  New User
+                  Add user
                 </span>
               </div>
 
@@ -374,15 +407,117 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
         </div>
       )}
 
+      {activeTab === "beta" && canViewBetaOps && (
+        <div className="flex-1 flex flex-col gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {[
+              { label: "Open feedback", value: String(betaSummary?.open_feedback_count ?? 0), color: T.red, bg: T.redBg },
+              { label: "Feedback (24h)", value: String(betaSummary?.feedback_last_24h ?? 0), color: T.accent, bg: `${T.accent}18` },
+              { label: "Tracked events (7d)", value: String(betaSummary?.recent_event_count ?? 0), color: T.green, bg: T.greenBg },
+            ].map((card) => (
+              <div
+                key={card.label}
+                className="rounded-lg p-4"
+                style={{ background: T.surface, border: `1px solid ${T.border}` }}
+              >
+                <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 4 }}>{card.label}</div>
+                <div style={{ fontSize: FS.lg, fontWeight: 700, color: card.color }}>{card.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="flex items-center gap-2 mb-3">
+                <Activity size={13} color={T.accent} />
+                <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>Top beta events</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {(betaSummary?.event_counts ?? []).slice(0, 6).map((item) => (
+                  <div key={item.event_name} className="flex items-center justify-between">
+                    <span style={{ fontSize: FS.sm, color: T.text }}>{item.event_name}</span>
+                    <span style={{ fontSize: FS.sm, color: T.muted }}>{item.count}</span>
+                  </div>
+                ))}
+                {(betaSummary?.event_counts ?? []).length === 0 && (
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>No beta events recorded yet.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare size={13} color={T.accent} />
+                <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>Feedback by lane</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {(betaSummary?.feedback_by_lane ?? []).map((item) => (
+                  <div key={item.workflow_lane ?? "unknown"} className="flex items-center justify-between">
+                    <span style={{ fontSize: FS.sm, color: T.text }}>{item.workflow_lane || "unspecified"}</span>
+                    <span style={{ fontSize: FS.sm, color: T.muted }}>{item.count}</span>
+                  </div>
+                ))}
+                {(betaSummary?.feedback_by_lane ?? []).length === 0 && (
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>No lane-specific feedback recorded yet.</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg overflow-hidden" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: `1px solid ${T.border}` }}>
+              <div className="flex items-center gap-2">
+                <MessageSquare size={13} color={T.accent} />
+                <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>Recent beta feedback</span>
+              </div>
+              <span style={{ fontSize: FS.sm, color: T.muted }}>{betaFeedback.length} items</span>
+            </div>
+            <div className="divide-y" style={{ borderColor: T.border }}>
+              {betaFeedback.slice(0, 12).map((item) => (
+                <div key={item.id} className="p-4 flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>{item.summary}</span>
+                    <span
+                      className="rounded"
+                      style={{ fontSize: 11, padding: "2px 6px", background: `${T.accent}18`, color: T.accent }}
+                    >
+                      {item.workflow_lane || "unspecified"}
+                    </span>
+                    <span
+                      className="rounded"
+                      style={{ fontSize: 11, padding: "2px 6px", background: item.severity === "high" ? T.redBg : item.severity === "medium" ? T.amberBg : `${T.green}18`, color: item.severity === "high" ? T.red : item.severity === "medium" ? T.amber : T.green }}
+                    >
+                      {item.severity}
+                    </span>
+                    <span style={{ fontSize: FS.sm, color: T.muted }}>{item.category}</span>
+                  </div>
+                  {item.details && (
+                    <div style={{ fontSize: FS.sm, color: T.muted }}>{item.details}</div>
+                  )}
+                  <div style={{ fontSize: FS.sm, color: T.dim }}>
+                    {item.screen || "unknown screen"}{item.case_id ? ` · ${item.case_id}` : ""}{item.user_email ? ` · ${item.user_email}` : ""} · {item.created_at}
+                  </div>
+                </div>
+              ))}
+              {betaFeedback.length === 0 && (
+                <div className="p-4" style={{ fontSize: FS.sm, color: T.muted }}>
+                  No beta feedback submitted yet.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* AI Settings tab */}
-      {activeTab === "ai" && (
+      {activeTab === "ai" && canManageAI && (
         <div className="flex-1">
           <AISettings currentUser={currentUser} />
         </div>
       )}
 
       {/* Audit Log tab */}
-      {activeTab === "audit" && (
+      {activeTab === "audit" && canViewAudit && (
         <div className="flex-1 flex flex-col gap-3">
           <div
             className="rounded-lg overflow-auto flex-1"

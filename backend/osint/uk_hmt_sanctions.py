@@ -31,7 +31,6 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
         # Parse CSV content using proper CSV reader (handles quoted fields with commas)
         reader = csv.reader(io.StringIO(resp.text))
-        vendor_lower = vendor_name.lower()
         vendor_words = [w.lower() for w in vendor_name.split() if len(w) >= 3]
 
         matches = []

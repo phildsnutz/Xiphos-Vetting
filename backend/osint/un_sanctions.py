@@ -14,13 +14,11 @@ This provides a DIRECT check against UN sanctions rather than relying
 on intermediary aggregators, ensuring primary source verification.
 """
 
-import json
 import time
 import urllib.request
 import urllib.error
 import urllib.parse
 import xml.etree.ElementTree as ET
-from typing import Optional
 
 from . import EnrichmentResult, Finding
 

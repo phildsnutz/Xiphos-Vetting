@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { T, FS } from "@/lib/tokens";
+import { CONNECTOR_META as CONNECTOR_INFO } from "@/lib/connectors";
 import {
   Radar, ChevronDown, ChevronRight, ExternalLink, Clock,
   XCircle, Database, Zap, Filter, Brain, Loader2, RefreshCw, GitBranch,
@@ -24,28 +25,9 @@ const SEV = {
 
 type Severity = keyof typeof SEV;
 
-const CONNECTOR_META: Record<string, { label: string; icon: string }> = {
-  trade_csl: { label: "Trade CSL", icon: "shield" },
-  un_sanctions: { label: "UN Sanctions", icon: "shield" },
-  opensanctions_pep: { label: "OpenSanctions PEP", icon: "shield" },
-  worldbank_debarred: { label: "World Bank", icon: "shield" },
-  icij_offshore: { label: "ICIJ Offshore", icon: "search" },
-  gdelt_media: { label: "GDELT Media", icon: "newspaper" },
-  sec_edgar: { label: "SEC EDGAR", icon: "building" },
-  gleif_lei: { label: "GLEIF LEI", icon: "building" },
-  opencorporates: { label: "OpenCorporates", icon: "building" },
-  uk_companies_house: { label: "UK Companies House", icon: "building" },
-  sam_gov: { label: "SAM.gov", icon: "flag" },
-  usaspending: { label: "USASpending", icon: "flag" },
-  epa_echo: { label: "EPA ECHO", icon: "leaf" },
-  osha_safety: { label: "OSHA Safety", icon: "hardhat" },
-  courtlistener: { label: "CourtListener", icon: "gavel" },
-  fdic_bankfind: { label: "FDIC BankFind", icon: "bank" },
-  fara: { label: "DOJ FARA", icon: "shield" },
-};
-
 function connectorLabel(name: string): string {
-  return CONNECTOR_META[name]?.label ?? name;
+  return CONNECTOR_INFO[name as keyof typeof CONNECTOR_INFO]?.label
+    ?? name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function FindingCard({ f }: { f: EnrichmentFinding }) {
@@ -73,29 +55,24 @@ function FindingCard({ f }: { f: EnrichmentFinding }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span
-              className="inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono font-bold uppercase"
-              style={{ fontSize: FS.sm, color: sev.color, background: sev.bg, border: `1px solid ${sev.color}22` }}
+              className="inline-flex items-center rounded-sm px-1.5 py-0.5 font-bold uppercase"
+              style={{ fontSize: 11, color: sev.color, background: sev.bg, border: `1px solid ${sev.color}22`, letterSpacing: "0.03em" }}
             >
               {sev.label}
             </span>
             <span
-              className="font-mono rounded-sm px-1.5 py-0.5"
-              style={{ fontSize: FS.sm, color: T.muted, background: T.raised }}
+              className="rounded-sm px-1.5 py-0.5"
+              style={{ fontSize: 12, color: T.dim, background: T.raised }}
             >
               {connectorLabel(f.source)}
             </span>
             {f.confidence > 0 && (
-              <span className="font-mono" style={{ fontSize: FS.sm, color: T.muted }}>
+              <span style={{ fontSize: 12, color: T.muted }}>
                 {Math.round(f.confidence * 100)}%
               </span>
             )}
-            {f.finding_id && (
-              <span className="font-mono" style={{ fontSize: FS.sm, color: T.muted }}>
-                {f.finding_id.slice(0, 8)}
-              </span>
-            )}
           </div>
-          <div className="mt-1" style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.4 }}>
+          <div className="mt-1" style={{ fontSize: FS.base, color: T.text, lineHeight: 1.5 }}>
             {f.title}
           </div>
         </div>
@@ -186,7 +163,9 @@ function IntelSummarySection({ caseId, report }: { caseId: string; report: Enric
           setStatus(result.status);
           if (result.summary) setSummary(result.summary);
           if (result.job?.id) setJobId(result.job.id);
-          if (result.status === "ready") setLoading(false);
+          if (result.status !== "pending" && result.status !== "running") {
+            setLoading(false);
+          }
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : "Intel summary polling failed");
@@ -207,6 +186,8 @@ function IntelSummarySection({ caseId, report }: { caseId: string; report: Enric
         setLoading(false);
       } else if (result.job?.id || result.job_id) {
         setJobId(result.job?.id ?? result.job_id ?? null);
+      } else if (result.status !== "pending" && result.status !== "running") {
+        setLoading(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Intel summary generation failed");
@@ -561,6 +542,28 @@ export function EnrichmentPanel({ caseId, report, section = "full" }: Enrichment
             </div>
           )}
         </div>
+
+        {/* Cache freshness indicator */}
+        {report.cache_freshness && (() => {
+          const cf = report.cache_freshness;
+          const total = cf.connectors_cached || 0;
+          const fresh = cf.connectors_fresh || 0;
+          const pct = total > 0 ? Math.round((fresh / total) * 100) : 0;
+          const barColor = pct >= 80 ? "#22c55e" : pct >= 50 ? "#eab308" : "#ef4444";
+          const label = pct >= 80 ? "Fresh" : pct >= 50 ? "Partially stale" : "Stale";
+          return (
+            <div className="flex items-center gap-3 mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+              <Clock size={12} color={T.muted} />
+              <span style={{ fontSize: FS.sm, color: T.muted }}>Data freshness:</span>
+              <div className="flex-1 rounded-full overflow-hidden" style={{ height: 6, background: T.raised }}>
+                <div className="rounded-full" style={{ width: `${pct}%`, height: "100%", background: barColor, transition: "width 0.5s ease" }} />
+              </div>
+              <span className="font-mono" style={{ fontSize: FS.sm, color: barColor }}>
+                {fresh}/{total} {label}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       <IntelSummarySection key={`${caseId}-${report.report_hash ?? "none"}`} caseId={caseId} report={report} />
