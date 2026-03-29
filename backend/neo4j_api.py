@@ -40,9 +40,10 @@ def health_check():
     return jsonify(
         {
             "neo4j_available": available,
+            "status": "available" if available else "unavailable",
             "timestamp": datetime.utcnow().isoformat(),
         }
-    ), 200 if available else 503
+    ), 200
 
 
 @neo4j_bp.route("/sync", methods=["POST"])

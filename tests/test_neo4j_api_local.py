@@ -42,9 +42,10 @@ def client(tmp_path, monkeypatch):
 def test_neo4j_health_route_is_registered_without_runtime_config(client):
     response = client.get("/api/neo4j/health")
 
-    assert response.status_code == 503
+    assert response.status_code == 200
     payload = response.get_json()
     assert payload["neo4j_available"] is False
+    assert payload["status"] == "unavailable"
 
 
 def test_neo4j_sync_route_uses_shared_dev_mode_auth(client):

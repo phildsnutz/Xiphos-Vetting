@@ -474,6 +474,20 @@ def _source_display_name(source: str) -> str:
     return SOURCE_DISPLAY_NAMES.get(source, source.replace("_", " ").title())
 
 
+def _summarize_connector_error(error: str) -> str:
+    message = str(error or "").strip()
+    if not message:
+        return "Source unavailable."
+    lowered = message.lower()
+    if "no such file or directory" in lowered:
+        if "/fixtures/" in lowered or "fixtures/" in lowered:
+            return "Fixture unavailable in this deployment."
+        return "Source unavailable in this deployment."
+    if "/app/" in message:
+        return "Source unavailable in this deployment."
+    return message[:80]
+
+
 GRAPH_CONTROL_PATH_RELATIONSHIPS = {
     "backed_by",
     "led_by",
@@ -1447,7 +1461,7 @@ def _generate_executive_summary(
                     <div class="hero-signal-meter"><span style="width: {confidence_pct}%; background: #D4BF89;"></span></div>
                 </div>
                 <div class="hero-signal-card">
-                    <div class="hero-signal-label">Coverage depth</div>
+                    <div class="hero-signal-label">Connector coverage</div>
                     <div class="hero-signal-value">{coverage_pct}%</div>
                     <div class="hero-signal-meter"><span style="width: {coverage_pct}%; background: #7DD3FC;"></span></div>
                 </div>
@@ -2796,7 +2810,7 @@ def _generate_data_freshness(enrichment: Optional[dict], score: dict) -> str:
     for name, status in sorted(connector_status.items()):
         display = _source_display_name(name)
         if status.get("error"):
-            failed.append({"name": display, "error": status["error"][:80]})
+            failed.append({"name": display, "error": _summarize_connector_error(status["error"])})
         else:
             successful.append({
                 "name": display,

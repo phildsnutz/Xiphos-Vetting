@@ -140,6 +140,28 @@ function formatGraphTimestamp(value?: string | null) {
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatCaseHeaderTimestamp(value?: string | null) {
+  if (!value) return "Unknown";
+  const raw = String(value).trim();
+  const candidates = [raw];
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(raw)) {
+    candidates.push(raw.replace(" ", "T"));
+  }
+  for (const candidate of candidates) {
+    const parsed = new Date(candidate);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  }
+  return raw;
+}
+
 function formatPassportPosture(posture?: string | null) {
   if (!posture) return "Pending";
   return posture.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
@@ -2422,12 +2444,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                 )}
                 <span className="inline-flex items-center gap-1" style={{ fontSize: FS.sm, color: T.muted }}>
                   <Clock size={11} />
-                  {(() => {
-                    try {
-                      const d = new Date(c.date.replace(" ", "T"));
-                      return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-                    } catch { return c.date; }
-                  })()}
+                  {formatCaseHeaderTimestamp(c.date)}
                 </span>
               </div>
             </div>

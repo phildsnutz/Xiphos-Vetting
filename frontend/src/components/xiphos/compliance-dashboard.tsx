@@ -40,7 +40,7 @@ interface CounterpartyLane {
   high_risk_vendors: number;
   pending_reviews: number;
   recent_screenings: ScreeningRecord[];
-  risk_trend: Array<{ date: string; counts: Record<string, number> }>;
+  risk_trend: Array<{ date: string; counts?: Record<string, number> | null }>;
   error?: string;
 }
 
@@ -363,16 +363,16 @@ function PostureDistributionChart({ data }: { data: Record<string, number> }) {
 }
 
 // Risk Trend Area Chart
-function RiskTrendChart({ data }: { data: Array<{ date: string; counts: Record<string, number> }> }) {
+function RiskTrendChart({ data }: { data: Array<{ date: string; counts?: Record<string, number> | null }> }) {
   if (data.length === 0) return <p style={{ color: T.muted }} className="text-xs p-4">No trend data available</p>;
 
   const chartData = data.map((item) => ({
     date: new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    BLOCKED: item.counts.BLOCKED || 0,
-    WATCH: item.counts.WATCH || 0,
-    REVIEW: item.counts.REVIEW || 0,
-    QUALIFIED: item.counts.QUALIFIED || 0,
-    APPROVED: item.counts.APPROVED || 0,
+    BLOCKED: item.counts?.BLOCKED ?? 0,
+    WATCH: item.counts?.WATCH ?? 0,
+    REVIEW: item.counts?.REVIEW ?? 0,
+    QUALIFIED: item.counts?.QUALIFIED ?? 0,
+    APPROVED: item.counts?.APPROVED ?? 0,
   }));
 
   return (

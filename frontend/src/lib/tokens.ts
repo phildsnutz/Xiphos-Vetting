@@ -78,8 +78,8 @@ export const FX = {
 } as const;
 
 export const FONTS = {
-  mono: "'JetBrains Mono', 'Fira Code', monospace",
-  sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  mono: '"SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace',
+  sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif',
 } as const;
 
 /**

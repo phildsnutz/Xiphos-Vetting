@@ -233,6 +233,29 @@ def test_dossier_data_freshness_uses_executive_coverage_layout():
     assert "Operational connector log" in html
 
 
+def test_dossier_data_freshness_sanitizes_fixture_path_errors():
+    import dossier
+
+    enrichment = {
+        "enriched_at": "2026-03-22T02:37:40Z",
+        "total_elapsed_ms": 34800,
+        "connector_status": {
+            "mitre_attack_fixture": {
+                "error": "[Errno 2] No such file or directory: '/app/fixtures/standards/mitre_attack_fixture.json'",
+            },
+        },
+    }
+    score = {
+        "calibrated": {
+            "interval": {"lower": 0.21, "upper": 0.35}
+        }
+    }
+
+    html = dossier._generate_data_freshness(enrichment, score)
+    assert "Fixture unavailable in this deployment." in html
+    assert "/app/fixtures/standards/mitre_attack_fixture.json" not in html
+
+
 def test_dossier_executive_summary_includes_signal_strip():
     import dossier
 
@@ -268,7 +291,7 @@ def test_dossier_executive_summary_includes_signal_strip():
     html = dossier._generate_executive_summary(vendor, score, enrichment, monitoring_history=monitoring_history)
     assert "Risk signal" in html
     assert "Assessment confidence" in html
-    assert "Coverage depth" in html
+    assert "Connector coverage" in html
     assert "Recent change" in html
     assert "New findings" in html
     assert "3 new findings" in html
