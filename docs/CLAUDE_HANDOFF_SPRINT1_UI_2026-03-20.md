@@ -66,11 +66,11 @@ Implemented Tickets 1-3 from the HELIOS_UI_IMPLEMENTATION_TICKETS.md spec: colla
 
 ## Demo Credentials
 
-- URL: https://209.38.141.101.sslip.io
-- Admin: tye.gonzalez@gmail.com / 1492Fuckyou!
-- Partner: partner1@xiphosllc.com / gN65OOtFpuXT
+- URL: [internal demo host redacted]
+- Admin: stored in secure local ops notes, not in repo docs
+- Partner: stored in secure local ops notes, not in repo docs
 
-After login, the new 3-tab shell should be visible: Helios (default), Portfolio, Admin.
+After login to the internal demo environment, the new 3-tab shell should be visible: Helios (default), Portfolio, Admin.
 
 ## Questions For The Next Agent
 

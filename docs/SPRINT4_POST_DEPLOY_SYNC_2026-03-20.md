@@ -8,7 +8,7 @@ This note captures the local working-tree changes that were deployed live after 
 
 Live deployment target:
 
-- https://209.38.141.101.sslip.io
+- [internal live environment redacted]
 
 ## Files In Scope
 
@@ -94,4 +94,3 @@ Body:
 - update shipped SPA title to `Helios | Xiphos`
 - rebuild bundled frontend artifact
 - align deploy verification with Sprint 4 UI copy
-
