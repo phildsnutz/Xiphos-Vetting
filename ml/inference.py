@@ -20,16 +20,71 @@ Usage:
 
 import os
 import json
+import importlib.util
 from typing import Optional
+from pathlib import Path
 
 # Lazy-load torch/transformers to avoid import overhead when model isn't available
 _model = None
 _tokenizer = None
 _device = None
 _available: Optional[bool] = None
+_runtime_deps_available: Optional[bool] = None
+_runtime_status_reason: Optional[str] = None
 
-MODEL_DIR = os.environ.get("XIPHOS_ML_MODEL_DIR", "/app/ml/model")
+def _resolve_model_dir() -> str:
+    env_dir = os.environ.get("XIPHOS_ML_MODEL_DIR", "").strip()
+    if env_dir:
+        return env_dir
+
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / "model",
+        here.parent / "ml" / "model",
+        Path("/data/ml/model"),
+        Path("/app/ml/model"),
+    ]
+    for candidate in candidates:
+        if (candidate / "config.json").exists():
+            return str(candidate)
+    return str(candidates[0])
+
+
+MODEL_DIR = _resolve_model_dir()
 CONFIDENCE_THRESHOLD = 0.65  # Below this, fall back to keyword matching
+
+
+def runtime_dependencies_available() -> bool:
+    """Check whether optional ML runtime packages are installed."""
+    global _runtime_deps_available, _runtime_status_reason
+    if _runtime_deps_available is not None:
+        return _runtime_deps_available
+
+    missing = []
+    for module_name in ("torch", "transformers", "safetensors"):
+        if importlib.util.find_spec(module_name) is None:
+            missing.append(module_name)
+
+    _runtime_deps_available = not missing
+    _runtime_status_reason = (
+        "runtime_deps_missing:" + ",".join(missing)
+        if missing
+        else "ready"
+    )
+    return _runtime_deps_available
+
+
+def get_runtime_status() -> dict:
+    """Summarize whether ML inference can run in the current environment."""
+    model_present = os.path.exists(os.path.join(MODEL_DIR, "config.json"))
+    deps_present = runtime_dependencies_available()
+    return {
+        "model_dir": MODEL_DIR,
+        "model_present": model_present,
+        "runtime_deps_available": deps_present,
+        "status": "ready" if model_present and deps_present else "unavailable",
+        "reason": _runtime_status_reason or "unknown",
+    }
 
 
 def is_model_available() -> bool:
@@ -37,7 +92,10 @@ def is_model_available() -> bool:
     global _available
     if _available is not None:
         return _available
-    _available = os.path.exists(os.path.join(MODEL_DIR, "config.json"))
+    _available = (
+        os.path.exists(os.path.join(MODEL_DIR, "config.json"))
+        and runtime_dependencies_available()
+    )
     return _available
 
 
@@ -46,10 +104,18 @@ def _load_model():
     global _model, _tokenizer, _device
 
     if _model is not None:
-        return
+        return True
 
-    import torch
-    from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
+    if not runtime_dependencies_available():
+        return False
+
+    try:
+        import torch
+        from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
+    except ImportError:
+        global _available
+        _available = False
+        return False
 
     # Device selection: MPS > CUDA > CPU
     if torch.backends.mps.is_available():
@@ -63,6 +129,7 @@ def _load_model():
     _model = DistilBertForSequenceClassification.from_pretrained(MODEL_DIR)
     _model.to(_device)
     _model.eval()
+    return True
 
 
 def classify_finding(text: str) -> dict:
@@ -83,7 +150,8 @@ def classify_finding(text: str) -> dict:
     if not is_model_available():
         return {"adverse": False, "confidence": 0.0, "method": "unavailable", "label": "UNKNOWN"}
 
-    _load_model()
+    if not _load_model():
+        return {"adverse": False, "confidence": 0.0, "method": "unavailable", "label": "UNKNOWN"}
 
     import torch
 
@@ -125,7 +193,8 @@ def classify_batch(texts: list[str]) -> list[dict]:
     if not is_model_available() or not texts:
         return [{"adverse": False, "confidence": 0.0, "method": "unavailable", "label": "UNKNOWN"}] * len(texts)
 
-    _load_model()
+    if not _load_model():
+        return [{"adverse": False, "confidence": 0.0, "method": "unavailable", "label": "UNKNOWN"}] * len(texts)
 
     import torch
 

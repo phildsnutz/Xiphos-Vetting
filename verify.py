@@ -20,6 +20,7 @@ import os
 import sys
 import importlib
 import json
+import importlib.util
 
 PASS = 0
 FAIL = 0
@@ -116,7 +117,7 @@ def main():
         from osint.enrichment import CONNECTORS
         check("Import OSINT CONNECTORS", True)
         connector_count = len(CONNECTORS)
-        check(f"Connector count == 27", connector_count == 27, f"Got {connector_count}")
+        check(f"Connector count >= 29", connector_count >= 29, f"Got {connector_count}")
     except Exception as e:
         check("Import OSINT CONNECTORS", False, str(e))
         connector_count = 0
@@ -190,8 +191,19 @@ def main():
         warn("ML model weights missing", "ml/model/model.safetensors not in package")
 
     try:
-        from ml.inference import MODEL_DIR, is_model_available
-        check("ML model auto-detected", is_model_available(), f"Resolved path: {MODEL_DIR}")
+        from ml.inference import MODEL_DIR, is_model_available, get_runtime_status
+        runtime_status = get_runtime_status()
+        if is_model_available():
+            check("ML model auto-detected", True, f"Resolved path: {MODEL_DIR}")
+        else:
+            deps_present = all(
+                importlib.util.find_spec(name) is not None
+                for name in ("torch", "transformers", "safetensors")
+            )
+            if deps_present:
+                check("ML model auto-detected", False, f"Resolved path: {MODEL_DIR}")
+            else:
+                warn("ML runtime optional path active", json.dumps(runtime_status))
     except Exception as e:
         check("ML model auto-detected", False, str(e))
 

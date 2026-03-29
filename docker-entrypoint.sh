@@ -1,9 +1,12 @@
 #!/bin/bash
 set -e
 
-echo "=== Xiphos v2.8 ==="
+echo "=== Xiphos v2.9 ==="
 echo "Data dir: ${XIPHOS_DATA_DIR:-/data}"
+echo "DB engine: ${HELIOS_DB_ENGINE:-sqlite}"
 echo "Auth: ${XIPHOS_AUTH_ENABLED:-false}"
+export XIPHOS_ENABLE_PERIODIC_MONITORING="${XIPHOS_ENABLE_PERIODIC_MONITORING:-true}"
+echo "Periodic monitoring: ${XIPHOS_ENABLE_PERIODIC_MONITORING}"
 
 # Fail fast if auth is enabled without a real signing secret
 if [ "${XIPHOS_AUTH_ENABLED:-false}" = "true" ]; then
@@ -34,5 +37,12 @@ cd /app
 
 echo "Starting gunicorn on :8080..."
 
-# Start gunicorn (1 worker for SQLite safety, increase if moving to PostgreSQL)
-exec gunicorn -c backend/gunicorn.conf.py --bind 0.0.0.0:8080 --chdir backend server:app
+# PostgreSQL can handle concurrent connections; use 2 workers
+if [ "${HELIOS_DB_ENGINE:-sqlite}" = "postgres" ] || [ "${HELIOS_DB_ENGINE:-sqlite}" = "postgresql" ]; then
+    WORKERS=2
+    echo "PostgreSQL detected: using $WORKERS gunicorn workers"
+else
+    WORKERS=1
+    echo "SQLite mode: using 1 gunicorn worker"
+fi
+exec gunicorn -c backend/gunicorn.conf.py --bind 0.0.0.0:8080 --workers $WORKERS --chdir backend server:app

@@ -3,7 +3,7 @@
 Xiphos Helios deploy helper.
 
 This script supports two modes:
-  1. Password or key-based patch deploys via SFTP/SSH
+  1. Password or key-based exact-tree deploys via SSH/SFTP
   2. Post-deploy verification against a live URL
 
 Preferred env names match deploy.sh and deploy-ssl.sh.
@@ -17,19 +17,37 @@ import os
 import pathlib
 import shlex
 import sys
+import tarfile
+import tempfile
 import time
 import warnings
 from typing import Any
 
 warnings.filterwarnings("ignore")
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+CONFIG_DIR = pathlib.Path(os.environ.get("XIPHOS_CONFIG_DIR", "~/.config/xiphos")).expanduser()
+
+
+def _deploy_env_path() -> pathlib.Path | None:
+    explicit = os.environ.get("XIPHOS_DEPLOY_ENV_FILE", "").strip()
+    if explicit:
+        return pathlib.Path(explicit).expanduser()
+
+    secure_path = CONFIG_DIR / "deploy.env"
+    if secure_path.exists():
+        return secure_path
+
+    repo_path = SCRIPT_DIR / "deploy.env"
+    if repo_path.exists():
+        return repo_path
+
+    return secure_path
 
 
 def load_env_file() -> None:
-    env_path = os.environ.get("XIPHOS_DEPLOY_ENV_FILE", "deploy.env").strip()
-    if not env_path:
+    path = _deploy_env_path()
+    if not path:
         return
-
-    path = pathlib.Path(env_path).expanduser()
     if not path.exists():
         return
 
@@ -72,81 +90,33 @@ ADMIN_EMAIL = env("XIPHOS_DEPLOY_ADMIN_EMAIL", "XIPHOS_DEPLOY_LOGIN_EMAIL")
 ADMIN_PASS = env("XIPHOS_DEPLOY_ADMIN_PASSWORD", "XIPHOS_DEPLOY_LOGIN_PASSWORD")
 DOCKER_PORT = env("XIPHOS_DOCKER_PORT", default="8080")
 VERIFY_TLS = env_bool("XIPHOS_DEPLOY_VERIFY_TLS", default=False)
+DEPLOY_SECRET_KEY = env("XIPHOS_SECRET_KEY", "XIPHOS_DEPLOY_SECRET_KEY")
 
 if not APP_URL and SERVER:
     APP_URL = f"http://{SERVER}:{DOCKER_PORT}"
 if not env("XIPHOS_DEPLOY_VERIFY_TLS") and APP_URL.startswith("https://"):
     VERIFY_TLS = True
 
+LOCAL_ROOT = SCRIPT_DIR
+ARCHIVE_EXCLUDES = {
+    ".git",
+    ".env",
+    "node_modules",
+    "frontend/node_modules",
+    "deploy.env",
+    "backups",
+    "vps_snapshot",
+    "memory",
+    "secure-archive",
+    "CODEX_HANDOFF_20260322.md",
+    "var",
+    ".pytest_cache",
+    "__pycache__",
+    ".codex-backups",
+    ".DS_Store",
+}
 
-BACKEND_FILES = [
-    "backend/fgamlogit.py",
-    "backend/server.py",
-    "backend/osint_scoring.py",
-    "backend/entity_resolver.py",
-    "backend/entity_rerank.py",
-    "backend/contract_vehicle_search.py",
-    "backend/regulatory_gates.py",
-    "backend/dossier.py",
-    "backend/dossier_pdf.py",
-    "backend/ai_analysis.py",
-    "backend/osint/enrichment.py",
-    "backend/osint/ofac_sdn.py",
-    "backend/osint/eu_sanctions.py",
-    "backend/osint/sbir_awards.py",
-    "backend/osint/sec_xbrl.py",
-    "backend/osint/uk_hmt_sanctions.py",
-    "backend/osint/google_news.py",
-    "backend/osint/dod_sam_exclusions.py",
-    "backend/osint/gdelt_media.py",
-    "backend/requirements.txt",
-    "Dockerfile",
-    "docker-compose.yml",
-]
-
-FRONTEND_FILES = [
-    "frontend/src/App.tsx",
-    "frontend/src/components/xiphos/helios-landing.tsx",
-    "frontend/src/components/xiphos/case-detail.tsx",
-    "frontend/src/components/xiphos/portfolio-screen.tsx",
-    "frontend/src/components/xiphos/login-screen.tsx",
-    "frontend/src/components/xiphos/admin-panel.tsx",
-    "frontend/src/components/xiphos/action-panel.tsx",
-    "frontend/src/components/xiphos/enrichment-panel.tsx",
-    "frontend/src/components/xiphos/ai-analysis-panel.tsx",
-    "frontend/src/components/xiphos/supply-chain-graph.tsx",
-    "frontend/src/components/xiphos/corporate-tree.tsx",
-    "frontend/src/components/xiphos/case-row.tsx",
-    "frontend/src/components/xiphos/badges.tsx",
-    "frontend/src/components/xiphos/demo-compare.tsx",
-    "frontend/src/components/xiphos/enrichment-stream.tsx",
-    "frontend/src/components/xiphos/charts.tsx",
-    "frontend/src/components/xiphos/gauge.tsx",
-    "frontend/src/components/xiphos/ai-settings.tsx",
-    "frontend/src/lib/api.ts",
-    "frontend/src/lib/scoring.ts",
-    "frontend/src/lib/tokens.ts",
-    "frontend/src/lib/types.ts",
-    "frontend/src/lib/auth.ts",
-    "frontend/src/lib/dossier.ts",
-]
-
-BUNDLE_FILE = "backend/static/index.html"
-
-REMOTE_DELETE_FILES = [
-    "frontend/src/components/xiphos/dashboard-screen.tsx",
-    "frontend/src/components/xiphos/exec-dashboard.tsx",
-    "frontend/src/components/xiphos/portfolio-view.tsx",
-    "frontend/src/components/xiphos/risk-matrix.tsx",
-    "frontend/src/components/xiphos/stat-card.tsx",
-    "frontend/src/components/xiphos/screen-vendor.tsx",
-    "frontend/src/components/xiphos/batch-import.tsx",
-    "frontend/src/components/xiphos/connector-health.tsx",
-    "frontend/src/components/xiphos/onboarding-wizard.tsx",
-    "frontend/src/components/xiphos/profile-compare.tsx",
-]
-
-BUNDLE_MUST_HAVE = ["Helios | Xiphos", "What do you want to assess?", "Create draft cases", "Begin Assessment"]
+BUNDLE_MUST_HAVE = ["Helios | Xiphos", "Create draft cases", "Defense counterparty trust"]
 BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "xiphos-dashboard"]
 
 
@@ -164,7 +134,7 @@ def fail(msg: str, code: int = 2) -> None:
 def require_paramiko():
     try:
         import paramiko  # type: ignore
-    except ModuleNotFoundError as exc:
+    except ModuleNotFoundError:
         fail("deploy.py requires paramiko. Install it with: python3 -m pip install paramiko", code=2)
     return paramiko
 
@@ -244,8 +214,77 @@ def ssh_connect() -> Any:
 
 def run_cmd(ssh: Any, cmd: str, timeout: int = 300) -> tuple[int, str, str]:
     stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    exit_code = stdout.channel.recv_exit_status()
-    return exit_code, stdout.read().decode(), stderr.read().decode()
+    channel = stdout.channel
+    out_chunks: list[bytes] = []
+    err_chunks: list[bytes] = []
+    deadline = time.monotonic() + timeout
+
+    while True:
+        if channel.recv_ready():
+            out_chunks.append(channel.recv(65536))
+        if channel.recv_stderr_ready():
+            err_chunks.append(channel.recv_stderr(65536))
+        if channel.exit_status_ready():
+            while channel.recv_ready():
+                out_chunks.append(channel.recv(65536))
+            while channel.recv_stderr_ready():
+                err_chunks.append(channel.recv_stderr(65536))
+            break
+        if time.monotonic() > deadline:
+            channel.close()
+            raise TimeoutError(f"Remote command timed out after {timeout}s: {cmd}")
+        time.sleep(0.1)
+
+    exit_code = channel.recv_exit_status()
+    return exit_code, b"".join(out_chunks).decode(), b"".join(err_chunks).decode()
+
+
+def cleanup_remote_vendor(vendor_id: str) -> tuple[bool, str]:
+    if not vendor_id:
+        return False, "missing vendor id"
+
+    try:
+        ssh = ssh_connect()
+    except Exception as exc:  # pragma: no cover - deploy helper
+        return False, f"ssh unavailable: {exc}"
+
+    cleanup_code = f"""
+import sqlite3, sys
+sys.path.insert(0, '/app/backend')
+import db
+vendor_id = {vendor_id!r}
+conn = sqlite3.connect(db.get_db_path())
+tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+for table in tables:
+    if table.startswith('sqlite_'):
+        continue
+    cols = [row[1] for row in conn.execute(f"PRAGMA table_info({{table}})").fetchall()]
+    if table == 'vendors':
+        conn.execute("DELETE FROM vendors WHERE id = ?", (vendor_id,))
+        continue
+    if 'vendor_id' in cols:
+        conn.execute(f"DELETE FROM {{table}} WHERE vendor_id = ?", (vendor_id,))
+conn.commit()
+conn.close()
+print('verification vendor cleanup complete')
+""".strip()
+
+    cmd = (
+        f"cd {shlex.quote(REMOTE_DIR)} && "
+        "docker compose exec -T xiphos python3 - <<'PY'\n"
+        f"{cleanup_code}\n"
+        "PY"
+    )
+    try:
+        code, out, err = run_cmd(ssh, cmd, timeout=120)
+    except Exception as exc:  # pragma: no cover - deploy helper
+        return False, str(exc)
+    finally:
+        ssh.close()
+
+    if code != 0:
+        return False, (err or out or "remote cleanup failed").strip()
+    return True, (out or "ok").strip()
 
 
 def ensure_remote_parent(sftp: Any, remote_path: str) -> None:
@@ -261,20 +300,81 @@ def ensure_remote_parent(sftp: Any, remote_path: str) -> None:
             sftp.mkdir(current)
 
 
-def upload_files(ssh: Any, files: list[str], local_base: str = ".") -> int:
+def should_exclude(rel_path: str) -> bool:
+    path = rel_path.strip("./")
+    if not path:
+        return False
+    name = pathlib.PurePosixPath(path).name
+    if name == "deploy.env":
+        return True
+    if name.startswith(".env") and name != ".env.example":
+        return True
+    if name.endswith((".db", ".db-journal", ".db-shm", ".db-wal")):
+        return True
+    parts = path.split("/")
+    for index in range(1, len(parts) + 1):
+        prefix = "/".join(parts[:index])
+        if prefix in ARCHIVE_EXCLUDES:
+            return True
+    return False
+
+
+def create_deploy_archive(backend_only: bool = False) -> pathlib.Path:
+    temp_dir = tempfile.mkdtemp(prefix="xiphos-deploy-")
+    archive_path = pathlib.Path(temp_dir) / "deploy.tar.gz"
+    allowed_backend_roots = {
+        "backend",
+        "ml",
+        "osint",
+        "tests",
+        "Dockerfile",
+        "docker-compose.yml",
+        "docker-entrypoint.sh",
+        "deploy.py",
+        "deploy.sh",
+        "deploy-ssl.sh",
+        "deploy.env.example",
+        "DEPLOY.md",
+        "scripts",
+    }
+    with tarfile.open(archive_path, "w:gz") as tar:
+        for path in sorted(LOCAL_ROOT.rglob("*")):
+            rel_path = path.relative_to(LOCAL_ROOT).as_posix()
+            if should_exclude(rel_path):
+                continue
+            if backend_only:
+                root = rel_path.split("/", 1)[0]
+                if root not in allowed_backend_roots:
+                    continue
+            tar.add(path, arcname=rel_path, recursive=False)
+    return archive_path
+
+
+def resolve_secret_key(ssh: Any) -> str:
+    if DEPLOY_SECRET_KEY:
+        return DEPLOY_SECRET_KEY
+
+    probes = [
+        "docker exec xiphos-xiphos-1 /bin/sh -lc 'printf %s \"$XIPHOS_SECRET_KEY\"' 2>/dev/null || true",
+        f"cd {shlex.quote(REMOTE_DIR)} && if [ -f deploy.env ]; then set -a; . ./deploy.env; set +a; fi; "
+        "if [ -f .env ]; then set -a; . ./.env; set +a; fi; printf %s \"${XIPHOS_SECRET_KEY:-}\"",
+    ]
+    for probe in probes:
+        _, out, _ = run_cmd(ssh, probe)
+        value = out.strip()
+        if value:
+            return value
+    fail("Set XIPHOS_SECRET_KEY (or XIPHOS_DEPLOY_SECRET_KEY) before deploying, or keep it available on the live host.")
+
+
+def upload_archive(ssh: Any, archive_path: pathlib.Path) -> str:
+    remote_archive = f"/tmp/{archive_path.name}"
     sftp = ssh.open_sftp()
-    uploaded = 0
-    for rel_path in files:
-        local = pathlib.Path(local_base) / rel_path
-        remote = f"{REMOTE_DIR}/{rel_path}"
-        try:
-            ensure_remote_parent(sftp, remote)
-            sftp.put(str(local), remote)
-            uploaded += 1
-        except Exception as exc:  # pragma: no cover - deploy helper
-            print(f"  WARN: Failed to upload {rel_path}: {exc}")
-    sftp.close()
-    return uploaded
+    try:
+        sftp.put(str(archive_path), remote_archive)
+    finally:
+        sftp.close()
+    return remote_archive
 
 
 def ensure_env(require_auth: bool = False) -> None:
@@ -297,52 +397,65 @@ def deploy(args: argparse.Namespace) -> None:
     ensure_env()
     ssh = ssh_connect()
 
-    step("UPLOADING FILES")
-    all_files = BACKEND_FILES + ([] if args.backend_only else FRONTEND_FILES)
-    count = upload_files(ssh, all_files)
-    print(f"  Uploaded {count}/{len(all_files)} files")
+    secret_key = resolve_secret_key(ssh)
 
-    if not args.backend_only:
-        step("DEPLOYING FRONTEND BUNDLE")
-        sftp = ssh.open_sftp()
+    step("BUILDING DEPLOY ARCHIVE")
+    archive_path = create_deploy_archive(backend_only=args.backend_only)
+    print(f"  Built {archive_path.name}")
+
+    try:
+        step("UPLOADING EXACT TREE")
+        remote_archive = upload_archive(ssh, archive_path)
+        print(f"  Uploaded archive to {remote_archive}")
+
+        temp_unpack = f"/tmp/xiphos-deploy-{int(time.time())}"
+        sync_cmd = (
+            f"mkdir -p {shlex.quote(REMOTE_DIR)} {shlex.quote(temp_unpack)} && "
+            f"tar -xzf {shlex.quote(remote_archive)} -C {shlex.quote(temp_unpack)} && "
+            f"find {shlex.quote(REMOTE_DIR)} -mindepth 1 -maxdepth 1 "
+            "! -name .git ! -name deploy.env ! -name .env "
+            "! -name backups ! -name vps_snapshot ! -name var "
+            "-exec rm -rf {} + && "
+            f"cp -a {shlex.quote(temp_unpack)}/. {shlex.quote(REMOTE_DIR)}/ && "
+            f"rm -rf {shlex.quote(temp_unpack)} {shlex.quote(remote_archive)}"
+        )
+        code, out, err = run_cmd(ssh, sync_cmd, timeout=600)
+        if code != 0:
+            print(out or err)
+            ssh.close()
+            sys.exit(1)
+        print("  Remote tree synchronized")
+
+        step("REBUILDING DOCKER")
+        rebuild_cmd = (
+            f"cd {shlex.quote(REMOTE_DIR)} && "
+            f"export XIPHOS_SECRET_KEY={shlex.quote(secret_key)} && "
+            "export DOCKER_BUILDKIT=0 && "
+            "docker build --no-cache -t xiphos-xiphos . 2>&1"
+        )
+        code, out, err = run_cmd(ssh, rebuild_cmd, timeout=900)
+        if code == 0:
+            print("  Docker build OK")
+        else:
+            print(out or err)
+            ssh.close()
+            sys.exit(1)
+
+        step("RESTARTING CONTAINER")
+        restart_cmd = (
+            f"cd {shlex.quote(REMOTE_DIR)} && "
+            f"export XIPHOS_SECRET_KEY={shlex.quote(secret_key)} && "
+            "docker compose up -d --no-build 2>&1"
+        )
+        _, out, err = run_cmd(ssh, restart_cmd, timeout=180)
+        print((out or err).strip().splitlines()[-1])
+    finally:
         try:
-            ensure_remote_parent(sftp, f"{REMOTE_DIR}/{BUNDLE_FILE}")
-            sftp.put(BUNDLE_FILE, f"{REMOTE_DIR}/{BUNDLE_FILE}")
-            print(f"  Uploaded pre-built bundle ({BUNDLE_FILE})")
-        except Exception as exc:  # pragma: no cover - deploy helper
-            print(f"  WARN: Bundle upload failed ({exc}), building on server...")
-            code, out, err = run_cmd(ssh, f"cd {shlex.quote(REMOTE_DIR)}/frontend && npm run build 2>&1", timeout=240)
-            if code != 0 or "error TS" in out:
-                print("  FAILED: TypeScript/server-side build errors:")
-                print(out or err)
-                ssh.close()
-                sys.exit(1)
-            print("  Frontend build OK (server-side)")
-        finally:
-            sftp.close()
-
-        step("VERIFYING BUNDLE OUTPUT")
-        _, out, _ = run_cmd(ssh, f"wc -c {shlex.quote(f'{REMOTE_DIR}/{BUNDLE_FILE}')}")
-        print(f"  Bundle: {out.strip()}")
-
-        step("CLEANING DEAD COMPONENTS")
-        for dead_file in REMOTE_DELETE_FILES:
-            run_cmd(ssh, f"rm -f {shlex.quote(f'{REMOTE_DIR}/{dead_file}')}")
-        print(f"  Removed {len(REMOTE_DELETE_FILES)} obsolete component files")
-
-    step("REBUILDING DOCKER")
-    code, out, err = run_cmd(ssh, f"cd {shlex.quote(REMOTE_DIR)} && docker compose build --no-cache xiphos 2>&1", timeout=600)
-    if code == 0:
-        print("  Docker build OK")
-    else:
-        print(out or err)
+            archive_path.unlink(missing_ok=True)
+            archive_path.parent.rmdir()
+        except OSError:
+            pass
         ssh.close()
-        sys.exit(1)
-
-    step("RESTARTING CONTAINER")
-    _, out, err = run_cmd(ssh, f"cd {shlex.quote(REMOTE_DIR)} && docker compose up -d 2>&1", timeout=120)
-    print((out or err).strip().splitlines()[-1])
-    ssh.close()
 
     print("\n  Waiting 8s for startup...")
     time.sleep(8)
@@ -354,20 +467,35 @@ def verify() -> None:
     ensure_env()
     step("POST-DEPLOY VERIFICATION")
     issues: list[str] = []
+    verify_case_id = ""
 
     ssh = ssh_connect()
-    _, out, _ = run_cmd(ssh, f"cd {shlex.quote(REMOTE_DIR)} && docker compose ps --format json")
-    if "healthy" in out.lower():
-        print("  PASS: Container healthy")
+    secret_key = resolve_secret_key(ssh)
+    compose_prefix = f"cd {shlex.quote(REMOTE_DIR)} && export XIPHOS_SECRET_KEY={shlex.quote(secret_key)} && "
+
+    health_deadline = time.monotonic() + 45
+    container_status = ""
+    while time.monotonic() < health_deadline:
+        _, out, _ = run_cmd(ssh, f"{compose_prefix}docker compose ps --format json")
+        container_status = out.strip()
+        lowered = container_status.lower()
+        if "healthy" in lowered:
+            print("  PASS: Container healthy")
+            break
+        if "health: starting" not in lowered and "starting" not in lowered:
+            print(f"  FAIL: Container status: {container_status}")
+            issues.append("Container not healthy")
+            break
+        time.sleep(2)
     else:
-        print(f"  FAIL: Container status: {out.strip()}")
+        print(f"  FAIL: Container status: {container_status}")
         issues.append("Container not healthy")
 
     for term in BUNDLE_MUST_HAVE:
         escaped = term.replace('"', '\\"')
         _, out, _ = run_cmd(
             ssh,
-            f"cd {shlex.quote(REMOTE_DIR)} && docker compose exec -T xiphos grep -c \"{escaped}\" /app/backend/static/index.html",
+            f"{compose_prefix}docker compose exec -T xiphos grep -c \"{escaped}\" /app/backend/static/index.html",
         )
         if int((out.strip() or "0")) > 0:
             print(f"  PASS: '{term}' present in bundle")
@@ -379,7 +507,7 @@ def verify() -> None:
         escaped = term.replace('"', '\\"')
         _, out, _ = run_cmd(
             ssh,
-            f"cd {shlex.quote(REMOTE_DIR)} && docker compose exec -T xiphos grep -c \"{escaped}\" /app/backend/static/index.html",
+            f"{compose_prefix}docker compose exec -T xiphos grep -c \"{escaped}\" /app/backend/static/index.html",
         )
         if int((out.strip() or "0")) == 0:
             print(f"  PASS: '{term}' absent from bundle")
@@ -389,35 +517,56 @@ def verify() -> None:
 
     ssh.close()
 
+    external_health_data: dict[str, Any] = {}
     try:
-        health = requests.get(f"{APP_URL}/api/health", verify=VERIFY_TLS, timeout=20)
-        health.raise_for_status()
-        health_data = health.json()
-        connector_count = health_data.get("osint_connector_count", 0)
-        if connector_count == 27:
+        external_deadline = time.monotonic() + 90
+        while True:
+            try:
+                health = requests.get(f"{APP_URL}/api/health", verify=VERIFY_TLS, timeout=20)
+                health.raise_for_status()
+                external_health_data = health.json()
+                break
+            except Exception:
+                if time.monotonic() >= external_deadline:
+                    raise
+                time.sleep(2)
+        connector_count = external_health_data.get("osint_connector_count", 0)
+        if connector_count >= 28:
             print(f"  PASS: {connector_count} connectors")
         else:
-            print(f"  FAIL: {connector_count} connectors (expected 27)")
+            print(f"  FAIL: {connector_count} connectors (expected at least 28)")
             issues.append(f"Connector count mismatch: {connector_count}")
     except Exception as exc:  # pragma: no cover - deploy helper
         print(f"  FAIL: API health check failed: {exc}")
         issues.append(f"API health failed: {exc}")
-        health_data = {}
 
     if not (ADMIN_EMAIL and ADMIN_PASS):
         print("  WARN: Skipping auth-verified API checks (set XIPHOS_DEPLOY_ADMIN_EMAIL/PASSWORD)")
     else:
         try:
-            login = requests.post(
-                f"{APP_URL}/api/auth/login",
-                json={"email": ADMIN_EMAIL, "password": ADMIN_PASS},
-                verify=VERIFY_TLS,
-                timeout=20,
-            )
-            login.raise_for_status()
-            token = login.json().get("token", "")
+            auth_deadline = time.monotonic() + 90
+            token = ""
+            last_auth_exc: Exception | None = None
+            while True:
+                try:
+                    login = requests.post(
+                        f"{APP_URL}/api/auth/login",
+                        json={"email": ADMIN_EMAIL, "password": ADMIN_PASS},
+                        verify=VERIFY_TLS,
+                        timeout=20,
+                    )
+                    login.raise_for_status()
+                    token = login.json().get("token", "")
+                    if token:
+                        break
+                    raise RuntimeError("login succeeded but token missing")
+                except Exception as exc:
+                    last_auth_exc = exc
+                    if time.monotonic() >= auth_deadline:
+                        raise
+                    time.sleep(2)
             if not token:
-                raise RuntimeError("login succeeded but token missing")
+                raise last_auth_exc or RuntimeError("login succeeded but token missing")
 
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
@@ -469,6 +618,7 @@ def verify() -> None:
                 timeout=30,
             )
             if resp.status_code == 201:
+                verify_case_id = resp.json().get("case_id", "")
                 score = resp.json().get("composite_score", -1)
                 print(f"  PASS: Scoring engine (clean vendor: {score}%)")
             else:
@@ -477,6 +627,13 @@ def verify() -> None:
         except Exception as exc:  # pragma: no cover - deploy helper
             print(f"  FAIL: Auth/API verification failed: {exc}")
             issues.append(f"Auth/API verify failed: {exc}")
+        finally:
+            if verify_case_id:
+                cleaned, detail = cleanup_remote_vendor(verify_case_id)
+                if cleaned:
+                    print(f"  PASS: Verification cleanup ({verify_case_id})")
+                else:
+                    print(f"  WARN: Verification cleanup failed for {verify_case_id}: {detail}")
 
     print(f"\n{'=' * 60}")
     if issues:

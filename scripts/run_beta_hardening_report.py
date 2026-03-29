@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -46,6 +47,7 @@ except Exception:  # pragma: no cover - graceful degradation
 HTML_SECTION_CHECKS = {
     "executive_strip": "Recent change",
     "risk_storyline": "Risk Storyline",
+    "supplier_passport": "Supplier passport",
     "ai_brief": "AI Narrative Brief",
     "executive_judgment": "Executive judgment",
 }
@@ -53,6 +55,7 @@ HTML_SECTION_CHECKS = {
 PDF_SECTION_CHECKS = {
     "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
+    "supplier_passport": "SUPPLIER PASSPORT",
     "ai_brief": "AI NARRATIVE BRIEF",
 }
 
@@ -94,6 +97,13 @@ def parse_args() -> argparse.Namespace:
         default=str(ROOT / "docs" / "reports"),
         help="Directory where markdown/json reports should be written",
     )
+    parser.add_argument("--readiness-base-url", default="http://127.0.0.1:8080")
+    parser.add_argument("--readiness-email", default="")
+    parser.add_argument("--readiness-password", default="")
+    parser.add_argument("--readiness-token", default="")
+    parser.add_argument("--readiness-company", action="append", default=[])
+    parser.add_argument("--skip-readiness", action="store_true")
+    parser.add_argument("--skip-prime-time", action="store_true")
     parser.add_argument("--print-json", action="store_true", help="Print the JSON summary to stdout")
     return parser.parse_args()
 
@@ -322,6 +332,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Cases missing monitoring history: {summary['monitoring_missing']}",
         f"- Total warnings: {summary['warning_count']}",
         "",
+        "## Readiness",
+        "",
+        f"- Readiness verdict: **{summary['readiness']['overall_verdict']}**",
+        f"- Readiness report: {summary['readiness']['report_md']}",
+        "",
+        "## Prime Time",
+        "",
+        f"- Prime-time verdict: **{summary['prime_time']['prime_time_verdict']}**",
+        f"- Prime-time report: {summary['prime_time']['report_md']}",
+        "",
         "## Tier Mix",
         "",
     ]
@@ -355,6 +375,76 @@ def render_markdown(summary: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def run_readiness(args: argparse.Namespace) -> dict[str, Any]:
+    if args.skip_readiness:
+        return {
+            "overall_verdict": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+            "steps": [],
+        }
+
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_helios_readiness_report.py"),
+        "--report-dir",
+        str(Path(args.report_dir) / "readiness"),
+        "--print-json",
+        "--base-url",
+        args.readiness_base_url,
+    ]
+    if args.readiness_token:
+        command.extend(["--token", args.readiness_token])
+    else:
+        if args.readiness_email:
+            command.extend(["--email", args.readiness_email])
+        if args.readiness_password:
+            command.extend(["--password", args.readiness_password])
+    for company in args.readiness_company:
+        command.extend(["--company", company])
+    proc = subprocess.run(command, text=True, capture_output=True, cwd=ROOT)
+    if proc.returncode not in {0, 1, 2}:
+        stderr = proc.stderr.strip() or "unknown readiness error"
+        raise RuntimeError(f"helios readiness failed: {stderr}")
+    payload = json.loads(proc.stdout)
+    payload["returncode"] = proc.returncode
+    return payload
+
+
+def run_prime_time(args: argparse.Namespace, readiness: dict[str, Any], report_dir: Path, stamp: str) -> dict[str, Any]:
+    if args.skip_prime_time:
+        return {
+            "prime_time_verdict": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+        }
+    readiness_json = readiness.get("report_json")
+    if not readiness_json:
+        raise RuntimeError("prime-time evaluation requires readiness report_json")
+    output_json = report_dir / f"helios-prime-time-{stamp}.json"
+    output_md = report_dir / f"helios-prime-time-{stamp}.md"
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "evaluate_prime_time_readiness.py"),
+        "--readiness-summary",
+        str(readiness_json),
+        "--output-json",
+        str(output_json),
+        "--output-md",
+        str(output_md),
+        "--print-json",
+    ]
+    proc = subprocess.run(command, text=True, capture_output=True, cwd=ROOT)
+    if proc.returncode not in {0, 1}:
+        stderr = proc.stderr.strip() or "unknown prime-time error"
+        raise RuntimeError(f"prime-time evaluation failed: {stderr}")
+    payload = json.loads(proc.stdout)
+    payload["returncode"] = proc.returncode
+    payload["report_json"] = str(output_json)
+    payload["report_md"] = str(output_md)
+    return payload
+
+
 def main() -> int:
     args = parse_args()
     report_dir = Path(args.report_dir)
@@ -370,8 +460,10 @@ def main() -> int:
 
     results = [run_case(vendor, args.graph_depth) for vendor in vendors]
     summary = build_summary(results, args.graph_depth)
+    summary["readiness"] = run_readiness(args)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    summary["prime_time"] = run_prime_time(args, summary["readiness"], report_dir, stamp)
     json_path = report_dir / f"helios-beta-hardening-report-{stamp}.json"
     md_path = report_dir / f"helios-beta-hardening-report-{stamp}.md"
 
@@ -382,6 +474,12 @@ def main() -> int:
     print(f"Wrote {json_path}")
     if args.print_json:
         print(json.dumps(summary, indent=2))
+    if summary["cases_with_failures"] > 0:
+        return 1
+    if summary["readiness"]["overall_verdict"] != "GO":
+        return 1
+    if summary["prime_time"]["prime_time_verdict"] != "READY":
+        return 1
     return 0
 
 

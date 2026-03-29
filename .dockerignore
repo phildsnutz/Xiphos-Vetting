@@ -10,6 +10,13 @@ var
 logs
 .env
 .env.*
+deploy.env
+backups
+vps_snapshot
+memory
+secure-archive
+CODEX_HANDOFF_20260322.md
+ml/model
 node_modules
 frontend/node_modules
 tests

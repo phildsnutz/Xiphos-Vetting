@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -16,27 +17,131 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT / "backend"
 
 sys.path.insert(0, str(BACKEND_DIR))
-import bulk_ingest  # type: ignore
+import bulk_ingest  # type: ignore  # noqa: E402
 
 
 def normalize_name(name: str) -> str:
-    import re
-
     return re.sub(r"[^A-Z0-9]+", " ", name.upper()).strip()
 
 
+def canonicalize_seed_name(name: str) -> tuple[str, list[str]]:
+    raw_name = str(name or "").strip()
+    if not raw_name:
+        return "", []
+
+    segments = [segment.strip() for segment in re.split(r"\s+\|\s+|\|", raw_name) if segment.strip()]
+    if len(segments) <= 1:
+        return raw_name, []
+
+    canonical_name = segments[0]
+    aliases: list[str] = []
+    seen = {normalize_name(canonical_name)}
+    for segment in segments[1:]:
+        normalized = normalize_name(segment)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        aliases.append(segment)
+    return canonical_name, aliases
+
+
 class TrainingClient(bulk_ingest.HeliosClient):
+    def __init__(self, host: str, email: str, password: str, token: str = ""):
+        self._email = email
+        self._password = password
+        self._token = token
+        super().__init__(host, email, password)
+
+    def _login(self, email: str, password: str):
+        if self._token:
+            self.token = self._token
+            self.session.headers["Authorization"] = f"Bearer {self.token}"
+            return
+        super()._login(email, password)
+
+    def _request(self, method: str, path: str, *, retry_on_401: bool = True, **kwargs) -> requests.Response:
+        request_url = f"{self.host}{path}"
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = self.session.request(method, request_url, **kwargs)
+                if response.status_code == 401 and retry_on_401:
+                    bulk_ingest.log.warning("Training cohort auth expired, re-authenticating and retrying once")
+                    self._login(self._email, self._password)
+                    response = self.session.request(method, request_url, **kwargs)
+                response.raise_for_status()
+                return response
+            except requests.RequestException as exc:
+                last_exc = exc
+                if isinstance(exc, requests.HTTPError):
+                    status_code = getattr(getattr(exc, "response", None), "status_code", 0) or 0
+                    if status_code and status_code not in {429, 500, 502, 503, 504}:
+                        raise
+                if attempt >= 2:
+                    raise
+                bulk_ingest.log.warning(
+                    "Transient request failure on %s %s (%s), retrying %d/2",
+                    method,
+                    path,
+                    str(exc)[:120],
+                    attempt + 1,
+                )
+                time.sleep(0.75 * (attempt + 1))
+        if last_exc:
+            raise last_exc
+        raise RuntimeError(f"Unhandled request failure for {method} {path}")
+
     def list_cases(self, limit: int = 5000) -> list[dict]:
-        response = self.session.get(
-            f"{self.host}/api/cases",
+        response = self._request(
+            "GET",
+            "/api/cases",
             params={"limit": limit},
             timeout=60,
         )
-        response.raise_for_status()
         payload = response.json()
         if isinstance(payload, list):
             return payload
         return payload.get("cases", payload.get("vendors", []))
+
+    def create_case(self, name: str, country: str, *, seed_metadata: dict | None = None) -> dict:
+        canonical_name, aliases = canonicalize_seed_name(name)
+        payload = {
+            "name": canonical_name,
+            "country": country,
+            "program": "standard_industrial",
+            "profile": "defense_acquisition",
+        }
+        merged_seed_metadata = dict(seed_metadata or {})
+        if aliases:
+            merged_seed_metadata.setdefault("raw_name", name)
+            merged_seed_metadata["aliases"] = aliases
+        if merged_seed_metadata:
+            payload["seed_metadata"] = merged_seed_metadata
+        response = self._request(
+            "POST",
+            "/api/cases",
+            json=payload,
+            timeout=30,
+        )
+        return response.json()
+
+    def enrich_and_score(self, case_id: str) -> dict:
+        response = self._request(
+            "POST",
+            f"/api/cases/{case_id}/enrich-and-score",
+            json={},
+            timeout=120,
+        )
+        return response.json()
+
+    def enrich(self, case_id: str) -> dict:
+        response = self._request(
+            "POST",
+            f"/api/cases/{case_id}/enrich",
+            json={},
+            timeout=120,
+        )
+        return response.json()
 
 
 def load_rows(path: Path) -> list[dict]:
@@ -73,7 +178,8 @@ def resolve_case_id(case: dict) -> str:
 
 
 def ensure_case(client: TrainingClient, case_index: dict[str, dict], row: dict) -> tuple[str, str]:
-    normalized = normalize_name(row["name"])
+    canonical_name, aliases = canonicalize_seed_name(row["name"])
+    normalized = normalize_name(canonical_name)
     existing = case_index.get(normalized)
     if row["action"] == "replay":
         if not existing:
@@ -81,11 +187,12 @@ def ensure_case(client: TrainingClient, case_index: dict[str, dict], row: dict) 
         return resolve_case_id(existing), "replay"
     if existing:
         return resolve_case_id(existing), "replay_existing"
-    created = client.create_case(row["name"], row["country"])
+    seed_metadata = {"cohort_name": row["name"]} if aliases else None
+    created = client.create_case(row["name"], row["country"], seed_metadata=seed_metadata)
     case_id = resolve_case_id(created)
     if not case_id:
         raise RuntimeError(f"Create response missing case id for {row['name']}: {created}")
-    case_index[normalized] = {"name": row["name"], "case_id": case_id}
+    case_index[normalized] = {"name": canonical_name, "case_id": case_id}
     return case_id, "create"
 
 

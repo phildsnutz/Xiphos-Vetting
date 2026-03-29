@@ -1,27 +1,70 @@
-version: "3.8"
-
 services:
   xiphos:
     build: .
     ports:
       - "8080:8080"
     volumes:
-      - xiphos-data:/data
+      - ${XIPHOS_DATA_BIND:-xiphos-data}:/data
     environment:
       - XIPHOS_DATA_DIR=/data
       - XIPHOS_CACHE_DIR=/data/cache
       - XIPHOS_AUTH_ENABLED=true
+      - XIPHOS_CORS_ORIGINS=${XIPHOS_CORS_ORIGINS:-}
+      - XIPHOS_ENABLE_PERIODIC_MONITORING=${XIPHOS_ENABLE_PERIODIC_MONITORING:-true}
+      - XIPHOS_ACCESS_TICKET_TTL_SECONDS=${XIPHOS_ACCESS_TICKET_TTL_SECONDS:-120}
       - XIPHOS_SECRET_KEY=${XIPHOS_SECRET_KEY:?Set XIPHOS_SECRET_KEY before running docker compose}
       - XIPHOS_AI_CONFIG_KEY=${XIPHOS_AI_CONFIG_KEY:-}
       - XIPHOS_TOKEN_EXPIRY_HOURS=8
-      - XIPHOS_ML_MODEL_DIR=/app/ml/model
+      - XIPHOS_ML_MODEL_DIR=${XIPHOS_ML_MODEL_DIR:-/data/ml/model}
       - XIPHOS_SAM_API_KEY=${XIPHOS_SAM_API_KEY:-}
+      # PostgreSQL backend
+      - HELIOS_DB_ENGINE=postgres
+      - XIPHOS_PG_URL=postgresql://helios:${HELIOS_PG_PASSWORD:-helios_secure_2026}@postgres:5432/helios
+      # Neo4j Aura (graph intelligence layer)
+      - NEO4J_URI=${NEO4J_URI:-}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 3584M
+          cpus: "1.8"
+        reservations:
+          memory: 1024M
+          cpus: "0.5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
 
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: helios
+      POSTGRES_USER: helios
+      POSTGRES_PASSWORD: ${HELIOS_PG_PASSWORD:-helios_secure_2026}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helios -d helios"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
 volumes:
   xiphos-data:
+  pgdata:

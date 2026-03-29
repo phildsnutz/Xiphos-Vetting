@@ -24,7 +24,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${XIPHOS_DEPLOY_ENV_FILE:-$SCRIPT_DIR/deploy.env}"
+CONFIG_DIR="${XIPHOS_CONFIG_DIR:-$HOME/.config/xiphos}"
+ENV_FILE="${XIPHOS_DEPLOY_ENV_FILE:-}"
+if [ -z "$ENV_FILE" ]; then
+  if [ -f "$CONFIG_DIR/deploy.env" ]; then
+    ENV_FILE="$CONFIG_DIR/deploy.env"
+  else
+    ENV_FILE="$SCRIPT_DIR/deploy.env"
+  fi
+fi
 
 if [ -f "$ENV_FILE" ]; then
   set -a

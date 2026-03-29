@@ -1,10 +1,10 @@
-# Xiphos v2.6 Deployment Guide
+# Xiphos Deployment Guide
 
 ## What's New in v2.6
 
 - **JWT Authentication + RBAC**: Four roles (admin, analyst, auditor, reviewer) with permission-gated endpoints
 - **Audit Logging**: Every authenticated action is logged with who/what/when/where/outcome
-- **27 live OSINT connectors**: Sanctions, ownership, contracts, adverse media, litigation, and regulatory sources
+- **28 live OSINT connectors**: Sanctions, ownership, contracts, adverse media, litigation, and regulatory sources
 - **Tightened ICIJ Matching**: Dual-layer verification eliminates false positives
 - **One-time Admin Bootstrap**: `POST /api/auth/setup` creates the first admin user
 
@@ -86,6 +86,8 @@ For remote deployment, gather these before you start:
 
 Do not commit real deploy credentials. Copy [deploy.env.example](/Users/tyegonzalez/Desktop/Helios-Package%20Merged/deploy.env.example) to `deploy.env`, fill in real values locally, and keep `deploy.env` untracked.
 
+For the minimum pilot security posture and workspace hygiene rules, see [docs/SECURITY_PILOT_CONTROLS_2026-03-23.md](/Users/tyegonzalez/Desktop/Helios-Package%20Merged/docs/SECURITY_PILOT_CONTROLS_2026-03-23.md).
+
 
 ## One-Command Remote Rollout
 
@@ -100,22 +102,24 @@ cp deploy.env.example deploy.env
 
 Notes:
 
-- `deploy.sh` is the main rollout path and now supports SSH aliases via `XIPHOS_DEPLOY_SSH_TARGET`.
-- `deploy.py` is the fallback helper when you only have password-based SSH access or want a patch-style file upload deploy.
+- `deploy.sh` is the main rollout path and now performs an exact-tree sync from your local merged workspace via `rsync`, then rebuilds Docker on the host.
+- `deploy.py` is the fallback helper when you only have password-based SSH access; it now uploads a full deploy archive instead of a hand-maintained patch file list.
 - `deploy-ssl.sh` can still be run independently if the app is already deployed and you only need to provision HTTPS.
+- For rebuilds, make sure `XIPHOS_SECRET_KEY` is available locally in `deploy.env`, or keep the current container running so the deploy helper can reuse the live value automatically.
 
 
 ## Deployment Options
 
-### Option A: Git-Based Remote Rollout (Recommended)
+### Option A: Exact-Tree Remote Rollout (Recommended)
 
-1. Ensure the remote host already has the Helios repo checked out at `XIPHOS_REMOTE_DIR`
+1. Ensure the remote host is reachable over SSH and Docker Compose is installed
 2. Copy `deploy.env.example` to `deploy.env`
 3. Fill in:
    ```bash
    XIPHOS_DEPLOY_SSH_TARGET=prod-xiphos
    XIPHOS_PUBLIC_BASE_URL=https://helios.yourdomain.com
    XIPHOS_DEPLOY_DOMAIN=helios.yourdomain.com
+   XIPHOS_SECRET_KEY=<your-runtime-secret>
    XIPHOS_DEPLOY_ADMIN_EMAIL=admin@yourorg.com
    XIPHOS_DEPLOY_ADMIN_PASSWORD=YourSecurePassword!
    ```
@@ -126,7 +130,7 @@ Notes:
 
 This path:
 
-- pulls the latest code on the remote host
+- syncs the exact local source tree to the remote host
 - rebuilds Docker cleanly
 - optionally provisions HTTPS with Caddy
 - runs post-deploy verification against the live URL

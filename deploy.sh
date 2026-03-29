@@ -8,8 +8,9 @@
 #    2. Fill in SSH target, base URL, and optional admin creds
 #    3. Run ./deploy.sh --with-ssl
 #
-#  The shell deploy path is intended for key-based SSH access or
-#  SSH config aliases. For password-based deploys, use deploy.py.
+#  The shell deploy path performs an exact-tree sync from this local
+#  workspace to the remote host, then rebuilds Docker in place.
+#  For password-based deploys, use deploy.py.
 #
 #  Preferred env:
 #    XIPHOS_DEPLOY_SSH_TARGET     SSH alias or user@host
@@ -25,6 +26,8 @@
 #    XIPHOS_DOCKER_PORT           Exposed app port (default: 8080)
 #    XIPHOS_PUBLIC_BASE_URL       Public app URL
 #    XIPHOS_DEPLOY_APP_URL        Legacy alias for public app URL
+#    XIPHOS_SECRET_KEY            App secret used by docker-compose on rebuild
+#    XIPHOS_DEPLOY_SECRET_KEY     Legacy/special-purpose alias for deploy-only secret
 #    XIPHOS_DEPLOY_ADMIN_EMAIL    Admin/reviewer login for verification
 #    XIPHOS_DEPLOY_ADMIN_PASSWORD Admin/reviewer password for verification
 #    XIPHOS_DEPLOY_LOGIN_EMAIL    Legacy alias for admin email
@@ -41,13 +44,22 @@
 #    --with-ssl       Run deploy-ssl.sh after app rollout
 #    --reset-db       Wipe and recreate the database
 #    --sync           Sync sanctions lists after deploy
+#    --skip-smoke     Skip post-deploy authenticated read-only smoke
 #    --dry-run        Show commands without executing
 # ============================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${XIPHOS_DEPLOY_ENV_FILE:-$SCRIPT_DIR/deploy.env}"
+CONFIG_DIR="${XIPHOS_CONFIG_DIR:-$HOME/.config/xiphos}"
+ENV_FILE="${XIPHOS_DEPLOY_ENV_FILE:-}"
+if [ -z "$ENV_FILE" ]; then
+  if [ -f "$CONFIG_DIR/deploy.env" ]; then
+    ENV_FILE="$CONFIG_DIR/deploy.env"
+  else
+    ENV_FILE="$SCRIPT_DIR/deploy.env"
+  fi
+fi
 
 if [ -f "$ENV_FILE" ]; then
   set -a
@@ -78,6 +90,7 @@ RESET_DB=false
 SYNC_SANCTIONS=false
 DRY_RUN=false
 WITH_SSL=false
+SKIP_SMOKE=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -86,6 +99,7 @@ for arg in "$@"; do
     --verify-only) VERIFY_ONLY=true ;;
     --reset-db) RESET_DB=true ;;
     --sync) SYNC_SANCTIONS=true ;;
+    --skip-smoke) SKIP_SMOKE=true ;;
     --dry-run) DRY_RUN=true ;;
     --with-ssl) WITH_SSL=true ;;
     *) echo "Unknown option: $arg"; exit 1 ;;
@@ -146,6 +160,69 @@ run() {
   remote_exec "$2"
 }
 
+sync_repo() {
+  local rsync_ssh="ssh -o StrictHostKeyChecking=accept-new"
+  if [ -n "$SSH_KEY" ]; then
+    rsync_ssh="$rsync_ssh -i $SSH_KEY"
+  fi
+
+  local -a rsync_excludes=(
+    --exclude '.git'
+    --exclude '.env'
+    --exclude '.env.*'
+    --exclude 'deploy.env'
+    --exclude 'node_modules'
+    --exclude 'frontend/node_modules'
+    --exclude 'backups'
+    --exclude 'vps_snapshot'
+    --exclude 'memory'
+    --exclude 'secure-archive'
+    --exclude 'CODEX_HANDOFF_20260322.md'
+    --exclude 'var'
+    --exclude '.pytest_cache'
+    --exclude '__pycache__'
+    --exclude '.codex-backups'
+    --exclude '.DS_Store'
+  )
+
+  if [ "$DRY_RUN" = true ]; then
+    echo ""
+    echo ">> [dry-run] rsync exact tree to $SSH_TARGET:$REMOTE_DIR"
+    echo "   Source: $SCRIPT_DIR/"
+    return
+  fi
+
+  echo ""
+  echo ">> Syncing exact repo tree to remote..."
+  remote_exec "mkdir -p '$REMOTE_DIR'"
+  rsync -az --delete "${rsync_excludes[@]}" -e "$rsync_ssh" "$SCRIPT_DIR"/ "$SSH_TARGET:$REMOTE_DIR/"
+}
+
+resolve_secret_key() {
+  local secret="${XIPHOS_SECRET_KEY:-${XIPHOS_DEPLOY_SECRET_KEY:-}}"
+  if [ -n "$secret" ]; then
+    export XIPHOS_SECRET_KEY="$secret"
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    export XIPHOS_SECRET_KEY="<dry-run-secret>"
+    return
+  fi
+
+  secret="$(ssh "${SSH_ARGS[@]}" "$SSH_TARGET" "docker exec xiphos-xiphos-1 /bin/sh -lc 'printf %s \"\$XIPHOS_SECRET_KEY\"' 2>/dev/null || true")"
+  if [ -z "$secret" ]; then
+    secret="$(ssh "${SSH_ARGS[@]}" "$SSH_TARGET" "cd '$REMOTE_DIR' && if [ -f deploy.env ]; then set -a; . ./deploy.env; set +a; fi; if [ -f .env ]; then set -a; . ./.env; set +a; fi; printf %s \"\${XIPHOS_SECRET_KEY:-}\"")"
+  fi
+
+  if [ -z "$secret" ]; then
+    echo "Set XIPHOS_SECRET_KEY (or XIPHOS_DEPLOY_SECRET_KEY) before deploying, or ensure the live container already exposes it."
+    exit 1
+  fi
+
+  export XIPHOS_SECRET_KEY="$secret"
+}
+
 verify_local() {
   if [ "$DRY_RUN" = true ]; then
     echo ""
@@ -155,20 +232,60 @@ verify_local() {
   fi
 }
 
-AI_PROVIDER_Q=$(printf '%q' "$AI_PROVIDER")
-AI_MODEL_Q=$(printf '%q' "$AI_MODEL")
-AI_KEY_Q=$(printf '%q' "$AI_KEY")
+smoke_local() {
+  if [ "$SKIP_SMOKE" = true ]; then
+    echo ""
+    echo ">> Skipping authenticated smoke (--skip-smoke)"
+    return
+  fi
 
-REMOTE_AI_SAVE_CMD=$(cat <<EOF
-cd $REMOTE_DIR && docker compose exec -T -e XIPHOS_SCRIPT_PROVIDER=$AI_PROVIDER_Q -e XIPHOS_SCRIPT_MODEL=$AI_MODEL_Q -e XIPHOS_SCRIPT_KEY=$AI_KEY_Q -w /app/backend xiphos python3 -c "from ai_analysis import init_ai_tables, save_ai_config; import os; init_ai_tables(); save_ai_config('__org_default__', os.environ['XIPHOS_SCRIPT_PROVIDER'], os.environ['XIPHOS_SCRIPT_MODEL'], os.environ['XIPHOS_SCRIPT_KEY']); print('  Org AI default saved')"
-EOF
-)
+  if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+    echo ""
+    echo ">> Skipping authenticated smoke (set XIPHOS_DEPLOY_ADMIN_EMAIL/PASSWORD to enable)"
+    return
+  fi
 
-REMOTE_AI_VERIFY_CMD=$(cat <<'EOF'
-cd __REMOTE_DIR__ && docker compose exec -T -w /app/backend xiphos python3 -c "from ai_analysis import init_ai_tables, get_available_providers, get_ai_config; init_ai_tables(); providers = get_available_providers(); print('  AI Providers: ' + ', '.join(p['display_name'] for p in providers)); cfg = get_ai_config('__org_default__'); print('  Org AI Config: ' + (f\"{cfg['provider']}/{cfg['model']}\" if cfg else 'not set'))"
+  if [ "$DRY_RUN" = true ]; then
+    echo ""
+    echo ">> [dry-run] python3 $SCRIPT_DIR/scripts/run_local_smoke.py --base-url $PUBLIC_BASE_URL --email <redacted> --password <redacted> --skip-stream --read-only"
+    return
+  fi
+
+  echo ""
+  echo ">> Running authenticated read-only smoke..."
+  python3 "$SCRIPT_DIR/scripts/run_local_smoke.py" \
+    --base-url "$PUBLIC_BASE_URL" \
+    --email "$ADMIN_EMAIL" \
+    --password "$ADMIN_PASSWORD" \
+    --skip-stream \
+    --read-only
+}
+
+AI_PROVIDER_Q=""
+AI_MODEL_Q=""
+AI_KEY_Q=""
+SECRET_KEY_Q=""
+REMOTE_AI_SAVE_CMD=""
+REMOTE_AI_VERIFY_CMD=""
+
+refresh_remote_ai_cmds() {
+  AI_PROVIDER_Q=$(printf '%q' "$AI_PROVIDER")
+  AI_MODEL_Q=$(printf '%q' "$AI_MODEL")
+  AI_KEY_Q=$(printf '%q' "$AI_KEY")
+  SECRET_KEY_Q=$(printf '%q' "${XIPHOS_SECRET_KEY:-}")
+
+  REMOTE_AI_SAVE_CMD=$(cat <<EOF
+cd $REMOTE_DIR && export XIPHOS_SECRET_KEY=$SECRET_KEY_Q && docker compose exec -T -e XIPHOS_SCRIPT_PROVIDER=$AI_PROVIDER_Q -e XIPHOS_SCRIPT_MODEL=$AI_MODEL_Q -e XIPHOS_SCRIPT_KEY=$AI_KEY_Q -w /app/backend xiphos python3 -c "from ai_analysis import init_ai_tables, save_ai_config; import os; init_ai_tables(); save_ai_config('__org_default__', os.environ['XIPHOS_SCRIPT_PROVIDER'], os.environ['XIPHOS_SCRIPT_MODEL'], os.environ['XIPHOS_SCRIPT_KEY']); print('  Org AI default saved')"
 EOF
-)
-REMOTE_AI_VERIFY_CMD="${REMOTE_AI_VERIFY_CMD/__REMOTE_DIR__/$REMOTE_DIR}"
+  )
+
+  REMOTE_AI_VERIFY_CMD=$(cat <<'EOF'
+cd __REMOTE_DIR__ && export XIPHOS_SECRET_KEY=__SECRET_KEY__ && docker compose exec -T -w /app/backend xiphos python3 -c "from ai_analysis import init_ai_tables, get_available_providers, get_ai_config; init_ai_tables(); providers = get_available_providers(); print('  AI Providers: ' + ', '.join(p['display_name'] for p in providers)); cfg = get_ai_config('__org_default__'); print('  Org AI Config: ' + (f\"{cfg['provider']}/{cfg['model']}\" if cfg else 'not set'))"
+EOF
+  )
+  REMOTE_AI_VERIFY_CMD="${REMOTE_AI_VERIFY_CMD/__REMOTE_DIR__/$REMOTE_DIR}"
+  REMOTE_AI_VERIFY_CMD="${REMOTE_AI_VERIFY_CMD/__SECRET_KEY__/$SECRET_KEY_Q}"
+}
 
 echo "============================================================"
 echo "  XIPHOS DEPLOYMENT"
@@ -181,16 +298,39 @@ if [ "$VERIFY_ONLY" = true ]; then
   exit 0
 fi
 
-run "Pulling latest from Git..." "cd $REMOTE_DIR && git pull --ff-only"
-run "Rebuilding Docker containers..." "cd $REMOTE_DIR && docker compose down && docker compose build --no-cache && docker compose up -d"
+resolve_secret_key
+refresh_remote_ai_cmds
+sync_repo
+run "Stopping existing containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose down"
+run "Building Docker image..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && export DOCKER_BUILDKIT=0 && BUILD_LOG=/tmp/xiphos-build.log && rm -f \$BUILD_LOG && if docker build --no-cache -t xiphos-xiphos . >\$BUILD_LOG 2>&1; then echo '  Docker build OK'; else code=\$?; tail -n 200 \$BUILD_LOG; exit \$code; fi"
+run "Starting containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose up -d --no-build"
+run "Container status..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose ps"
 
-echo ""
-echo ">> Waiting 20s for container startup..."
-if [ "$DRY_RUN" = false ]; then
-  sleep 20
-fi
+REMOTE_HEALTH_WAIT_CMD=$(cat <<EOF
+python3 - <<'PY'
+import json, time, urllib.request
+url = "http://localhost:$DOCKER_PORT/api/health"
+deadline = time.time() + 120
+last_error = ""
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            payload = json.load(resp)
+        print(f"  Version: {payload.get('version', 'unknown')}")
+        print(f"  AI:      {payload.get('ai_enabled', True)}")
+        print(f"  OSINT:   {payload.get('osint_enabled', True)}")
+        print(f"  Vendors: {payload.get('stats', {}).get('vendors', 0)}")
+        raise SystemExit(0)
+    except Exception as exc:
+        last_error = str(exc)
+        time.sleep(2)
+raise SystemExit(f"remote health did not become ready: {last_error}")
+PY
+EOF
+)
 
-run "Checking health..." "curl -sf http://localhost:$DOCKER_PORT/api/health | python3 -c \"import sys,json; d=json.load(sys.stdin); print(f'  Version: {d.get(\\\"version\\\", \\\"unknown\\\")}'); print(f'  AI:      {d.get(\\\"ai_enabled\\\", True)}'); print(f'  OSINT:   {d.get(\\\"osint_enabled\\\", True)}'); print(f'  Vendors: {d.get(\\\"stats\\\", {}).get(\\\"vendors\\\", 0)}')\""
+run "Waiting for remote health..." "$REMOTE_HEALTH_WAIT_CMD"
+smoke_local
 
 if [ "$SKIP_AI" = false ] && [ -n "$AI_KEY" ]; then
   run "Setting org-wide AI default ($AI_PROVIDER/$AI_MODEL)..." "$REMOTE_AI_SAVE_CMD"
@@ -200,11 +340,11 @@ elif [ "$SKIP_AI" = false ]; then
 fi
 
 if [ "$SYNC_SANCTIONS" = true ]; then
-  run "Syncing sanctions lists..." "cd $REMOTE_DIR && docker compose exec -T -w /app/backend xiphos python3 sanctions_sync.py --sources ofac uk eu un"
+  run "Syncing sanctions lists..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose exec -T -w /app/backend xiphos python3 sanctions_sync.py --sources ofac uk eu un"
 fi
 
 if [ "$RESET_DB" = true ]; then
-  run "Resetting database..." "cd $REMOTE_DIR && docker compose exec -T -w /app/backend xiphos python3 -c 'import db, os; path = db.get_db_path(); os.path.exists(path) and os.remove(path); db.init_db(); print(\"  Database reset complete\")'"
+  run "Resetting database..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose exec -T -w /app/backend xiphos python3 -c 'import db, os; path = db.get_db_path(); os.path.exists(path) and os.remove(path); db.init_db(); print(\"  Database reset complete\")'"
 fi
 
 run "Verifying AI/runtime inside the container..." "$REMOTE_AI_VERIFY_CMD"

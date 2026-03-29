@@ -55,6 +55,50 @@ def fail(message: str):
     sys.exit(1)
 
 
+def login_with_retry(base_url: str, email: str, password: str, *, wait_seconds: int, poll_seconds: float = 2.0):
+    deadline = time.monotonic() + max(wait_seconds, 0)
+    last_error: Exception | None = None
+    while True:
+        try:
+            status, _, login = request_json(
+                base_url,
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+                timeout=20,
+            )
+            if status == 200:
+                return login
+            last_error = RuntimeError(f"auth login returned {status}")
+        except Exception as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            if last_error:
+                raise last_error
+            raise RuntimeError("auth login failed")
+        time.sleep(poll_seconds)
+
+
+def wait_for_health(base_url: str, *, headers=None, wait_seconds: int, poll_seconds: float = 2.0):
+    deadline = time.monotonic() + max(wait_seconds, 0)
+    last_error: Exception | None = None
+    while True:
+        try:
+            status, _, health = request_json(base_url, "GET", "/api/health", headers=headers, timeout=20)
+            if status == 200:
+                return health
+            last_error = RuntimeError(f"/api/health returned {status}")
+        except Exception as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            if last_error:
+                raise last_error
+            raise RuntimeError("health check failed")
+        time.sleep(poll_seconds)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a local Xiphos smoke test.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8080")
@@ -62,34 +106,70 @@ def main() -> int:
     parser.add_argument("--password", default="")
     parser.add_argument("--token", default="")
     parser.add_argument("--skip-stream", action="store_true")
+    parser.add_argument("--read-only", action="store_true")
+    parser.add_argument("--wait-for-ready-seconds", type=int, default=0)
     args = parser.parse_args()
 
     headers = {}
     if args.token:
         headers["Authorization"] = f"Bearer {args.token}"
     elif args.email and args.password:
-        status, _, login = request_json(
-            args.base_url,
-            "POST",
-            "/api/auth/login",
-            {"email": args.email, "password": args.password},
-            timeout=20,
-        )
-        if status != 200:
-            fail(f"auth login returned {status}")
+        try:
+            login = login_with_retry(
+                args.base_url,
+                args.email,
+                args.password,
+                wait_seconds=args.wait_for_ready_seconds,
+            )
+        except Exception as exc:
+            fail(f"auth login failed: {exc}")
         headers["Authorization"] = f"Bearer {login['token']}"
 
     print("PASS: starting smoke")
 
-    status, _, health = request_json(args.base_url, "GET", "/api/health", headers=headers, timeout=20)
-    if status != 200:
-        fail(f"/api/health returned {status}")
+    try:
+        health = wait_for_health(
+            args.base_url,
+            headers=headers,
+            wait_seconds=args.wait_for_ready_seconds,
+        )
+    except Exception as exc:
+        fail(f"/api/health failed: {exc}")
     print(f"PASS: health ({health.get('osint_connector_count', 0)} connectors)")
 
     status, _, providers = request_json(args.base_url, "GET", "/api/ai/providers", headers=headers, timeout=20)
     if status != 200 or not providers.get("providers"):
         fail(f"/api/ai/providers returned {status}")
     print("PASS: ai providers")
+
+    if args.read_only:
+        if "Authorization" not in headers:
+            fail("read-only smoke requires auth credentials or token")
+
+        status, _, snapshot = request_json(
+            args.base_url,
+            "GET",
+            "/api/portfolio/snapshot",
+            headers=headers,
+            timeout=30,
+        )
+        if status != 200 or not isinstance(snapshot, dict):
+            fail(f"/api/portfolio/snapshot returned {status}")
+        print("PASS: portfolio snapshot")
+
+        status, _, changes = request_json(
+            args.base_url,
+            "GET",
+            "/api/monitor/changes?limit=1",
+            headers=headers,
+            timeout=30,
+        )
+        if status != 200 or "changes" not in (changes or {}):
+            fail(f"/api/monitor/changes returned {status}")
+        print("PASS: monitor changes")
+
+        print("PASS: read-only smoke complete")
+        return 0
 
     status, _, compare = request_json(
         args.base_url,
@@ -166,6 +246,78 @@ def main() -> int:
     if status != 200 or decisions.get("latest_decision", {}).get("decision") != "approve":
         fail(f"/api/cases/{case_id}/decisions returned {status}")
     print("PASS: decision list")
+
+    status, _, passport = request_json(
+        args.base_url,
+        "GET",
+        f"/api/cases/{case_id}/supplier-passport",
+        headers=headers,
+        timeout=30,
+    )
+    if status != 200 or passport.get("case_id") != case_id or not passport.get("passport_version"):
+        fail(f"/api/cases/{case_id}/supplier-passport returned {status}")
+    print("PASS: supplier passport")
+
+    status, _, assistant_plan = request_json(
+        args.base_url,
+        "POST",
+        f"/api/cases/{case_id}/assistant-plan",
+        {"prompt": "Trace the strongest control path and explain the current risk posture."},
+        headers=headers,
+        timeout=30,
+    )
+    if (
+        status != 200
+        or assistant_plan.get("case_id") != case_id
+        or assistant_plan.get("version") != "ai-control-plane-v1"
+        or not assistant_plan.get("plan")
+    ):
+        fail(f"/api/cases/{case_id}/assistant-plan returned {status}")
+    print("PASS: assistant plan")
+
+    approved_tool_ids = [
+        step["tool_id"]
+        for step in assistant_plan.get("plan", [])
+        if step.get("required")
+    ]
+    status, _, assistant_exec = request_json(
+        args.base_url,
+        "POST",
+        f"/api/cases/{case_id}/assistant-execute",
+        {"prompt": assistant_plan.get("analyst_prompt"), "approved_tool_ids": approved_tool_ids},
+        headers=headers,
+        timeout=30,
+    )
+    if (
+        status != 200
+        or assistant_exec.get("case_id") != case_id
+        or assistant_exec.get("version") != "ai-control-plane-execution-v1"
+        or not assistant_exec.get("executed_steps")
+    ):
+        fail(f"/api/cases/{case_id}/assistant-execute returned {status}")
+    print("PASS: assistant execute")
+
+    status, _, assistant_feedback = request_json(
+        args.base_url,
+        "POST",
+        f"/api/cases/{case_id}/assistant-feedback",
+        {
+            "prompt": assistant_plan.get("analyst_prompt"),
+            "objective": assistant_plan.get("objective"),
+            "verdict": "partial",
+            "feedback_type": "tool_missing",
+            "comment": "Smoke path: capture a structured analyst correction.",
+            "approved_tool_ids": approved_tool_ids,
+            "executed_tool_ids": [step.get("tool_id") for step in assistant_exec.get("executed_steps", [])],
+            "suggested_tool_ids": ["graph_probe"],
+            "anomaly_codes": [item.get("code") for item in assistant_plan.get("anomalies", []) if item.get("code")],
+        },
+        headers=headers,
+        timeout=30,
+    )
+    if status != 201 or assistant_feedback.get("status") != "ok" or not assistant_feedback.get("feedback_id"):
+        fail(f"/api/cases/{case_id}/assistant-feedback returned {status}")
+    print("PASS: assistant feedback")
 
     status, pdf_headers, pdf_bytes = request_bytes(
         args.base_url,

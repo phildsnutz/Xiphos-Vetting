@@ -7,7 +7,7 @@ Replaces keyword matching in Google News and GDELT connectors with ML-based inte
 
 ```bash
 # Install dependencies
-pip3 install torch transformers datasets scikit-learn
+pip3 install -r ml/requirements.txt
 
 # Verify MPS acceleration
 python3 -c "import torch; print('MPS:', torch.backends.mps.is_available())"
@@ -28,16 +28,17 @@ python3 ml/train_classifier.py
 Fine-tunes DistilBERT on your M2 Max (~10-15 minutes). Output: `ml/model/` directory containing the trained model + tokenizer.
 
 ### Step 3: Deploy
-Copy `ml/model/` into the Docker image:
+Copy `ml/model/` to the runtime model path on the host:
 ```bash
-scp -r ml/model/ <deploy-user>@<deploy-host>:/opt/xiphos/ml/model/
+ssh <deploy-user>@<deploy-host> 'mkdir -p /mnt/volume_sfo3_01/xiphos-data/ml'
+scp -r ml/model <deploy-user>@<deploy-host>:/mnt/volume_sfo3_01/xiphos-data/ml/
 ```
 Then rebuild:
 ```bash
 cd /opt/xiphos && docker compose build --no-cache && docker compose up -d
 ```
 
-The inference module auto-detects the model and activates. When no model is present, connectors fall back to keyword matching (current behavior).
+The runtime container no longer bakes the model bundle into the image. By default it looks for a model under `/data/ml/model` (or whatever `XIPHOS_ML_MODEL_DIR` points at). The inference module activates only when both the model files and the optional ML packages are present; otherwise connectors fall back to keyword matching.
 
 ## How It Works
 
