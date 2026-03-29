@@ -1093,12 +1093,13 @@ def build_supplier_passport(
         "enriched_at": (enrichment or {}).get("enriched_at"),
     }
 
+    workflow_lane = _workflow_lane(vendor, cyber_summary=cyber_summary, export_summary=export_summary)
     posture = _passport_posture(score, latest_decision=latest_decision)
     passport = {
         "passport_version": "supplier-passport-v1",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "case_id": case_id,
-        "workflow_lane": _workflow_lane(vendor, cyber_summary=cyber_summary, export_summary=export_summary),
+        "workflow_lane": workflow_lane,
         "posture": posture,
         "vendor": {
             "id": vendor["id"],
@@ -1153,6 +1154,9 @@ def build_supplier_passport(
             cyber_summary=cyber_summary,
             export_summary=export_summary,
             identity=identity,
+            workflow_lane=workflow_lane,
+            ownership_profile=ownership_profile,
+            ownership_summary=ownership_oci_summary,
         ) if mode_settings["include_tribunal"] else {
             "recommended_view": None,
             "recommended_label": "Skipped",

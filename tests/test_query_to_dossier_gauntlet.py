@@ -94,6 +94,12 @@ def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
                         "descriptor_only": True,
                         "owner_class": "Service-Disabled Veteran",
                     },
+                    "expected_tribunal_view": "watch",
+                    "expected_assistant_view": "watch",
+                    "expected_assistant_anomalies": [
+                        "descriptor_only_ownership",
+                        "named_owner_unresolved",
+                    ],
                     "expected_dossier_fragments": [
                         "Descriptor-only ownership evidence",
                         "Owner class: Service-Disabled Veteran",
@@ -121,6 +127,9 @@ def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
     assert specs[0]["case_payload"]["export_authorization"]["destination_country"] == "AE"
     assert specs[0]["compare_payload"]["name"] == "Boeing"
     assert specs[0]["expected_oci"]["owner_class"] == "Service-Disabled Veteran"
+    assert specs[0]["expected_tribunal_view"] == "watch"
+    assert specs[0]["expected_assistant_view"] == "watch"
+    assert specs[0]["expected_assistant_anomalies"] == ["descriptor_only_ownership", "named_owner_unresolved"]
     assert specs[0]["expected_dossier_fragments"][0] == "Descriptor-only ownership evidence"
     assert specs[0]["forbidden_dossier_fragments"] == ["Invalid Date", "Traceback"]
 
@@ -143,6 +152,12 @@ def test_step_supplier_passport_validates_expected_oci():
                         "control_resolution_pct": 0.35,
                         "owner_class_evidence": [{"source": "public_html_ownership"}],
                     }
+                },
+                "workflow_lane": "counterparty",
+                "tribunal": {
+                    "recommended_view": "watch",
+                    "consensus_level": "moderate",
+                    "decision_gap": 0.14,
                 },
             }
 
@@ -168,12 +183,49 @@ def test_step_supplier_passport_validates_expected_oci():
             "min_control_resolution_pct": 0.3,
             "require_owner_class_evidence": True,
         },
+        expected_tribunal_view="watch",
     )
 
     assert details["oci_required"] is True
     assert details["oci_passed"] is True
     assert details["oci"]["descriptor_only"] is True
     assert details["oci"]["owner_class_evidence_count"] == 1
+    assert details["tribunal_recommended_view"] == "watch"
+
+
+def test_step_assistant_plan_validates_expected_view_and_anomalies():
+    class FakeClient(module.BaseClient):
+        def request_json(self, method, path, payload=None, timeout=60):
+            return 200, {}, {
+                "case_id": "c-123",
+                "version": "ai-control-plane-v1",
+                "recommended_view": "watch",
+                "anomalies": [
+                    {"code": "descriptor_only_ownership"},
+                    {"code": "named_owner_unresolved"},
+                    {"code": "thin_control_resolution"},
+                ],
+                "plan": [{"tool_id": "supplier_passport"}],
+            }
+
+        def request_bytes(self, method, path, payload=None, headers=None, timeout=60):
+            raise AssertionError("unused")
+
+        def request_json_unauthenticated(self, method, path, payload=None, timeout=60):
+            raise AssertionError("unused")
+
+        def request_bytes_unauthenticated(self, method, path, payload=None, headers=None, timeout=60):
+            raise AssertionError("unused")
+
+    body = module._step_assistant_plan(
+        FakeClient(),
+        "c-123",
+        "Trace the control path.",
+        expected_view="watch",
+        expected_anomaly_codes=["descriptor_only_ownership", "named_owner_unresolved"],
+    )
+
+    assert body["recommended_view"] == "watch"
 
 
 def test_step_dossier_html_validates_expected_and_forbidden_fragments():

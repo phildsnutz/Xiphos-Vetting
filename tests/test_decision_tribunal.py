@@ -63,3 +63,68 @@ def test_decision_tribunal_prefers_approve_for_clean_allied_supplier():
     approve_view = next(view for view in tribunal["views"] if view["stance"] == "approve")
     assert approve_view["score"] >= 0.6
     assert "approved_posture" in approve_view["signal_keys"]
+
+
+def test_decision_tribunal_prefers_watch_for_descriptor_only_defense_case():
+    tribunal = build_decision_tribunal_from_signals(
+        {
+            "posture": "approved",
+            "latest_decision": "",
+            "connector_coverage": 3,
+            "identifier_count": 1,
+            "control_path_count": 0,
+            "ownership_path_count": 0,
+            "intermediary_path_count": 0,
+            "contradicted_path_count": 0,
+            "stale_path_count": 0,
+            "corroborated_path_count": 0,
+            "network_score": 0.2,
+            "network_level": "low",
+            "official_coverage_thin": True,
+            "ownership_resolution_pct": 0.55,
+            "control_resolution_pct": 0.35,
+            "named_owner_known": False,
+            "descriptor_only": True,
+            "ownership_evidence_thin": True,
+            "control_evidence_thin": True,
+            "shell_layers": 0,
+            "pep_connection": False,
+        }
+    )
+
+    assert tribunal["recommended_view"] == "watch"
+    watch_view = next(view for view in tribunal["views"] if view["stance"] == "watch")
+    assert "descriptor_only_ownership" in watch_view["signal_keys"]
+
+
+def test_decision_tribunal_prefers_watch_for_shell_layered_counterparty():
+    tribunal = build_decision_tribunal_from_signals(
+        {
+            "posture": "review",
+            "latest_decision": "",
+            "connector_coverage": 1,
+            "identifier_count": 1,
+            "control_path_count": 0,
+            "ownership_path_count": 0,
+            "intermediary_path_count": 0,
+            "contradicted_path_count": 0,
+            "stale_path_count": 0,
+            "corroborated_path_count": 0,
+            "network_score": 0.3,
+            "network_level": "low",
+            "official_coverage_thin": True,
+            "ownership_resolution_pct": 0.25,
+            "control_resolution_pct": 0.0,
+            "named_owner_known": False,
+            "descriptor_only": False,
+            "ownership_evidence_thin": True,
+            "control_evidence_thin": True,
+            "shell_layers": 3,
+            "pep_connection": True,
+        }
+    )
+
+    assert tribunal["recommended_view"] == "watch"
+    watch_view = next(view for view in tribunal["views"] if view["stance"] == "watch")
+    assert "layered_shells" in watch_view["signal_keys"]
+    assert "pep_connection" in watch_view["signal_keys"]

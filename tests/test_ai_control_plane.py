@@ -102,6 +102,41 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
     assert any(step["tool_id"] == "identity_repair" for step in plan["plan"])
 
 
+def test_build_case_assistant_plan_flags_export_route_ambiguity():
+    plan = build_case_assistant_plan(
+        case_id="c-export",
+        analyst_prompt="Review the export license posture and explain any routing ambiguity.",
+        vendor={"name": "Northern Channel Partners"},
+        supplier_passport={
+            "posture": "approved",
+            "workflow_lane": "export_authorization",
+            "tribunal": {"recommended_view": "watch", "consensus_level": "moderate"},
+            "identity": {
+                "identifiers": {"cage": "", "uei": "", "lei": ""},
+                "connectors_with_data": 1,
+                "official_corroboration": {"coverage_level": "missing", "blocked_connector_count": 0},
+            },
+            "graph": {
+                "relationship_count": 1,
+                "control_paths": [],
+                "claim_health": {"contradicted_claims": 0, "stale_paths": 0},
+            },
+            "export": {
+                "posture": "likely_nlr",
+                "destination_country": "AE",
+                "destination_company": "Desert Trade Hub",
+                "end_use_summary": "Regional distributor support with onward delivery not yet resolved",
+                "access_context": "Reseller staging before onward delivery",
+                "notes": "Channel partner will ship onward to final customer in another jurisdiction",
+            },
+        },
+    )
+
+    assert plan["objective"] == "export_review"
+    anomaly_codes = {item["code"] for item in plan["anomalies"]}
+    assert "export_route_ambiguity" in anomaly_codes
+
+
 def test_assistant_plan_route_returns_typed_plan(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(client)

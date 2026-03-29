@@ -25,6 +25,13 @@
       "min_control_resolution_pct": 0.3,
       "require_owner_class_evidence": true
     },
+    "expected_tribunal_view": "watch",
+    "expected_assistant_view": "watch",
+    "expected_assistant_anomalies": [
+      "descriptor_only_ownership",
+      "named_owner_unresolved",
+      "thin_control_resolution"
+    ],
     "expected_dossier_fragments": [
       "Descriptor-only ownership evidence. No named beneficial owner resolved.",
       "Owner class: Service-Disabled Veteran.",
@@ -66,6 +73,14 @@
         "litigation_history": 1
       }
     },
+    "expected_tribunal_view": "watch",
+    "expected_assistant_view": "watch",
+    "expected_assistant_anomalies": [
+      "named_owner_unresolved",
+      "layered_shell_risk",
+      "pep_control_overlap",
+      "thin_control_resolution"
+    ],
     "expected_dossier_fragments": [
       "Defense counterparty trust",
       "Ownership / control intelligence",
@@ -78,6 +93,7 @@
     "enabled_modes": ["fixture", "local-auth"],
     "preserve_case_name": true,
     "expected_workflow_lane": "cyber",
+    "assistant_prompt": "Review the cyber evidence and supply chain assurance posture.",
     "case_payload": {
       "name": "Vector Mission Software",
       "country": "US",
@@ -87,6 +103,12 @@
         "product_terms": ["mission firmware", "remote update service", "telemetry gateway"]
       }
     },
+    "expected_tribunal_view": "watch",
+    "expected_assistant_view": "watch",
+    "expected_assistant_anomalies": [
+      "missing_cyber_evidence",
+      "thin_control_resolution"
+    ],
     "expected_dossier_fragments": [
       "Supply chain assurance",
       "SPRS / CMMC",
@@ -99,6 +121,7 @@
     "enabled_modes": ["fixture", "local-auth"],
     "preserve_case_name": true,
     "expected_workflow_lane": "export",
+    "assistant_prompt": "Review the export license posture and explain any routing ambiguity.",
     "case_payload": {
       "name": "Northern Channel Partners",
       "country": "CA",
@@ -113,6 +136,11 @@
         "end_use_summary": "Regional distributor support with onward delivery not yet resolved"
       }
     },
+    "expected_tribunal_view": "watch",
+    "expected_assistant_view": "watch",
+    "expected_assistant_anomalies": [
+      "export_route_ambiguity"
+    ],
     "expected_dossier_fragments": [
       "Export authorization",
       "Export Evidence Summary",

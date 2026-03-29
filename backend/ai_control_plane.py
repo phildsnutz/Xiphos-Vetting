@@ -255,6 +255,66 @@ def _graph_anomalies(passport: dict[str, Any] | None) -> list[dict[str, Any]]:
     return anomalies
 
 
+def _oci_anomalies(passport: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(passport, dict):
+        return []
+    ownership = passport.get("ownership") or {}
+    profile = ownership.get("profile") if isinstance(ownership.get("profile"), dict) else {}
+    oci = ownership.get("oci") if isinstance(ownership.get("oci"), dict) else {}
+    graph = passport.get("graph") or {}
+    anomalies: list[dict[str, Any]] = []
+
+    shell_layers = int(profile.get("shell_layers") or 0)
+    pep_connection = bool(profile.get("pep_connection"))
+    ownership_resolution_pct = float(oci.get("ownership_resolution_pct") or 0.0)
+    control_resolution_pct = float(oci.get("control_resolution_pct") or 0.0)
+    named_owner_known = bool(oci.get("named_beneficial_owner_known"))
+    descriptor_only = bool(oci.get("descriptor_only"))
+    control_paths = graph.get("control_paths") or []
+
+    if descriptor_only:
+        anomalies.append(
+            {
+                "code": "descriptor_only_ownership",
+                "severity": "medium",
+                "message": "Ownership evidence is descriptor-only and still lacks a named beneficial owner.",
+            }
+        )
+    if not named_owner_known and ownership_resolution_pct < 0.65:
+        anomalies.append(
+            {
+                "code": "named_owner_unresolved",
+                "severity": "high" if shell_layers >= 2 or pep_connection else "medium",
+                "message": "Named beneficial ownership remains unresolved at the current evidence depth.",
+            }
+        )
+    if control_resolution_pct < 0.5 or not control_paths:
+        anomalies.append(
+            {
+                "code": "thin_control_resolution",
+                "severity": "medium",
+                "message": "Control-path resolution is still too thin to treat hidden-control risk as closed.",
+            }
+        )
+    if shell_layers >= 2:
+        anomalies.append(
+            {
+                "code": "layered_shell_risk",
+                "severity": "high" if shell_layers >= 3 else "medium",
+                "message": f"Ownership profile shows {shell_layers} shell layers, which increases concealment pressure.",
+            }
+        )
+    if pep_connection:
+        anomalies.append(
+            {
+                "code": "pep_control_overlap",
+                "severity": "high",
+                "message": "PEP-linked ownership or control pressure is present and should not be treated as routine.",
+            }
+        )
+    return anomalies
+
+
 def _cyber_anomalies(passport: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(passport, dict):
         return []
@@ -308,7 +368,10 @@ def _lane_anomalies(passport: dict[str, Any] | None, objective: str) -> list[dic
     if not isinstance(passport, dict):
         return []
     anomalies: list[dict[str, Any]] = []
-    if objective == "export_review" and not passport.get("export"):
+    workflow_lane = str(passport.get("workflow_lane") or "").strip().lower()
+    export_summary = passport.get("export") if isinstance(passport.get("export"), dict) else {}
+    cyber_summary = passport.get("cyber") if isinstance(passport.get("cyber"), dict) else {}
+    if objective == "export_review" and not export_summary:
         anomalies.append(
             {
                 "code": "missing_export_evidence",
@@ -316,7 +379,7 @@ def _lane_anomalies(passport: dict[str, Any] | None, objective: str) -> list[dic
                 "message": "Export evidence is missing for an export-focused request.",
             }
         )
-    if objective == "cyber_investigation" and not passport.get("cyber"):
+    if objective == "cyber_investigation" and not cyber_summary:
         anomalies.append(
             {
                 "code": "missing_cyber_evidence",
@@ -324,6 +387,82 @@ def _lane_anomalies(passport: dict[str, Any] | None, objective: str) -> list[dic
                 "message": "Supply chain assurance evidence is missing for this supplier-focused request.",
             }
         )
+    if workflow_lane == "supplier_cyber_trust":
+        has_cyber_signal = any(
+            cyber_summary.get(key) not in (None, "", [], {}, False, 0)
+            for key in (
+                "artifact_sources",
+                "sprs_artifact_id",
+                "oscal_artifact_id",
+                "nvd_artifact_id",
+                "current_cmmc_level",
+                "assessment_status",
+                "total_control_references",
+                "high_or_critical_cve_count",
+                "critical_cve_count",
+                "kev_flagged_cve_count",
+            )
+        )
+        if not has_cyber_signal:
+            anomalies.append(
+                {
+                    "code": "missing_cyber_evidence",
+                    "severity": "high",
+                    "message": "Cyber lane is active but no meaningful assurance evidence is attached yet.",
+                }
+            )
+    if workflow_lane == "export_authorization":
+        has_export_signal = any(
+            export_summary.get(key) not in (None, "", [], {}, False, 0)
+            for key in (
+                "posture",
+                "recommended_next_step",
+                "official_references",
+                "artifact_id",
+                "classification_display",
+                "destination_country",
+            )
+        )
+        if not has_export_signal:
+            anomalies.append(
+                {
+                    "code": "missing_export_evidence",
+                    "severity": "high",
+                    "message": "Export lane is active but the authorization evidence package is still thin.",
+                }
+            )
+        export_text = " ".join(
+            [
+                str(export_summary.get("reason_summary") or ""),
+                str(export_summary.get("recommended_next_step") or ""),
+                str(export_summary.get("narrative") or ""),
+                str(export_summary.get("destination_company") or ""),
+                str(export_summary.get("end_use_summary") or ""),
+                str(export_summary.get("access_context") or ""),
+                str(export_summary.get("notes") or ""),
+            ]
+        ).lower()
+        if any(
+            token in export_text
+            for token in (
+                "onward delivery",
+                "reseller",
+                "ultimate consignee",
+                "not yet resolved",
+                "staging",
+                "transshipment",
+                "re-export",
+                "reexport",
+                "unknown end user",
+            )
+        ):
+            anomalies.append(
+                {
+                    "code": "export_route_ambiguity",
+                    "severity": "high",
+                    "message": "Export narrative still shows routing or end-user ambiguity that needs analyst review.",
+                }
+            )
     return anomalies
 
 
@@ -409,6 +548,7 @@ def build_case_assistant_plan(
     anomalies = [
         *_identity_anomalies(supplier_passport),
         *_graph_anomalies(supplier_passport),
+        *_oci_anomalies(supplier_passport),
         *_cyber_anomalies(supplier_passport),
         *_lane_anomalies(supplier_passport, objective),
     ]

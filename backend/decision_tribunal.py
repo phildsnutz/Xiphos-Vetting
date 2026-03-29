@@ -28,6 +28,16 @@ def _tier_band(tier: str) -> str:
     return "clear"
 
 
+def _summary_has_material_signal(summary: dict[str, Any] | None, signal_keys: tuple[str, ...]) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    for key in signal_keys:
+        value = summary.get(key)
+        if value not in (None, "", [], {}, False, 0):
+            return True
+    return False
+
+
 def _signal_packet(
     *,
     posture: str,
@@ -41,6 +51,9 @@ def _signal_packet(
     cyber_summary: dict | None,
     export_summary: dict | None,
     identity: dict | None,
+    workflow_lane: str | None,
+    ownership_profile: dict | None,
+    ownership_summary: dict | None,
 ) -> dict[str, Any]:
     calibrated = (score or {}).get("calibrated") or {}
     latest_decision_value = str((latest_decision or {}).get("decision") or "").lower()
@@ -85,6 +98,24 @@ def _signal_packet(
         or critical_cves > 0
         or kev_count > 0
     )
+    cyber_lane = str(workflow_lane or "").strip().lower() == "supplier_cyber_trust"
+    cyber_evidence_present = _summary_has_material_signal(
+        cyber_summary,
+        (
+            "artifact_sources",
+            "sprs_artifact_id",
+            "oscal_artifact_id",
+            "nvd_artifact_id",
+            "current_cmmc_level",
+            "assessment_status",
+            "total_control_references",
+            "high_or_critical_cve_count",
+            "critical_cve_count",
+            "kev_flagged_cve_count",
+            "product_terms",
+        ),
+    )
+    cyber_evidence_missing = cyber_lane and not cyber_evidence_present
 
     foreign_interest = bool((foci_summary or {}).get("foreign_interest_indicated"))
     mitigation_present = bool((foci_summary or {}).get("mitigation_present"))
@@ -99,8 +130,87 @@ def _signal_packet(
     stale_path_count = int(claim_health.get("stale_paths") or 0)
     corroborated_path_count = int(claim_health.get("corroborated_paths") or 0)
 
+    official = (identity or {}).get("official_corroboration") or {}
+    coverage_level = str(official.get("coverage_level") or "").lower()
+    blocked_connector_count = int(official.get("blocked_connector_count") or 0)
+    official_coverage_thin = coverage_level in {"public_only", "missing"} or blocked_connector_count > 0
+
+    ownership_profile = ownership_profile or {}
+    ownership_summary = ownership_summary or {}
+    ownership_resolution_pct = float(
+        ownership_summary.get("ownership_resolution_pct")
+        or ownership_profile.get("ownership_resolution_pct")
+        or ownership_profile.get("ownership_pct_resolved")
+        or 0.0
+    )
+    control_resolution_pct = float(
+        ownership_summary.get("control_resolution_pct")
+        or ownership_profile.get("control_resolution_pct")
+        or 0.0
+    )
+    named_owner_known = bool(
+        ownership_summary.get("named_beneficial_owner_known")
+        or ownership_profile.get("named_beneficial_owner_known")
+        or ownership_profile.get("beneficial_owner_known")
+    )
+    controlling_parent_known = bool(ownership_summary.get("controlling_parent_known"))
+    owner_class_known = bool(ownership_summary.get("owner_class_known") or ownership_profile.get("owner_class_known"))
+    descriptor_only = bool(ownership_summary.get("descriptor_only"))
+    shell_layers = int(ownership_profile.get("shell_layers") or 0)
+    pep_connection = bool(ownership_profile.get("pep_connection"))
+    ownership_gap = str(ownership_summary.get("ownership_gap") or "")
+    ownership_evidence_thin = not named_owner_known and ownership_resolution_pct < 0.6
+    control_evidence_thin = control_path_count == 0 or control_resolution_pct < 0.5
+
+    export_posture = str((export_summary or {}).get("posture") or "").lower()
+    export_lane = str(workflow_lane or "").strip().lower() == "export_authorization"
+    export_destination = str((export_summary or {}).get("destination_country") or "").upper()
+    export_artifact_present = bool((export_summary or {}).get("artifact_id"))
+    export_evidence_present = _summary_has_material_signal(
+        export_summary,
+        (
+            "posture",
+            "recommended_next_step",
+            "official_references",
+            "artifact_id",
+            "classification_display",
+            "destination_country",
+        ),
+    )
+    export_evidence_missing = export_lane and not export_evidence_present
+    export_text = " ".join(
+        [
+            str((export_summary or {}).get("reason_summary") or ""),
+            str((export_summary or {}).get("recommended_next_step") or ""),
+            str((export_summary or {}).get("narrative") or ""),
+            str((export_summary or {}).get("destination_company") or ""),
+            str((export_summary or {}).get("end_use_summary") or ""),
+            str((export_summary or {}).get("access_context") or ""),
+            str((export_summary or {}).get("notes") or ""),
+        ]
+    ).lower()
+    export_route_ambiguity = export_lane and (
+        export_posture in {"likely_license_required", "escalate", "insufficient_confidence", "likely_prohibited"}
+        or any(
+            token in export_text
+            for token in (
+                "onward delivery",
+                "reseller",
+                "ultimate consignee",
+                "not yet resolved",
+                "staging",
+                "transshipment",
+                "re-export",
+                "reexport",
+                "unknown end user",
+            )
+        )
+        or (export_destination not in {"", "US"} and not export_artifact_present)
+    )
+
     return {
         "posture": str(posture or "pending").lower(),
+        "workflow_lane": str(workflow_lane or "").strip().lower(),
         "tier_band": _tier_band(str(calibrated.get("calibrated_tier") or "")),
         "hard_stop": bool((score or {}).get("is_hard_stop") or str(posture or "").lower() == "blocked"),
         "latest_decision": latest_decision_value,
@@ -116,13 +226,29 @@ def _signal_packet(
         "network_level": network_level,
         "foreign_control_risk": foreign_control_risk,
         "mitigated_foreign_interest": mitigated_foreign_interest,
+        "official_coverage_thin": official_coverage_thin,
+        "blocked_official_connectors": blocked_connector_count,
+        "ownership_resolution_pct": ownership_resolution_pct,
+        "control_resolution_pct": control_resolution_pct,
+        "named_owner_known": named_owner_known,
+        "controlling_parent_known": controlling_parent_known,
+        "owner_class_known": owner_class_known,
+        "descriptor_only": descriptor_only,
+        "ownership_gap": ownership_gap,
+        "ownership_evidence_thin": ownership_evidence_thin,
+        "control_evidence_thin": control_evidence_thin,
+        "shell_layers": shell_layers,
+        "pep_connection": pep_connection,
         "export_prohibited": export_posture == "likely_prohibited",
         "export_review_required": export_posture in {
             "likely_license_required",
             "insufficient_confidence",
             "escalate",
         },
+        "export_evidence_missing": export_evidence_missing,
+        "export_route_ambiguity": export_route_ambiguity,
         "cyber_gap": cyber_gap,
+        "cyber_evidence_missing": cyber_evidence_missing,
         "critical_cves": critical_cves,
         "kev_count": kev_count,
         "workflow_owner": str((workflow_control or {}).get("action_owner") or "Analyst"),
@@ -165,7 +291,12 @@ def _compose_view(
         add(signals["connector_coverage"] >= 4, 0.05, "Connector coverage is broad enough to support a cleaner decision.", "coverage_depth")
         add(signals["mitigated_foreign_interest"], 0.08, "Foreign-control evidence is disclosed and mitigated.", "ownership_mitigated")
         add(
-            not signals["foreign_control_risk"] and not signals["mitigated_foreign_interest"],
+            not signals["foreign_control_risk"]
+            and not signals["mitigated_foreign_interest"]
+            and not signals["ownership_evidence_thin"]
+            and not signals["control_evidence_thin"]
+            and signals["shell_layers"] == 0
+            and not signals["pep_connection"],
             0.08,
             "Ownership and control evidence is currently clear.",
             "ownership_clear",
@@ -173,11 +304,21 @@ def _compose_view(
         add(network_score <= 0.4 and network_level in {"none", "low"}, 0.08, "Network pressure is currently low.", "low_network_pressure")
         add(signals["contradicted_path_count"] == 0, 0.04, "No contradictory ownership or intermediary claims are present.", "no_contradictions")
         add(signals["stale_path_count"] == 0, 0.03, "Control-path evidence is fresh.", "fresh_control_paths")
+        add(signals["corroborated_path_count"] > 0, 0.04, "Control-path evidence is corroborated by multiple signals.", "corroborated_paths")
         score -= 0.35 if signals["hard_stop"] else 0.0
         score -= 0.18 if signals["export_prohibited"] else 0.0
         score -= 0.12 if signals["foreign_control_risk"] else 0.0
         score -= 0.08 if signals["cyber_gap"] else 0.0
         score -= 0.08 if network_level in {"high", "critical"} else 0.0
+        score -= 0.1 if signals["official_coverage_thin"] else 0.0
+        score -= 0.12 if signals["ownership_evidence_thin"] else 0.0
+        score -= 0.08 if signals["control_evidence_thin"] else 0.0
+        score -= 0.08 if signals["descriptor_only"] else 0.0
+        score -= 0.1 if signals["shell_layers"] >= 2 else 0.0
+        score -= 0.08 if signals["pep_connection"] else 0.0
+        score -= 0.12 if signals["cyber_evidence_missing"] else 0.0
+        score -= 0.1 if signals["export_evidence_missing"] else 0.0
+        score -= 0.08 if signals["export_route_ambiguity"] else 0.0
     elif stance == "watch":
         score = 0.2
         add(posture in {"review", "pending"}, 0.24, "Current posture already requires conditions or analyst review.", "review_posture")
@@ -205,6 +346,15 @@ def _compose_view(
         add(signals["contradicted_path_count"] > 0, 0.08, "Some ownership or intermediary claims are contradictory.", "contradictory_claims")
         add(signals["stale_path_count"] > 0, 0.06, "Some control-path evidence is stale and should be refreshed.", "stale_claims")
         add(signals["intermediary_path_count"] > 0, 0.06, "Intermediaries are present and warrant watch conditions.", "intermediary_paths")
+        add(signals["official_coverage_thin"], 0.08, "Official-source corroboration is too thin for a clean approval.", "official_corroboration_thin")
+        add(signals["ownership_evidence_thin"], 0.14, "Named ownership remains unresolved or only partially resolved.", "ownership_thin")
+        add(signals["control_evidence_thin"], 0.12, "Control-path evidence is still too thin for a confident approval.", "control_thin")
+        add(signals["descriptor_only"], 0.08, "Only descriptor-level ownership evidence is available right now.", "descriptor_only_ownership")
+        add(signals["shell_layers"] >= 2, 0.12, "Layered shell structure increases concealment pressure.", "layered_shells")
+        add(signals["pep_connection"], 0.1, "PEP connection adds escalation pressure to the case.", "pep_connection")
+        add(signals["cyber_evidence_missing"], 0.14, "Cyber-lane evidence is missing, so approval would overstate certainty.", "missing_cyber_evidence")
+        add(signals["export_evidence_missing"], 0.12, "Export-lane evidence is missing, so approval would overstate certainty.", "missing_export_evidence")
+        add(signals["export_route_ambiguity"], 0.1, "Export routing or end-user ambiguity still needs review.", "export_route_ambiguity")
         score -= 0.32 if signals["foreign_control_risk"] and signals["cyber_gap"] and network_level in {"high", "critical"} else 0.0
         score -= 0.12 if signals["foreign_control_risk"] and signals["ownership_path_count"] > 0 and signals["intermediary_path_count"] > 0 else 0.0
         score -= 0.18 if signals["hard_stop"] else 0.0
@@ -245,6 +395,18 @@ def _compose_view(
             "Both control and intermediary paths are present, increasing hidden-control concern.",
             "compound_control_path",
         )
+        add(
+            signals["shell_layers"] >= 3 and signals["ownership_evidence_thin"],
+            0.12,
+            "Layered shell structure with unresolved ownership materially lowers trust.",
+            "concealed_ownership_layers",
+        )
+        add(
+            signals["pep_connection"] and not signals["named_owner_known"],
+            0.08,
+            "PEP-linked ownership uncertainty raises the chance of concealed control.",
+            "pep_owned_uncertainty",
+        )
         score += 0.12 if signals["foreign_control_risk"] and signals["cyber_gap"] and network_level in {"high", "critical"} else 0.0
         score -= 0.16 if posture == "approved" else 0.0
         score -= 0.08 if signals["mitigated_foreign_interest"] else 0.0
@@ -274,6 +436,7 @@ def _compose_view(
 def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[str, Any]:
     signals = {
         "posture": str(signal_packet.get("posture") or "pending").lower(),
+        "workflow_lane": str(signal_packet.get("workflow_lane") or "").lower(),
         "tier_band": str(signal_packet.get("tier_band") or "clear"),
         "hard_stop": bool(signal_packet.get("hard_stop")),
         "latest_decision": str(signal_packet.get("latest_decision") or ""),
@@ -289,9 +452,25 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
         "network_level": str(signal_packet.get("network_level") or "none").lower(),
         "foreign_control_risk": bool(signal_packet.get("foreign_control_risk")),
         "mitigated_foreign_interest": bool(signal_packet.get("mitigated_foreign_interest")),
+        "official_coverage_thin": bool(signal_packet.get("official_coverage_thin")),
+        "blocked_official_connectors": int(signal_packet.get("blocked_official_connectors") or 0),
+        "ownership_resolution_pct": float(signal_packet.get("ownership_resolution_pct") or 0.0),
+        "control_resolution_pct": float(signal_packet.get("control_resolution_pct") or 0.0),
+        "named_owner_known": bool(signal_packet.get("named_owner_known")),
+        "controlling_parent_known": bool(signal_packet.get("controlling_parent_known")),
+        "owner_class_known": bool(signal_packet.get("owner_class_known")),
+        "descriptor_only": bool(signal_packet.get("descriptor_only")),
+        "ownership_gap": str(signal_packet.get("ownership_gap") or ""),
+        "ownership_evidence_thin": bool(signal_packet.get("ownership_evidence_thin")),
+        "control_evidence_thin": bool(signal_packet.get("control_evidence_thin")),
+        "shell_layers": int(signal_packet.get("shell_layers") or 0),
+        "pep_connection": bool(signal_packet.get("pep_connection")),
         "export_prohibited": bool(signal_packet.get("export_prohibited")),
         "export_review_required": bool(signal_packet.get("export_review_required")),
+        "export_evidence_missing": bool(signal_packet.get("export_evidence_missing")),
+        "export_route_ambiguity": bool(signal_packet.get("export_route_ambiguity")),
         "cyber_gap": bool(signal_packet.get("cyber_gap")),
+        "cyber_evidence_missing": bool(signal_packet.get("cyber_evidence_missing")),
         "critical_cves": int(signal_packet.get("critical_cves") or 0),
         "kev_count": int(signal_packet.get("kev_count") or 0),
         "workflow_owner": str(signal_packet.get("workflow_owner") or "Analyst"),
@@ -310,7 +489,7 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
     consensus = "strong" if gap >= 0.2 else "moderate" if gap >= 0.1 else "contested"
 
     return {
-        "version": "decision-tribunal-v1",
+        "version": "decision-tribunal-v2",
         "generated_at": _utc_now_iso(),
         "recommended_view": recommended["stance"],
         "recommended_label": recommended["label"],
@@ -334,6 +513,9 @@ def build_decision_tribunal(
     cyber_summary: dict | None = None,
     export_summary: dict | None = None,
     identity: dict | None = None,
+    workflow_lane: str | None = None,
+    ownership_profile: dict | None = None,
+    ownership_summary: dict | None = None,
 ) -> dict[str, Any]:
     signals = _signal_packet(
         posture=posture,
@@ -347,5 +529,8 @@ def build_decision_tribunal(
         cyber_summary=cyber_summary,
         export_summary=export_summary,
         identity=identity,
+        workflow_lane=workflow_lane,
+        ownership_profile=ownership_profile,
+        ownership_summary=ownership_summary,
     )
     return build_decision_tribunal_from_signals(signals)

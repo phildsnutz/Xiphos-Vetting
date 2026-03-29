@@ -351,6 +351,10 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
         expected_oci = entry.get("expected_oci") or {}
         if expected_oci and not isinstance(expected_oci, dict):
             raise SystemExit("gauntlet spec expected_oci must be a JSON object when provided")
+        expected_assistant_anomalies = _normalize_fragment_list(
+            entry.get("expected_assistant_anomalies"),
+            field_name="expected_assistant_anomalies",
+        )
         expected_dossier_fragments = _normalize_fragment_list(
             entry.get("expected_dossier_fragments"),
             field_name="expected_dossier_fragments",
@@ -367,6 +371,9 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
                 "assistant_prompt": str(entry.get("assistant_prompt") or ASSISTANT_PROMPT),
                 "expected_workflow_lane": str(entry.get("expected_workflow_lane") or "").strip(),
                 "expected_oci": dict(expected_oci),
+                "expected_tribunal_view": str(entry.get("expected_tribunal_view") or "").strip().lower(),
+                "expected_assistant_view": str(entry.get("expected_assistant_view") or "").strip().lower(),
+                "expected_assistant_anomalies": expected_assistant_anomalies,
                 "enabled_modes": enabled_modes,
                 "preserve_case_name": bool(entry.get("preserve_case_name")),
                 "run_enrich_and_score": bool(entry.get("run_enrich_and_score")),
@@ -458,12 +465,23 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
     passport = _run_step(
         results,
         "supplier_passport",
-        lambda: _step_supplier_passport(client, case_id, expected_oci=spec.get("expected_oci") or {}),
+        lambda: _step_supplier_passport(
+            client,
+            case_id,
+            expected_oci=spec.get("expected_oci") or {},
+            expected_tribunal_view=spec.get("expected_tribunal_view") or "",
+        ),
     )
     plan = _run_step(
         results,
         "assistant_plan",
-        lambda: _step_assistant_plan(client, case_id, spec["assistant_prompt"]),
+        lambda: _step_assistant_plan(
+            client,
+            case_id,
+            spec["assistant_prompt"],
+            expected_view=spec.get("expected_assistant_view") or "",
+            expected_anomaly_codes=spec.get("expected_assistant_anomalies") or [],
+        ),
     )
     _run_step(results, "assistant_execute", lambda: _step_assistant_execute(client, case_id, plan))
     dossier_html = _run_step(
@@ -635,23 +653,44 @@ def _validate_expected_oci(passport: dict[str, Any], expected_oci: dict[str, Any
     }
 
 
-def _step_supplier_passport(client: BaseClient, case_id: str, expected_oci: dict[str, Any] | None = None) -> dict[str, Any]:
-    status, _, body = client.request_json("GET", f"/api/cases/{case_id}/supplier-passport?mode=light", timeout=60)
+def _step_supplier_passport(
+    client: BaseClient,
+    case_id: str,
+    expected_oci: dict[str, Any] | None = None,
+    *,
+    expected_tribunal_view: str = "",
+) -> dict[str, Any]:
+    mode = "full" if expected_tribunal_view else "light"
+    status, _, body = client.request_json("GET", f"/api/cases/{case_id}/supplier-passport?mode={mode}", timeout=60)
     _assert(status == 200 and isinstance(body, dict), f"/api/cases/{case_id}/supplier-passport returned {status}")
     _assert(body.get("case_id") == case_id, "supplier passport case id mismatch")
     _assert(bool(body.get("passport_version")), "supplier passport version missing")
     expected_oci = expected_oci or {}
     oci = _validate_expected_oci(body, expected_oci) if expected_oci else None
+    tribunal = body.get("tribunal") if isinstance(body.get("tribunal"), dict) else {}
+    if expected_tribunal_view:
+        _assert(str(tribunal.get("recommended_view") or "").lower() == expected_tribunal_view, "supplier passport tribunal recommended_view mismatch")
     return {
         "passport_version": body.get("passport_version"),
         "posture": body.get("posture"),
+        "workflow_lane": body.get("workflow_lane"),
+        "tribunal_recommended_view": tribunal.get("recommended_view"),
+        "tribunal_consensus_level": tribunal.get("consensus_level"),
+        "tribunal_decision_gap": tribunal.get("decision_gap"),
         "oci_required": bool(expected_oci),
         "oci_passed": True if expected_oci else False,
         "oci": oci,
     }
 
 
-def _step_assistant_plan(client: BaseClient, case_id: str, assistant_prompt: str) -> dict[str, Any]:
+def _step_assistant_plan(
+    client: BaseClient,
+    case_id: str,
+    assistant_prompt: str,
+    *,
+    expected_view: str = "",
+    expected_anomaly_codes: list[str] | None = None,
+) -> dict[str, Any]:
     status, _, body = client.request_json(
         "POST",
         f"/api/cases/{case_id}/assistant-plan",
@@ -663,6 +702,11 @@ def _step_assistant_plan(client: BaseClient, case_id: str, assistant_prompt: str
     _assert(body.get("case_id") == case_id, "assistant plan case id mismatch")
     _assert(body.get("version") == "ai-control-plane-v1", "assistant plan version mismatch")
     _assert(len(plan) >= 1, "assistant plan returned no steps")
+    if expected_view:
+        _assert(str(body.get("recommended_view") or "").lower() == expected_view, "assistant plan recommended_view mismatch")
+    anomaly_codes = [str(item.get("code") or "").strip() for item in (body.get("anomalies") or []) if isinstance(item, dict)]
+    missing_anomalies = [code for code in (expected_anomaly_codes or []) if code not in anomaly_codes]
+    _assert(not missing_anomalies, f"assistant plan missing expected anomalies: {', '.join(missing_anomalies)}")
     return body
 
 
