@@ -58,6 +58,119 @@
   .transition-200 {
     transition: all 200ms ease-out;
   }
+  .transition-150 {
+    transition: all 150ms ease-out;
+  }
+  .transition-300 {
+    transition: all 300ms ease-out;
+  }
+}
+
+/* ── Apple-style animations ─────────────────────────────────── */
+@keyframes helios-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes helios-scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes helios-slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes helios-skeleton-pulse {
+  0%, 100% { opacity: 0.06; }
+  50%      { opacity: 0.12; }
+}
+
+.animate-fade-in {
+  animation: helios-fade-in 250ms ease-out both;
+}
+.animate-scale-in {
+  animation: helios-scale-in 200ms ease-out both;
+}
+.animate-slide-up {
+  animation: helios-slide-up 300ms ease-out both;
+}
+
+/* Staggered children: apply .stagger-children to parent */
+.stagger-children > * {
+  animation: helios-fade-in 250ms ease-out both;
+}
+.stagger-children > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2)  { animation-delay: 40ms; }
+.stagger-children > *:nth-child(3)  { animation-delay: 80ms; }
+.stagger-children > *:nth-child(4)  { animation-delay: 120ms; }
+.stagger-children > *:nth-child(5)  { animation-delay: 160ms; }
+.stagger-children > *:nth-child(6)  { animation-delay: 200ms; }
+.stagger-children > *:nth-child(7)  { animation-delay: 240ms; }
+.stagger-children > *:nth-child(8)  { animation-delay: 280ms; }
+.stagger-children > *:nth-child(9)  { animation-delay: 320ms; }
+.stagger-children > *:nth-child(10) { animation-delay: 360ms; }
+.stagger-children > *:nth-child(n+11) { animation-delay: 400ms; }
+
+/* ── Glass morphism ─────────────────────────────────────────── */
+.glass-panel {
+  background: rgba(17, 17, 24, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(30, 30, 42, 0.8);
+  border-radius: 12px;
+}
+.glass-card {
+  background: rgba(17, 17, 24, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 30, 42, 0.6);
+  border-radius: 10px;
+}
+
+/* ── Skeleton loader ────────────────────────────────────────── */
+.skeleton-pulse {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Interactive card hover ─────────────────────────────────── */
+.card-interactive {
+  transition: all 200ms ease-out;
+  cursor: default;
+}
+.card-interactive:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+  border-color: rgba(42, 42, 58, 0.9);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Button micro-interactions ──────────────────────────────── */
+.btn-interactive {
+  transition: all 150ms ease-out;
+}
+.btn-interactive:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.btn-interactive:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* ── Focus ring (Apple-style) ───────────────────────────────── */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #0a0a0f, 0 0 0 4px rgba(14, 165, 233, 0.4);
+}
+
+/* ── Tab content transitions ────────────────────────────────── */
+.tab-content-enter {
+  animation: helios-fade-in 200ms ease-out both;
 }
 
 ::-webkit-scrollbar {

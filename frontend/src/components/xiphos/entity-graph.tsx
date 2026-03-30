@@ -88,6 +88,7 @@ interface EntityGraphProps {
   width?: number;
   height?: number;
   onEntityClick?: (entity: GraphEntity) => void;
+  onRelationshipClick?: (relationshipId: number) => void;
 }
 
 interface SelectedNodeSummary {
@@ -1035,6 +1036,7 @@ export function EntityGraph({
   width = 800,
   height = 560,
   onEntityClick,
+  onRelationshipClick,
 }: EntityGraphProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<Core | null>(null);
@@ -1533,6 +1535,11 @@ export function EntityGraph({
 
     cy.on("tap", "edge", (event) => {
       focusEdge(cy, event.target, isLargeGraph ? "none" : "fit", !isLargeGraph);
+      const edgeId = event.target.id();
+      const rawId = Number(edgeId);
+      if (onRelationshipClick && !isNaN(rawId)) {
+        onRelationshipClick(rawId);
+      }
     });
 
     cy.on("tap", (event) => {
@@ -1560,7 +1567,7 @@ export function EntityGraph({
       cy.destroy();
       cyRef.current = null;
     };
-  }, [effectiveViewMode, entities, focusEdge, focusNode, graphElements, interactiveReady, isLargeGraph, onEntityClick, resetView, resolvedRootId]);
+  }, [effectiveViewMode, entities, focusEdge, focusNode, graphElements, interactiveReady, isLargeGraph, onEntityClick, onRelationshipClick, resetView, resolvedRootId]);
 
   useEffect(() => {
     const cy = cyRef.current;

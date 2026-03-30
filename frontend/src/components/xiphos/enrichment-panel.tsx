@@ -36,7 +36,7 @@ function FindingCard({ f }: { f: EnrichmentFinding }) {
 
   return (
     <div
-      className="rounded"
+      className="rounded-lg card-interactive"
       style={{
         background: T.surface,
         border: `1px solid ${T.border}`,
@@ -199,11 +199,11 @@ function IntelSummarySection({ caseId, report }: { caseId: string; report: Enric
   const citationCoverage = summary?.summary?.stats?.citation_coverage ?? 0;
 
   return (
-    <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 14 }}>
+    <div className="glass-card animate-fade-in" style={{ padding: 14 }}>
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Brain size={14} color={T.accent} />
-          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
+          <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted, letterSpacing: "0.06em" }}>
             Intel Summary
           </span>
           {summary?.provider && (
@@ -215,7 +215,7 @@ function IntelSummarySection({ caseId, report }: { caseId: string; report: Enric
         <button
           onClick={handleGenerate}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+          className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
           style={{
             padding: "5px 10px",
             fontSize: FS.sm,
@@ -256,7 +256,7 @@ function IntelSummarySection({ caseId, report }: { caseId: string; report: Enric
           {items.map((item, index) => {
             const sev = SEV[item.severity as Severity] ?? SEV.medium;
             return (
-              <div key={`${item.title}-${index}`} className="rounded" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: 12 }}>
+              <div key={`${item.title}-${index}`} className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: 12 }}>
                 <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
                   <strong style={{ fontSize: FS.sm, color: T.text }}>{item.title}</strong>
                   <span className="inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono font-bold uppercase" style={{ fontSize: FS.sm, color: sev.color, background: sev.bg }}>
@@ -294,10 +294,10 @@ function NormalizedEventsSection({ events }: { events: NormalizedEvent[] }) {
   if (events.length === 0) return null;
 
   return (
-    <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+    <div className="glass-card p-3 animate-fade-in">
       <div className="flex items-center gap-1.5 mb-2">
         <GitBranch size={11} color={T.muted} />
-        <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
+        <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted, letterSpacing: "0.06em" }}>
           Normalized Events
         </span>
       </div>
@@ -365,9 +365,9 @@ function FindingsSection({
         <select
           value={severityFilter}
           onChange={(e) => onSeverityFilterChange(e.target.value as Severity | "all")}
-          className="rounded font-mono outline-none cursor-pointer"
+          className="rounded-lg font-mono outline-none cursor-pointer focus-ring"
           style={{
-            fontSize: FS.sm, padding: "4px 8px",
+            fontSize: FS.sm, padding: "5px 10px",
             background: T.raised, color: T.dim, border: `1px solid ${T.border}`,
           }}
         >
@@ -381,9 +381,9 @@ function FindingsSection({
         <select
           value={sourceFilter}
           onChange={(e) => onSourceFilterChange(e.target.value)}
-          className="rounded font-mono outline-none cursor-pointer"
+          className="rounded-lg font-mono outline-none cursor-pointer focus-ring"
           style={{
-            fontSize: FS.sm, padding: "4px 8px",
+            fontSize: FS.sm, padding: "5px 10px",
             background: T.raised, color: T.dim, border: `1px solid ${T.border}`,
           }}
         >
@@ -420,10 +420,11 @@ function FindingsSection({
               ))}
               {filtered.length === 0 && (
                 <div
-                  className="text-center rounded py-8"
-                  style={{ background: T.surface, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}
+                  className="glass-card flex flex-col items-center justify-center py-8 animate-fade-in"
                 >
-                  No findings match current filters.
+                  <Filter size={24} color={T.muted} style={{ marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: FS.sm, color: T.dim, fontWeight: 600 }}>No findings match current filters</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Try adjusting severity or source filters above.</div>
                 </div>
               )}
             </>
@@ -451,10 +452,11 @@ export function EnrichmentPanel({ caseId, report, section = "full" }: Enrichment
     if ((report.events ?? []).length === 0) {
       return (
         <div
-          className="rounded-lg p-5 text-center"
-          style={{ background: T.surface, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}
+          className="glass-card p-6 flex flex-col items-center justify-center animate-fade-in"
         >
-          No normalized events were extracted from the current findings.
+          <GitBranch size={24} color={T.muted} style={{ marginBottom: 8, opacity: 0.5 }} />
+          <div style={{ fontSize: FS.sm, color: T.dim, fontWeight: 600 }}>No normalized events</div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>No events were extracted from the current findings.</div>
         </div>
       );
     }

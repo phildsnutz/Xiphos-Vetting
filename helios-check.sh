@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-VPS="root@209.38.141.101"
+VPS="${XIPHOS_SSH_TARGET:-}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/xiphos_do}"
 CONTAINER="xiphos-xiphos-1"
 SSH_OPTS="-i ${SSH_KEY} -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
@@ -32,6 +32,12 @@ header() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
 pass()   { echo -e "${GREEN}PASS${NC} $1"; }
 fail()   { echo -e "${RED}FAIL${NC} $1"; }
 warn()   { echo -e "${YELLOW}WARN${NC} $1"; }
+
+if [ -z "${VPS}" ]; then
+    echo "FAIL Set XIPHOS_SSH_TARGET before running helios-check.sh"
+    echo "Example: export XIPHOS_SSH_TARGET='root@your-host'"
+    exit 1
+fi
 
 run_remote() {
     ssh ${SSH_OPTS} ${VPS} "docker exec ${CONTAINER} $1"

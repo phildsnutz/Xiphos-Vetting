@@ -95,7 +95,7 @@ export function RiskStorylineCard({ card, onAction }: RiskStorylineCardProps) {
 
   return (
     <div
-      className="rounded-xl flex flex-col"
+      className="rounded-xl flex flex-col card-interactive"
       style={{
         minHeight: 196,
         background: cardBackground(card),

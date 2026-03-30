@@ -65,8 +65,8 @@ If frontend changes require a new bundle, rebuild instead of editing built artif
 ## Runtime Notes
 
 - Auth token is stored in `sessionStorage["helios_token"]`
-- The live dashboard payload comes from:
-  - `http://24.199.122.225:8080/api/graph/training-dashboard`
+- The graph-training dashboard payload comes from the authenticated runtime route:
+  - `/api/graph/training-dashboard`
 - The app should reflect that payload, not invent optimistic derived states
 
 ## Latest Backend State

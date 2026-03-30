@@ -717,6 +717,8 @@ export interface PersonScreeningResult {
   employer?: string | null;
   screening_status?: string;
   composite_score?: number;
+  ofac_matches?: Array<Record<string, unknown>>;
+  deemed_export_triggered?: boolean;
   matched_lists?: Array<Record<string, unknown>>;
   deemed_export?: Record<string, unknown> | null;
   recommended_action?: string;
@@ -1295,6 +1297,8 @@ export interface ConnectorStatus {
   findings_count: number;
   elapsed_ms: number;
   error?: string;
+  last_checked_at?: string;
+  next_scheduled_at?: string;
 }
 
 export interface EnrichmentSummary {
@@ -1514,10 +1518,99 @@ export interface CaseMonitoringHistory {
 }
 
 export interface MonitorChangeEntry {
+  run_id?: string;
   vendor_id: string;
+  vendor_name?: string;
   previous_risk?: string | null;
   current_risk?: string | null;
+  change_type?: "no_change" | "risk_increase" | "risk_decrease" | "new_findings" | "resolved_findings" | string;
+  delta_summary?: string;
+  score_before?: number | null;
+  score_after?: number | null;
+  new_findings_count?: number;
+  resolved_findings_count?: number;
+  sources_triggered?: string[];
+  started_at?: string;
+  completed_at?: string;
   checked_at?: string;
+}
+
+export interface MonitorRunEntry {
+  run_id: string;
+  vendor_id: string;
+  vendor_name?: string;
+  started_at: string;
+  completed_at?: string;
+  status: "completed" | "pending" | "failed" | string;
+  change_type?: string;
+  delta_summary?: string;
+  score_before?: number | null;
+  score_after?: number | null;
+  new_findings_count?: number;
+  resolved_findings_count?: number;
+  sources_triggered?: string[];
+  checked_at?: string;
+}
+
+export interface MonitorRunHistory {
+  vendor_id: string;
+  vendor_name: string;
+  runs: MonitorRunEntry[];
+}
+
+export interface ProvenanceSource {
+  connector: string;
+  fetched_at?: string;
+  confidence: number;
+  raw_snippet?: string;
+  title?: string;
+  url?: string;
+  artifact_ref?: string;
+  source_class?: string;
+  authority_level?: string;
+  access_model?: string;
+  claim_id?: string;
+}
+
+export interface EntityProvenance {
+  entity: {
+    id: string;
+    canonical_name: string;
+    entity_type: string;
+    country?: string;
+  };
+  sources: ProvenanceSource[];
+  corroboration_count: number;
+  first_seen?: string | null;
+  last_seen?: string | null;
+}
+
+export interface RelationshipProvenance {
+  relationship: {
+    source_entity_id: string;
+    target_entity_id: string;
+    rel_type: string;
+    claim_records?: Array<{
+      claim_id: string;
+      data_source: string;
+      confidence: number;
+      claim_value?: string;
+      first_observed_at?: string;
+      last_observed_at?: string;
+      evidence_records?: Array<{
+        evidence_id: string;
+        source: string;
+        snippet?: string;
+        title?: string;
+        url?: string;
+        observed_at?: string;
+      }>;
+    }>;
+  };
+  sources: ProvenanceSource[];
+  corroboration_count: number;
+  first_seen?: string | null;
+  last_seen?: string | null;
 }
 
 export async function runCaseMonitor(caseId: string): Promise<CaseMonitorStatus> {
@@ -1535,8 +1628,22 @@ export async function fetchCaseMonitoringHistory(caseId: string, limit = 10): Pr
   return json<CaseMonitoringHistory>(`/api/cases/${caseId}/monitoring?limit=${limit}`);
 }
 
-export async function fetchMonitorChanges(limit = 20): Promise<{ changes: MonitorChangeEntry[] }> {
-  return json<{ changes: MonitorChangeEntry[] }>(`/api/monitor/changes?limit=${limit}`);
+export async function fetchMonitorChanges(limit = 20, since?: string): Promise<{ changes: MonitorChangeEntry[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (since) params.set("since", since);
+  return json<{ changes: MonitorChangeEntry[] }>(`/api/monitor/changes?${params}`);
+}
+
+export async function fetchMonitorRunHistory(caseId: string, limit = 10): Promise<MonitorRunHistory> {
+  return json<MonitorRunHistory>(`/api/cases/${caseId}/monitor/history?limit=${limit}`);
+}
+
+export async function fetchEntityProvenance(entityId: string): Promise<EntityProvenance> {
+  return json<EntityProvenance>(`/api/graph/entity/${entityId}/provenance`);
+}
+
+export async function fetchRelationshipProvenance(relationshipId: number): Promise<RelationshipProvenance> {
+  return json<RelationshipProvenance>(`/api/graph/relationship/${relationshipId}/provenance`);
 }
 
 /* ---- Backend Sanctions Screening ---- */

@@ -8,6 +8,8 @@ import { EnrichmentPanel } from "./enrichment-panel";
 import { EnrichmentStream } from "./enrichment-stream";
 import { EntityGraph } from "./entity-graph";
 import { GraphTrainingReviewPanel } from "./graph-training-review-panel";
+import { MonitorHistoryPanel } from "./monitor-history-panel";
+import { GraphProvenancePanel } from "./graph-provenance-panel";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { ActionPanel } from "./action-panel";
 import { LoadingSpinner } from "./loader";
@@ -22,6 +24,7 @@ import { formatFactorLabel, formatFindingCopy, formatRecommendationLabel, format
 import type { AIAnalysisStatus, ApiCase, CaseGraphData, CaseMonitorStatus, CaseMonitoringHistory, CyberRiskScore, EnrichmentReport, ExportArtifactRecord, ExportArtifactType, ExportAuthorizationCaseInput, ExportAuthorizationGuidance, FociArtifactRecord, FociArtifactType, GraphRelationship, MonitoringHistoryEntry, NetworkRiskResult, NvdOverlayRecord, OscalArtifactRecord, PersonScreeningResult, RiskStoryline as RiskStorylineType, RiskStorylineCard, SprsImportRecord, SupplierPassport, SupplierPassportIdentifierStatus, WorkflowControlSummary } from "@/lib/api";
 import type { VettingCase, ScoreSnapshot, Calibration } from "@/lib/types";
 import { CONNECTOR_META } from "@/lib/connectors";
+import { emit } from "@/lib/telemetry";
 
 interface CaseDetailProps {
   c: VettingCase;
@@ -772,6 +775,8 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
   const [graphData, setGraphData] = useState<CaseGraphData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphDepth, setGraphDepth] = useState<GraphDepth>(3);
+  const [provenanceEntityId, setProvenanceEntityId] = useState<string | null>(null);
+  const [provenanceRelId, setProvenanceRelId] = useState<number | null>(null);
   const [networkRisk, setNetworkRisk] = useState<NetworkRiskResult | null>(null);
   const [storyline, setStoryline] = useState<RiskStorylineType | null>(null);
   const [exportAuthorization, setExportAuthorization] = useState<ExportAuthorizationCaseInput | null>(null);
@@ -808,6 +813,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
   const [supplierPassport, setSupplierPassport] = useState<SupplierPassport | null>(null);
   const [uploadingExportArtifact, setUploadingExportArtifact] = useState(false);
   const [monitorStatus, setMonitorStatus] = useState<CaseMonitorStatus | null>(null);
+  const [monitorHistoryKey, setMonitorHistoryKey] = useState(0);
   const [monitoringHistory, setMonitoringHistory] = useState<CaseMonitoringHistory | null>(null);
   const [monitoringHistoryLoading, setMonitoringHistoryLoading] = useState(false);
   const [showMonitorHistory, setShowMonitorHistory] = useState(false);
@@ -1413,6 +1419,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
         case_id: c.id,
       });
       setPersonScreeningResult(result);
+      emit("person_screened", { workflow_lane: "export", screen: "case_detail", case_id: c.id, metadata: { has_matches: (result.ofac_matches?.length ?? 0) > 0, deemed_export: result.deemed_export_triggered ?? false } });
 
       setPersonScreeningHistory((current) => [
         { ...result, screened_at: String(result.created_at || new Date().toISOString()) },
@@ -1512,6 +1519,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
         requested_by: getUser()?.email || "ui",
       });
       setTxAuth(result as unknown as TransactionAuthorizationResult);
+      emit("transaction_authorized", { workflow_lane: "export", screen: "case_detail", case_id: c.id, metadata: { destination: exportAuthorization?.destination_country, request_type: exportAuthorization?.request_type } });
     } catch (err) {
       console.error("Transaction authorization failed:", err);
     } finally {
@@ -1551,6 +1559,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
           return;
         }
         if (next.status === "completed") {
+          setMonitorHistoryKey((k) => k + 1);
           await Promise.all([
             refreshDerivedCaseData({ reloadGraph: evidenceTab === "graph" || !!graphData }),
             refreshAiBriefStatus(),
@@ -1684,6 +1693,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
     try {
       const queued = await runCaseMonitor(c.id);
       setMonitorStatus(queued);
+      emit("monitor_triggered", { screen: "case_detail", case_id: c.id, metadata: { vendor_name: c.name } });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Monitoring check failed");
     }
@@ -1945,6 +1955,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
     setAnalystView(tab === "model" ? "model" : "evidence");
     setEvidenceTab(tab);
     setPendingEvidenceTab(null);
+    emit("evidence_tab_switched", { screen: "case_detail", case_id: c.id, metadata: { tab, vendor_name: c.name } });
 
     // Load graph data on first open
     if (tab === "graph" && !graphData && !graphLoading) {
@@ -4455,8 +4466,10 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   )}
 
                   {personScreeningHistory.length === 0 && !personScreeningResult && (
-                    <div className="rounded-lg" style={{ background: T.raised, border: `1px dashed ${T.border}`, padding: "12px", fontSize: FS.sm, color: T.muted }}>
-                      No person screenings have been run for this case yet.
+                    <div className="glass-card flex flex-col items-center justify-center py-6 animate-fade-in">
+                      <Shield size={24} color={T.muted} style={{ marginBottom: 8, opacity: 0.5 }} />
+                      <div style={{ fontSize: FS.sm, color: T.dim, fontWeight: 600 }}>No person screenings yet</div>
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Run a person screening to see results here.</div>
                     </div>
                   )}
                 </div>
@@ -4469,8 +4482,8 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
           )}
 
           {showLegacyWhyBlock && whyItems.length > 0 && (
-            <div className="mt-4 rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: 14 }}>
-              <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.sm, color: T.muted }}>
+            <div className="mt-4 glass-card animate-fade-in" style={{ padding: 14 }}>
+              <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.sm, color: T.muted, letterSpacing: "0.06em" }}>
                 Why Helios made this recommendation
               </div>
               <div className="flex flex-col gap-2">
@@ -4490,11 +4503,15 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
             </div>
           )}
 
+          <div id="monitor-history-anchor">
+            <MonitorHistoryPanel caseId={c.id} vendorName={c.name} refreshKey={monitorHistoryKey} />
+          </div>
+
           <div className="flex gap-2 flex-wrap mt-4">
             <button
               onClick={handleDossier}
               disabled={generating || !cal}
-              className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
               style={{
                 padding: "8px 12px", fontSize: FS.sm,
                 background: T.raised, color: T.text, borderColor: T.border,
@@ -4606,6 +4623,19 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                         <span style={{ fontSize: 11, color: T.muted }}>
                           {monitorDetail}
                         </span>
+                      )}
+                      {monitorStatus.status === "completed" && (
+                        <button
+                          onClick={() => {
+                            document.getElementById("monitor-history-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            emit("monitor_details_scrolled", { screen: "case_detail", case_id: c.id });
+                          }}
+                          style={{ fontSize: 11, color: T.accent, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", marginTop: 2, opacity: 0.85 }}
+                          onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+                        >
+                          View run details
+                        </button>
                       )}
                     </div>
                   </div>
@@ -4837,11 +4867,9 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               {showSourceStatus && enrichment && (
                 <div
                   ref={sourceStatusRef}
-                  className="rounded-lg"
+                  className="glass-panel animate-fade-in"
                   style={{
-                    background: T.surface,
-                    border: `1px solid ${T.border}`,
-                    padding: 12,
+                    padding: 14,
                   }}
                 >
                   <div className="flex items-center justify-between gap-3 mb-3">
@@ -4866,22 +4894,20 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   </div>
 
                   <div
-                    className="rounded-lg"
+                    className="glass-card"
                     style={{
-                      background: T.raised,
-                      border: `1px solid ${T.border}`,
                       padding: 10,
                       marginBottom: 10,
                     }}
                   >
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                    <div className="stagger-children" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
                       {[
                         { label: "Signal", value: sourceStatusSections.signal.length, color: T.green, bg: `${T.green}12` },
                         { label: "Clear", value: sourceStatusSections.clear.length, color: T.amber, bg: `${T.amber}12` },
                         { label: "Issues", value: sourceStatusSections.issue.length, color: T.red, bg: `${T.red}12` },
                         { label: "Runtime", value: `${(enrichment.total_elapsed_ms / 1000).toFixed(1)}s`, color: T.accent, bg: `${T.accent}12` },
                       ].map((card) => (
-                        <div key={card.label} className="rounded-lg" style={{ background: card.bg, padding: "10px 8px", border: `1px solid ${card.color}24` }}>
+                        <div key={card.label} className="rounded-lg card-interactive" style={{ background: card.bg, padding: "10px 8px", border: `1px solid ${card.color}24` }}>
                           <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{card.label}</div>
                           <div style={{ fontSize: FS.base, color: card.color, fontWeight: 700, marginTop: 4 }}>{card.value}</div>
                         </div>
@@ -4940,7 +4966,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                             {section.items.map((entry) => (
                               <div
                                 key={entry.name}
-                                className="rounded-lg"
+                                className="rounded-lg card-interactive"
                                 style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "9px 10px" }}
                               >
                                 <div className="flex items-start gap-2">
@@ -4949,7 +4975,21 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                                     <div className="flex items-center gap-6 justify-between" style={{ flexWrap: "wrap" }}>
                                       <div style={{ minWidth: 0 }}>
                                         <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 600 }}>{connectorDisplayName(entry.name)}</div>
-                                        <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{entry.description}</div>
+                                        <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                                          {entry.description}
+                                          {entry.status.last_checked_at && (
+                                            <span style={{ marginLeft: 6, color: T.muted }}>
+                                              {" "}Checked {(() => {
+                                                const diff = Date.now() - new Date(String(entry.status.last_checked_at)).getTime();
+                                                const mins = Math.floor(diff / 60000);
+                                                if (mins < 60) return `${mins}m ago`;
+                                                const hrs = Math.floor(mins / 60);
+                                                if (hrs < 24) return `${hrs}h ago`;
+                                                return `${Math.floor(hrs / 24)}d ago`;
+                                              })()}
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
                                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                                         <span style={{ padding: "4px 8px", borderRadius: 999, fontSize: 11, color: entry.color, background: `${entry.color}14`, fontWeight: 700 }}>
@@ -5007,7 +5047,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
           </div>
         )}
 
-        <div className="mt-3 rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 12 }}>
+        <div className="mt-3 glass-card" style={{ padding: 12 }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>Analyst views</div>
@@ -5034,7 +5074,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                         setEvidenceTab(enrichment ? defaultEvidenceTab(enrichment) : "findings");
                       }
                     }}
-                    className="inline-flex items-center gap-2 rounded-lg border cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-lg border cursor-pointer btn-interactive focus-ring"
                     style={{
                       padding: "9px 12px",
                       background: active ? `${T.accent}18` : T.raised,
@@ -5690,9 +5730,9 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   key={tab.id}
                   onClick={() => openEvidence(tab.id)}
                   disabled={tab.disabled}
-                  className="rounded font-medium border cursor-pointer"
+                  className="rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
                   style={{
-                    padding: "7px 10px",
+                    padding: "7px 12px",
                     fontSize: FS.sm,
                     background: evidenceTab === tab.id ? T.accent + "18" : T.raised,
                     color: evidenceTab === tab.id ? T.accent : tab.disabled ? T.muted : T.dim,
@@ -5713,8 +5753,8 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {evidenceTab === "model" && cal && (
-                <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
-                  <div className="rounded-lg p-4" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+                <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4 tab-content-enter">
+                  <div className="glass-card p-4">
                     <div className="font-semibold uppercase tracking-wider mb-2" style={{ fontSize: FS.sm, color: T.muted }}>
                       Model View
                     </div>
@@ -5725,8 +5765,8 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       {probLabel(cal.p)}. Coverage {Math.round(cal.cov * 100)}%. Confidence {Math.min(99, Math.max(0, Math.round((cal.mc || 0.85) * 100)))}%.
                     </div>
                   </div>
-                  <div className="rounded-lg p-4" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
-                    <div className="font-semibold uppercase tracking-wider mb-3" style={{ fontSize: FS.sm, color: T.muted }}>
+                  <div className="glass-card p-4">
+                    <div className="font-semibold uppercase tracking-wider mb-3" style={{ fontSize: FS.sm, color: T.muted, letterSpacing: "0.06em" }}>
                       Top Model Factors
                     </div>
                     <div className="flex flex-col gap-3">
@@ -5747,11 +5787,11 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {evidenceTab === "graph" && (
-                <div className="rounded-lg p-4" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
-                  <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                <div className="glass-panel p-5 tab-content-enter">
+                  <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <Network size={14} color={T.accent} />
-                      <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
+                      <Network size={15} color={T.accent} />
+                      <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted, letterSpacing: "0.06em" }}>
                         Entity Association Graph
                       </span>
                     </div>
@@ -5761,9 +5801,9 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       </span>
                       <button
                         onClick={() => switchGraphDepth(3)}
-                        className="rounded font-medium border cursor-pointer"
+                        className="rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
                         style={{
-                          padding: "7px 10px",
+                          padding: "7px 12px",
                           fontSize: FS.sm,
                           background: graphDepth === 3 ? T.accent + "18" : T.surface,
                           color: graphDepth === 3 ? T.accent : T.dim,
@@ -5774,9 +5814,9 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       </button>
                       <button
                         onClick={() => switchGraphDepth(4)}
-                        className="rounded font-medium border cursor-pointer"
+                        className="rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
                         style={{
-                          padding: "7px 10px",
+                          padding: "7px 12px",
                           fontSize: FS.sm,
                           background: graphDepth === 4 ? T.accent + "18" : T.surface,
                           color: graphDepth === 4 ? T.accent : T.dim,
@@ -5797,12 +5837,12 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   />
                   {graphProvenanceSummary && (
                     <div
-                      className="rounded-lg p-4"
-                      style={{ marginBottom: 14, background: T.surface, border: `1px solid ${T.border}` }}
+                      className="glass-card p-4 animate-fade-in"
+                      style={{ marginBottom: 14 }}
                     >
                       <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginBottom: 12 }}>
                         <div>
-                          <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                          <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted, letterSpacing: "0.06em" }}>
                             Provenance Snapshot
                           </div>
                           <div style={{ fontSize: FS.sm, color: T.text, marginTop: 4 }}>
@@ -5827,7 +5867,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           ))}
                         </div>
                       </div>
-                      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+                      <div className="grid gap-3 stagger-children" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
                         {[
                           { label: "Relationships", value: graphProvenanceSummary.relationshipCount, tone: T.text },
                           { label: "Corroborated", value: graphProvenanceSummary.corroboratedCount, tone: T.amber },
@@ -5836,7 +5876,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                         ].map((item) => (
                           <div
                             key={item.label}
-                            className="rounded-lg p-3"
+                            className="rounded-lg p-3 card-interactive"
                             style={{ background: T.bg, border: `1px solid ${T.border}` }}
                           >
                             <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -5849,11 +5889,11 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                         ))}
                       </div>
                       {graphProvenanceSummary.highlights.length > 0 && (
-                        <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                        <div style={{ marginTop: 14, display: "grid", gap: 10 }} className="stagger-children">
                           {graphProvenanceSummary.highlights.map((item) => (
                             <div
                               key={item.id}
-                              className="rounded-lg p-3"
+                              className="rounded-lg p-3 card-interactive"
                               style={{ background: T.bg, border: `1px solid ${T.border}` }}
                             >
                               <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -5921,8 +5961,8 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                     </div>
                   )}
                   {graphLoading && (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="animate-spin" size={20} color={T.muted} />
+                    <div className="glass-card flex items-center justify-center py-10 animate-fade-in" style={{ marginTop: 14 }}>
+                      <Loader2 className="animate-spin" size={18} color={T.muted} />
                       <span style={{ fontSize: FS.sm, color: T.muted, marginLeft: 8 }}>Loading graph data...</span>
                     </div>
                   )}
@@ -5933,11 +5973,33 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       rootEntityId={graphData.root_entity_id}
                       width={780}
                       height={520}
+                      onEntityClick={(entity) => {
+                        setProvenanceRelId(null);
+                        setProvenanceEntityId(entity.id);
+                        emit("graph_entity_clicked", { screen: "case_graph", case_id: c.id, metadata: { entity_id: entity.id, entity_type: entity.entity_type, entity_name: entity.canonical_name } });
+                      }}
+                      onRelationshipClick={(relId) => {
+                        setProvenanceEntityId(null);
+                        setProvenanceRelId(relId);
+                        emit("graph_relationship_clicked", { screen: "case_graph", case_id: c.id, metadata: { relationship_id: relId } });
+                      }}
+                    />
+                  )}
+                  {(provenanceEntityId || provenanceRelId != null) && (
+                    <GraphProvenancePanel
+                      entityId={provenanceEntityId}
+                      relationshipId={provenanceRelId}
+                      onClose={() => {
+                        setProvenanceEntityId(null);
+                        setProvenanceRelId(null);
+                      }}
                     />
                   )}
                   {!graphLoading && !graphData && (
-                    <div className="text-center py-6" style={{ fontSize: FS.sm, color: T.muted }}>
-                      No graph data yet. Re-run the assessment to populate the knowledge graph.
+                    <div className="glass-card flex flex-col items-center justify-center py-10 animate-fade-in" style={{ marginTop: 14 }}>
+                      <Network size={28} color={T.muted} style={{ marginBottom: 10, opacity: 0.5 }} />
+                      <div style={{ fontSize: FS.sm, color: T.dim, fontWeight: 600 }}>No graph data yet</div>
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Re-run the assessment to populate the knowledge graph.</div>
                     </div>
                   )}
                 </div>
@@ -5949,10 +6011,11 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
               {evidenceTab !== "model" && !enrichment && !showStream && !loadingEnrichment && (
                 <div
-                  className="rounded-lg p-5 text-center"
-                  style={{ background: T.raised, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}
+                  className="glass-card p-6 flex flex-col items-center justify-center animate-fade-in"
                 >
-                  Run screening to load evidence for this case.
+                  <Radar size={28} color={T.muted} style={{ marginBottom: 10, opacity: 0.5 }} />
+                  <div style={{ fontSize: FS.sm, color: T.dim, fontWeight: 600 }}>No evidence loaded</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Run screening to load evidence for this case.</div>
                 </div>
               )}
             </div>

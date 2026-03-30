@@ -18,6 +18,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -73,7 +74,7 @@ SYNTHETIC_PATTERNS = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a live dossier QA batch and export a 3-case pilot packet.")
-    parser.add_argument("--host", default="root@24.199.122.225")
+    parser.add_argument("--host", default=os.environ.get("XIPHOS_LIVE_SSH_TARGET", ""))
     parser.add_argument("--container", default="xiphos-xiphos-1")
     parser.add_argument("--user-id", default=DEFAULT_USER_ID)
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
@@ -541,6 +542,8 @@ def render_packet_index(summary: dict[str, Any], exported: list[dict[str, Any]])
 
 def main() -> int:
     args = parse_args()
+    if not args.host:
+        raise SystemExit("set --host or XIPHOS_LIVE_SSH_TARGET for live dossier QA")
 
     live_cases = list_live_scored_cases(args.host, args.container)
     cohort = build_default_cohort(live_cases, limit=args.limit)

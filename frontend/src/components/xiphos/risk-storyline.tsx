@@ -20,9 +20,11 @@ export function RiskStoryline({ storyline, onAction }: RiskStorylineProps) {
 
   return (
     <div
-      className="mt-4 rounded-xl"
+      className="mt-4 rounded-xl animate-slide-up"
       style={{
         background: "linear-gradient(180deg, rgba(16,25,37,0.98), rgba(11,17,25,0.98))",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
         border: `1px solid ${T.borderLight}`,
         padding: 16,
       }}
@@ -85,7 +87,7 @@ export function RiskStoryline({ storyline, onAction }: RiskStorylineProps) {
       </div>
 
       <div
-        className="grid gap-3 mt-4"
+        className="grid gap-3 mt-4 stagger-children"
         style={{
           gridTemplateColumns: storyline.cards.length <= 3
             ? "repeat(auto-fit, minmax(240px, 1fr))"

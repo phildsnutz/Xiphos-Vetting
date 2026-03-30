@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
-import { tierBand, TIER_BANDS, parseTier, displayName } from "@/lib/tokens";
+import { tierBand, TIER_BANDS, parseTier, displayName, T, FS } from "@/lib/tokens";
 import { portfolioDisposition, workflowLaneForCase, WORKFLOW_LANE_META } from "./portfolio-utils";
 import type { WorkflowLane } from "./portfolio-utils";
 import { fetchMonitorChanges, fetchPortfolioAnomalies, fetchPortfolioSnapshot } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import type { MonitorChangeEntry } from "@/lib/api";
+import { AlertTriangle, TrendingUp, TrendingDown, X } from "lucide-react";
+import { emit } from "@/lib/telemetry";
 
 interface PortfolioScreenProps {
   allCases: VettingCase[];
@@ -339,10 +341,67 @@ export function PortfolioScreen({
         </div>
       )}
 
+      {/* What Changed Strip */}
+      {monitorChanges.length > 0 && (
+        <div className="mb-4 glass-card animate-slide-up" style={{ padding: "10px 14px" }}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 overflow-x-auto" style={{ minWidth: 0 }}>
+              <span className="shrink-0 font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted, letterSpacing: "0.06em" }}>
+                Recent changes
+              </span>
+              <div className="flex items-center gap-2 stagger-children">
+                {monitorChanges.slice(0, 5).map((change, idx) => {
+                  const caseMatch = allCases.find((c) => c.id === change.vendor_id);
+                  const name = change.vendor_name || (caseMatch ? displayName(caseMatch.name) : change.vendor_id.slice(0, 8));
+                  const isIncrease = change.change_type === "risk_increase" || (!change.change_type && (change.current_risk ?? "") > (change.previous_risk ?? ""));
+                  const ChangeIcon = isIncrease ? TrendingUp : TrendingDown;
+                  const changeColor = isIncrease ? T.red : T.green;
+                  return (
+                    <button
+                      key={`${change.vendor_id}-${idx}`}
+                      onClick={() => {
+                        if (caseMatch) {
+                          onSelect(caseMatch);
+                          emit("what_changed_clicked", { screen: "portfolio", case_id: change.vendor_id, metadata: { vendor_name: change.vendor_name || caseMatch.name, change_type: change.change_type } });
+                        }
+                      }}
+                      title={change.delta_summary || undefined}
+                      className="inline-flex items-center gap-1.5 rounded-full shrink-0 cursor-pointer btn-interactive"
+                      style={{
+                        padding: "5px 10px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: changeColor,
+                        background: `${changeColor}12`,
+                        border: `1px solid ${changeColor}28`,
+                      }}
+                    >
+                      <ChangeIcon size={10} />
+                      <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                    </button>
+                  );
+                })}
+                {monitorChanges.length > 5 && (
+                  <span className="shrink-0 rounded-full" style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, color: T.muted, background: T.raised, border: `1px solid ${T.border}` }}>
+                    +{monitorChanges.length - 5} more
+                  </span>
+                )}
+              </div>
+            </div>
+            {anomalies.length > 0 && (
+              <div className="shrink-0 inline-flex items-center gap-1.5 rounded-full" style={{ padding: "5px 10px", fontSize: 11, fontWeight: 700, color: T.amber, background: `${T.amber}12`, border: `1px solid ${T.amber}28` }}>
+                <AlertTriangle size={10} />
+                {anomalies.length} anomal{anomalies.length === 1 ? "y" : "ies"}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* KPI Cards Row */}
-      <div className="mb-8 grid grid-cols-5 gap-4">
+      <div className="mb-8 grid grid-cols-5 gap-4 stagger-children">
         {/* Cases in Scope */}
-        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Cases in Scope</p>
           <p className="text-2xl font-bold text-slate-100" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
             {cases?.length || 0}
@@ -350,7 +409,7 @@ export function PortfolioScreen({
         </div>
 
         {/* Blocked */}
-        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Blocked</p>
           <p className="text-2xl font-bold text-red-400" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
             {cases?.filter((c) => portfolioDisposition(c) === "blocked").length || 0}
@@ -358,7 +417,7 @@ export function PortfolioScreen({
         </div>
 
         {/* Review Queue */}
-        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Review Queue</p>
           <p className="text-2xl font-bold text-amber-400" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
             {cases?.filter((c) => portfolioDisposition(c) === "review").length || 0}
@@ -366,7 +425,7 @@ export function PortfolioScreen({
         </div>
 
         {/* Watchlist */}
-        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Watchlist</p>
           <p className="text-2xl font-bold text-amber-400" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
             {cases?.filter((c) => {
@@ -377,7 +436,7 @@ export function PortfolioScreen({
         </div>
 
         {/* Avg Risk */}
-        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+        <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Avg Risk</p>
           <p className="text-2xl font-bold text-slate-100" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
             {cases && cases.length > 0

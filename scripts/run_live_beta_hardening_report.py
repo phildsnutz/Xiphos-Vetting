@@ -18,6 +18,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -51,7 +52,7 @@ PDF_SECTION_CHECKS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Helios beta hardening report against the live host.")
-    parser.add_argument("--host", default="root@209.38.141.101")
+    parser.add_argument("--host", default=os.environ.get("XIPHOS_LIVE_SSH_TARGET", ""))
     parser.add_argument("--ssh-key", default="")
     parser.add_argument("--container", default="xiphos-xiphos-1")
     parser.add_argument(
@@ -75,7 +76,7 @@ def parse_args() -> argparse.Namespace:
         "--gauntlet-spec-file",
         default=str(ROOT / "fixtures" / "customer_demo" / "query_to_dossier_canary_pack.json"),
     )
-    parser.add_argument("--readiness-base-url", default="http://24.199.122.225:8080")
+    parser.add_argument("--readiness-base-url", default=os.environ.get("XIPHOS_LIVE_BASE_URL", ""))
     parser.add_argument("--readiness-email", default="")
     parser.add_argument("--readiness-password", default="")
     parser.add_argument("--readiness-token", default="")
@@ -264,6 +265,7 @@ def validate_result(case: dict[str, Any]) -> dict[str, Any]:
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
+    neo4j = summary.get("neo4j") if isinstance(summary.get("neo4j"), dict) else {}
     lines = [
         "# Helios Live Beta Hardening Report",
         "",
@@ -280,9 +282,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Neo4j",
         "",
-        f"- Required: **{'yes' if summary['neo4j']['required'] else 'no'}**",
-        f"- Available: **{'yes' if summary['neo4j']['neo4j_available'] else 'no'}**",
-        f"- Status: `{summary['neo4j']['status']}`",
+        f"- Required: **{'yes' if neo4j.get('required') else 'no'}**",
+        f"- Available: **{'yes' if neo4j.get('neo4j_available') else 'no'}**",
+        f"- Status: `{neo4j.get('status') or 'unknown'}`",
         "",
         "## Query To Dossier",
         "",
@@ -475,6 +477,12 @@ def _overall_verdict(summary: dict[str, Any]) -> str:
 
 def main() -> int:
     args = parse_args()
+    if not args.host:
+        raise SystemExit("set --host or XIPHOS_LIVE_SSH_TARGET for live beta hardening")
+    if not args.skip_readiness and not args.readiness_base_url:
+        raise SystemExit("set --readiness-base-url or XIPHOS_LIVE_BASE_URL for live beta hardening")
+    if not args.skip_query_to_dossier and not args.readiness_base_url:
+        raise SystemExit("set --readiness-base-url or XIPHOS_LIVE_BASE_URL for live beta hardening")
     cohort = load_cohort(args.cohort_file)
     case_ids = [entry["id"] for entry in cohort]
     raw_results = remote_collect(

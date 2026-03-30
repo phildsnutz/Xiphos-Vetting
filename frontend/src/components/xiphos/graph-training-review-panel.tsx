@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, GitBranchPlus, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, Clock3, GitBranchPlus, Loader2, RefreshCw, XCircle, Inbox, AlertTriangle, CheckCircle, Ban } from "lucide-react";
 import {
   fetchGraphTrainingDashboard,
   fetchPredictedLinkReviewQueue,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { T, FS } from "@/lib/tokens";
 import { formatRelationshipLabel } from "@/lib/workflow-copy";
+import { SkeletonMetricGrid, SkeletonQueueItem } from "./loader";
 
 interface GraphTrainingReviewPanelProps {
   rootEntityId?: string;
@@ -70,6 +71,24 @@ function toneForVerdict(verdict?: string | null) {
     return T.amber;
   }
   return T.muted;
+}
+
+/** Returns an icon component for verdict states (reinforces color with shape) */
+function verdictIcon(verdict?: string | null) {
+  const normalized = String(verdict || "").trim().toUpperCase();
+  if (normalized === "PASS" || normalized === "READY" || normalized === "GO") {
+    return CheckCircle;
+  }
+  if (normalized === "FAIL" || normalized === "BLOCKED" || normalized === "NO_GO") {
+    return XCircle;
+  }
+  if (normalized.includes("NOT_IMPLEMENTED")) {
+    return Ban;
+  }
+  if (normalized === "NOT_READY" || normalized === "WATCH" || normalized === "REVIEW") {
+    return AlertTriangle;
+  }
+  return Clock3;
 }
 
 export function GraphTrainingReviewPanel({
@@ -249,13 +268,13 @@ export function GraphTrainingReviewPanel({
   }, [queue]);
 
   return (
-    <div className="rounded-lg p-4" style={{ marginBottom: 14, background: T.surface, border: `1px solid ${T.border}` }}>
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+    <div className="glass-panel p-5 animate-fade-in" style={{ marginBottom: 16 }}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+          <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted, letterSpacing: "0.08em" }}>
             Graph Training Review
           </div>
-          <div style={{ fontSize: FS.sm, color: T.text, marginTop: 4, fontWeight: 600 }}>
+          <div style={{ fontSize: FS.base, color: T.text, marginTop: 6, fontWeight: 600, lineHeight: 1.4 }}>
             Analyst loop for missing-edge recovery on {entityName || rootEntityId || "the active graph root"}
           </div>
           <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
@@ -266,19 +285,19 @@ export function GraphTrainingReviewPanel({
           <button
             onClick={() => void loadPanel()}
             disabled={loading}
-            className="rounded border cursor-pointer"
-            style={{ padding: "7px 10px", fontSize: FS.sm, color: T.text, background: T.raised, borderColor: T.border, opacity: loading ? 0.7 : 1 }}
+            className="rounded-lg btn-interactive focus-ring cursor-pointer"
+            style={{ padding: "8px 14px", fontSize: FS.sm, color: T.text, background: T.raised, border: `1px solid ${T.border}`, opacity: loading ? 0.6 : 1 }}
           >
             <span className="inline-flex items-center gap-2">
-              <RefreshCw size={14} />
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               Refresh
             </span>
           </button>
           <button
             onClick={() => void handleSeedQueue()}
             disabled={queueing}
-            className="rounded border cursor-pointer"
-            style={{ padding: "7px 10px", fontSize: FS.sm, color: T.accent, background: `${T.accent}12`, borderColor: `${T.accent}33`, opacity: queueing ? 0.7 : 1 }}
+            className="rounded-lg btn-interactive focus-ring cursor-pointer"
+            style={{ padding: "8px 14px", fontSize: FS.sm, color: T.accent, background: `${T.accent}12`, border: `1px solid ${T.accent}33`, opacity: queueing ? 0.6 : 1 }}
           >
             <span className="inline-flex items-center gap-2">
               {queueing ? <Loader2 size={14} className="animate-spin" /> : <GitBranchPlus size={14} />}
@@ -299,31 +318,37 @@ export function GraphTrainingReviewPanel({
         </div>
       )}
 
+      {loading && !dashboard && (
+        <div style={{ marginTop: 16 }}>
+          <SkeletonMetricGrid count={8} />
+        </div>
+      )}
+
       {dashboard && (
-        <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}` }}>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="glass-card p-4 animate-scale-in" style={{ marginTop: 16 }}>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted, letterSpacing: "0.08em" }}>
                 Graph Training Dashboard
               </div>
-              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6 }}>
+              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
                 Always-on view of readiness, Neo4j health, benchmark state, and the live analyst review loop.
               </div>
             </div>
-            <div style={{ fontSize: FS.sm, color: T.muted }}>
-              Updated {dashboard.generated_at ? new Date(dashboard.generated_at).toLocaleString() : "unknown"}
+            <div style={{ fontSize: FS.caption, color: T.dim, fontFamily: "'SFMono-Regular', monospace" }}>
+              {dashboard.generated_at ? new Date(dashboard.generated_at).toLocaleString() : "unknown"}
             </div>
           </div>
 
-          <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+          <div className="grid gap-3 stagger-children" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             {[
-              { label: "Readiness", value: dashboard.readiness.verdict || "unknown", tone: toneForVerdict(dashboard.readiness.verdict) },
-              { label: "Neo4j", value: dashboard.neo4j.verdict || "unknown", tone: toneForVerdict(dashboard.neo4j.verdict) },
-              { label: "Benchmark", value: dashboard.benchmark.verdict || "unknown", tone: toneForVerdict(dashboard.benchmark.verdict) },
-              { label: "Data foundation", value: dashboard.benchmark.data_foundation_verdict || "unknown", tone: toneForVerdict(dashboard.benchmark.data_foundation_verdict) },
-              { label: "Live reviewed", value: dashboard.live_tranche.reviewed_links, tone: T.text },
-              { label: "Novel pending", value: dashboard.live_tranche.novel_pending_links, tone: T.accent },
-              { label: "Ownership hits@10", value: pct(dashboard.live_tranche.ownership_control_hits_at_10), tone: T.green },
+              { label: "Readiness", value: dashboard.readiness.verdict || "unknown", tone: toneForVerdict(dashboard.readiness.verdict), verdict: dashboard.readiness.verdict },
+              { label: "Neo4j", value: dashboard.neo4j.verdict || "unknown", tone: toneForVerdict(dashboard.neo4j.verdict), verdict: dashboard.neo4j.verdict },
+              { label: "Benchmark", value: dashboard.benchmark.verdict || "unknown", tone: toneForVerdict(dashboard.benchmark.verdict), verdict: dashboard.benchmark.verdict },
+              { label: "Data foundation", value: dashboard.benchmark.data_foundation_verdict || "unknown", tone: toneForVerdict(dashboard.benchmark.data_foundation_verdict), verdict: dashboard.benchmark.data_foundation_verdict },
+              { label: "Live reviewed", value: dashboard.live_tranche.reviewed_links, tone: T.text, verdict: null },
+              { label: "Novel pending", value: dashboard.live_tranche.novel_pending_links, tone: T.accent, verdict: null },
+              { label: "Ownership hits@10", value: pct(dashboard.live_tranche.ownership_control_hits_at_10), tone: T.green, verdict: null },
               {
                 label: "Route / cyber queries",
                 value: `${dashboard.live_tranche.intermediary_route_queries_evaluated}/${dashboard.live_tranche.cyber_dependency_queries_evaluated}`,
@@ -332,46 +357,62 @@ export function GraphTrainingReviewPanel({
                   && dashboard.live_tranche.cyber_dependency_queries_evaluated > 0
                     ? T.green
                     : T.amber,
+                verdict: null,
               },
-            ].map((item) => (
-              <div key={item.label} className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: item.tone, marginTop: 4, fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-                  {item.value}
+            ].map((item) => {
+              const VerdictIcon = item.verdict ? verdictIcon(item.verdict) : null;
+              return (
+                <div key={item.label} className="rounded-lg p-3 card-interactive" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
+                  <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+                    {VerdictIcon && <VerdictIcon size={16} style={{ color: item.tone, flexShrink: 0 }} />}
+                    <div style={{ fontSize: 20, fontWeight: 800, color: item.tone, fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+                      {item.value}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            {dashboard.benchmark.stage_results.map((stage) => (
-              <div key={stage.stage_id} className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                <div className="flex items-center justify-between gap-3">
-                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>
-                    {stage.stage_id.replace(/_/g, " ")}
+          <div className="grid gap-3 stagger-children" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {dashboard.benchmark.stage_results.map((stage) => {
+              const StageIcon = verdictIcon(stage.verdict);
+              const stageColor = toneForVerdict(stage.verdict);
+              return (
+                <div key={stage.stage_id} className="rounded-lg p-3 card-interactive" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 600 }}>
+                      {stage.stage_id.replace(/_/g, " ")}
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 rounded-full" style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, color: stageColor, background: `${stageColor}14`, border: `1px solid ${stageColor}33` }}>
+                      <StageIcon size={12} />
+                      {stage.verdict}
+                    </div>
                   </div>
-                  <div style={{ fontSize: FS.sm, color: toneForVerdict(stage.verdict), fontWeight: 700 }}>
-                    {stage.verdict}
+                  <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+                    {stage.objective}
                   </div>
                 </div>
-                <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
-                  {stage.objective}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
       {!rootEntityId && (
-        <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}>
-          Root graph entity is missing. Open the graph after enrichment or refresh the case to seed the analyst review queue.
+        <div className="glass-card flex flex-col items-center justify-center py-10 px-6 text-center animate-fade-in" style={{ marginTop: 16 }}>
+          <Inbox size={32} style={{ color: T.dim, marginBottom: 12 }} />
+          <div style={{ fontSize: FS.base, color: T.text, fontWeight: 600, marginBottom: 6 }}>No root entity</div>
+          <div style={{ fontSize: FS.sm, color: T.muted, maxWidth: 380, lineHeight: 1.5 }}>
+            Open the graph after enrichment or refresh the case to seed the analyst review queue.
+          </div>
         </div>
       )}
 
       {rootEntityId && (
         <>
-      <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+      <div className="grid gap-3 stagger-children" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
         {[
           { label: "Pending", value: stats?.pending_links ?? 0, tone: T.amber },
           { label: "Novel pending", value: stats?.novel_pending_links ?? 0, tone: T.accent },
@@ -383,9 +424,9 @@ export function GraphTrainingReviewPanel({
           { label: "Median age", value: ageLabel(stats?.missing_edge_recovery?.median_pending_age_hours), tone: T.amber },
           { label: "Unsupported", value: pct(stats?.unsupported_promoted_edge_rate), tone: (stats?.unsupported_promoted_edge_rate ?? 0) > 0 ? T.red : T.green },
         ].map((item) => (
-          <div key={item.label} className="rounded-lg p-3" style={{ background: T.bg, border: `1px solid ${T.border}` }}>
+          <div key={item.label} className="rounded-lg p-3 card-interactive" style={{ background: T.bg, border: `1px solid ${T.border}` }}>
             <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: item.tone, marginTop: 4, fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: item.tone, marginTop: 6, fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
               {item.value}
             </div>
           </div>
@@ -518,17 +559,18 @@ export function GraphTrainingReviewPanel({
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2" style={{ marginTop: 14, fontSize: FS.sm, color: T.muted }}>
-          <Loader2 size={16} className="animate-spin" />
-          Loading graph training queue...
+        <div className="grid gap-3" style={{ marginTop: 14 }}>
+          <SkeletonQueueItem />
+          <SkeletonQueueItem />
+          <SkeletonQueueItem />
         </div>
       ) : queue.length > 0 ? (
-        <div className="grid gap-3" style={{ marginTop: 12 }}>
+        <div className="grid gap-3 stagger-children" style={{ marginTop: 14 }}>
           {queue.map((item) => {
             const selection = decisions[item.id];
             const tone = toneForDecision(selection?.confirmed);
             return (
-              <div key={item.id} className="rounded-lg p-3" style={{ background: T.bg, border: `1px solid ${tone.border}` }}>
+              <div key={item.id} className="rounded-lg p-4 transition-200" style={{ background: T.bg, border: `1px solid ${tone.border}` }}>
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div>
                     <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>
@@ -562,11 +604,11 @@ export function GraphTrainingReviewPanel({
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 10 }}>
+                <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 12 }}>
                   <button
                     onClick={() => setDecision(item, true)}
-                    className="rounded border cursor-pointer"
-                    style={{ padding: "6px 10px", fontSize: FS.sm, color: T.green, background: selection?.confirmed === true ? `${T.green}16` : T.surface, borderColor: selection?.confirmed === true ? `${T.green}33` : T.border }}
+                    className="rounded-lg btn-interactive focus-ring cursor-pointer transition-150"
+                    style={{ padding: "7px 12px", fontSize: FS.sm, color: T.green, background: selection?.confirmed === true ? `${T.green}18` : T.surface, border: `1px solid ${selection?.confirmed === true ? `${T.green}44` : T.border}` }}
                   >
                     <span className="inline-flex items-center gap-2">
                       <CheckCircle2 size={14} />
@@ -575,8 +617,8 @@ export function GraphTrainingReviewPanel({
                   </button>
                   <button
                     onClick={() => setDecision(item, false)}
-                    className="rounded border cursor-pointer"
-                    style={{ padding: "6px 10px", fontSize: FS.sm, color: T.red, background: selection?.confirmed === false ? `${T.red}16` : T.surface, borderColor: selection?.confirmed === false ? `${T.red}33` : T.border }}
+                    className="rounded-lg btn-interactive focus-ring cursor-pointer transition-150"
+                    style={{ padding: "7px 12px", fontSize: FS.sm, color: T.red, background: selection?.confirmed === false ? `${T.red}18` : T.surface, border: `1px solid ${selection?.confirmed === false ? `${T.red}44` : T.border}` }}
                   >
                     <span className="inline-flex items-center gap-2">
                       <XCircle size={14} />
@@ -611,8 +653,12 @@ export function GraphTrainingReviewPanel({
           })}
         </div>
       ) : (
-        <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}>
-          No pending predicted links for this entity and edge-family filter. Seed the queue or change the family filter.
+        <div className="glass-card flex flex-col items-center justify-center py-8 px-6 text-center animate-fade-in" style={{ marginTop: 14 }}>
+          <Inbox size={28} style={{ color: T.dim, marginBottom: 10 }} />
+          <div style={{ fontSize: FS.base, color: T.text, fontWeight: 600, marginBottom: 4 }}>Queue empty</div>
+          <div style={{ fontSize: FS.sm, color: T.muted, maxWidth: 340, lineHeight: 1.5 }}>
+            No pending predicted links for this entity and edge-family filter. Seed the queue or change the family filter.
+          </div>
         </div>
       )}
         </>

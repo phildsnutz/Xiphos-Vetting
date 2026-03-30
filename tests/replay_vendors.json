@@ -1,0 +1,90 @@
+[
+  {
+    "id": "c-46a6a2a5",
+    "name": "GENERAL ATOMICS INC",
+    "environment": "live_dense_cohort",
+    "workflow_lane": "counterparty",
+    "features": [
+      "dense_graph",
+      "monitoring_drift_history",
+      "premium_dossier",
+      "graph_provenance"
+    ],
+    "graph_entity_min": 1000,
+    "required_relationship_types": [
+      "contracts_with",
+      "litigant_in"
+    ],
+    "why": "Primary dense counterparty replay with documented monitoring drift and premium dossier expectations."
+  },
+  {
+    "id": "c-76001f13",
+    "name": "LOCKHEED MARTIN CORPORATION",
+    "environment": "live_dense_cohort",
+    "workflow_lane": "counterparty",
+    "features": [
+      "heaviest_graph",
+      "counterparty_lane",
+      "graph_stability"
+    ],
+    "graph_entity_min": 1200,
+    "why": "Heaviest clear-case graph in the live dense cohort."
+  },
+  {
+    "id": "c-8b30719f",
+    "name": "HUAWEI TECHNOLOGIES CO LTD",
+    "environment": "live_dense_cohort",
+    "workflow_lane": "counterparty",
+    "features": [
+      "blocked_case",
+      "sanctions_or_ofac_surface",
+      "hard_stop_dossier"
+    ],
+    "graph_entity_min": 5,
+    "why": "Blocked sanctions case for hard-stop narrative and adverse-party handling."
+  },
+  {
+    "id": "c-beta-cyber-horizon",
+    "name": "Horizon Mission Systems LLC",
+    "environment": "seed_beta_lane_cases",
+    "workflow_lane": "cyber",
+    "features": [
+      "cyber_lane",
+      "sprs_evidence",
+      "oscal_poam",
+      "monitor_history_seeded",
+      "ai_narrative_seeded"
+    ],
+    "setup_script": "scripts/seed_beta_lane_cases.py",
+    "why": "Stable seeded cyber replay with SPRS and OSCAL evidence."
+  },
+  {
+    "id": "c-beta-export-orbital",
+    "name": "Orbital Sensor Dynamics GmbH",
+    "environment": "seed_beta_lane_cases",
+    "workflow_lane": "export",
+    "features": [
+      "export_lane",
+      "deemed_export_context",
+      "export_artifact_intake",
+      "monitor_history_seeded",
+      "ai_narrative_seeded"
+    ],
+    "setup_script": "scripts/seed_beta_lane_cases.py",
+    "why": "Stable seeded export replay with foreign-person access and export artifact context."
+  },
+  {
+    "id": "ci-seeded-case",
+    "name": "CI SEEDED EXPORT CASE",
+    "environment": "local_ci_seed",
+    "workflow_lane": "export",
+    "features": [
+      "transaction_authorization",
+      "export_lane",
+      "ci_smoke_case"
+    ],
+    "setup_script": "scripts/seed_ci_workspace.py",
+    "known_gap": "Current local snapshot has persons_screened=0 and no case-linked person_screenings rows yet.",
+    "why": "Deterministic local export case for CI and harness smoke runs."
+  }
+]
