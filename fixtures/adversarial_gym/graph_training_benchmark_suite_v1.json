@@ -5,7 +5,8 @@
     "graph_embeddings": "backend/graph_embeddings.py",
     "link_prediction_api": "backend/link_prediction_api.py",
     "graph_ingest": "backend/graph_ingest.py",
-    "pillar_briefing_pack": "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json"
+    "pillar_briefing_pack": "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json",
+    "temporal_replay_fixture": "fixtures/adversarial_gym/graph_temporal_recurrence_cases_v1.json"
   },
   "data_foundation": {
     "construction_gold_set": {
@@ -158,9 +159,9 @@
     {
       "suite_id": "temporal_recurrence_drift",
       "fixtures": [
+        "fixtures/adversarial_gym/graph_temporal_recurrence_cases_v1.json",
         "monitor_history_replays",
-        "case_event_timeline_replays",
-        "route_shift_replays"
+        "case_event_timeline_replays"
       ],
       "pass_condition": "All temporal_recurrence_change metrics pass."
     },

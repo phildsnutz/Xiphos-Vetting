@@ -17,7 +17,7 @@ Used by link_prediction_api.py to serve predictions via REST API.
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ GRAPH_CONSTRUCTION_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "gra
 GRAPH_CONSTRUCTION_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_hard_negatives_v1.json"
 GRAPH_ENTITY_RESOLUTION_PAIRS_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_entity_resolution_pairs_v1.json"
 GRAPH_MISSING_EDGE_HOLDOUT_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_missing_edge_holdout_v1.json"
+GRAPH_TEMPORAL_REPLAY_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_temporal_recurrence_cases_v1.json"
 MASKED_HOLDOUT_RELATION_TYPES: tuple[str, ...] = (
     "owned_by",
     "backed_by",
@@ -74,6 +75,14 @@ MISSING_EDGE_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
         "cyber_supply_chain",
         "component_dependency",
     ),
+}
+
+TEMPORAL_FRESHNESS_THRESHOLDS_DAYS: dict[str, int] = {
+    "owned_by": 180,
+    "backed_by": 120,
+    "routes_payment_through": 90,
+    "contracts_with": 120,
+    "litigant_in": 180,
 }
 
 PREDICTION_RELATION_TARGET_ALLOWLIST: dict[str, set[str]] = {
@@ -467,6 +476,42 @@ def _safe_divide(numerator: float, denominator: float) -> float:
 
 def _mean_or_zero(values: list[float]) -> float:
     return float(sum(values) / len(values)) if values else 0.0
+
+
+def _parse_graph_timestamp(value: Any) -> datetime | None:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    try:
+        return datetime.fromisoformat(candidate.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _binary_auc(scores: list[float], labels: list[int]) -> float:
+    positives = [float(score) for score, label in zip(scores, labels) if int(label) == 1]
+    negatives = [float(score) for score, label in zip(scores, labels) if int(label) == 0]
+    if not positives or not negatives:
+        return 0.0
+
+    wins = 0.0
+    for pos_score in positives:
+        for neg_score in negatives:
+            if pos_score > neg_score:
+                wins += 1.0
+            elif pos_score == neg_score:
+                wins += 0.5
+    return _safe_divide(wins, len(positives) * len(negatives))
+
+
+def _f1_score(tp: int, fp: int, fn: int) -> float:
+    precision = _safe_divide(tp, tp + fp)
+    recall = _safe_divide(tp, tp + fn)
+    return _safe_divide(2 * precision * recall, precision + recall)
+
+
+def _freshness_threshold_days(rel_type: str) -> int:
+    return int(TEMPORAL_FRESHNESS_THRESHOLDS_DAYS.get(_normalize_rel_type(rel_type), 120))
 
 
 def _normalize_match_text(value: Any) -> str:
@@ -2954,6 +2999,246 @@ def get_missing_edge_recovery_metrics(
         }
     )
     return metrics
+
+
+def _load_temporal_replay_rows(path: Path | None = None) -> tuple[Path, list[dict[str, Any]]]:
+    replay_path = path or GRAPH_TEMPORAL_REPLAY_PATH
+    rows = _load_fixture_rows(replay_path) if replay_path.exists() else []
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        snapshots = row.get("snapshots")
+        if not isinstance(snapshots, list) or not snapshots:
+            continue
+        normalized.append(
+            {
+                **row,
+                "scenario_id": str(row.get("scenario_id") or f"temporal-{len(normalized) + 1}"),
+                "relation_type": _normalize_rel_type(row.get("relation_type") or row.get("relationship_type")),
+                "edge_family": str(row.get("edge_family") or _prediction_edge_family(row.get("relation_type"))),
+                "change_label": 1 if bool(row.get("change_label")) else 0,
+                "recurrence_label": 1 if bool(row.get("recurrence_label")) else 0,
+                "event_step": int(row.get("event_step")) if row.get("event_step") is not None else None,
+                "heuristic_alert_step": int(row.get("heuristic_alert_step")) if row.get("heuristic_alert_step") is not None else None,
+                "snapshots": [snapshot for snapshot in snapshots if isinstance(snapshot, dict)],
+            }
+        )
+    return replay_path, normalized
+
+
+def _evaluate_temporal_scenario(row: dict[str, Any]) -> dict[str, Any]:
+    snapshots = [snapshot for snapshot in (row.get("snapshots") or []) if isinstance(snapshot, dict)]
+    relation_type = _normalize_rel_type(row.get("relation_type"))
+    threshold_days = _freshness_threshold_days(relation_type)
+    seen_targets: set[str] = set()
+    step_scores: list[float] = []
+    trigger_rows: list[dict[str, Any]] = []
+    model_alert_step: int | None = None
+    recurrence_detected = False
+    previous_target = ""
+    previous_corroboration = 0
+    previous_timestamp: datetime | None = None
+
+    for index, snapshot in enumerate(snapshots):
+        target_name = _normalize_match_text(snapshot.get("target_entity"))
+        contradiction_state = _normalize_match_text(snapshot.get("contradiction_state"))
+        corroboration_count = int(snapshot.get("corroboration_count") or 0)
+        timestamp = _parse_graph_timestamp(snapshot.get("observed_at"))
+        freshness_class = _normalize_match_text(snapshot.get("freshness_class"))
+
+        triggers: list[str] = []
+        score = 0.0
+
+        target_shift = bool(previous_target and target_name and target_name != previous_target)
+        if target_shift:
+            score += 0.55
+            triggers.append("target_shift")
+
+        contradiction_flag = contradiction_state in {"contradicted", "disputed", "challenged"}
+        if contradiction_flag:
+            score += 0.45
+            triggers.append("contradiction")
+
+        freshness_flag = freshness_class in {"stale", "historical"}
+        if not freshness_flag and previous_timestamp is not None and timestamp is not None:
+            gap_days = max((timestamp - previous_timestamp).total_seconds() / 86400.0, 0.0)
+            if gap_days >= threshold_days:
+                freshness_flag = True
+        if freshness_flag:
+            score += 0.35
+            triggers.append("freshness_drift")
+
+        corroboration_drop = index > 0 and corroboration_count < previous_corroboration
+        if corroboration_drop:
+            score += 0.2
+            triggers.append("corroboration_drop")
+
+        monitor_delta_score = float(snapshot.get("monitor_delta_score") or 0.0)
+        if monitor_delta_score >= 0.15:
+            score += 0.2
+            triggers.append("monitor_delta")
+
+        recurrence_flag = bool(target_name and target_name in seen_targets and target_shift)
+        if recurrence_flag:
+            recurrence_detected = True
+            score += 0.25
+            triggers.append("target_recurrence")
+
+        score = min(score, 1.0)
+        step_scores.append(score)
+        trigger_rows.append(
+            {
+                "step": index,
+                "score": round(score, 4),
+                "triggers": triggers,
+                "target_entity": str(snapshot.get("target_entity") or ""),
+                "freshness_class": str(snapshot.get("freshness_class") or ""),
+                "contradiction_state": str(snapshot.get("contradiction_state") or ""),
+            }
+        )
+        if model_alert_step is None and score >= 0.5:
+            model_alert_step = index
+
+        if target_name:
+            seen_targets.add(target_name)
+            previous_target = target_name
+        previous_corroboration = corroboration_count
+        if timestamp is not None:
+            previous_timestamp = timestamp
+
+    max_step_score = max(step_scores) if step_scores else 0.0
+    change_prediction = 1 if model_alert_step is not None else 0
+    recurrence_score = 0.05
+    if recurrence_detected:
+        recurrence_score = 0.95
+    elif any("target_shift" in row["triggers"] and "contradiction" in row["triggers"] for row in trigger_rows):
+        recurrence_score = 0.7
+    elif any("contradiction" in row["triggers"] or "freshness_drift" in row["triggers"] for row in trigger_rows):
+        recurrence_score = 0.35
+
+    event_step = row.get("event_step")
+    heuristic_alert_step = row.get("heuristic_alert_step")
+    lead_time_gain = None
+    if event_step is not None and model_alert_step is not None and heuristic_alert_step is not None:
+        model_lead = max(int(event_step) - int(model_alert_step), 0)
+        heuristic_lead = max(int(event_step) - int(heuristic_alert_step), 0)
+        lead_time_gain = round((model_lead - heuristic_lead) / max(heuristic_lead or 1, 1), 4)
+
+    return {
+        "scenario_id": str(row.get("scenario_id") or ""),
+        "edge_family": str(row.get("edge_family") or ""),
+        "relation_type": relation_type,
+        "change_label": int(row.get("change_label") or 0),
+        "recurrence_label": int(row.get("recurrence_label") or 0),
+        "heuristic_alert_step": heuristic_alert_step,
+        "event_step": event_step,
+        "model_alert_step": model_alert_step,
+        "change_prediction": change_prediction,
+        "max_step_score": round(max_step_score, 4),
+        "recurrence_score": round(recurrence_score, 4),
+        "lead_time_gain": lead_time_gain,
+        "trigger_rows": trigger_rows,
+    }
+
+
+def _load_temporal_runtime_context(pg_url: str) -> dict[str, int]:
+    stats = {
+        "monitor_history_rows_available": 0,
+        "monitor_cases_with_delta_history": 0,
+        "graph_claim_rows_available": 0,
+        "graph_claim_rows_with_observed_at": 0,
+        "contradicted_claim_rows": 0,
+    }
+    if not pg_url:
+        return stats
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(pg_url)
+    except Exception:
+        return stats
+
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM monitoring_log")
+        stats["monitor_history_rows_available"] = int((cur.fetchone() or (0,))[0] or 0)
+        cur.execute(
+            """
+            SELECT COUNT(DISTINCT vendor_id)
+            FROM monitoring_log
+            WHERE COALESCE(delta_summary, '') <> ''
+            """
+        )
+        stats["monitor_cases_with_delta_history"] = int((cur.fetchone() or (0,))[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM kg_claims")
+        stats["graph_claim_rows_available"] = int((cur.fetchone() or (0,))[0] or 0)
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM kg_claims
+            WHERE observed_at IS NOT NULL
+               OR first_observed_at IS NOT NULL
+               OR last_observed_at IS NOT NULL
+            """
+        )
+        stats["graph_claim_rows_with_observed_at"] = int((cur.fetchone() or (0,))[0] or 0)
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM kg_claims
+            WHERE LOWER(COALESCE(contradiction_state, '')) IN ('contradicted', 'disputed', 'challenged')
+            """
+        )
+        stats["contradicted_claim_rows"] = int((cur.fetchone() or (0,))[0] or 0)
+    except Exception:
+        return stats
+    finally:
+        cur.close()
+        conn.close()
+    return stats
+
+
+def get_temporal_recurrence_change_metrics(pg_url: str) -> dict[str, Any]:
+    replay_path, rows = _load_temporal_replay_rows()
+    runtime_context = _load_temporal_runtime_context(pg_url)
+    if not rows:
+        return {
+            "temporal_fixture_path": str(replay_path),
+            "temporal_cases_evaluated": 0,
+            "change_detection_f1": 0.0,
+            "recurrence_auc": 0.0,
+            "lead_time_gain_vs_heuristic": 0.0,
+            **runtime_context,
+            "temporal_case_results": [],
+        }
+
+    scenario_results = [_evaluate_temporal_scenario(row) for row in rows]
+    tp = sum(1 for row in scenario_results if row["change_label"] == 1 and row["change_prediction"] == 1)
+    fp = sum(1 for row in scenario_results if row["change_label"] == 0 and row["change_prediction"] == 1)
+    fn = sum(1 for row in scenario_results if row["change_label"] == 1 and row["change_prediction"] == 0)
+    recurrence_scores = [float(row["recurrence_score"]) for row in scenario_results]
+    recurrence_labels = [int(row["recurrence_label"]) for row in scenario_results]
+    lead_time_gains = [
+        float(row["lead_time_gain"])
+        for row in scenario_results
+        if row["lead_time_gain"] is not None and int(row["change_label"]) == 1
+    ]
+
+    family_counts: dict[str, int] = {}
+    for row in scenario_results:
+        family = str(row.get("edge_family") or "other")
+        family_counts[family] = family_counts.get(family, 0) + 1
+
+    return {
+        "temporal_fixture_path": str(replay_path),
+        "temporal_cases_evaluated": len(scenario_results),
+        "temporal_edge_families": sorted(family_counts),
+        "temporal_case_count_by_family": dict(sorted(family_counts.items())),
+        "change_detection_f1": round(_f1_score(tp, fp, fn), 4),
+        "recurrence_auc": round(_binary_auc(recurrence_scores, recurrence_labels), 4),
+        "lead_time_gain_vs_heuristic": round(_mean_or_zero(lead_time_gains), 4),
+        **runtime_context,
+        "temporal_case_results": scenario_results,
+    }
 
 
 def get_novel_edge_discovery_metrics(review_stats: dict[str, Any] | None = None) -> dict[str, Any]:

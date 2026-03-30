@@ -267,6 +267,7 @@ def build_training_dashboard_payload() -> dict:
     stage_metrics = tranche.get("stage_metrics") if isinstance(tranche.get("stage_metrics"), dict) else {}
     missing_edge = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
     novelty = stage_metrics.get("novel_edge_discovery") if isinstance(stage_metrics.get("novel_edge_discovery"), dict) else {}
+    temporal = stage_metrics.get("temporal_recurrence_change") if isinstance(stage_metrics.get("temporal_recurrence_change"), dict) else {}
     stage_results = benchmark.get("stage_results") if isinstance(benchmark.get("stage_results"), list) else []
     data_foundation = benchmark.get("data_foundation") if isinstance(benchmark.get("data_foundation"), dict) else {}
 
@@ -347,6 +348,10 @@ def build_training_dashboard_payload() -> dict:
             "cyber_dependency_queries_evaluated": int(missing_edge.get("cyber_dependency_queries_evaluated") or 0),
             "novel_edge_yield": float(novelty.get("novel_edge_yield") or 0.0),
             "novel_analyst_confirmation_rate": float(novelty.get("analyst_confirmation_rate") or 0.0),
+            "temporal_cases_evaluated": int(temporal.get("temporal_cases_evaluated") or 0),
+            "change_detection_f1": float(temporal.get("change_detection_f1") or 0.0),
+            "recurrence_auc": float(temporal.get("recurrence_auc") or 0.0),
+            "lead_time_gain_vs_heuristic": float(temporal.get("lead_time_gain_vs_heuristic") or 0.0),
         },
     }
 

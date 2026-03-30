@@ -146,6 +146,29 @@ def _parse_graph_timestamp(value: object) -> datetime | None:
         return None
 
 
+def _relationship_temporal_state(rel: dict[str, Any], *, now: datetime, age_days: float | None) -> str:
+    claim_records = [row for row in (rel.get("claim_records") or []) if isinstance(row, dict)]
+    if any(str(row.get("contradiction_state") or "").strip().lower() in {"contradicted", "disputed", "challenged"} for row in claim_records):
+        return "contradicted"
+
+    validity_end = _parse_graph_timestamp(rel.get("validity_end"))
+    if validity_end is None:
+        for claim_record in claim_records:
+            validity_end = _parse_graph_timestamp(claim_record.get("validity_end"))
+            if validity_end is not None:
+                break
+    if validity_end is not None and validity_end <= now:
+        return "historical"
+
+    if age_days is None:
+        return "unknown"
+    if age_days >= 365:
+        return "stale"
+    if age_days >= 90:
+        return "watch"
+    return "active"
+
+
 def _relationship_edge_families(rel_type: str) -> tuple[str, ...]:
     normalized = str(rel_type or "").strip().lower()
     if normalized in _GRAPH_EDGE_FAMILIES:
@@ -218,11 +241,16 @@ def build_graph_intelligence_summary(
     recent_edges = 0
     stale_edges = 0
     observed_edges = 0
+    active_edges = 0
+    watch_edges = 0
+    historical_edges = 0
+    temporal_state_counts: dict[str, int] = {}
     freshest_observation: datetime | None = None
     stalest_observation: datetime | None = None
     cumulative_age_days = 0.0
     control_path_count = 0
     intermediary_edge_count = 0
+    now = datetime.now(timezone.utc)
 
     for rel in relationships:
         rel_type = str(rel.get("rel_type") or "").strip().lower()
@@ -267,18 +295,30 @@ def build_graph_intelligence_summary(
                 if edge_timestamp is not None:
                     break
         if edge_timestamp is None:
+            temporal_state = _relationship_temporal_state(rel, now=now, age_days=None)
+            temporal_state_counts[temporal_state] = temporal_state_counts.get(temporal_state, 0) + 1
+            if temporal_state == "historical":
+                historical_edges += 1
             continue
         observed_edges += 1
         if freshest_observation is None or edge_timestamp > freshest_observation:
             freshest_observation = edge_timestamp
         if stalest_observation is None or edge_timestamp < stalest_observation:
             stalest_observation = edge_timestamp
-        age_days = max((datetime.now(timezone.utc) - edge_timestamp).total_seconds() / 86400.0, 0.0)
+        age_days = max((now - edge_timestamp).total_seconds() / 86400.0, 0.0)
         cumulative_age_days += age_days
         if age_days <= 90:
             recent_edges += 1
         if age_days >= 365:
             stale_edges += 1
+        temporal_state = _relationship_temporal_state(rel, now=now, age_days=age_days)
+        temporal_state_counts[temporal_state] = temporal_state_counts.get(temporal_state, 0) + 1
+        if temporal_state == "active":
+            active_edges += 1
+        elif temporal_state == "watch":
+            watch_edges += 1
+        elif temporal_state == "historical":
+            historical_edges += 1
 
     required_edge_families = list(_REQUIRED_EDGE_FAMILIES_BY_LANE.get(str(workflow_lane or "").strip().lower(), ()))
     satisfied_required_edge_families = [
@@ -331,6 +371,10 @@ def build_graph_intelligence_summary(
         "intermediary_edge_count": intermediary_edge_count,
         "recent_edge_count": recent_edges,
         "stale_edge_count": stale_edges,
+        "active_edge_count": active_edges,
+        "watch_edge_count": watch_edges,
+        "historical_edge_count": historical_edges,
+        "temporal_state_counts": dict(sorted(temporal_state_counts.items())),
         "observed_edge_count": observed_edges,
         "avg_edge_age_days": avg_edge_age_days,
         "freshest_observation_at": freshest_observation.isoformat().replace("+00:00", "Z") if freshest_observation else None,

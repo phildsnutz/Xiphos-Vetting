@@ -32,6 +32,7 @@ from graph_embeddings import (  # noqa: E402
     get_graph_construction_training_metrics,
     get_missing_edge_recovery_metrics,
     get_novel_edge_discovery_metrics,
+    get_temporal_recurrence_change_metrics,
     get_prediction_review_stats,
     list_predicted_link_queue,
     queue_predicted_links,
@@ -287,6 +288,7 @@ def _build_stage_progress(
     construction_metrics = stage_metrics.get("construction_training") if isinstance(stage_metrics.get("construction_training"), dict) else {}
     recovery_metrics = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
     novelty_metrics = stage_metrics.get("novel_edge_discovery") if isinstance(stage_metrics.get("novel_edge_discovery"), dict) else {}
+    temporal_metrics = stage_metrics.get("temporal_recurrence_change") if isinstance(stage_metrics.get("temporal_recurrence_change"), dict) else {}
     progress = [
         {
             "stage_id": "construction_training",
@@ -324,8 +326,13 @@ def _build_stage_progress(
         {
             "stage_id": "temporal_recurrence_change",
             "benchmark_verdict": benchmark_by_id.get("temporal_recurrence_change", "UNKNOWN"),
-            "status": "not_started",
-            "notes": "Needs time-sliced relationship and monitor replay labels.",
+            "status": "active" if int(temporal_metrics.get("temporal_cases_evaluated") or 0) > 0 else "not_started",
+            "notes": (
+                f"cases={temporal_metrics.get('temporal_cases_evaluated', 0)}; "
+                f"change_f1={temporal_metrics.get('change_detection_f1', 0.0):.2f}; "
+                f"recurrence_auc={temporal_metrics.get('recurrence_auc', 0.0):.2f}; "
+                f"lead_gain={temporal_metrics.get('lead_time_gain_vs_heuristic', 0.0):.2f}"
+            ) if int(temporal_metrics.get("temporal_cases_evaluated") or 0) > 0 else "Needs time-sliced relationship and monitor replay labels.",
         },
         {
             "stage_id": "subgraph_anomaly",
@@ -377,6 +384,7 @@ def _build_stage_metrics(
         construction_metrics["embeddings_saved"] = int(training_result.get("embeddings_saved") or 0)
     missing_edge_metrics = get_missing_edge_recovery_metrics(pg_url, review_stats=review_stats)
     novel_edge_metrics = get_novel_edge_discovery_metrics(review_stats)
+    temporal_metrics = get_temporal_recurrence_change_metrics(pg_url)
     return {
         "construction_training": construction_metrics,
         "missing_edge_recovery": {**missing_edge_metrics},
@@ -390,6 +398,7 @@ def _build_stage_metrics(
             "stale_pending_24h": int(recovery.get("stale_pending_24h") or 0),
             "stale_pending_7d": int(recovery.get("stale_pending_7d") or 0),
         },
+        "temporal_recurrence_change": temporal_metrics,
     }
 
 
@@ -441,6 +450,15 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         f"- P95 pending age (hours): `{summary['stage_metrics']['novel_edge_discovery'].get('p95_pending_age_hours', 0.0):.2f}`",
         f"- Stale pending >24h: `{summary['stage_metrics']['novel_edge_discovery'].get('stale_pending_24h', 0)}`",
         f"- Stale pending >7d: `{summary['stage_metrics']['novel_edge_discovery'].get('stale_pending_7d', 0)}`",
+        "",
+        "## Temporal Recurrence",
+        "",
+        f"- Temporal cases evaluated: `{summary['stage_metrics']['temporal_recurrence_change'].get('temporal_cases_evaluated', 0)}`",
+        f"- Change detection F1: `{summary['stage_metrics']['temporal_recurrence_change'].get('change_detection_f1', 0.0):.2f}`",
+        f"- Recurrence AUC: `{summary['stage_metrics']['temporal_recurrence_change'].get('recurrence_auc', 0.0):.2f}`",
+        f"- Lead-time gain vs heuristic: `{summary['stage_metrics']['temporal_recurrence_change'].get('lead_time_gain_vs_heuristic', 0.0):.2f}`",
+        f"- Monitor history rows available: `{summary['stage_metrics']['temporal_recurrence_change'].get('monitor_history_rows_available', 0)}`",
+        f"- Graph claims with observed timestamps: `{summary['stage_metrics']['temporal_recurrence_change'].get('graph_claim_rows_with_observed_at', 0)}`",
         "",
         "## Seed Queue Runs",
         "",

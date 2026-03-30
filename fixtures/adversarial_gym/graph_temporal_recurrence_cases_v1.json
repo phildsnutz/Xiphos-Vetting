@@ -1,0 +1,344 @@
+[
+  {
+    "scenario_id": "owned_by_dispute_precedes_control_swap",
+    "edge_family": "ownership_control",
+    "relation_type": "owned_by",
+    "change_label": true,
+    "recurrence_label": true,
+    "event_step": 2,
+    "heuristic_alert_step": 3,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-01T00:00:00Z",
+        "target_entity": "North Harbor Holdings",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-01-15T00:00:00Z",
+        "target_entity": "North Harbor Holdings",
+        "corroboration_count": 1,
+        "contradiction_state": "disputed",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-01T00:00:00Z",
+        "target_entity": "Harbor Beacon Holdings",
+        "corroboration_count": 1,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-20T00:00:00Z",
+        "target_entity": "North Harbor Holdings",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "owned_by_stable_registry_chain",
+    "edge_family": "ownership_control",
+    "relation_type": "owned_by",
+    "change_label": false,
+    "recurrence_label": false,
+    "event_step": null,
+    "heuristic_alert_step": null,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-05T00:00:00Z",
+        "target_entity": "Vector Mission Holdings",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-05T00:00:00Z",
+        "target_entity": "Vector Mission Holdings",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-03-05T00:00:00Z",
+        "target_entity": "Vector Mission Holdings",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "backed_by_stale_credit_facility_replaced",
+    "edge_family": "ownership_control",
+    "relation_type": "backed_by",
+    "change_label": true,
+    "recurrence_label": false,
+    "event_step": 2,
+    "heuristic_alert_step": 2,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-01T00:00:00Z",
+        "target_entity": "Atlantic Settlement Bank",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-06-10T00:00:00Z",
+        "target_entity": "Atlantic Settlement Bank",
+        "corroboration_count": 1,
+        "contradiction_state": "unreviewed",
+        "freshness_class": "stale"
+      },
+      {
+        "observed_at": "2026-06-20T00:00:00Z",
+        "target_entity": "North Harbor Capital",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "backed_by_revolving_facility_returns",
+    "edge_family": "ownership_control",
+    "relation_type": "backed_by",
+    "change_label": true,
+    "recurrence_label": true,
+    "event_step": 2,
+    "heuristic_alert_step": 3,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-08T00:00:00Z",
+        "target_entity": "Mariner Credit Partners",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-01T00:00:00Z",
+        "target_entity": "Mariner Credit Partners",
+        "corroboration_count": 1,
+        "contradiction_state": "challenged",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-15T00:00:00Z",
+        "target_entity": "Blue Tide Capital",
+        "corroboration_count": 1,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-03-02T00:00:00Z",
+        "target_entity": "Mariner Credit Partners",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "payment_route_drift_after_freshness_gap",
+    "edge_family": "trade_and_logistics",
+    "relation_type": "routes_payment_through",
+    "change_label": true,
+    "recurrence_label": false,
+    "event_step": 2,
+    "heuristic_alert_step": 2,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-03T00:00:00Z",
+        "target_entity": "TransPacific Settlement Bank",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-05-10T00:00:00Z",
+        "target_entity": "TransPacific Settlement Bank",
+        "corroboration_count": 1,
+        "contradiction_state": "unreviewed",
+        "freshness_class": "stale"
+      },
+      {
+        "observed_at": "2026-05-18T00:00:00Z",
+        "target_entity": "Harbor Trade Bank",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "payment_route_stable_bank_path",
+    "edge_family": "trade_and_logistics",
+    "relation_type": "routes_payment_through",
+    "change_label": false,
+    "recurrence_label": false,
+    "event_step": null,
+    "heuristic_alert_step": null,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-12T00:00:00Z",
+        "target_entity": "Atlantic Settlement Bank",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-12T00:00:00Z",
+        "target_entity": "Atlantic Settlement Bank",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-03-12T00:00:00Z",
+        "target_entity": "Atlantic Settlement Bank",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "contract_shift_signaled_before_award_change",
+    "edge_family": "contracts_and_programs",
+    "relation_type": "contracts_with",
+    "change_label": true,
+    "recurrence_label": false,
+    "event_step": 2,
+    "heuristic_alert_step": 3,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-10T00:00:00Z",
+        "target_entity": "Department of Homeland Security",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-01T00:00:00Z",
+        "target_entity": "Department of Homeland Security",
+        "corroboration_count": 1,
+        "contradiction_state": "challenged",
+        "freshness_class": "current",
+        "monitor_delta_score": 0.2
+      },
+      {
+        "observed_at": "2026-02-20T00:00:00Z",
+        "target_entity": "U.S. Army",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "contract_lane_stable_program",
+    "edge_family": "contracts_and_programs",
+    "relation_type": "contracts_with",
+    "change_label": false,
+    "recurrence_label": false,
+    "event_step": null,
+    "heuristic_alert_step": null,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-04T00:00:00Z",
+        "target_entity": "Department of Veterans Affairs",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-04T00:00:00Z",
+        "target_entity": "Department of Veterans Affairs",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-03-04T00:00:00Z",
+        "target_entity": "Department of Veterans Affairs",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "litigation_reopens_after_dormancy",
+    "edge_family": "sanctions_and_legal",
+    "relation_type": "litigant_in",
+    "change_label": true,
+    "recurrence_label": true,
+    "event_step": 2,
+    "heuristic_alert_step": 3,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-01T00:00:00Z",
+        "target_entity": "Case Alpha 24-cv-102",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-04-20T00:00:00Z",
+        "target_entity": "Case Alpha 24-cv-102",
+        "corroboration_count": 1,
+        "contradiction_state": "challenged",
+        "freshness_class": "stale"
+      },
+      {
+        "observed_at": "2026-05-05T00:00:00Z",
+        "target_entity": "Case Beta 26-cv-440",
+        "corroboration_count": 1,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-05-22T00:00:00Z",
+        "target_entity": "Case Alpha 24-cv-102",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  },
+  {
+    "scenario_id": "litigation_closed_without_recurrence",
+    "edge_family": "sanctions_and_legal",
+    "relation_type": "litigant_in",
+    "change_label": false,
+    "recurrence_label": false,
+    "event_step": null,
+    "heuristic_alert_step": null,
+    "snapshots": [
+      {
+        "observed_at": "2026-01-14T00:00:00Z",
+        "target_entity": "Case Delta 25-cv-991",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-02-14T00:00:00Z",
+        "target_entity": "Case Delta 25-cv-991",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      },
+      {
+        "observed_at": "2026-03-14T00:00:00Z",
+        "target_entity": "Case Delta 25-cv-991",
+        "corroboration_count": 2,
+        "contradiction_state": "corroborated",
+        "freshness_class": "current"
+      }
+    ]
+  }
+]

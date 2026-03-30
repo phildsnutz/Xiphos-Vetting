@@ -357,6 +357,11 @@ def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
     assert summary["legacy_unscoped_edge_count"] == 1
     assert summary["contradicted_edge_count"] == 1
     assert summary["stale_edge_count"] >= 1
+    assert summary["active_edge_count"] == 2
+    assert summary["watch_edge_count"] == 0
+    assert summary["historical_edge_count"] == 0
+    assert summary["temporal_state_counts"]["active"] == 2
+    assert summary["temporal_state_counts"]["contradicted"] == 1
     assert summary["claim_coverage_pct"] == 0.6667
     assert summary["evidence_coverage_pct"] == 0.6667
 
