@@ -863,9 +863,22 @@ def _candidate_ranking_score(
 
 
 def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str, top_k: int) -> list[dict[str, Any]]:
-    candidate_limit = min(max(top_k * 24, top_k + 80), 1200)
-    raw_predictions = trainer.predict_links(entity_id, top_k=candidate_limit)
-    entity_map = _fetch_entity_map(cur, [entity_id, *[row["target_entity_id"] for row in raw_predictions]])
+    supports_full_rerank = bool(
+        getattr(trainer, "entity_embeddings", None) is not None
+        and getattr(trainer, "relation_embeddings", None) is not None
+        and getattr(trainer, "entity_to_id", None)
+        and getattr(trainer, "id_to_entity", None)
+        and getattr(trainer, "id_to_relation", None)
+    )
+    entity_ids_for_lookup = [entity_id]
+    if supports_full_rerank:
+        entity_ids_for_lookup.extend(str(candidate_id) for candidate_id in trainer.entity_to_id.keys())
+    else:
+        candidate_limit = min(max(top_k * 24, top_k + 80), 1200)
+        raw_predictions = trainer.predict_links(entity_id, top_k=candidate_limit)
+        entity_ids_for_lookup.extend(str(row["target_entity_id"]) for row in raw_predictions)
+
+    entity_map = _fetch_entity_map(cur, entity_ids_for_lookup)
     source_row = entity_map.get(entity_id) or {}
     source_name = source_row.get("canonical_name", entity_id)
     source_entity_type = source_row.get("entity_type", "unknown")
@@ -874,38 +887,84 @@ def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str,
     relation_buckets: dict[str, list[dict[str, Any]]] = {}
     relation_best_score: dict[str, float] = {}
     seen_relation_target_keys: set[tuple[str, str]] = set()
-    for pred in raw_predictions:
-        target_id = str(pred["target_entity_id"])
-        target_row = entity_map.get(target_id) or {}
-        target_name = str(target_row.get("canonical_name") or pred.get("target_name") or target_id)
-        target_entity_type = str(target_row.get("entity_type") or "unknown")
-        rel_type = str(pred["predicted_relation"])
-        if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
-            continue
-        dedupe_key = (_normalize_rel_type(rel_type), _normalize_match_text(target_name))
-        if dedupe_key in seen_relation_target_keys:
-            continue
-        seen_relation_target_keys.add(dedupe_key)
-        row = {
-            "source_entity_id": entity_id,
-            "source_entity_name": source_name,
-            "source_entity_type": source_entity_type,
-            "target_entity_id": target_id,
-            "target_name": target_name,
-            "target_entity_type": target_entity_type,
-            "predicted_relation": rel_type,
-            "predicted_edge_family": _prediction_edge_family(rel_type),
-            "score": float(pred["score"]),
-        }
-        row["ranking_score"] = _candidate_ranking_score(
-            rel_type,
-            target_name,
-            target_entity_type,
-            float(row["score"]),
-            source_context=source_context,
-        )
-        relation_buckets.setdefault(rel_type, []).append(row)
-        relation_best_score[rel_type] = min(relation_best_score.get(rel_type, float("inf")), row["ranking_score"])
+    if supports_full_rerank:
+        h_idx = trainer.entity_to_id.get(entity_id)
+        if h_idx is None:
+            return []
+        triple_set = set(getattr(trainer, "triples", []))
+        h_emb = trainer.entity_embeddings[h_idx]
+        for r_idx, rel_type in trainer.id_to_relation.items():
+            r_emb = trainer.relation_embeddings[r_idx]
+            for t_idx, target_id in trainer.id_to_entity.items():
+                if t_idx == h_idx or (h_idx, r_idx, t_idx) in triple_set:
+                    continue
+                target_id = str(target_id)
+                target_row = entity_map.get(target_id) or {}
+                target_name = str(target_row.get("canonical_name") or target_id)
+                target_entity_type = str(target_row.get("entity_type") or "unknown")
+                if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
+                    continue
+                dedupe_key = (_normalize_rel_type(rel_type), _normalize_match_text(target_name))
+                if dedupe_key in seen_relation_target_keys:
+                    continue
+                seen_relation_target_keys.add(dedupe_key)
+                score = float(np.linalg.norm(h_emb + r_emb - trainer.entity_embeddings[t_idx]))
+                row = {
+                    "source_entity_id": entity_id,
+                    "source_entity_name": source_name,
+                    "source_entity_type": source_entity_type,
+                    "target_entity_id": target_id,
+                    "target_name": target_name,
+                    "target_entity_type": target_entity_type,
+                    "predicted_relation": str(rel_type),
+                    "predicted_edge_family": _prediction_edge_family(rel_type),
+                    "score": score,
+                }
+                row["ranking_score"] = _candidate_ranking_score(
+                    str(rel_type),
+                    target_name,
+                    target_entity_type,
+                    score,
+                    source_context=source_context,
+                )
+                relation_buckets.setdefault(str(rel_type), []).append(row)
+                relation_best_score[str(rel_type)] = min(
+                    relation_best_score.get(str(rel_type), float("inf")),
+                    row["ranking_score"],
+                )
+    else:
+        for pred in raw_predictions:
+            target_id = str(pred["target_entity_id"])
+            target_row = entity_map.get(target_id) or {}
+            target_name = str(target_row.get("canonical_name") or pred.get("target_name") or target_id)
+            target_entity_type = str(target_row.get("entity_type") or "unknown")
+            rel_type = str(pred["predicted_relation"])
+            if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
+                continue
+            dedupe_key = (_normalize_rel_type(rel_type), _normalize_match_text(target_name))
+            if dedupe_key in seen_relation_target_keys:
+                continue
+            seen_relation_target_keys.add(dedupe_key)
+            row = {
+                "source_entity_id": entity_id,
+                "source_entity_name": source_name,
+                "source_entity_type": source_entity_type,
+                "target_entity_id": target_id,
+                "target_name": target_name,
+                "target_entity_type": target_entity_type,
+                "predicted_relation": rel_type,
+                "predicted_edge_family": _prediction_edge_family(rel_type),
+                "score": float(pred["score"]),
+            }
+            row["ranking_score"] = _candidate_ranking_score(
+                rel_type,
+                target_name,
+                target_entity_type,
+                float(row["score"]),
+                source_context=source_context,
+            )
+            relation_buckets.setdefault(rel_type, []).append(row)
+            relation_best_score[rel_type] = min(relation_best_score.get(rel_type, float("inf")), row["ranking_score"])
 
     for rel_type, bucket in relation_buckets.items():
         bucket.sort(
