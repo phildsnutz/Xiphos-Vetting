@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, GitBranchPlus, Loader2, RefreshCw, XCircle } from "lucide-react";
 import {
+  fetchGraphTrainingDashboard,
   fetchPredictedLinkReviewQueue,
   fetchPredictedLinkReviewStats,
   queuePredictedLinks,
   reviewPredictedLinksBatch,
+  type GraphTrainingDashboard,
   type PredictedLinkQueueItem,
   type PredictedLinkReviewStats,
 } from "@/lib/api";
@@ -56,11 +58,26 @@ function toneForDecision(confirmed?: boolean) {
   return { color: T.muted, background: T.surface, border: T.border };
 }
 
+function toneForVerdict(verdict?: string | null) {
+  const normalized = String(verdict || "").trim().toUpperCase();
+  if (normalized === "PASS" || normalized === "READY" || normalized === "GO") {
+    return T.green;
+  }
+  if (normalized === "FAIL" || normalized === "BLOCKED" || normalized === "NO_GO") {
+    return T.red;
+  }
+  if (normalized === "NOT_READY" || normalized === "WATCH" || normalized === "REVIEW") {
+    return T.amber;
+  }
+  return T.muted;
+}
+
 export function GraphTrainingReviewPanel({
   rootEntityId,
   entityName,
   onGraphRefresh,
 }: GraphTrainingReviewPanelProps) {
+  const [dashboard, setDashboard] = useState<GraphTrainingDashboard | null>(null);
   const [stats, setStats] = useState<PredictedLinkReviewStats | null>(null);
   const [queue, setQueue] = useState<PredictedLinkQueueItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -76,22 +93,26 @@ export function GraphTrainingReviewPanel({
   const [autoSeededEntityIds, setAutoSeededEntityIds] = useState<Record<string, boolean>>({});
 
   const loadPanel = useCallback(async () => {
-    if (!rootEntityId) return;
     setLoading(true);
     setError(null);
     try {
-      const [statsPayload, queuePayload] = await Promise.all([
-        fetchPredictedLinkReviewStats(rootEntityId),
-        fetchPredictedLinkReviewQueue({
-          reviewed: false,
-          sourceEntityId: rootEntityId,
-          novelOnly: queueScope === "novel" ? true : queueScope === "existing" ? false : undefined,
-          edgeFamily: edgeFamilyFilter === "all" ? undefined : edgeFamilyFilter,
-          limit: DEFAULT_TOP_K,
-        }),
-      ]);
-      setStats(statsPayload);
-      setQueue(queuePayload.predictions || []);
+      const tasks: Promise<unknown>[] = [fetchGraphTrainingDashboard()];
+      if (rootEntityId) {
+        tasks.push(
+          fetchPredictedLinkReviewStats(rootEntityId),
+          fetchPredictedLinkReviewQueue({
+            reviewed: false,
+            sourceEntityId: rootEntityId,
+            novelOnly: queueScope === "novel" ? true : queueScope === "existing" ? false : undefined,
+            edgeFamily: edgeFamilyFilter === "all" ? undefined : edgeFamilyFilter,
+            limit: DEFAULT_TOP_K,
+          }),
+        );
+      }
+      const [dashboardPayload, statsPayload, queuePayload] = await Promise.all(tasks);
+      setDashboard(dashboardPayload as GraphTrainingDashboard);
+      setStats((statsPayload as PredictedLinkReviewStats | undefined) ?? null);
+      setQueue((queuePayload as { predictions?: PredictedLinkQueueItem[] } | undefined)?.predictions || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load graph training review panel");
     } finally {
@@ -227,19 +248,6 @@ export function GraphTrainingReviewPanel({
     });
   }, [queue]);
 
-  if (!rootEntityId) {
-    return (
-      <div className="rounded-lg p-4" style={{ marginBottom: 14, background: T.surface, border: `1px solid ${T.border}` }}>
-        <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
-          Graph Training Review
-        </div>
-        <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 8 }}>
-          Root graph entity is missing. Open the graph after enrichment or refresh the case to seed the analyst review queue.
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-lg p-4" style={{ marginBottom: 14, background: T.surface, border: `1px solid ${T.border}` }}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -248,7 +256,7 @@ export function GraphTrainingReviewPanel({
             Graph Training Review
           </div>
           <div style={{ fontSize: FS.sm, color: T.text, marginTop: 4, fontWeight: 600 }}>
-            Analyst loop for missing-edge recovery on {entityName || rootEntityId}
+            Analyst loop for missing-edge recovery on {entityName || rootEntityId || "the active graph root"}
           </div>
           <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
             Review predicted ownership, intermediary, route, and dependency edges before they become graph facts.
@@ -291,6 +299,78 @@ export function GraphTrainingReviewPanel({
         </div>
       )}
 
+      {dashboard && (
+        <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}` }}>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                Graph Training Dashboard
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6 }}>
+                Always-on view of readiness, Neo4j health, benchmark state, and the live analyst review loop.
+              </div>
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.muted }}>
+              Updated {dashboard.generated_at ? new Date(dashboard.generated_at).toLocaleString() : "unknown"}
+            </div>
+          </div>
+
+          <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+            {[
+              { label: "Readiness", value: dashboard.readiness.verdict || "unknown", tone: toneForVerdict(dashboard.readiness.verdict) },
+              { label: "Neo4j", value: dashboard.neo4j.verdict || "unknown", tone: toneForVerdict(dashboard.neo4j.verdict) },
+              { label: "Benchmark", value: dashboard.benchmark.verdict || "unknown", tone: toneForVerdict(dashboard.benchmark.verdict) },
+              { label: "Data foundation", value: dashboard.benchmark.data_foundation_verdict || "unknown", tone: toneForVerdict(dashboard.benchmark.data_foundation_verdict) },
+              { label: "Live reviewed", value: dashboard.live_tranche.reviewed_links, tone: T.text },
+              { label: "Novel pending", value: dashboard.live_tranche.novel_pending_links, tone: T.accent },
+              { label: "Ownership hits@10", value: pct(dashboard.live_tranche.ownership_control_hits_at_10), tone: T.green },
+              {
+                label: "Route / cyber queries",
+                value: `${dashboard.live_tranche.intermediary_route_queries_evaluated}/${dashboard.live_tranche.cyber_dependency_queries_evaluated}`,
+                tone:
+                  dashboard.live_tranche.intermediary_route_queries_evaluated > 0
+                  && dashboard.live_tranche.cyber_dependency_queries_evaluated > 0
+                    ? T.green
+                    : T.amber,
+              },
+            ].map((item) => (
+              <div key={item.label} className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: item.tone, marginTop: 4, fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {dashboard.benchmark.stage_results.map((stage) => (
+              <div key={stage.stage_id} className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>
+                    {stage.stage_id.replace(/_/g, " ")}
+                  </div>
+                  <div style={{ fontSize: FS.sm, color: toneForVerdict(stage.verdict), fontWeight: 700 }}>
+                    {stage.verdict}
+                  </div>
+                </div>
+                <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                  {stage.objective}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!rootEntityId && (
+        <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}>
+          Root graph entity is missing. Open the graph after enrichment or refresh the case to seed the analyst review queue.
+        </div>
+      )}
+
+      {rootEntityId && (
+        <>
       <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
         {[
           { label: "Pending", value: stats?.pending_links ?? 0, tone: T.amber },
@@ -534,6 +614,8 @@ export function GraphTrainingReviewPanel({
         <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}`, fontSize: FS.sm, color: T.muted }}>
           No pending predicted links for this entity and edge-family filter. Seed the queue or change the family filter.
         </div>
+      )}
+        </>
       )}
     </div>
   );

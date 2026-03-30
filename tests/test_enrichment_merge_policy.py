@@ -75,3 +75,23 @@ def test_identifier_merge_same_source_refresh_replaces_stale_value():
 
     assert identifiers["duns"] == "801478384"
     assert identifier_sources["duns"] == ["public_search_ownership"]
+
+
+def test_first_party_website_reconciliation_prefers_first_party_pages_over_stale_website():
+    identifiers = {
+        "website": "https://www.city-data.com",
+        "domain": "channelpartners.com",
+        "first_party_pages": [
+            "https://channelpartners.com/first-impressions-in-the-field-how-strong-retail-merchandising-assisted-sales-teams-build-trust-from-day-one",
+        ],
+    }
+    identifier_sources = {
+        "website": ["wikidata_company"],
+        "domain": ["opencorporates"],
+        "first_party_pages": ["public_search_ownership"],
+    }
+
+    enrichment._reconcile_first_party_website(identifiers, identifier_sources)
+
+    assert identifiers["website"] == "https://channelpartners.com"
+    assert identifier_sources["website"] == ["public_search_ownership", "opencorporates", "wikidata_company"]

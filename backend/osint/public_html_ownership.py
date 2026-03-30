@@ -213,6 +213,14 @@ ENTITY_NOISE_PHRASES = (
     "lean six sigma",
     "quality auditing",
 )
+PART_OF_CONTEXT_NOISE_PHRASES = (
+    "essential part of",
+    "integral part of",
+    "important part of",
+    "critical part of",
+    "key part of",
+    "core part of",
+)
 MARKET_TEXT_NOISE_PHRASES = (
     "prices of the securities",
     "conventional funds",
@@ -236,6 +244,104 @@ DESCRIPTOR_OWNER_PHRASES = (
     "wosb",
     "edwosb",
     "8(a)",
+)
+GENERIC_NON_ENTITY_EXACT = {
+    "specific terms",
+    "general terms",
+    "terms and conditions",
+    "general terms and conditions",
+    "frequently asked questions",
+    "faq",
+    "faqs",
+    "privacy policy",
+    "cookie policy",
+    "cookie preferences",
+}
+GENERIC_NON_ENTITY_SUFFIXES = (
+    " terms",
+    " conditions",
+    " policy",
+    " policies",
+    " questions",
+)
+GEOGRAPHIC_NON_ENTITY_EXACT = {
+    "alabama",
+    "alaska",
+    "arizona",
+    "arkansas",
+    "california",
+    "colorado",
+    "connecticut",
+    "delaware",
+    "florida",
+    "georgia",
+    "hawaii",
+    "idaho",
+    "illinois",
+    "indiana",
+    "iowa",
+    "kansas",
+    "kentucky",
+    "louisiana",
+    "maine",
+    "maryland",
+    "massachusetts",
+    "michigan",
+    "minnesota",
+    "mississippi",
+    "missouri",
+    "montana",
+    "nebraska",
+    "nevada",
+    "new hampshire",
+    "new jersey",
+    "new mexico",
+    "new york",
+    "north carolina",
+    "north dakota",
+    "ohio",
+    "oklahoma",
+    "oregon",
+    "pennsylvania",
+    "rhode island",
+    "south carolina",
+    "south dakota",
+    "tennessee",
+    "texas",
+    "utah",
+    "vermont",
+    "virginia",
+    "washington",
+    "west virginia",
+    "wisconsin",
+    "wyoming",
+    "district of columbia",
+    "united states",
+    "united kingdom",
+    "north america",
+    "south america",
+    "europe",
+    "asia",
+    "africa",
+    "oceania",
+    "middle east",
+}
+PART_OF_CORPORATE_SIGNAL_TOKENS = (
+    "group",
+    "family",
+    "portfolio",
+    "holdings",
+    "network",
+    "alliance",
+    "company",
+    "companies",
+    "corporation",
+    "corp",
+    "inc",
+    "llc",
+    "ltd",
+    "plc",
+    "gmbh",
 )
 ENTITY_CONNECTOR_WORDS = {
     "and",
@@ -603,6 +709,10 @@ def _looks_like_entity_name(raw_name: str, parent_name: str) -> bool:
         return False
     if any(phrase in lowered or phrase in normalized for phrase in DESCRIPTOR_OWNER_PHRASES):
         return False
+    if normalized in GENERIC_NON_ENTITY_EXACT:
+        return False
+    if any(normalized.endswith(suffix) for suffix in GENERIC_NON_ENTITY_SUFFIXES):
+        return False
     if re.search(r"\b(?:go down|lose money)\b", lowered):
         return False
     if len(cleaned.split()) > 8:
@@ -624,6 +734,30 @@ def _looks_like_entity_name(raw_name: str, parent_name: str) -> bool:
     if re.search(r"\b\d{1,2}\.\s*[A-Za-z]{2,}\b", cleaned):
         return False
     return True
+
+
+def _looks_like_geographic_name(parent_name: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(parent_name or "").lower()).strip()
+    return normalized in GEOGRAPHIC_NON_ENTITY_EXACT
+
+
+def _part_of_phrase_has_corporate_signal(raw_parent_name: str, parent_name: str, snippet: str) -> bool:
+    raw = str(raw_parent_name or "")
+    cleaned = str(parent_name or "")
+    snippet_lower = str(snippet or "").lower()
+    lowered = cleaned.lower()
+    normalized = re.sub(r"[^a-z0-9]+", " ", lowered).strip()
+    if any(phrase in snippet_lower for phrase in PART_OF_CONTEXT_NOISE_PHRASES):
+        return False
+    if _looks_like_geographic_name(cleaned):
+        return False
+    if any(token in normalized.split() for token in PART_OF_CORPORATE_SIGNAL_TOKENS):
+        return True
+    if any(token in raw.lower() for token in PART_OF_CORPORATE_SIGNAL_TOKENS):
+        return True
+    if cleaned.isupper() and len(cleaned) >= 3:
+        return True
+    return len(cleaned.split()) >= 2 and any(char.isupper() for char in cleaned[1:])
 
 
 def _is_news_like_page(page_url: str) -> bool:
@@ -649,6 +783,8 @@ def _extract_candidates(text: str, vendor_name: str, page_url: str) -> list[dict
             snippet = text[snippet_start:snippet_end].strip()
             parent_lower = parent_name.lower()
             snippet_lower = snippet.lower()
+            if scope == "part_of_phrase" and not _part_of_phrase_has_corporate_signal(raw_parent_name, parent_name, snippet):
+                continue
             if rel_type == "owned_by":
                 if any(phrase in parent_lower for phrase in CONTROL_BODY_NOISE_PHRASES):
                     continue
@@ -1126,10 +1262,26 @@ def _build_relationship(
 
 
 def _resolve_website(ids: dict) -> str:
-    for key in ("website", "official_website", "domain"):
+    raw_pages = ids.get("first_party_pages")
+    page_candidates = (
+        [raw_pages]
+        if isinstance(raw_pages, str)
+        else list(raw_pages)
+        if isinstance(raw_pages, (list, tuple, set))
+        else []
+    )
+    seen_page_roots: set[str] = set()
+    for candidate in page_candidates:
+        root = _root_website(str(candidate or ""))
+        if not root or root in seen_page_roots:
+            continue
+        seen_page_roots.add(root)
+        return root
+
+    for key in ("official_website", "domain", "website"):
         value = ids.get(key)
         if isinstance(value, str) and value.strip():
-            return _normalize_website(value)
+            return _root_website(value) or _normalize_website(value)
     return ""
 
 

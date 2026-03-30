@@ -2695,6 +2695,54 @@ export interface PredictedLinkReviewBatchResponse {
   }>;
 }
 
+export interface GraphTrainingDashboardStage {
+  stage_id: string;
+  verdict: string;
+  objective: string;
+}
+
+export interface GraphTrainingDashboardSnapshot {
+  verdict?: string | null;
+  generated_at?: string | null;
+  path?: string | null;
+}
+
+export interface GraphTrainingDashboardBenchmark extends GraphTrainingDashboardSnapshot {
+  data_foundation_verdict?: string | null;
+  passing_stage_count: number;
+  total_stage_count: number;
+  stage_results: GraphTrainingDashboardStage[];
+}
+
+export interface GraphTrainingDashboardNeo4j extends GraphTrainingDashboardSnapshot {
+  node_count?: number | null;
+  relationship_count?: number | null;
+}
+
+export interface GraphTrainingDashboardLiveTranche {
+  generated_at?: string | null;
+  path?: string | null;
+  reviewed_links: number;
+  pending_links: number;
+  novel_pending_links: number;
+  confirmed_links: number;
+  rejected_links: number;
+  review_coverage_pct: number;
+  confirmation_rate: number;
+  ownership_control_hits_at_10: number;
+  ownership_control_mrr: number;
+  intermediary_route_queries_evaluated: number;
+  cyber_dependency_queries_evaluated: number;
+}
+
+export interface GraphTrainingDashboard {
+  generated_at: string;
+  readiness: GraphTrainingDashboardSnapshot;
+  neo4j: GraphTrainingDashboardNeo4j;
+  benchmark: GraphTrainingDashboardBenchmark;
+  live_tranche: GraphTrainingDashboardLiveTranche;
+}
+
 export async function queuePredictedLinks(entityId: string, topK = 25): Promise<PredictedLinkQueueSummary> {
   return json(`/api/graph/predicted-links/${encodeURIComponent(entityId)}/queue`, {
     method: "POST",
@@ -2728,6 +2776,10 @@ export async function fetchPredictedLinkReviewStats(sourceEntityId?: string): Pr
   if (sourceEntityId) search.set("source_entity_id", sourceEntityId);
   const qs = search.toString();
   return json(`/api/graph/predicted-links/review-stats${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchGraphTrainingDashboard(): Promise<GraphTrainingDashboard> {
+  return json("/api/graph/training-dashboard");
 }
 
 export async function reviewPredictedLinksBatch(

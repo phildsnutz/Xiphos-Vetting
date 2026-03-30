@@ -689,6 +689,42 @@ def _connector_cache_variant(connector_name: str, ids: dict) -> str:
     return "|".join(parts)
 
 
+def _reconcile_first_party_website(
+    all_identifiers: dict,
+    identifier_sources: dict[str, list[str]],
+) -> None:
+    try:
+        from . import public_html_ownership
+    except Exception:
+        return
+
+    if not isinstance(all_identifiers, dict):
+        return
+    preferred = public_html_ownership._resolve_website(all_identifiers)
+    if not preferred:
+        return
+
+    current = str(all_identifiers.get("website") or "").strip()
+    if current and public_html_ownership._same_first_party_host(current, preferred):
+        normalized_current = public_html_ownership._root_website(current) or public_html_ownership._normalize_website(current)
+        if normalized_current != preferred:
+            all_identifiers["website"] = preferred
+        return
+
+    raw_pages = all_identifiers.get("first_party_pages")
+    has_first_party_pages = bool(raw_pages) and isinstance(raw_pages, (str, list, tuple, set))
+    if not current or has_first_party_pages:
+        all_identifiers["website"] = preferred
+        merged_sources: list[str] = []
+        for key in ("first_party_pages", "official_website", "domain", "website"):
+            for source in identifier_sources.get(str(key), []) or []:
+                normalized = str(source or "").strip()
+                if normalized and normalized not in merged_sources:
+                    merged_sources.append(normalized)
+        if merged_sources:
+            identifier_sources["website"] = merged_sources
+
+
 def _should_replay_connector(
     connector_name: str,
     report: dict,
@@ -966,6 +1002,8 @@ def _build_report(
             )
         all_relationships.extend(r.relationships)
         all_risk_signals.extend(r.risk_signals)
+
+    _reconcile_first_party_website(all_identifiers, identifier_sources)
 
     # Cross-correlate sanctions findings across all 8 lists
     try:

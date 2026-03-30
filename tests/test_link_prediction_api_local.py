@@ -1,6 +1,8 @@
 import importlib
 import os
 import sys
+import json
+from pathlib import Path
 
 from flask import Flask
 
@@ -222,3 +224,89 @@ def test_review_stats_endpoint_returns_helper_payload(monkeypatch):
     assert payload["reviewed_links"] == 5
     assert payload["confirmation_rate"] == 0.6
     assert captured["source_entity_id"] == "ent-source"
+
+
+def test_training_dashboard_endpoint_returns_payload(monkeypatch):
+    monkeypatch.setenv("XIPHOS_PG_URL", "postgresql://test")
+
+    api = _reload_fresh("link_prediction_api")
+    monkeypatch.setattr(
+        api,
+        "build_training_dashboard_payload",
+        lambda: {
+            "generated_at": "2026-03-30T13:30:00Z",
+            "readiness": {"verdict": "NOT_READY"},
+            "neo4j": {"verdict": "PASS"},
+            "benchmark": {"verdict": "FAIL", "stage_results": []},
+            "live_tranche": {"reviewed_links": 27, "intermediary_route_queries_evaluated": 0, "cyber_dependency_queries_evaluated": 0},
+        },
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(api.link_prediction_bp)
+    client = app.test_client()
+
+    response = client.get("/api/graph/training-dashboard")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["neo4j"]["verdict"] == "PASS"
+    assert payload["benchmark"]["verdict"] == "FAIL"
+    assert payload["live_tranche"]["reviewed_links"] == 27
+
+
+def test_build_training_dashboard_payload_reads_runtime_report_roots(monkeypatch, tmp_path):
+    monkeypatch.setenv("XIPHOS_PG_URL", "postgresql://test")
+
+    api = _reload_fresh("link_prediction_api")
+    app_reports = tmp_path / "app-reports"
+    runtime_reports = tmp_path / "runtime-reports"
+    monkeypatch.setattr(api, "REPORT_SEARCH_ROOTS", [app_reports, runtime_reports])
+
+    (app_reports / "graph_training_benchmark" / "20260330150000").mkdir(parents=True)
+    (runtime_reports / "graph_training_tranche_live" / "20260330150100" / "20260330150200").mkdir(parents=True)
+
+    (app_reports / "graph_training_benchmark" / "20260330150000" / "summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-03-30T15:00:00Z",
+                "overall_verdict": "FAIL",
+                "data_foundation": {"verdict": "PASS"},
+                "stage_results": [{"stage_id": "construction_training", "verdict": "FAIL", "objective": "test"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (runtime_reports / "graph_training_tranche_live" / "20260330150100" / "20260330150200" / "summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-03-30T15:01:00Z",
+                "review_stats": {
+                    "reviewed_links": 39,
+                    "pending_links": 797,
+                    "novel_pending_links": 797,
+                    "confirmed_links": 20,
+                    "rejected_links": 19,
+                    "review_coverage_pct": 0.04,
+                    "confirmation_rate": 0.51,
+                },
+                "stage_metrics": {
+                    "missing_edge_recovery": {
+                        "ownership_control_hits_at_10": 1.0,
+                        "ownership_control_mrr": 0.95,
+                        "intermediary_route_queries_evaluated": 5,
+                        "cyber_dependency_queries_evaluated": 9,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = api.build_training_dashboard_payload()
+    assert payload["benchmark"]["verdict"] == "FAIL"
+    assert payload["benchmark"]["data_foundation_verdict"] == "PASS"
+    assert payload["live_tranche"]["reviewed_links"] == 39
+    assert payload["live_tranche"]["intermediary_route_queries_evaluated"] == 5
+    assert payload["live_tranche"]["cyber_dependency_queries_evaluated"] == 9
+    assert Path(payload["live_tranche"]["path"]).parent.name == "20260330150200"

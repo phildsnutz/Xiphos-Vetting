@@ -141,6 +141,34 @@ def test_public_html_ignores_management_team_phrase_as_ownership():
     assert matches == []
 
 
+def test_public_html_prefers_first_party_pages_and_domain_over_mismatched_website():
+    resolved = public_html_ownership._resolve_website(
+        {
+            "website": "https://www.city-data.com",
+            "domain": "channelpartners.com",
+            "first_party_pages": [
+                "https://channelpartners.com/first-impressions-in-the-field-how-strong-retail-merchandising-assisted-sales-teams-build-trust-from-day-one",
+                "https://channelpartners.com/teams-in-action-channel-partners-launches-the-bridge-podcast-focused-on-retail-execution-excellence",
+            ],
+        }
+    )
+
+    assert resolved == "https://channelpartners.com"
+
+
+def test_public_html_rejects_generic_terms_document_as_owner():
+    matches = public_html_ownership._extract_candidates(
+        (
+            'The FAQs are an integral part of the Specific Terms and Conditions of Sale and '
+            'are incorporated therein by reference.'
+        ),
+        "Northern Channel Partners",
+        "https://www.visit.brussels/en/visitors/about-us/general-terms-and-conditions-of-sale",
+    )
+
+    assert matches == []
+
+
 def test_public_html_extracts_founded_year_from_first_party_history_page(monkeypatch):
     home_html = """
     <html>
@@ -671,6 +699,59 @@ def test_public_html_ignores_part_of_phrase_on_news_page(monkeypatch):
 
     assert result.relationships == []
     assert result.findings == []
+
+
+def test_public_html_ignores_geographic_part_of_phrase(monkeypatch):
+    bio_html = """
+    <html>
+      <body>
+        <p>
+          I grew up in a very poor part of Ohio and learned early how to work hard.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://generic.example":
+            return _FakeResponse(bio_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Generic Marine", country="US", website="https://generic.example")
+
+    assert result.relationships == []
+    assert result.findings == []
+
+
+def test_public_html_keeps_corporate_part_of_phrase(monkeypatch):
+    corporate_html = """
+    <html>
+      <body>
+        <p>
+          FAUN Trackway is part of the KIRCHHOFF Group and serves expeditionary mobility programs.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://example.example":
+            return _FakeResponse(corporate_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("FAUN Trackway", country="US", website="https://example.example")
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "owned_by"
+    assert result.relationships[0]["target_entity"] == "KIRCHHOFF"
 
 
 def test_internal_candidate_links_prioritize_funding_pages():

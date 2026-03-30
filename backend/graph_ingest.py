@@ -120,6 +120,17 @@ CONFIDENCE = {
 }
 
 
+def _json_field(value: object, fallback):
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return fallback
+
+
 def _parse_graph_timestamp(value: object) -> datetime | None:
     candidate = str(value or "").strip()
     if not candidate:
@@ -531,7 +542,14 @@ def ingest_enrichment_to_graph(
     if not kg or not er:
         return {"entities_created": 0, "relationships_created": 0, "errors": ["knowledge graph modules unavailable"]}
 
-    stats = {"entities_created": 0, "relationships_created": 0, "errors": [], "vendor_id": vendor_id}
+    stats = {
+        "entities_created": 0,
+        "relationships_created": 0,
+        "errors": [],
+        "vendor_id": vendor_id,
+        "claims_pruned": 0,
+        "relationships_pruned": 0,
+    }
 
     try:
         # Initialize the KG database if needed
@@ -587,6 +605,13 @@ def ingest_enrichment_to_graph(
             )
         except Exception as e:
             stats["errors"].append(f"modeled case input ingest: {e}")
+
+        try:
+            prune_stats = kg.retract_invalid_public_html_relationships(entity_id)
+            stats["claims_pruned"] = int(prune_stats.get("claims_deleted") or 0)
+            stats["relationships_pruned"] = int(prune_stats.get("relationships_deleted") or 0)
+        except Exception as e:
+            stats["errors"].append(f"invalid public_html cleanup: {e}")
 
         logger.info(
             "Graph ingest for %s: %d entities, %d relationships, %d errors",
@@ -1994,9 +2019,9 @@ def _hydrate_missing_graph_entities(kg, all_entities: dict, relationships: list[
                 missing_ids,
             ).fetchall()
         for row in rows:
-            aliases = json.loads(row["aliases"]) if row["aliases"] else []
-            identifiers = json.loads(row["identifiers"]) if row["identifiers"] else {}
-            sources = json.loads(row["sources"]) if row["sources"] else []
+            aliases = _json_field(row["aliases"], [])
+            identifiers = _json_field(row["identifiers"], {})
+            sources = _json_field(row["sources"], [])
             hydrated_entities[row["id"]] = {
                 "id": row["id"],
                 "canonical_name": row["canonical_name"],
@@ -2553,7 +2578,8 @@ def backfill_all_vendors() -> dict:
                 logger.debug("No enrichment for %s, skipping backfill", case_id)
                 continue
 
-            stats = ingest_enrichment_to_graph(case_id, name, enrichment)
+            vendor_input = v.get("vendor_input") if isinstance(v.get("vendor_input"), dict) else None
+            stats = ingest_enrichment_to_graph(case_id, name, enrichment, vendor_input=vendor_input)
             total_stats["vendors_processed"] += 1
             total_stats["total_entities"] += stats.get("entities_created", 0)
             total_stats["total_relationships"] += stats.get("relationships_created", 0)

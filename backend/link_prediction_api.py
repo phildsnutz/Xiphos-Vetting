@@ -13,9 +13,11 @@ Register as a Blueprint in server.py:
     app.register_blueprint(link_prediction_bp)
 """
 
+import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
@@ -32,6 +34,9 @@ from graph_embeddings import (
 logger = logging.getLogger(__name__)
 
 link_prediction_bp = Blueprint("link_prediction", __name__, url_prefix="/api/graph")
+REPORTS_ROOT = Path(__file__).resolve().parents[1] / "docs" / "reports"
+RUNTIME_REPORTS_ROOT = Path("/data/reports")
+REPORT_SEARCH_ROOTS = [REPORTS_ROOT, RUNTIME_REPORTS_ROOT]
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +57,125 @@ def _get_auth_user() -> Optional[str]:
     # If your auth system sets g.user or similar, extract it here
     # For now, return a generic identifier
     return request.headers.get("X-User-Id", "unknown")
+
+
+def _report_sort_key(path: Path) -> tuple[float, str]:
+    try:
+        return (path.stat().st_mtime, str(path))
+    except OSError:
+        return (0.0, str(path))
+
+
+def _latest_matching_summary(*relative_dirs: str) -> Path | None:
+    candidates: list[Path] = []
+    for root in REPORT_SEARCH_ROOTS:
+        for relative_dir in relative_dirs:
+            candidates.extend((root / relative_dir).glob("**/summary.json"))
+    if not candidates:
+        return None
+    return max(candidates, key=_report_sort_key)
+
+
+def _latest_neo4j_report() -> Path | None:
+    candidates: list[Path] = []
+    for root in REPORT_SEARCH_ROOTS:
+        candidates.extend(root.glob("neo4j_graph_drift_audit*/neo4j-graph-drift-audit-*.json"))
+        candidates.extend(root.glob("neo4j_graph_drift_audit*/**/*.json"))
+    if not candidates:
+        return None
+    return max(candidates, key=_report_sort_key)
+
+
+def _read_report_json(path: Path | None) -> dict:
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _summary_verdict(payload: dict) -> str | None:
+    for key in ("overall_verdict", "prime_time_verdict", "verdict"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _summary_timestamp(payload: dict) -> str | None:
+    for key in ("generated_at", "timestamp", "created_at", "updated_at"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def build_training_dashboard_payload() -> dict:
+    readiness_path = _latest_matching_summary("helios_readiness", "readiness")
+    benchmark_path = _latest_matching_summary("graph_training_benchmark")
+    tranche_path = _latest_matching_summary("live_graph_training_tranche", "graph_training_tranche", "graph_training_tranche_live")
+    neo4j_path = _latest_neo4j_report()
+
+    readiness = _read_report_json(readiness_path)
+    benchmark = _read_report_json(benchmark_path)
+    tranche = _read_report_json(tranche_path)
+    neo4j = _read_report_json(neo4j_path)
+
+    review_stats = tranche.get("review_stats") if isinstance(tranche.get("review_stats"), dict) else {}
+    stage_metrics = tranche.get("stage_metrics") if isinstance(tranche.get("stage_metrics"), dict) else {}
+    missing_edge = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
+    stage_results = benchmark.get("stage_results") if isinstance(benchmark.get("stage_results"), list) else []
+    data_foundation = benchmark.get("data_foundation") if isinstance(benchmark.get("data_foundation"), dict) else {}
+
+    return {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "readiness": {
+            "verdict": _summary_verdict(readiness),
+            "generated_at": _summary_timestamp(readiness),
+            "path": str(readiness_path) if readiness_path else None,
+        },
+        "neo4j": {
+            "verdict": _summary_verdict(neo4j),
+            "generated_at": _summary_timestamp(neo4j),
+            "path": str(neo4j_path) if neo4j_path else None,
+            "node_count": neo4j.get("neo4j_node_count"),
+            "relationship_count": neo4j.get("neo4j_relationship_count"),
+        },
+        "benchmark": {
+            "verdict": _summary_verdict(benchmark),
+            "generated_at": _summary_timestamp(benchmark),
+            "path": str(benchmark_path) if benchmark_path else None,
+            "data_foundation_verdict": data_foundation.get("verdict"),
+            "passing_stage_count": sum(1 for stage in stage_results if isinstance(stage, dict) and stage.get("verdict") == "PASS"),
+            "total_stage_count": len(stage_results),
+            "stage_results": [
+                {
+                    "stage_id": str(stage.get("stage_id") or ""),
+                    "verdict": str(stage.get("verdict") or "UNKNOWN"),
+                    "objective": str(stage.get("objective") or ""),
+                }
+                for stage in stage_results
+                if isinstance(stage, dict)
+            ],
+        },
+        "live_tranche": {
+            "generated_at": _summary_timestamp(tranche),
+            "path": str(tranche_path) if tranche_path else None,
+            "reviewed_links": int(review_stats.get("reviewed_links") or 0),
+            "pending_links": int(review_stats.get("pending_links") or 0),
+            "novel_pending_links": int(review_stats.get("novel_pending_links") or 0),
+            "confirmed_links": int(review_stats.get("confirmed_links") or 0),
+            "rejected_links": int(review_stats.get("rejected_links") or 0),
+            "review_coverage_pct": float(review_stats.get("review_coverage_pct") or 0.0),
+            "confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            "ownership_control_hits_at_10": float(missing_edge.get("ownership_control_hits_at_10") or 0.0),
+            "ownership_control_mrr": float(missing_edge.get("ownership_control_mrr") or 0.0),
+            "intermediary_route_queries_evaluated": int(missing_edge.get("intermediary_route_queries_evaluated") or 0),
+            "cyber_dependency_queries_evaluated": int(missing_edge.get("cyber_dependency_queries_evaluated") or 0),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +484,15 @@ def get_predicted_link_review_stats_endpoint():
         return jsonify(get_prediction_review_stats(pg_url, source_entity_id=source_entity_id)), 200
     except Exception as e:
         logger.exception("Failed to fetch predicted link review stats")
+        return jsonify({"error": str(e)}), 500
+
+
+@link_prediction_bp.route("/training-dashboard", methods=["GET"])
+def get_graph_training_dashboard():
+    try:
+        return jsonify(build_training_dashboard_payload()), 200
+    except Exception as e:
+        logger.exception("Failed to build graph training dashboard")
         return jsonify({"error": str(e)}), 500
 
 

@@ -23,6 +23,136 @@ logger = logging.getLogger(__name__)
 _pool: Optional[pool.ThreadedConnectionPool] = None
 
 
+KG_PROVENANCE_SCHEMA_SQL = """
+    CREATE TABLE IF NOT EXISTS kg_entities (
+        id TEXT PRIMARY KEY,
+        canonical_name TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        aliases JSONB NOT NULL DEFAULT '[]',
+        identifiers JSONB NOT NULL DEFAULT '{}',
+        country TEXT,
+        sources JSONB NOT NULL DEFAULT '[]',
+        confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+        risk_level TEXT NOT NULL DEFAULT 'unknown',
+        sanctions_exposure DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+        last_updated TIMESTAMP NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_relationships (
+        id SERIAL PRIMARY KEY,
+        source_entity_id TEXT NOT NULL,
+        target_entity_id TEXT NOT NULL,
+        rel_type TEXT NOT NULL,
+        confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+        data_source TEXT,
+        evidence TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        FOREIGN KEY (source_entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_entity_vendors (
+        entity_id TEXT NOT NULL,
+        vendor_id TEXT NOT NULL,
+        linked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (entity_id, vendor_id),
+        FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_asserting_agents (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        agent_type TEXT NOT NULL DEFAULT 'system',
+        metadata JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_source_activities (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        activity_type TEXT NOT NULL DEFAULT 'observation',
+        occurred_at TIMESTAMP,
+        metadata JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_claims (
+        id TEXT PRIMARY KEY,
+        claim_key TEXT NOT NULL UNIQUE,
+        source_entity_id TEXT NOT NULL,
+        target_entity_id TEXT,
+        rel_type TEXT NOT NULL,
+        claim_type TEXT NOT NULL DEFAULT 'relationship',
+        claim_value TEXT,
+        confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+        contradiction_state TEXT NOT NULL DEFAULT 'unreviewed',
+        validity_start TIMESTAMP,
+        validity_end TIMESTAMP,
+        observed_at TIMESTAMP,
+        first_observed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        last_observed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        data_source TEXT,
+        vendor_id TEXT,
+        source_activity_id TEXT,
+        asserting_agent_id TEXT,
+        structured_fields JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        FOREIGN KEY (source_entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_activity_id) REFERENCES kg_source_activities(id) ON DELETE SET NULL,
+        FOREIGN KEY (asserting_agent_id) REFERENCES kg_asserting_agents(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_evidence (
+        id TEXT PRIMARY KEY,
+        claim_id TEXT NOT NULL,
+        source TEXT,
+        title TEXT,
+        url TEXT,
+        artifact_ref TEXT,
+        snippet TEXT,
+        raw_data JSONB NOT NULL DEFAULT '{}',
+        structured_fields JSONB NOT NULL DEFAULT '{}',
+        source_class TEXT,
+        authority_level TEXT,
+        access_model TEXT,
+        observed_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        FOREIGN KEY (claim_id) REFERENCES kg_claims(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_kg_entities_name ON kg_entities(canonical_name);
+    CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(entity_type);
+    CREATE INDEX IF NOT EXISTS idx_kg_entities_country ON kg_entities(country);
+    CREATE INDEX IF NOT EXISTS idx_kg_relationships_source ON kg_relationships(source_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_relationships_target ON kg_relationships(target_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_relationships_type ON kg_relationships(rel_type);
+    CREATE INDEX IF NOT EXISTS idx_kg_entity_vendors_vendor ON kg_entity_vendors(vendor_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_claims_source ON kg_claims(source_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_claims_target ON kg_claims(target_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_claims_rel_type ON kg_claims(rel_type);
+    CREATE INDEX IF NOT EXISTS idx_kg_claims_vendor ON kg_claims(vendor_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_evidence_claim ON kg_evidence(claim_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_relationships_unique
+        ON kg_relationships(
+            source_entity_id,
+            target_entity_id,
+            rel_type,
+            COALESCE(data_source, ''),
+            COALESCE(evidence, '')
+        );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_evidence_unique
+        ON kg_evidence(
+            claim_id,
+            COALESCE(url, ''),
+            COALESCE(artifact_ref, ''),
+            COALESCE(snippet, '')
+        );
+"""
+
+
 def _get_pool() -> pool.ThreadedConnectionPool:
     """Lazy-initialize and return the connection pool."""
     global _pool
@@ -270,6 +400,15 @@ class PgConnectionWrapper:
         # Negative lookbehind avoids matching PostgreSQL :: cast syntax
         translated = re.sub(r'(?<!:):(\w+)', r'%(\1)s', sql)
 
+        uses_insert_or_ignore = bool(re.search(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", translated, flags=re.IGNORECASE))
+        if uses_insert_or_ignore:
+            translated = re.sub(
+                r"\bINSERT\s+OR\s+IGNORE\s+INTO\b",
+                "INSERT INTO",
+                translated,
+                flags=re.IGNORECASE,
+            )
+
         # Replace ? with %s (positional params)
         translated = translated.replace("?", "%s")
 
@@ -301,6 +440,10 @@ class PgConnectionWrapper:
         translated = translated.replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
         translated = translated.replace("BOOLEAN NOT NULL DEFAULT 1", "BOOLEAN NOT NULL DEFAULT TRUE")
         translated = translated.replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE")
+
+        if uses_insert_or_ignore and "ON CONFLICT" not in translated.upper():
+            translated = translated.rstrip().rstrip(";")
+            translated = f"{translated} ON CONFLICT DO NOTHING"
 
         return translated
 
@@ -763,50 +906,6 @@ def init_db():
         """)
 
         # Knowledge graph tables
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS kg_entities (
-                id TEXT PRIMARY KEY,
-                canonical_name TEXT NOT NULL,
-                entity_type TEXT NOT NULL,
-                aliases JSONB NOT NULL DEFAULT '[]',
-                identifiers JSONB NOT NULL DEFAULT '{}',
-                country TEXT,
-                sources JSONB NOT NULL DEFAULT '[]',
-                confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-                risk_level TEXT NOT NULL DEFAULT 'unknown',
-                sanctions_exposure DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-                last_updated TIMESTAMP NOT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW()
-            );
-
-            CREATE TABLE IF NOT EXISTS kg_relationships (
-                id SERIAL PRIMARY KEY,
-                source_entity_id TEXT NOT NULL,
-                target_entity_id TEXT NOT NULL,
-                rel_type TEXT NOT NULL,
-                confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7,
-                data_source TEXT,
-                evidence TEXT,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                FOREIGN KEY (source_entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
-                FOREIGN KEY (target_entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS kg_entity_vendors (
-                entity_id TEXT NOT NULL,
-                vendor_id TEXT NOT NULL,
-                linked_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (entity_id, vendor_id),
-                FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_kg_entities_name ON kg_entities(canonical_name);
-            CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(entity_type);
-            CREATE INDEX IF NOT EXISTS idx_kg_entities_country ON kg_entities(country);
-            CREATE INDEX IF NOT EXISTS idx_kg_relationships_source ON kg_relationships(source_entity_id);
-            CREATE INDEX IF NOT EXISTS idx_kg_relationships_target ON kg_relationships(target_entity_id);
-            CREATE INDEX IF NOT EXISTS idx_kg_relationships_type ON kg_relationships(rel_type);
-            CREATE INDEX IF NOT EXISTS idx_kg_entity_vendors_vendor ON kg_entity_vendors(vendor_id);
-        """)
+        conn.executescript(KG_PROVENANCE_SCHEMA_SQL)
 
         logger.info("PostgreSQL database initialization complete")

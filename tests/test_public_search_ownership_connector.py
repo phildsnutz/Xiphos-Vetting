@@ -67,6 +67,47 @@ def test_public_search_discovers_official_site_and_emits_backed_by(monkeypatch):
     assert "https://hefring.example/news/hefring-funding-round" in result.identifiers["first_party_pages"]
 
 
+def test_public_search_prefers_seeded_first_party_host_over_bad_search_candidate(monkeypatch):
+    search_html = """
+    <html>
+      <body>
+        <a class="result__a" href="https://www.visit.brussels/en/visitors/laeken-park">visit.brussels › visitors › Laeken Park - Visit Brussels</a>
+        <a class="result__snippet">Visit Brussels for visitor information and city experiences.</a>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict, params: dict | None = None):
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == public_search_ownership.SEARCH_URL:
+            return _SearchResponse(search_html)
+        if url == "https://channelpartners.com":
+            return _HtmlResponse("<html><body><p>Northern Channel Partners</p></body></html>")
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    def fake_extract_page(vendor_name: str, country: str = "", *, website: str, page_url: str, discover_links: bool = False):
+        result = EnrichmentResult(source=public_html_ownership.SOURCE_NAME, vendor_name=vendor_name)
+        result.identifiers["website"] = website
+        return result, []
+
+    monkeypatch.setattr(public_search_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "extract_page", fake_extract_page)
+
+    result = public_search_ownership.enrich(
+        "Northern Channel Partners",
+        country="CA",
+        website="https://www.city-data.com",
+        domain="channelpartners.com",
+        first_party_pages=[
+            "https://channelpartners.com/first-impressions-in-the-field-how-strong-retail-merchandising-assisted-sales-teams-build-trust-from-day-one",
+        ],
+    )
+
+    assert result.identifiers["website"] == "https://channelpartners.com"
+    assert result.findings[0].title == "Public search discovered official site candidate: https://channelpartners.com"
+
+
 def test_public_search_treats_bare_and_www_as_same_first_party_host():
     candidates = [
         {

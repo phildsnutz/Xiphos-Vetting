@@ -770,6 +770,40 @@ def _official_site_root(url: str) -> str:
     return public_html_ownership._root_website(url)
 
 
+def _seeded_official_candidates(vendor_name: str, ids: dict) -> list[dict]:
+    seeded_website = public_html_ownership._resolve_website(ids)
+    if not seeded_website:
+        return []
+    search_provider = "seeded_website"
+    score = 72
+    raw_pages = ids.get("first_party_pages")
+    if isinstance(raw_pages, str):
+        page_candidates = [raw_pages]
+    elif isinstance(raw_pages, (list, tuple, set)):
+        page_candidates = [str(item or "") for item in raw_pages]
+    else:
+        page_candidates = []
+    if page_candidates and any(public_html_ownership._same_first_party_host(seed, seeded_website) for seed in page_candidates):
+        search_provider = "seeded_first_party_pages"
+        score = 88
+    elif str(ids.get("domain") or "").strip():
+        search_provider = "seeded_domain"
+        score = 80
+    elif str(ids.get("official_website") or "").strip():
+        search_provider = "seeded_official_website"
+        score = 76
+    return [
+        {
+            "url": seeded_website,
+            "title": f"{vendor_name} seeded first-party host",
+            "snippet": "Seeded from known first-party identifiers.",
+            "score": score,
+            "blocked_host": False,
+            "search_provider": search_provider,
+        }
+    ]
+
+
 def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> list[str]:
     selected: list[tuple[int, str]] = []
     seen: set[str] = set()
@@ -857,8 +891,9 @@ def _country_mismatch_penalty(host: str, title: str, snippet: str, country: str)
     return penalty
 
 
-def _pick_official_candidate(candidates: list[dict], country: str = "") -> dict | None:
+def _pick_official_candidate(candidates: list[dict], vendor_name: str = "", country: str = "") -> dict | None:
     ranked: list[tuple[int, dict]] = []
+    vendor_tokens = _normalize_name_tokens(vendor_name)
     for candidate in candidates:
         url = str(candidate.get("url") or "").strip()
         parsed = urlparse(url)
@@ -892,12 +927,18 @@ def _pick_official_candidate(candidates: list[dict], country: str = "") -> dict 
         host_label = host.removeprefix("www.").split(".", 1)[0].strip()
         combined = f"{title} {snippet}"
         combined_tokens = set(_normalize_name_tokens(combined))
+        shared_vendor_tokens = len(combined_tokens & set(vendor_tokens))
         if (
             2 <= len(host_label) <= 5
             and re.search(rf"\(\s*{re.escape(host_label)}\s*\)", combined, re.IGNORECASE)
             and len(combined_tokens) >= 3
         ):
             score += 18
+        if vendor_tokens:
+            if shared_vendor_tokens == 0 and not any(token in host for token in vendor_tokens):
+                score -= 25
+            elif shared_vendor_tokens < min(2, len(vendor_tokens)):
+                score -= 8
         score -= _country_mismatch_penalty(host, title, snippet, country)
         ranked.append((score, candidate))
 
@@ -2323,18 +2364,26 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     result.access_model = "search_public_html"
 
     try:
-        candidates: list[dict] = []
+        candidates: list[dict] = _seeded_official_candidates(vendor_name, ids)
+        seen_candidate_urls = {str(item.get("url") or "") for item in candidates}
         identifier_ranks: dict[str, int] = {}
         for query in _search_queries(vendor_name):
             if not _within_budget(deadline):
                 break
-            candidates = _search_with_fallbacks(
+            search_candidates = _search_with_fallbacks(
                 query,
                 vendor_name,
                 country=country,
                 provider_state=search_provider_state,
             )
-            if candidates:
+            for candidate in search_candidates:
+                url = str(candidate.get("url") or "")
+                if url and url in seen_candidate_urls:
+                    continue
+                if url:
+                    seen_candidate_urls.add(url)
+                candidates.append(candidate)
+            if search_candidates:
                 break
             if not _search_providers_available(search_provider_state):
                 break
@@ -2344,7 +2393,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             result.elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
             return result
 
-        official_candidate = _pick_official_candidate(candidates, country=country) or candidates[0]
+        official_candidate = _pick_official_candidate(candidates, vendor_name, country=country) or candidates[0]
         website = _official_site_root(official_candidate["url"])
         if not website:
             result.elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)

@@ -13,6 +13,11 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUITE = ROOT / "fixtures" / "adversarial_gym" / "graph_training_benchmark_suite_v1.json"
 DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "graph_training_benchmark"
+DEFAULT_TRANCHE_DIRS = [
+    Path("/data/reports/graph_training_tranche_live"),
+    ROOT / "docs" / "reports" / "live_graph_training_tranche",
+    ROOT / "docs" / "reports" / "graph_training_tranche",
+]
 
 
 def utc_slug() -> str:
@@ -28,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token", default="")
     parser.add_argument("--email", default="")
     parser.add_argument("--password", default="")
+    parser.add_argument("--tranche-summary-json", default="")
     parser.add_argument("--report-dir", default=str(DEFAULT_REPORT_DIR))
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
@@ -51,6 +57,22 @@ def _read_json_list(path: Path) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             rows.append(item)
     return rows
+
+
+def _latest_nested_summary(base_dir: Path) -> Path | None:
+    candidates = sorted(base_dir.glob("**/summary.json"))
+    return candidates[-1] if candidates else None
+
+
+def _resolve_tranche_summary(path: str) -> Path | None:
+    if path:
+        tranche_path = Path(path)
+        return tranche_path if tranche_path.exists() else None
+    for base_dir in DEFAULT_TRANCHE_DIRS:
+        candidate = _latest_nested_summary(base_dir)
+        if candidate is not None:
+            return candidate
+    return None
 
 
 def _criterion(name: str, passed: bool, detail: str, *, actual: Any = None, expected: Any = None) -> dict[str, Any]:
@@ -83,6 +105,33 @@ def _login(base_url: str, email: str, password: str, token: str) -> dict[str, st
 def _fetch_embedding_stats(args: argparse.Namespace) -> dict[str, Any]:
     if args.embedding_stats_json:
         return _read_json(Path(args.embedding_stats_json))
+    tranche_payload = _load_tranche_summary(args.tranche_summary_json)
+    tranche_embedding_stats = (
+        tranche_payload.get("embedding_stats") if isinstance(tranche_payload.get("embedding_stats"), dict) else {}
+    )
+    tranche_review_stats = (
+        tranche_payload.get("review_stats") if isinstance(tranche_payload.get("review_stats"), dict) else {}
+    )
+    if tranche_embedding_stats or tranche_review_stats:
+        stats = dict(tranche_embedding_stats)
+        if tranche_review_stats:
+            stats.setdefault("review_stats", tranche_review_stats)
+            stats.setdefault("predicted_links_count", int(tranche_review_stats.get("total_links") or 0))
+            stats.setdefault("predicted_links_reviewed", int(tranche_review_stats.get("reviewed_links") or 0))
+            stats.setdefault("predicted_links_confirmed", int(tranche_review_stats.get("confirmed_links") or 0))
+            stats.setdefault(
+                "predicted_links_confirmation_rate",
+                float(tranche_review_stats.get("confirmation_rate") or 0.0),
+            )
+            stats.setdefault(
+                "predicted_links_review_coverage_pct",
+                float(tranche_review_stats.get("review_coverage_pct") or 0.0),
+            )
+            stats.setdefault(
+                "predicted_links_by_edge_family",
+                list(tranche_review_stats.get("by_edge_family") or []),
+            )
+        return stats
     if not args.base_url:
         return {}
     headers = _login(args.base_url, args.email, args.password, args.token)
@@ -96,9 +145,18 @@ def _fetch_embedding_stats(args: argparse.Namespace) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _load_results(path: str) -> dict[str, Any]:
-    if not path:
+def _load_tranche_summary(path: str) -> dict[str, Any]:
+    tranche_path = _resolve_tranche_summary(path)
+    if tranche_path is None:
         return {}
+    return _read_json(tranche_path)
+
+
+def _load_results(path: str, tranche_path: str = "") -> dict[str, Any]:
+    if not path:
+        tranche_payload = _load_tranche_summary(tranche_path)
+        stage_metrics = tranche_payload.get("stage_metrics")
+        return stage_metrics if isinstance(stage_metrics, dict) else {}
     payload = _read_json(Path(path))
     stage_metrics = payload.get("stage_metrics")
     return stage_metrics if isinstance(stage_metrics, dict) else {}
@@ -164,6 +222,10 @@ def evaluate_data_foundation(suite: dict[str, Any], *, embedding_stats: dict[str
 
     reviewed_links = int(embedding_stats.get("predicted_links_reviewed") or 0)
     confirmed_links = int(embedding_stats.get("predicted_links_confirmed") or 0)
+    review_stats = embedding_stats.get("review_stats") if isinstance(embedding_stats.get("review_stats"), dict) else {}
+    if review_stats:
+        reviewed_links = int(review_stats.get("reviewed_links") or reviewed_links)
+        confirmed_links = int(review_stats.get("confirmed_links") or confirmed_links)
     checks.append(
         _criterion(
             "foundation_reviewed_links",
@@ -240,8 +302,10 @@ def evaluate_training_stack(suite: dict[str, Any], *, stage_metrics: dict[str, A
 
 def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     suite = _read_json(Path(args.suite))
+    tranche_path = _resolve_tranche_summary(args.tranche_summary_json)
+    tranche_summary = _read_json(tranche_path) if tranche_path is not None else {}
     embedding_stats = _fetch_embedding_stats(args)
-    stage_metrics = _load_results(args.results_json)
+    stage_metrics = _load_results(args.results_json, args.tranche_summary_json)
 
     data_foundation = evaluate_data_foundation(suite, embedding_stats=embedding_stats)
     stage_results = evaluate_training_stack(suite, stage_metrics=stage_metrics)
@@ -255,6 +319,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "data_foundation": data_foundation,
         "stage_results": stage_results,
         "embedding_stats": embedding_stats,
+        "tranche_summary": str(tranche_path) if tranche_path else None,
+        "tranche_generated_at": tranche_summary.get("generated_at"),
         "results_json": args.results_json or None,
     }
 

@@ -1,16 +1,18 @@
 """
-SQLite-based persistence layer for the entity resolution knowledge graph.
+Provider-neutral persistence layer for the Helios knowledge graph.
 
-Stores resolved entities, relationships, and vendor links in a separate
-database (knowledge_graph.db) using the same patterns as db.py.
-
-No external dependencies beyond Python stdlib.
+Historically this module wrote to a dedicated SQLite knowledge-graph file.
+The live stack now runs on PostgreSQL, so graph writes must follow the same
+provider path that the rest of the application, graph training, and Neo4j sync
+already use.
 """
 
 import sqlite3
 from collections import deque
 import json
 import hashlib
+import os
+import re
 from datetime import datetime
 from contextlib import contextmanager
 from entity_resolution import ResolvedEntity
@@ -24,6 +26,13 @@ from runtime_paths import get_kg_db_path as resolve_kg_db_path
 def get_kg_db_path() -> str:
     """Get knowledge graph database path from environment or default."""
     return resolve_kg_db_path()
+
+
+def _use_postgres_kg() -> bool:
+    db_engine = os.environ.get("XIPHOS_DB_ENGINE", "").strip().lower()
+    if db_engine in {"postgres", "postgresql", "pg"}:
+        return True
+    return bool(os.environ.get("XIPHOS_PG_URL", "").strip())
 
 
 def _utc_now() -> str:
@@ -54,7 +63,14 @@ def _stable_hash(*parts: str, prefix: str) -> str:
 
 @contextmanager
 def get_kg_conn():
-    """Context manager for knowledge graph database connections with WAL mode."""
+    """Context manager for knowledge graph connections across SQLite and PostgreSQL."""
+    if _use_postgres_kg():
+        import db
+
+        with db.get_conn() as conn:
+            yield conn
+        return
+
     conn = sqlite3.connect(get_kg_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -71,6 +87,12 @@ def get_kg_conn():
 
 def init_kg_db():
     """Create knowledge graph tables if they don't exist."""
+    if _use_postgres_kg():
+        import db
+
+        db.init_db()
+        return
+
     with get_kg_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS kg_entities (
@@ -292,11 +314,11 @@ def get_entity(entity_id: str) -> ResolvedEntity | None:
             id=row["id"],
             canonical_name=row["canonical_name"],
             entity_type=row["entity_type"],
-            aliases=json.loads(row["aliases"]),
-            identifiers=json.loads(row["identifiers"]),
+            aliases=_json_loads(row["aliases"], []),
+            identifiers=_json_loads(row["identifiers"], {}),
             country=row["country"],
             relationships=relationships,
-            sources=json.loads(row["sources"]),
+            sources=_json_loads(row["sources"], []),
             confidence=row["confidence"],
             last_updated=row["last_updated"],
         )
@@ -338,11 +360,11 @@ def find_entities_by_name(
                 id=row["id"],
                 canonical_name=row["canonical_name"],
                 entity_type=row["entity_type"],
-                aliases=json.loads(row["aliases"]),
-                identifiers=json.loads(row["identifiers"]),
+                aliases=_json_loads(row["aliases"], []),
+                identifiers=_json_loads(row["identifiers"], {}),
                 country=row["country"],
                 relationships=[dict(r) for r in rel_rows],
-                sources=json.loads(row["sources"]),
+                sources=_json_loads(row["sources"], []),
                 confidence=row["confidence"],
                 last_updated=row["last_updated"],
             )
@@ -514,7 +536,7 @@ def save_relationship(
             )
             VALUES (?, ?, ?, ?, ?, 'relationship', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(claim_key) DO UPDATE SET
-                confidence = MAX(kg_claims.confidence, excluded.confidence),
+                confidence = GREATEST(kg_claims.confidence, excluded.confidence),
                 contradiction_state = excluded.contradiction_state,
                 validity_start = COALESCE(excluded.validity_start, kg_claims.validity_start),
                 validity_end = COALESCE(excluded.validity_end, kg_claims.validity_end),
@@ -1011,11 +1033,11 @@ def _collect_entity_network(
             "id": entity_row["id"],
             "canonical_name": entity_row["canonical_name"],
             "entity_type": entity_row["entity_type"],
-            "aliases": json.loads(entity_row["aliases"]),
-            "identifiers": json.loads(entity_row["identifiers"]),
+            "aliases": _json_loads(entity_row["aliases"], []),
+            "identifiers": _json_loads(entity_row["identifiers"], {}),
             "confidence": entity_row["confidence"],
             "country": entity_row["country"],
-            "sources": json.loads(entity_row["sources"]),
+            "sources": _json_loads(entity_row["sources"], []),
             "created_at": entity_row["created_at"],
         }
 
@@ -1154,11 +1176,11 @@ def get_vendor_entities(vendor_id: str) -> list[ResolvedEntity]:
                 id=entity_row["id"],
                 canonical_name=entity_row["canonical_name"],
                 entity_type=entity_row["entity_type"],
-                aliases=json.loads(entity_row["aliases"]),
-                identifiers=json.loads(entity_row["identifiers"]),
+                aliases=_json_loads(entity_row["aliases"], []),
+                identifiers=_json_loads(entity_row["identifiers"], {}),
                 country=entity_row["country"],
                 relationships=relationships_by_source.get(entity_id, []),
-                sources=json.loads(entity_row["sources"]),
+                sources=_json_loads(entity_row["sources"], []),
                 confidence=entity_row["confidence"],
                 last_updated=entity_row["last_updated"],
             )
@@ -1376,7 +1398,7 @@ def backfill_legacy_relationship_claims(*, batch_size: int = 500) -> dict:
                 r.confidence,
                 COALESCE(r.data_source, '') AS data_source,
                 COALESCE(r.evidence, '') AS evidence,
-                COALESCE(r.created_at, '') AS created_at
+                r.created_at AS created_at
             FROM kg_relationships r
             LEFT JOIN kg_claims c
               ON c.source_entity_id = r.source_entity_id
@@ -1677,6 +1699,115 @@ def clear_vendor_graph_state(vendor_id: str) -> None:
         )
 
 
+def retract_invalid_public_html_relationships(source_entity_id: str) -> dict:
+    """
+    Retract clearly invalid public_html_ownership claims for a source entity, even if
+    the bad claims were attached to older deduped vendor cases.
+    """
+    if not source_entity_id:
+        return {"claims_deleted": 0, "relationships_deleted": 0}
+
+    from ownership_control_intelligence import looks_like_descriptor_owner
+    from osint import public_html_ownership
+
+    def _should_retract(target_name: str, snippet: str) -> bool:
+        cleaned = str(target_name or "").strip()
+        if not cleaned:
+            return False
+        if looks_like_descriptor_owner(cleaned):
+            return True
+        if public_html_ownership._looks_like_geographic_name(cleaned):
+            return True
+        if not public_html_ownership._looks_like_entity_name(cleaned, cleaned):
+            return True
+        if re.search(r"\bpart of\b", str(snippet or "").lower()) and not public_html_ownership._part_of_phrase_has_corporate_signal(
+            cleaned,
+            cleaned,
+            str(snippet or ""),
+        ):
+            return True
+        return False
+
+    deleted_claims = 0
+    deleted_relationships = 0
+    relationship_keys: set[tuple[str, str, str, str]] = set()
+
+    with get_kg_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.source_entity_id,
+                c.target_entity_id,
+                c.rel_type,
+                COALESCE(c.data_source, '') AS data_source,
+                COALESCE(t.canonical_name, '') AS target_name,
+                COALESCE(e.snippet, r.evidence, '') AS snippet
+            FROM kg_claims c
+            JOIN kg_entities t
+                ON t.id = c.target_entity_id
+            LEFT JOIN kg_evidence e
+                ON e.claim_id = c.id
+            LEFT JOIN kg_relationships r
+                ON r.source_entity_id = c.source_entity_id
+               AND r.target_entity_id = c.target_entity_id
+               AND r.rel_type = c.rel_type
+               AND COALESCE(r.data_source, '') = COALESCE(c.data_source, '')
+            WHERE c.source_entity_id = ?
+              AND COALESCE(c.data_source, '') = 'public_html_ownership'
+              AND c.rel_type IN ('owned_by', 'beneficially_owned_by', 'backed_by')
+            """,
+            (source_entity_id,),
+        ).fetchall()
+
+        for row in rows:
+            if not _should_retract(row["target_name"], row["snippet"]):
+                continue
+            conn.execute("DELETE FROM kg_evidence WHERE claim_id = ?", (row["id"],))
+            conn.execute("DELETE FROM kg_claims WHERE id = ?", (row["id"],))
+            deleted_claims += 1
+            relationship_keys.add(
+                (
+                    str(row["source_entity_id"]),
+                    str(row["target_entity_id"]),
+                    str(row["rel_type"]),
+                    str(row["data_source"] or ""),
+                )
+            )
+
+        for source_id, target_id, rel_type, data_source in relationship_keys:
+            remaining = conn.execute(
+                """
+                SELECT 1
+                FROM kg_claims
+                WHERE source_entity_id = ?
+                  AND target_entity_id = ?
+                  AND rel_type = ?
+                  AND COALESCE(data_source, '') = ?
+                LIMIT 1
+                """,
+                (source_id, target_id, rel_type, data_source),
+            ).fetchone()
+            if remaining:
+                continue
+            cursor = conn.execute(
+                """
+                DELETE FROM kg_relationships
+                WHERE source_entity_id = ?
+                  AND target_entity_id = ?
+                  AND rel_type = ?
+                  AND COALESCE(data_source, '') = ?
+                """,
+                (source_id, target_id, rel_type, data_source),
+            )
+            deleted_relationships += int(getattr(cursor, "rowcount", 0) or 0)
+
+    return {
+        "claims_deleted": deleted_claims,
+        "relationships_deleted": deleted_relationships,
+    }
+
+
 def delete_entity(entity_id: str) -> bool:
     """Delete an entity and its relationships."""
     with get_kg_conn() as conn:
@@ -1709,10 +1840,10 @@ def export_graph(limit_entities: int = 10000) -> dict:
                 "name": row["canonical_name"],
                 "canonical_name": row["canonical_name"],
                 "entity_type": row["entity_type"],
-                "aliases": json.loads(row["aliases"]),
-                "identifiers": json.loads(row["identifiers"]),
+                "aliases": _json_loads(row["aliases"], []),
+                "identifiers": _json_loads(row["identifiers"], {}),
                 "country": row["country"],
-                "sources": json.loads(row["sources"]),
+                "sources": _json_loads(row["sources"], []),
                 "confidence": row["confidence"],
                 "last_updated": row["last_updated"],
                 "created_at": row["created_at"],
