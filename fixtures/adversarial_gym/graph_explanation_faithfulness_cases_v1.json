@@ -1,0 +1,26 @@
+[
+  {
+    "scenario_id": "supplier-passport-1",
+    "total_claims": 8,
+    "supported_claims": 8,
+    "unsupported_claims": 0,
+    "required_paths": 4,
+    "mentioned_paths": 4
+  },
+  {
+    "scenario_id": "hostile-dossier-1",
+    "total_claims": 7,
+    "supported_claims": 7,
+    "unsupported_claims": 0,
+    "required_paths": 3,
+    "mentioned_paths": 3
+  },
+  {
+    "scenario_id": "counterparty-brief-1",
+    "total_claims": 6,
+    "supported_claims": 6,
+    "unsupported_claims": 0,
+    "required_paths": 3,
+    "mentioned_paths": 3
+  }
+]

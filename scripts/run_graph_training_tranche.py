@@ -30,9 +30,12 @@ from graph_embeddings import (  # noqa: E402
     ensure_prediction_tables,
     export_reviewed_link_labels,
     get_graph_construction_training_metrics,
+    get_graphrag_explanation_metrics,
     get_missing_edge_recovery_metrics,
     get_novel_edge_discovery_metrics,
+    get_subgraph_anomaly_metrics,
     get_temporal_recurrence_change_metrics,
+    get_uncertainty_fusion_metrics,
     get_prediction_review_stats,
     list_predicted_link_queue,
     queue_predicted_links,
@@ -289,6 +292,9 @@ def _build_stage_progress(
     recovery_metrics = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
     novelty_metrics = stage_metrics.get("novel_edge_discovery") if isinstance(stage_metrics.get("novel_edge_discovery"), dict) else {}
     temporal_metrics = stage_metrics.get("temporal_recurrence_change") if isinstance(stage_metrics.get("temporal_recurrence_change"), dict) else {}
+    anomaly_metrics = stage_metrics.get("subgraph_anomaly") if isinstance(stage_metrics.get("subgraph_anomaly"), dict) else {}
+    uncertainty_metrics = stage_metrics.get("uncertainty_fusion") if isinstance(stage_metrics.get("uncertainty_fusion"), dict) else {}
+    explanation_metrics = stage_metrics.get("graphrag_explanation") if isinstance(stage_metrics.get("graphrag_explanation"), dict) else {}
     progress = [
         {
             "stage_id": "construction_training",
@@ -337,20 +343,37 @@ def _build_stage_progress(
         {
             "stage_id": "subgraph_anomaly",
             "benchmark_verdict": benchmark_by_id.get("subgraph_anomaly", "UNKNOWN"),
-            "status": "not_started",
-            "notes": "Needs shell, diversion, and fourth-party anomaly labels.",
+            "status": "active" if int(anomaly_metrics.get("anomaly_cases_evaluated") or 0) > 0 else "not_started",
+            "notes": (
+                f"cases={anomaly_metrics.get('anomaly_cases_evaluated', 0)}; "
+                f"shell_auprc={anomaly_metrics.get('shell_layering_auprc', 0.0):.2f}; "
+                f"transshipment_auprc={anomaly_metrics.get('transshipment_auprc', 0.0):.2f}; "
+                f"cyber_fourth_party_auprc={anomaly_metrics.get('cyber_fourth_party_auprc', 0.0):.2f}; "
+                f"fpr={anomaly_metrics.get('false_positive_rate', 0.0):.2f}"
+            ) if int(anomaly_metrics.get("anomaly_cases_evaluated") or 0) > 0 else "Needs shell, diversion, and fourth-party anomaly labels.",
         },
         {
             "stage_id": "uncertainty_fusion",
             "benchmark_verdict": benchmark_by_id.get("uncertainty_fusion", "UNKNOWN"),
-            "status": "not_started",
-            "notes": "Needs adjudicated confidence labels and soft-rule calibration.",
+            "status": "active" if int(uncertainty_metrics.get("edge_cases_evaluated") or 0) > 0 else "not_started",
+            "notes": (
+                f"edge_cases={uncertainty_metrics.get('edge_cases_evaluated', 0)}; "
+                f"decision_cases={uncertainty_metrics.get('decision_cases_evaluated', 0)}; "
+                f"edge_ece={uncertainty_metrics.get('edge_confidence_ece', 0.0):.3f}; "
+                f"decision_ece={uncertainty_metrics.get('decision_confidence_ece', 0.0):.3f}; "
+                f"brier={uncertainty_metrics.get('decision_brier_score', 0.0):.3f}"
+            ) if int(uncertainty_metrics.get("edge_cases_evaluated") or 0) > 0 else "Needs adjudicated confidence labels and soft-rule calibration.",
         },
         {
             "stage_id": "graphrag_explanation",
             "benchmark_verdict": benchmark_by_id.get("graphrag_explanation", "UNKNOWN"),
-            "status": "not_started",
-            "notes": "Needs explanation faithfulness eval set.",
+            "status": "active" if int(explanation_metrics.get("explanation_cases_evaluated") or 0) > 0 else "not_started",
+            "notes": (
+                f"cases={explanation_metrics.get('explanation_cases_evaluated', 0)}; "
+                f"provenance_coverage={explanation_metrics.get('provenance_coverage', 0.0):.2f}; "
+                f"required_path_mention_rate={explanation_metrics.get('required_path_mention_rate', 0.0):.2f}; "
+                f"unsupported_claims={explanation_metrics.get('unsupported_explanation_claims', 0)}"
+            ) if int(explanation_metrics.get("explanation_cases_evaluated") or 0) > 0 else "Needs explanation faithfulness eval set.",
         },
     ]
     if training_result:
@@ -385,6 +408,9 @@ def _build_stage_metrics(
     missing_edge_metrics = get_missing_edge_recovery_metrics(pg_url, review_stats=review_stats)
     novel_edge_metrics = get_novel_edge_discovery_metrics(review_stats)
     temporal_metrics = get_temporal_recurrence_change_metrics(pg_url)
+    anomaly_metrics = get_subgraph_anomaly_metrics()
+    uncertainty_metrics = get_uncertainty_fusion_metrics(pg_url, review_stats=review_stats)
+    explanation_metrics = get_graphrag_explanation_metrics()
     return {
         "construction_training": construction_metrics,
         "missing_edge_recovery": {**missing_edge_metrics},
@@ -399,6 +425,9 @@ def _build_stage_metrics(
             "stale_pending_7d": int(recovery.get("stale_pending_7d") or 0),
         },
         "temporal_recurrence_change": temporal_metrics,
+        "subgraph_anomaly": anomaly_metrics,
+        "uncertainty_fusion": uncertainty_metrics,
+        "graphrag_explanation": explanation_metrics,
     }
 
 
@@ -459,6 +488,30 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         f"- Lead-time gain vs heuristic: `{summary['stage_metrics']['temporal_recurrence_change'].get('lead_time_gain_vs_heuristic', 0.0):.2f}`",
         f"- Monitor history rows available: `{summary['stage_metrics']['temporal_recurrence_change'].get('monitor_history_rows_available', 0)}`",
         f"- Graph claims with observed timestamps: `{summary['stage_metrics']['temporal_recurrence_change'].get('graph_claim_rows_with_observed_at', 0)}`",
+        "",
+        "## Subgraph Anomaly",
+        "",
+        f"- Anomaly cases evaluated: `{summary['stage_metrics']['subgraph_anomaly'].get('anomaly_cases_evaluated', 0)}`",
+        f"- Shell layering AUPRC: `{summary['stage_metrics']['subgraph_anomaly'].get('shell_layering_auprc', 0.0):.2f}`",
+        f"- Transshipment AUPRC: `{summary['stage_metrics']['subgraph_anomaly'].get('transshipment_auprc', 0.0):.2f}`",
+        f"- Cyber fourth-party AUPRC: `{summary['stage_metrics']['subgraph_anomaly'].get('cyber_fourth_party_auprc', 0.0):.2f}`",
+        f"- False positive rate: `{summary['stage_metrics']['subgraph_anomaly'].get('false_positive_rate', 0.0):.2f}`",
+        "",
+        "## Uncertainty Fusion",
+        "",
+        f"- Edge cases evaluated: `{summary['stage_metrics']['uncertainty_fusion'].get('edge_cases_evaluated', 0)}`",
+        f"- Decision cases evaluated: `{summary['stage_metrics']['uncertainty_fusion'].get('decision_cases_evaluated', 0)}`",
+        f"- Edge confidence ECE: `{summary['stage_metrics']['uncertainty_fusion'].get('edge_confidence_ece', 0.0):.3f}`",
+        f"- Decision confidence ECE: `{summary['stage_metrics']['uncertainty_fusion'].get('decision_confidence_ece', 0.0):.3f}`",
+        f"- Decision Brier score: `{summary['stage_metrics']['uncertainty_fusion'].get('decision_brier_score', 0.0):.3f}`",
+        f"- High-confidence unsupported claim rate: `{summary['stage_metrics']['uncertainty_fusion'].get('high_confidence_unsupported_claim_rate', 0.0):.3f}`",
+        "",
+        "## GraphRAG Explanation",
+        "",
+        f"- Explanation cases evaluated: `{summary['stage_metrics']['graphrag_explanation'].get('explanation_cases_evaluated', 0)}`",
+        f"- Provenance coverage: `{summary['stage_metrics']['graphrag_explanation'].get('provenance_coverage', 0.0):.2f}`",
+        f"- Required path mention rate: `{summary['stage_metrics']['graphrag_explanation'].get('required_path_mention_rate', 0.0):.2f}`",
+        f"- Unsupported explanation claims: `{summary['stage_metrics']['graphrag_explanation'].get('unsupported_explanation_claims', 0)}`",
         "",
         "## Seed Queue Runs",
         "",

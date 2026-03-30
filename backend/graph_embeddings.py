@@ -34,6 +34,9 @@ GRAPH_CONSTRUCTION_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / 
 GRAPH_ENTITY_RESOLUTION_PAIRS_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_entity_resolution_pairs_v1.json"
 GRAPH_MISSING_EDGE_HOLDOUT_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_missing_edge_holdout_v1.json"
 GRAPH_TEMPORAL_REPLAY_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_temporal_recurrence_cases_v1.json"
+GRAPH_UNCERTAINTY_FUSION_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_uncertainty_fusion_cases_v1.json"
+GRAPH_SUBGRAPH_ANOMALY_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_subgraph_anomaly_cases_v1.json"
+GRAPH_EXPLANATION_FAITHFULNESS_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_explanation_faithfulness_cases_v1.json"
 MASKED_HOLDOUT_RELATION_TYPES: tuple[str, ...] = (
     "owned_by",
     "backed_by",
@@ -512,6 +515,51 @@ def _f1_score(tp: int, fp: int, fn: int) -> float:
 
 def _freshness_threshold_days(rel_type: str) -> int:
     return int(TEMPORAL_FRESHNESS_THRESHOLDS_DAYS.get(_normalize_rel_type(rel_type), 120))
+
+
+def _expected_calibration_error(confidences: list[float], labels: list[int], *, bins: int = 10) -> float:
+    if not confidences or len(confidences) != len(labels):
+        return 0.0
+    total = len(confidences)
+    ece = 0.0
+    for idx in range(bins):
+        lower = idx / bins
+        upper = (idx + 1) / bins
+        bucket = [
+            (float(conf), int(label))
+            for conf, label in zip(confidences, labels)
+            if (lower <= float(conf) < upper) or (idx == bins - 1 and float(conf) == 1.0)
+        ]
+        if not bucket:
+            continue
+        avg_conf = _mean_or_zero([conf for conf, _ in bucket])
+        accuracy = _mean_or_zero([label for _, label in bucket])
+        ece += (len(bucket) / total) * abs(avg_conf - accuracy)
+    return round(ece, 4)
+
+
+def _brier_score(confidences: list[float], labels: list[int]) -> float:
+    if not confidences or len(confidences) != len(labels):
+        return 0.0
+    return round(
+        _mean_or_zero([(float(conf) - float(label)) ** 2 for conf, label in zip(confidences, labels)]),
+        4,
+    )
+
+
+def _average_precision(scores: list[float], labels: list[int]) -> float:
+    ranked = sorted(zip(scores, labels), key=lambda item: float(item[0]), reverse=True)
+    positives = sum(1 for _, label in ranked if int(label) == 1)
+    if positives == 0:
+        return 0.0
+    hits = 0
+    precision_sum = 0.0
+    for index, (_, label) in enumerate(ranked, start=1):
+        if int(label) != 1:
+            continue
+        hits += 1
+        precision_sum += hits / index
+    return round(precision_sum / positives, 4)
 
 
 def _normalize_match_text(value: Any) -> str:
@@ -3238,6 +3286,147 @@ def get_temporal_recurrence_change_metrics(pg_url: str) -> dict[str, Any]:
         "lead_time_gain_vs_heuristic": round(_mean_or_zero(lead_time_gains), 4),
         **runtime_context,
         "temporal_case_results": scenario_results,
+    }
+
+
+def get_uncertainty_fusion_metrics(pg_url: str, *, review_stats: dict[str, Any] | None = None) -> dict[str, Any]:
+    review_stats = review_stats or {}
+    fixture_path = GRAPH_UNCERTAINTY_FUSION_PATH
+    payload = json.loads(fixture_path.read_text(encoding="utf-8")) if fixture_path.exists() else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    edge_cases = [row for row in payload.get("edge_cases", []) if isinstance(row, dict)] if isinstance(payload, dict) else []
+    decision_cases = [row for row in payload.get("decision_cases", []) if isinstance(row, dict)] if isinstance(payload, dict) else []
+
+    edge_confidences = [float(row.get("confidence") or 0.0) for row in edge_cases]
+    edge_labels = [1 if bool(row.get("supported")) else 0 for row in edge_cases]
+    decision_confidences = [float(row.get("confidence") or 0.0) for row in decision_cases]
+    decision_labels = [1 if bool(row.get("correct")) else 0 for row in decision_cases]
+
+    high_conf_unsupported = [
+        row for row in edge_cases
+        if float(row.get("confidence") or 0.0) >= 0.85 and not bool(row.get("supported"))
+    ]
+    review_unsupported_rate = float(review_stats.get("unsupported_promoted_edge_rate") or 0.0)
+
+    runtime_context = _load_temporal_runtime_context(pg_url)
+    return {
+        "uncertainty_fixture_path": str(fixture_path),
+        "edge_cases_evaluated": len(edge_cases),
+        "decision_cases_evaluated": len(decision_cases),
+        "edge_confidence_ece": _expected_calibration_error(edge_confidences, edge_labels),
+        "decision_confidence_ece": _expected_calibration_error(decision_confidences, decision_labels),
+        "decision_brier_score": _brier_score(decision_confidences, decision_labels),
+        "high_confidence_unsupported_claim_rate": round(
+            max(_safe_divide(len(high_conf_unsupported), len(edge_cases)), review_unsupported_rate),
+            4,
+        ),
+        "review_unsupported_promoted_edge_rate": round(review_unsupported_rate, 4),
+        "graph_claim_rows_available": runtime_context.get("graph_claim_rows_available", 0),
+        "graph_claim_rows_with_observed_at": runtime_context.get("graph_claim_rows_with_observed_at", 0),
+        "uncertainty_case_results": {
+            "edge_cases": edge_cases,
+            "decision_cases": decision_cases,
+        },
+    }
+
+
+def _anomaly_score(case: dict[str, Any]) -> float:
+    family = str(case.get("anomaly_family") or "").strip().lower()
+    score = 0.0
+    if family == "shell_layering":
+        score += min(int(case.get("shell_layers") or 0) * 0.22, 0.66)
+        score += 0.16 if bool(case.get("pep_connection")) else 0.0
+        score += 0.12 if bool(case.get("foreign_control_risk")) else 0.0
+        score += 0.08 if int(case.get("intermediary_path_count") or 0) >= 2 else 0.0
+    elif family == "transshipment_diversion":
+        ambiguity_flags = {
+            _normalize_match_text(item)
+            for item in (case.get("ambiguity_flags") or [])
+            if str(item).strip()
+        }
+        score += 0.36 if "transshipment_or_intermediary" in ambiguity_flags else 0.0
+        score += 0.18 if bool(case.get("final_country_unknown")) else 0.0
+        score += 0.16 if bool(case.get("final_end_user_unknown")) else 0.0
+        score += 0.15 if bool(case.get("brokered")) else 0.0
+        score += 0.1 if bool(case.get("telemetry_or_guidance")) else 0.0
+    elif family == "cyber_fourth_party":
+        concentration = _normalize_match_text(case.get("fourth_party_concentration"))
+        score += 0.42 if concentration == "single_provider" else 0.0
+        score += 0.18 if bool(case.get("shared_signing_service")) else 0.0
+        score += 0.14 if bool(case.get("shared_telecom")) else 0.0
+        score += 0.12 if bool(case.get("mission_critical")) else 0.0
+        score += 0.09 if bool(case.get("firmware_or_ot")) else 0.0
+    return round(min(score, 0.99), 4)
+
+
+def get_subgraph_anomaly_metrics() -> dict[str, Any]:
+    fixture_path = GRAPH_SUBGRAPH_ANOMALY_PATH
+    rows = _load_fixture_rows(fixture_path) if fixture_path.exists() else []
+    case_results: list[dict[str, Any]] = []
+    by_family: dict[str, list[tuple[float, int]]] = {}
+    threshold = 0.65
+    fp = tn = 0
+
+    for row in rows:
+        family = str(row.get("anomaly_family") or "").strip().lower()
+        if not family:
+            continue
+        label = 1 if bool(row.get("is_anomalous")) else 0
+        score = _anomaly_score(row)
+        by_family.setdefault(family, []).append((score, label))
+        prediction = 1 if score >= threshold else 0
+        if label == 0 and prediction == 1:
+            fp += 1
+        if label == 0 and prediction == 0:
+            tn += 1
+        case_results.append(
+            {
+                "scenario_id": str(row.get("scenario_id") or ""),
+                "anomaly_family": family,
+                "score": score,
+                "label": label,
+                "predicted_positive": bool(prediction),
+            }
+        )
+
+    def _family_ap(family: str) -> float:
+        values = by_family.get(family, [])
+        return _average_precision([score for score, _ in values], [label for _, label in values])
+
+    return {
+        "anomaly_fixture_path": str(fixture_path),
+        "anomaly_cases_evaluated": len(case_results),
+        "shell_layering_auprc": _family_ap("shell_layering"),
+        "transshipment_auprc": _family_ap("transshipment_diversion"),
+        "cyber_fourth_party_auprc": _family_ap("cyber_fourth_party"),
+        "false_positive_rate": round(_safe_divide(fp, fp + tn), 4),
+        "anomaly_case_results": case_results,
+    }
+
+
+def get_graphrag_explanation_metrics() -> dict[str, Any]:
+    fixture_path = GRAPH_EXPLANATION_FAITHFULNESS_PATH
+    rows = _load_fixture_rows(fixture_path) if fixture_path.exists() else []
+    total_claims = 0
+    supported_claims = 0
+    unsupported_claims = 0
+    required_paths = 0
+    mentioned_paths = 0
+    for row in rows:
+        total_claims += int(row.get("total_claims") or 0)
+        supported_claims += int(row.get("supported_claims") or 0)
+        unsupported_claims += int(row.get("unsupported_claims") or 0)
+        required_paths += int(row.get("required_paths") or 0)
+        mentioned_paths += int(row.get("mentioned_paths") or 0)
+
+    return {
+        "explanation_fixture_path": str(fixture_path),
+        "explanation_cases_evaluated": len(rows),
+        "provenance_coverage": round(_safe_divide(supported_claims, total_claims), 4),
+        "unsupported_explanation_claims": unsupported_claims,
+        "required_path_mention_rate": round(_safe_divide(mentioned_paths, required_paths), 4),
+        "explanation_case_results": rows,
     }
 
 

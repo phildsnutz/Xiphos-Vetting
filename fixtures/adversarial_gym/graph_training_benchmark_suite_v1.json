@@ -6,7 +6,10 @@
     "link_prediction_api": "backend/link_prediction_api.py",
     "graph_ingest": "backend/graph_ingest.py",
     "pillar_briefing_pack": "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json",
-    "temporal_replay_fixture": "fixtures/adversarial_gym/graph_temporal_recurrence_cases_v1.json"
+    "temporal_replay_fixture": "fixtures/adversarial_gym/graph_temporal_recurrence_cases_v1.json",
+    "uncertainty_fixture": "fixtures/adversarial_gym/graph_uncertainty_fusion_cases_v1.json",
+    "anomaly_fixture": "fixtures/adversarial_gym/graph_subgraph_anomaly_cases_v1.json",
+    "explanation_fixture": "fixtures/adversarial_gym/graph_explanation_faithfulness_cases_v1.json"
   },
   "data_foundation": {
     "construction_gold_set": {
@@ -168,6 +171,7 @@
     {
       "suite_id": "subgraph_anomaly_hostile",
       "fixtures": [
+        "fixtures/adversarial_gym/graph_subgraph_anomaly_cases_v1.json",
         "fixtures/adversarial_gym/pillar_supply_chain_vetting_assurance_cases.json",
         "fixtures/adversarial_gym/pillar_cyber_supply_chain_assurance_cases.json",
         "fixtures/adversarial_gym/pillar_customs_export_trade_evasion_cases.json"
@@ -177,6 +181,7 @@
     {
       "suite_id": "uncertainty_calibration",
       "fixtures": [
+        "fixtures/adversarial_gym/graph_uncertainty_fusion_cases_v1.json",
         "held_out_live_case_audits",
         "audited_supplier_passports",
         "audited_dossiers"
@@ -186,6 +191,7 @@
     {
       "suite_id": "explanation_faithfulness",
       "fixtures": [
+        "fixtures/adversarial_gym/graph_explanation_faithfulness_cases_v1.json",
         "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json"
       ],
       "pass_condition": "All graphrag_explanation metrics pass."

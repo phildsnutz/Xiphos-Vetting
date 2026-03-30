@@ -1,0 +1,176 @@
+[
+  {
+    "scenario_id": "shell-1",
+    "anomaly_family": "shell_layering",
+    "is_anomalous": true,
+    "shell_layers": 3,
+    "pep_connection": true,
+    "foreign_control_risk": true,
+    "intermediary_path_count": 3
+  },
+  {
+    "scenario_id": "shell-2",
+    "anomaly_family": "shell_layering",
+    "is_anomalous": true,
+    "shell_layers": 2,
+    "pep_connection": true,
+    "foreign_control_risk": true,
+    "intermediary_path_count": 2
+  },
+  {
+    "scenario_id": "shell-3",
+    "anomaly_family": "shell_layering",
+    "is_anomalous": true,
+    "shell_layers": 3,
+    "pep_connection": false,
+    "foreign_control_risk": true,
+    "intermediary_path_count": 2
+  },
+  {
+    "scenario_id": "shell-4",
+    "anomaly_family": "shell_layering",
+    "is_anomalous": false,
+    "shell_layers": 1,
+    "pep_connection": false,
+    "foreign_control_risk": false,
+    "intermediary_path_count": 0
+  },
+  {
+    "scenario_id": "shell-5",
+    "anomaly_family": "shell_layering",
+    "is_anomalous": false,
+    "shell_layers": 1,
+    "pep_connection": false,
+    "foreign_control_risk": false,
+    "intermediary_path_count": 1
+  },
+  {
+    "scenario_id": "shell-6",
+    "anomaly_family": "shell_layering",
+    "is_anomalous": false,
+    "shell_layers": 0,
+    "pep_connection": false,
+    "foreign_control_risk": false,
+    "intermediary_path_count": 0
+  },
+  {
+    "scenario_id": "route-1",
+    "anomaly_family": "transshipment_diversion",
+    "is_anomalous": true,
+    "ambiguity_flags": ["transshipment_or_intermediary"],
+    "final_country_unknown": true,
+    "final_end_user_unknown": true,
+    "brokered": true,
+    "telemetry_or_guidance": true
+  },
+  {
+    "scenario_id": "route-2",
+    "anomaly_family": "transshipment_diversion",
+    "is_anomalous": true,
+    "ambiguity_flags": ["transshipment_or_intermediary"],
+    "final_country_unknown": true,
+    "final_end_user_unknown": true,
+    "brokered": false,
+    "telemetry_or_guidance": false
+  },
+  {
+    "scenario_id": "route-3",
+    "anomaly_family": "transshipment_diversion",
+    "is_anomalous": true,
+    "ambiguity_flags": ["transshipment_or_intermediary"],
+    "final_country_unknown": true,
+    "final_end_user_unknown": false,
+    "brokered": true,
+    "telemetry_or_guidance": false
+  },
+  {
+    "scenario_id": "route-4",
+    "anomaly_family": "transshipment_diversion",
+    "is_anomalous": false,
+    "ambiguity_flags": [],
+    "final_country_unknown": false,
+    "final_end_user_unknown": false,
+    "brokered": false,
+    "telemetry_or_guidance": false
+  },
+  {
+    "scenario_id": "route-5",
+    "anomaly_family": "transshipment_diversion",
+    "is_anomalous": false,
+    "ambiguity_flags": [],
+    "final_country_unknown": true,
+    "final_end_user_unknown": false,
+    "brokered": false,
+    "telemetry_or_guidance": false
+  },
+  {
+    "scenario_id": "route-6",
+    "anomaly_family": "transshipment_diversion",
+    "is_anomalous": false,
+    "ambiguity_flags": [],
+    "final_country_unknown": false,
+    "final_end_user_unknown": true,
+    "brokered": false,
+    "telemetry_or_guidance": false
+  },
+  {
+    "scenario_id": "cyber-1",
+    "anomaly_family": "cyber_fourth_party",
+    "is_anomalous": true,
+    "fourth_party_concentration": "single_provider",
+    "shared_signing_service": true,
+    "shared_telecom": true,
+    "mission_critical": true,
+    "firmware_or_ot": true
+  },
+  {
+    "scenario_id": "cyber-2",
+    "anomaly_family": "cyber_fourth_party",
+    "is_anomalous": true,
+    "fourth_party_concentration": "single_provider",
+    "shared_signing_service": true,
+    "shared_telecom": true,
+    "mission_critical": false,
+    "firmware_or_ot": false
+  },
+  {
+    "scenario_id": "cyber-3",
+    "anomaly_family": "cyber_fourth_party",
+    "is_anomalous": true,
+    "fourth_party_concentration": "single_provider",
+    "shared_signing_service": true,
+    "shared_telecom": false,
+    "mission_critical": true,
+    "firmware_or_ot": false
+  },
+  {
+    "scenario_id": "cyber-4",
+    "anomaly_family": "cyber_fourth_party",
+    "is_anomalous": false,
+    "fourth_party_concentration": "distributed",
+    "shared_signing_service": false,
+    "shared_telecom": false,
+    "mission_critical": false,
+    "firmware_or_ot": false
+  },
+  {
+    "scenario_id": "cyber-5",
+    "anomaly_family": "cyber_fourth_party",
+    "is_anomalous": false,
+    "fourth_party_concentration": "distributed",
+    "shared_signing_service": false,
+    "shared_telecom": false,
+    "mission_critical": true,
+    "firmware_or_ot": false
+  },
+  {
+    "scenario_id": "cyber-6",
+    "anomaly_family": "cyber_fourth_party",
+    "is_anomalous": false,
+    "fourth_party_concentration": "regional_split",
+    "shared_signing_service": false,
+    "shared_telecom": false,
+    "mission_critical": false,
+    "firmware_or_ot": true
+  }
+]

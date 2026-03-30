@@ -238,7 +238,16 @@ def test_training_dashboard_endpoint_returns_payload(monkeypatch):
             "readiness": {"verdict": "NOT_READY"},
             "neo4j": {"verdict": "PASS"},
             "benchmark": {"verdict": "FAIL", "stage_results": []},
-            "live_tranche": {"reviewed_links": 27, "intermediary_route_queries_evaluated": 0, "cyber_dependency_queries_evaluated": 0, "temporal_cases_evaluated": 10, "change_detection_f1": 1.0},
+            "live_tranche": {
+                "reviewed_links": 27,
+                "intermediary_route_queries_evaluated": 0,
+                "cyber_dependency_queries_evaluated": 0,
+                "temporal_cases_evaluated": 10,
+                "change_detection_f1": 1.0,
+                "anomaly_cases_evaluated": 18,
+                "edge_confidence_ece": 0.02,
+                "provenance_coverage": 1.0,
+            },
         },
     )
 
@@ -254,6 +263,7 @@ def test_training_dashboard_endpoint_returns_payload(monkeypatch):
     assert payload["benchmark"]["verdict"] == "FAIL"
     assert payload["live_tranche"]["reviewed_links"] == 27
     assert payload["live_tranche"]["temporal_cases_evaluated"] == 10
+    assert payload["live_tranche"]["anomaly_cases_evaluated"] == 18
 
 
 def test_build_training_dashboard_payload_reads_runtime_report_roots(monkeypatch, tmp_path):
@@ -303,6 +313,27 @@ def test_build_training_dashboard_payload_reads_runtime_report_roots(monkeypatch
                         "change_detection_f1": 0.91,
                         "recurrence_auc": 0.9,
                         "lead_time_gain_vs_heuristic": 0.4,
+                    },
+                    "subgraph_anomaly": {
+                        "anomaly_cases_evaluated": 18,
+                        "shell_layering_auprc": 0.92,
+                        "transshipment_auprc": 0.9,
+                        "cyber_fourth_party_auprc": 0.88,
+                        "false_positive_rate": 0.0
+                    },
+                    "uncertainty_fusion": {
+                        "edge_cases_evaluated": 10,
+                        "decision_cases_evaluated": 8,
+                        "edge_confidence_ece": 0.025,
+                        "decision_confidence_ece": 0.03,
+                        "decision_brier_score": 0.04,
+                        "high_confidence_unsupported_claim_rate": 0.0
+                    },
+                    "graphrag_explanation": {
+                        "explanation_cases_evaluated": 3,
+                        "provenance_coverage": 1.0,
+                        "required_path_mention_rate": 1.0,
+                        "unsupported_explanation_claims": 0
                     }
                 },
             }
@@ -318,6 +349,9 @@ def test_build_training_dashboard_payload_reads_runtime_report_roots(monkeypatch
     assert payload["live_tranche"]["cyber_dependency_queries_evaluated"] == 9
     assert payload["live_tranche"]["temporal_cases_evaluated"] == 10
     assert payload["live_tranche"]["change_detection_f1"] == 0.91
+    assert payload["live_tranche"]["anomaly_cases_evaluated"] == 18
+    assert payload["live_tranche"]["edge_confidence_ece"] == 0.025
+    assert payload["live_tranche"]["provenance_coverage"] == 1.0
     assert Path(payload["live_tranche"]["path"]).parent.name == "20260330150200"
 
 

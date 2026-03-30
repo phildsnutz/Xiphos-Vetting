@@ -1,0 +1,24 @@
+{
+  "edge_cases": [
+    {"case_id": "edge-1", "confidence": 0.99, "supported": true, "edge_family": "ownership_control"},
+    {"case_id": "edge-2", "confidence": 0.98, "supported": true, "edge_family": "ownership_control"},
+    {"case_id": "edge-3", "confidence": 0.97, "supported": true, "edge_family": "trade_and_logistics"},
+    {"case_id": "edge-4", "confidence": 0.96, "supported": true, "edge_family": "contracts_and_programs"},
+    {"case_id": "edge-5", "confidence": 0.95, "supported": true, "edge_family": "sanctions_and_legal"},
+    {"case_id": "edge-6", "confidence": 0.94, "supported": true, "edge_family": "cyber_supply_chain"},
+    {"case_id": "edge-7", "confidence": 0.04, "supported": false, "edge_family": "ownership_control"},
+    {"case_id": "edge-8", "confidence": 0.03, "supported": false, "edge_family": "trade_and_logistics"},
+    {"case_id": "edge-9", "confidence": 0.02, "supported": false, "edge_family": "contracts_and_programs"},
+    {"case_id": "edge-10", "confidence": 0.01, "supported": false, "edge_family": "sanctions_and_legal"}
+  ],
+  "decision_cases": [
+    {"case_id": "decision-1", "confidence": 0.98, "correct": true, "decision": "deny"},
+    {"case_id": "decision-2", "confidence": 0.97, "correct": true, "decision": "watch"},
+    {"case_id": "decision-3", "confidence": 0.96, "correct": true, "decision": "deny"},
+    {"case_id": "decision-4", "confidence": 0.95, "correct": true, "decision": "watch"},
+    {"case_id": "decision-5", "confidence": 0.94, "correct": true, "decision": "approve"},
+    {"case_id": "decision-6", "confidence": 0.05, "correct": false, "decision": "approve"},
+    {"case_id": "decision-7", "confidence": 0.04, "correct": false, "decision": "watch"},
+    {"case_id": "decision-8", "confidence": 0.03, "correct": false, "decision": "deny"}
+  ]
+}

@@ -268,6 +268,9 @@ def build_training_dashboard_payload() -> dict:
     missing_edge = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
     novelty = stage_metrics.get("novel_edge_discovery") if isinstance(stage_metrics.get("novel_edge_discovery"), dict) else {}
     temporal = stage_metrics.get("temporal_recurrence_change") if isinstance(stage_metrics.get("temporal_recurrence_change"), dict) else {}
+    anomaly = stage_metrics.get("subgraph_anomaly") if isinstance(stage_metrics.get("subgraph_anomaly"), dict) else {}
+    uncertainty = stage_metrics.get("uncertainty_fusion") if isinstance(stage_metrics.get("uncertainty_fusion"), dict) else {}
+    explanation = stage_metrics.get("graphrag_explanation") if isinstance(stage_metrics.get("graphrag_explanation"), dict) else {}
     stage_results = benchmark.get("stage_results") if isinstance(benchmark.get("stage_results"), list) else []
     data_foundation = benchmark.get("data_foundation") if isinstance(benchmark.get("data_foundation"), dict) else {}
 
@@ -352,6 +355,21 @@ def build_training_dashboard_payload() -> dict:
             "change_detection_f1": float(temporal.get("change_detection_f1") or 0.0),
             "recurrence_auc": float(temporal.get("recurrence_auc") or 0.0),
             "lead_time_gain_vs_heuristic": float(temporal.get("lead_time_gain_vs_heuristic") or 0.0),
+            "anomaly_cases_evaluated": int(anomaly.get("anomaly_cases_evaluated") or 0),
+            "shell_layering_auprc": float(anomaly.get("shell_layering_auprc") or 0.0),
+            "transshipment_auprc": float(anomaly.get("transshipment_auprc") or 0.0),
+            "cyber_fourth_party_auprc": float(anomaly.get("cyber_fourth_party_auprc") or 0.0),
+            "anomaly_false_positive_rate": float(anomaly.get("false_positive_rate") or 0.0),
+            "uncertainty_edge_cases_evaluated": int(uncertainty.get("edge_cases_evaluated") or 0),
+            "uncertainty_decision_cases_evaluated": int(uncertainty.get("decision_cases_evaluated") or 0),
+            "edge_confidence_ece": float(uncertainty.get("edge_confidence_ece") or 0.0),
+            "decision_confidence_ece": float(uncertainty.get("decision_confidence_ece") or 0.0),
+            "decision_brier_score": float(uncertainty.get("decision_brier_score") or 0.0),
+            "high_confidence_unsupported_claim_rate": float(uncertainty.get("high_confidence_unsupported_claim_rate") or 0.0),
+            "explanation_cases_evaluated": int(explanation.get("explanation_cases_evaluated") or 0),
+            "provenance_coverage": float(explanation.get("provenance_coverage") or 0.0),
+            "required_path_mention_rate": float(explanation.get("required_path_mention_rate") or 0.0),
+            "unsupported_explanation_claims": int(explanation.get("unsupported_explanation_claims") or 0),
         },
     }
 
