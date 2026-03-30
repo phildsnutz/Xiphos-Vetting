@@ -40,6 +40,7 @@ except ImportError:
 
 from monitor_core import (
     SCORE_DELTA_ALERT_THRESHOLD,
+    build_monitor_delta_summary,
     diff_findings,
     emit_registry_mutation_alerts,
     fingerprint_finding,
@@ -413,11 +414,31 @@ class MonitorScheduler:
             # Log monitoring check
             db.save_monitoring_log(
                 vendor_id=str(result["vendor_id"]),
+                run_id=str(sweep_id),
                 previous_risk=str(result["old_tier"]),
                 current_risk=str(result["new_tier"]),
                 risk_changed=bool(result["risk_changed"]),
+                change_type=str(result.get("change_type") or "no_change"),
+                status="completed",
+                score_before=float(result.get("old_score") or 0.0),
+                score_after=float(result.get("new_score") or 0.0),
                 new_findings_count=len(result["new_findings"]),
                 resolved_findings_count=len(result["resolved_findings"]),
+                delta_summary=str(
+                    result.get("delta_summary")
+                    or build_monitor_delta_summary(
+                        str(result.get("old_tier") or ""),
+                        str(result.get("new_tier") or ""),
+                        float(result.get("old_score") or 0.0),
+                        float(result.get("new_score") or 0.0),
+                        len(result["new_findings"]),
+                        len(result["resolved_findings"]),
+                        list(result.get("sources_triggered") or []),
+                    )
+                ),
+                sources_triggered=list(result.get("sources_triggered") or []),
+                started_at=str(result.get("started_at") or ""),
+                completed_at=str(result.get("completed_at") or ""),
             )
 
             logger.info(

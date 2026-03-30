@@ -11,6 +11,7 @@ alerts when risk signals change. Designed to run as:
 import threading
 import time
 import argparse
+import uuid
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
@@ -30,6 +31,7 @@ except ImportError:
     HAS_PORTFOLIO_INTEL = False
 
 from monitor_core import (
+    build_monitor_delta_summary,
     diff_findings,
     emit_registry_mutation_alerts,
     is_registry_mutation_finding,
@@ -50,6 +52,14 @@ class MonitoringResult:
     resolved_findings: list   # Findings no longer present
     new_risk_signals: list
     elapsed_ms: int
+    run_id: str = ""
+    score_before: float | None = None
+    score_after: float | None = None
+    delta_summary: str = ""
+    sources_triggered: list | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    change_type: str = "no_change"
 
 
 class VendorMonitor:
@@ -114,6 +124,7 @@ class VendorMonitor:
         if not monitor_result:
             return None
 
+        run_id = f"sync:{uuid.uuid4().hex[:12]}"
         result = MonitoringResult(
             vendor_id=vendor_id,
             vendor_name=vendor["name"],
@@ -124,6 +135,14 @@ class VendorMonitor:
             resolved_findings=list(monitor_result["resolved_findings"]),
             new_risk_signals=list(monitor_result["new_risk_signals"]),
             elapsed_ms=int(monitor_result["elapsed_ms"]),
+            run_id=run_id,
+            score_before=monitor_result.get("previous_score"),
+            score_after=monitor_result.get("current_score"),
+            delta_summary=str(monitor_result.get("delta_summary") or ""),
+            sources_triggered=list(monitor_result.get("sources_triggered") or []),
+            started_at=monitor_result.get("started_at"),
+            completed_at=monitor_result.get("completed_at"),
+            change_type=str(monitor_result.get("change_type") or "no_change"),
         )
 
         # Run anomaly detectors (Phase 4)
@@ -169,11 +188,29 @@ class VendorMonitor:
         # Log monitoring check
         db.save_monitoring_log(
             vendor_id=vendor_id,
+            run_id=result.run_id,
             previous_risk=result.previous_risk,
             current_risk=result.current_risk,
             risk_changed=result.risk_changed,
+            change_type=result.change_type,
+            status="completed",
+            score_before=result.score_before,
+            score_after=result.score_after,
             new_findings_count=len(result.new_findings),
-            resolved_findings_count=len(result.resolved_findings)
+            resolved_findings_count=len(result.resolved_findings),
+            delta_summary=result.delta_summary
+            or build_monitor_delta_summary(
+                result.previous_risk,
+                result.current_risk,
+                float(result.score_before or 0.0),
+                float(result.score_after or 0.0),
+                len(result.new_findings),
+                len(result.resolved_findings),
+                result.sources_triggered or [],
+            ),
+            sources_triggered=result.sources_triggered or [],
+            started_at=result.started_at or "",
+            completed_at=result.completed_at or "",
         )
 
         return result

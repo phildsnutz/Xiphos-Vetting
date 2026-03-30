@@ -64,7 +64,7 @@ def _row_to_enrichment_report(row) -> dict | None:
     if not row:
         return None
     result = _safe_json_loads(row["full_report"])
-    result["enriched_at"] = row["enriched_at"]
+    result["enriched_at"] = result.get("enriched_at") or row["enriched_at"]
     result["report_hash"] = row["report_hash"] or result.get("report_hash") or compute_report_hash(result)
     return result
 
@@ -198,11 +198,20 @@ def init_db():
             CREATE TABLE IF NOT EXISTS monitoring_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 vendor_id TEXT NOT NULL REFERENCES vendors(id),
+                run_id TEXT,
                 previous_risk TEXT,
                 current_risk TEXT,
                 risk_changed BOOLEAN NOT NULL DEFAULT 0,
+                change_type TEXT NOT NULL DEFAULT 'no_change',
+                status TEXT NOT NULL DEFAULT 'completed',
+                score_before REAL,
+                score_after REAL,
                 new_findings_count INTEGER DEFAULT 0,
                 resolved_findings_count INTEGER DEFAULT 0,
+                delta_summary TEXT,
+                sources_triggered JSON,
+                started_at TEXT,
+                completed_at TEXT,
                 checked_at TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
             );
@@ -442,6 +451,15 @@ def init_db():
 
         for statement in (
             "ALTER TABLE enrichment_reports ADD COLUMN report_hash TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN run_id TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN change_type TEXT NOT NULL DEFAULT 'no_change'",
+            "ALTER TABLE monitoring_log ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
+            "ALTER TABLE monitoring_log ADD COLUMN score_before REAL",
+            "ALTER TABLE monitoring_log ADD COLUMN score_after REAL",
+            "ALTER TABLE monitoring_log ADD COLUMN delta_summary TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN sources_triggered JSON",
+            "ALTER TABLE monitoring_log ADD COLUMN started_at TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN completed_at TEXT",
         ):
             try:
                 conn.execute(statement)
@@ -552,6 +570,29 @@ def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def _normalize_db_timestamp(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _decode_json_list(value) -> list:
+    if value in (None, "", []):
+        return []
+    if isinstance(value, list):
+        return value
+    parsed = _safe_json_loads(value)
+    return parsed if isinstance(parsed, list) else []
+
+
+def _monitoring_row_to_dict(row) -> dict:
+    result = dict(row)
+    for key in ("checked_at", "started_at", "completed_at"):
+        result[key] = _normalize_db_timestamp(result.get(key))
+    result["sources_triggered"] = _decode_json_list(result.get("sources_triggered"))
+    return result
 
 
 def delete_vendor(vendor_id: str) -> bool:
@@ -1267,16 +1308,37 @@ def get_latest_intel_summary(case_id: str, user_id: str = "", report_hash: str =
 
 def save_monitoring_log(vendor_id: str, previous_risk: str, current_risk: str,
                         risk_changed: bool, new_findings_count: int = 0,
-                        resolved_findings_count: int = 0) -> int:
+                        resolved_findings_count: int = 0, *, run_id: str = "",
+                        change_type: str = "no_change", status: str = "completed",
+                        score_before: float | None = None, score_after: float | None = None,
+                        delta_summary: str = "", sources_triggered: list[str] | None = None,
+                        started_at: str = "", completed_at: str = "") -> int:
     """Save a monitoring check result. Returns the row ID."""
     with get_conn() as conn:
         cursor = conn.execute("""
             INSERT INTO monitoring_log
-                (vendor_id, previous_risk, current_risk, risk_changed,
-                 new_findings_count, resolved_findings_count)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (vendor_id, previous_risk, current_risk, risk_changed,
-              new_findings_count, resolved_findings_count))
+                (vendor_id, run_id, previous_risk, current_risk, risk_changed,
+                 change_type, status, score_before, score_after,
+                 new_findings_count, resolved_findings_count, delta_summary,
+                 sources_triggered, started_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            vendor_id,
+            run_id or None,
+            previous_risk,
+            current_risk,
+            risk_changed,
+            change_type or "no_change",
+            status or "completed",
+            score_before,
+            score_after,
+            new_findings_count,
+            resolved_findings_count,
+            delta_summary or "",
+            json.dumps(list(sources_triggered or [])),
+            started_at or None,
+            completed_at or None,
+        ))
         return cursor.lastrowid
 
 
@@ -1284,12 +1346,33 @@ def get_monitoring_history(vendor_id: str, limit: int = 20) -> list[dict]:
     """Get monitoring check history for a vendor."""
     with get_conn() as conn:
         rows = conn.execute("""
-            SELECT vendor_id, previous_risk, current_risk, risk_changed,
-                   new_findings_count, resolved_findings_count, checked_at
+            SELECT id, vendor_id, run_id, previous_risk, current_risk, risk_changed,
+                   change_type, status, score_before, score_after,
+                   new_findings_count, resolved_findings_count, delta_summary,
+                   sources_triggered, started_at, completed_at, checked_at
             FROM monitoring_log WHERE vendor_id = ?
             ORDER BY checked_at DESC LIMIT ?
         """, (vendor_id, limit)).fetchall()
-        return [dict(r) for r in rows]
+        return [_monitoring_row_to_dict(r) for r in rows]
+
+
+def get_monitor_run_history(vendor_id: str, limit: int = 20) -> list[dict]:
+    """Get monitor-run history joined with vendor name for case-detail history surfaces."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ml.id, ml.vendor_id, v.name AS vendor_name, ml.run_id,
+                   ml.previous_risk, ml.current_risk, ml.risk_changed,
+                   ml.change_type, ml.status, ml.score_before, ml.score_after,
+                   ml.new_findings_count, ml.resolved_findings_count,
+                   ml.delta_summary, ml.sources_triggered,
+                   ml.started_at, ml.completed_at, ml.checked_at
+            FROM monitoring_log ml
+            JOIN vendors v ON v.id = ml.vendor_id
+            WHERE ml.vendor_id = ?
+            ORDER BY ml.checked_at DESC, ml.id DESC
+            LIMIT ?
+        """, (vendor_id, limit)).fetchall()
+        return [_monitoring_row_to_dict(r) for r in rows]
 
 
 def get_recent_risk_changes(limit: int = 20) -> list[dict]:
@@ -1300,7 +1383,43 @@ def get_recent_risk_changes(limit: int = 20) -> list[dict]:
             FROM monitoring_log WHERE risk_changed = 1
             ORDER BY checked_at DESC LIMIT ?
         """, (limit,)).fetchall()
-        return [dict(r) for r in rows]
+        return [_monitoring_row_to_dict(r) for r in rows]
+
+
+def _monitor_since_clause(since_hours: int | None) -> tuple[str, list]:
+    if not since_hours or since_hours <= 0:
+        return "", []
+    if _use_postgres:
+        return " AND ml.checked_at >= NOW() - (%s * INTERVAL '1 hour') ", [since_hours]
+    return " AND ml.checked_at >= datetime('now', ?) ", [f"-{since_hours} hours"]
+
+
+def get_recent_monitor_changes(limit: int = 20, since_hours: int | None = None) -> list[dict]:
+    """Get recent meaningful portfolio changes from monitoring with summary metadata."""
+    time_clause, time_params = _monitor_since_clause(since_hours)
+    query = f"""
+        SELECT ml.id, ml.vendor_id, v.name AS vendor_name, ml.run_id,
+               ml.previous_risk, ml.current_risk, ml.risk_changed,
+               ml.change_type, ml.status, ml.score_before, ml.score_after,
+               ml.new_findings_count, ml.resolved_findings_count,
+               ml.delta_summary, ml.sources_triggered,
+               ml.started_at, ml.completed_at, ml.checked_at
+        FROM monitoring_log ml
+        JOIN vendors v ON v.id = ml.vendor_id
+        WHERE (
+            COALESCE(ml.risk_changed, 0) = 1
+            OR COALESCE(ml.new_findings_count, 0) > 0
+            OR ABS(COALESCE(ml.score_after, 0) - COALESCE(ml.score_before, 0)) >= 0.01
+            OR COALESCE(ml.change_type, 'no_change') != 'no_change'
+        )
+        {time_clause}
+        ORDER BY ml.checked_at DESC, ml.id DESC
+        LIMIT ?
+    """
+    params = [*time_params, limit]
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+        return [_monitoring_row_to_dict(r) for r in rows]
 
 
 def get_all_monitoring_history(limit: int = 500) -> list[dict]:

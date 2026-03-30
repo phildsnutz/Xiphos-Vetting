@@ -536,7 +536,10 @@ def save_relationship(
             )
             VALUES (?, ?, ?, ?, ?, 'relationship', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(claim_key) DO UPDATE SET
-                confidence = GREATEST(kg_claims.confidence, excluded.confidence),
+                confidence = CASE
+                    WHEN excluded.confidence > kg_claims.confidence THEN excluded.confidence
+                    ELSE kg_claims.confidence
+                END,
                 contradiction_state = excluded.contradiction_state,
                 validity_start = COALESCE(excluded.validity_start, kg_claims.validity_start),
                 validity_end = COALESCE(excluded.validity_end, kg_claims.validity_end),
@@ -978,6 +981,174 @@ def attach_relationship_provenance(
             max_claim_records=max_claim_records,
             max_evidence_records=max_evidence_records,
         )
+
+
+def _build_provenance_sources_from_claim_records(claim_records: list[dict]) -> tuple[list[dict], str | None, str | None]:
+    sources: list[dict] = []
+    first_seen: str | None = None
+    last_seen: str | None = None
+    seen_keys: set[tuple[str, str, str, str]] = set()
+    for claim in claim_records or []:
+        claim_first = str(
+            claim.get("first_observed_at")
+            or claim.get("observed_at")
+            or claim.get("updated_at")
+            or ""
+        ).strip() or None
+        claim_last = str(
+            claim.get("last_observed_at")
+            or claim.get("observed_at")
+            or claim.get("updated_at")
+            or ""
+        ).strip() or None
+        if claim_first and (first_seen is None or claim_first < first_seen):
+            first_seen = claim_first
+        if claim_last and (last_seen is None or claim_last > last_seen):
+            last_seen = claim_last
+
+        evidence_records = claim.get("evidence_records") or []
+        if evidence_records:
+            for evidence in evidence_records:
+                fetched_at = str(
+                    evidence.get("observed_at")
+                    or claim_last
+                    or claim_first
+                    or ""
+                ).strip() or None
+                if fetched_at and (first_seen is None or fetched_at < first_seen):
+                    first_seen = fetched_at
+                if fetched_at and (last_seen is None or fetched_at > last_seen):
+                    last_seen = fetched_at
+                source_key = (
+                    str(evidence.get("evidence_id") or ""),
+                    str(evidence.get("source") or ""),
+                    str(fetched_at or ""),
+                    str(evidence.get("snippet") or ""),
+                )
+                if source_key in seen_keys:
+                    continue
+                seen_keys.add(source_key)
+                sources.append(
+                    {
+                        "connector": evidence.get("source") or claim.get("data_source") or "",
+                        "fetched_at": fetched_at,
+                        "confidence": claim.get("confidence", 0.0),
+                        "raw_snippet": evidence.get("snippet") or claim.get("claim_value") or "",
+                        "title": evidence.get("title") or "",
+                        "url": evidence.get("url") or "",
+                        "artifact_ref": evidence.get("artifact_ref") or "",
+                        "source_class": evidence.get("source_class") or "",
+                        "authority_level": evidence.get("authority_level") or "",
+                        "access_model": evidence.get("access_model") or "",
+                        "claim_id": claim.get("claim_id") or "",
+                    }
+                )
+        else:
+            source_key = (
+                str(claim.get("claim_id") or ""),
+                str(claim.get("data_source") or ""),
+                str(claim_last or ""),
+                str(claim.get("claim_value") or ""),
+            )
+            if source_key in seen_keys:
+                continue
+            seen_keys.add(source_key)
+            sources.append(
+                {
+                    "connector": claim.get("data_source") or "",
+                    "fetched_at": claim_last or claim_first,
+                    "confidence": claim.get("confidence", 0.0),
+                    "raw_snippet": claim.get("claim_value") or "",
+                    "title": "",
+                    "url": "",
+                    "artifact_ref": "",
+                    "source_class": "",
+                    "authority_level": "",
+                    "access_model": "",
+                    "claim_id": claim.get("claim_id") or "",
+                }
+            )
+    return sources, first_seen, last_seen
+
+
+def get_relationship_provenance(relationship_id: int, *, max_claim_records: int = 12, max_evidence_records: int = 12) -> dict | None:
+    """Return provenance detail for one relationship row."""
+    with get_kg_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM kg_relationships WHERE id = ?",
+            (relationship_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        aggregated = _aggregate_relationships([row])[0]
+        hydrated = _attach_relationship_provenance(
+            conn,
+            [aggregated],
+            max_claim_records=max_claim_records,
+            max_evidence_records=max_evidence_records,
+        )[0]
+        sources, first_seen, last_seen = _build_provenance_sources_from_claim_records(
+            hydrated.get("claim_records") or []
+        )
+        return {
+            "relationship": hydrated,
+            "sources": sources,
+            "corroboration_count": hydrated.get("corroboration_count", 0),
+            "first_seen": first_seen or hydrated.get("first_seen_at"),
+            "last_seen": last_seen or hydrated.get("last_seen_at"),
+        }
+
+
+def get_entity_provenance(entity_id: str, *, max_claim_records: int = 24, max_evidence_records: int = 24) -> dict | None:
+    """Return aggregated provenance for all claims touching an entity."""
+    entity = get_entity(entity_id)
+    if not entity:
+        return None
+
+    with get_kg_conn() as conn:
+        claim_rows = conn.execute(
+            """
+            SELECT source_entity_id, target_entity_id, rel_type
+            FROM kg_claims
+            WHERE source_entity_id = ? OR target_entity_id = ?
+            GROUP BY source_entity_id, target_entity_id, rel_type
+            ORDER BY MAX(COALESCE(last_observed_at, observed_at, updated_at)) DESC
+            """,
+            (entity_id, entity_id),
+        ).fetchall()
+
+        relationships = [
+            {
+                "source_entity_id": row["source_entity_id"],
+                "target_entity_id": row["target_entity_id"],
+                "rel_type": row["rel_type"],
+            }
+            for row in claim_rows
+        ]
+        claim_records_by_relationship = _fetch_claim_records_for_relationships(
+            conn,
+            relationships,
+            max_claim_records=max_claim_records,
+            max_evidence_records=max_evidence_records,
+        )
+
+    all_claim_records: list[dict] = []
+    for records in claim_records_by_relationship.values():
+        all_claim_records.extend(records)
+    sources, first_seen, last_seen = _build_provenance_sources_from_claim_records(all_claim_records)
+    return {
+        "entity": {
+            "id": entity.id,
+            "canonical_name": entity.canonical_name,
+            "entity_type": entity.entity_type,
+            "country": entity.country,
+        },
+        "sources": sources,
+        "corroboration_count": len(all_claim_records),
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+    }
 
 
 def _collect_entity_network(

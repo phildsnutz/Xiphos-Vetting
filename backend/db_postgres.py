@@ -572,11 +572,20 @@ def init_db():
             CREATE TABLE IF NOT EXISTS monitoring_log (
                 id SERIAL PRIMARY KEY,
                 vendor_id TEXT NOT NULL REFERENCES vendors(id),
+                run_id TEXT,
                 previous_risk TEXT,
                 current_risk TEXT,
                 risk_changed BOOLEAN NOT NULL DEFAULT FALSE,
+                change_type TEXT NOT NULL DEFAULT 'no_change',
+                status TEXT NOT NULL DEFAULT 'completed',
+                score_before DOUBLE PRECISION,
+                score_after DOUBLE PRECISION,
                 new_findings_count INTEGER DEFAULT 0,
                 resolved_findings_count INTEGER DEFAULT 0,
+                delta_summary TEXT,
+                sources_triggered JSONB,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
                 checked_at TIMESTAMP NOT NULL DEFAULT NOW(),
                 FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
             );
@@ -813,6 +822,22 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_neo4j_sync_jobs_status ON neo4j_sync_jobs(status);
             CREATE INDEX IF NOT EXISTS idx_neo4j_sync_jobs_created ON neo4j_sync_jobs(created_at);
         """)
+        for statement in (
+            "ALTER TABLE enrichment_reports ADD COLUMN IF NOT EXISTS report_hash TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS run_id TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS change_type TEXT NOT NULL DEFAULT 'no_change'",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'completed'",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS score_before DOUBLE PRECISION",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS score_after DOUBLE PRECISION",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS delta_summary TEXT",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS sources_triggered JSONB",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS started_at TIMESTAMP",
+            "ALTER TABLE monitoring_log ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+        ):
+            try:
+                conn.execute(statement)
+            except Exception:
+                logger.debug("PostgreSQL migration skipped for statement: %s", statement)
 
         # Transaction authorization tables
         conn.executescript("""

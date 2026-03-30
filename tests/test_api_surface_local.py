@@ -14,6 +14,9 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 
+from entity_resolution import ResolvedEntity
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
@@ -746,6 +749,66 @@ def test_graph_runtime_reports_active_database_paths(client, tmp_path):
     assert payload["kg_db"]["tables"]["kg_entities"] == 0
 
 
+def test_graph_provenance_endpoints_return_sources(client):
+    case_id = _create_case(client, name="Graph Provenance Vendor")
+    server = sys.modules["server"]
+    server.kg.init_kg_db()
+    alpha = ResolvedEntity(
+        id="entity:test-alpha",
+        canonical_name="Alpha Systems",
+        entity_type="company",
+        aliases=[],
+        identifiers={},
+        country="US",
+        sources=["test"],
+        confidence=0.9,
+        last_updated="2026-03-30T19:00:00Z",
+    )
+    beta = ResolvedEntity(
+        id="entity:test-beta",
+        canonical_name="Beta Controls",
+        entity_type="holding_company",
+        aliases=[],
+        identifiers={},
+        country="US",
+        sources=["test"],
+        confidence=0.9,
+        last_updated="2026-03-30T19:00:00Z",
+    )
+    server.kg.save_entity(alpha)
+    server.kg.save_entity(beta)
+    relationship_id = server.kg.save_relationship(
+        "entity:test-alpha",
+        "entity:test-beta",
+        "owned_by",
+        confidence=0.91,
+        data_source="gleif_bods_ownership_fixture",
+        evidence="Modeled ownership statement",
+        observed_at="2026-03-30T18:55:00Z",
+        evidence_url="https://example.test/ownership",
+        artifact_ref="fixture://ownership/alpha-beta",
+        evidence_title="Ownership page",
+        source_class="analyst_fixture",
+        authority_level="standards_modeled_fixture",
+        access_model="local_json_fixture",
+        vendor_id=case_id,
+    )
+
+    entity_resp = client.get("/api/graph/entity/entity:test-alpha/provenance")
+    assert entity_resp.status_code == 200
+    entity_body = entity_resp.get_json()
+    assert entity_body["entity"]["canonical_name"] == "Alpha Systems"
+    assert entity_body["corroboration_count"] >= 1
+    assert entity_body["sources"][0]["connector"] == "gleif_bods_ownership_fixture"
+
+    rel_resp = client.get(f"/api/graph/relationship/{relationship_id}/provenance")
+    assert rel_resp.status_code == 200
+    rel_body = rel_resp.get_json()
+    assert rel_body["relationship"]["rel_type"] == "owned_by"
+    assert rel_body["sources"][0]["url"] == "https://example.test/ownership"
+    assert rel_body["corroboration_count"] >= 1
+
+
 def test_portfolio_snapshot_handles_mixed_alert_timestamp_types(client, monkeypatch):
     server = sys.modules["server"]
     recent_dt = datetime.utcnow() - timedelta(days=1)
@@ -1434,6 +1497,44 @@ def test_enrichment_api_includes_evidence_lane_metadata(client):
     assert body["evidence_lanes"]["source_classes"]["public_connector"] == 1
 
 
+def test_enrichment_route_augments_connector_status_with_freshness(client):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Connector Freshness Vendor")
+    report = {
+        "vendor_name": "Connector Freshness Vendor",
+        "country": "US",
+        "overall_risk": "LOW",
+        "enriched_at": "2026-03-30T19:15:00Z",
+        "summary": {
+            "findings_total": 0,
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "connectors_run": 1,
+            "connectors_with_data": 0,
+            "errors": 0,
+        },
+        "findings": [],
+        "identifiers": {},
+        "identifier_sources": {},
+        "relationships": [],
+        "risk_signals": [],
+        "connector_status": {
+            "sam_gov": {"has_data": False, "findings_count": 0, "elapsed_ms": 5, "error": None},
+        },
+        "errors": [],
+        "evidence_lanes": {"source_classes": {}, "authority_levels": {}, "access_models": {}},
+    }
+    server.db.save_enrichment(case_id, report)
+
+    resp = client.get(f"/api/cases/{case_id}/enrichment")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    status = body["connector_status"]["sam_gov"]
+    assert status["last_checked_at"] == "2026-03-30T19:15:00Z"
+    assert "next_scheduled_at" in status
+
+
 def test_case_monitor_route_queues_background_check(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(client, name="Queued Monitor Vendor")
@@ -1533,6 +1634,82 @@ def test_case_monitoring_history_route_returns_recent_checks(client):
     assert body["monitoring_history"][0]["risk_changed"] in {0, 1, False, True}
     assert body["monitoring_history"][0]["vendor_id"] == case_id
     assert "checked_at" in body["monitoring_history"][0]
+
+
+def test_case_monitor_run_history_route_returns_delta_summary_and_scores(client):
+    case_id = _create_case(client, name="Monitor Run History Vendor")
+
+    server = sys.modules["server"]
+    server.db.save_monitoring_log(
+        vendor_id=case_id,
+        run_id="sync:test-run",
+        previous_risk="TIER_4_CLEAR",
+        current_risk="TIER_3_CONDITIONAL",
+        risk_changed=True,
+        change_type="score_change",
+        status="completed",
+        score_before=18.5,
+        score_after=27.0,
+        new_findings_count=2,
+        resolved_findings_count=1,
+        delta_summary="Score increased +8.5%, Tier TIER_4_CLEAR -> TIER_3_CONDITIONAL, 2 new findings",
+        sources_triggered=["ofac_sdn", "sam_gov"],
+        started_at="2026-03-30T19:00:00Z",
+        completed_at="2026-03-30T19:00:10Z",
+    )
+
+    resp = client.get(f"/api/cases/{case_id}/monitor/history?limit=5")
+    assert resp.status_code == 200
+    body = resp.get_json()
+
+    assert body["vendor_id"] == case_id
+    assert body["vendor_name"] == "Monitor Run History Vendor"
+    assert len(body["runs"]) == 1
+    run = body["runs"][0]
+    assert run["run_id"] == "sync:test-run"
+    assert run["status"] == "completed"
+    assert run["score_before"] == 18.5
+    assert run["score_after"] == 27.0
+    assert run["new_findings_count"] == 2
+    assert run["sources_triggered"] == ["ofac_sdn", "sam_gov"]
+    assert "Score increased" in run["delta_summary"]
+
+
+def test_monitor_changes_and_portfolio_changes_include_summary_metadata(client):
+    case_id = _create_case(client, name="Portfolio Delta Vendor")
+    server = sys.modules["server"]
+    server.db.save_monitoring_log(
+        vendor_id=case_id,
+        run_id="sync:portfolio",
+        previous_risk="TIER_4_CLEAR",
+        current_risk="TIER_4_CLEAR",
+        risk_changed=False,
+        change_type="new_finding",
+        status="completed",
+        score_before=12.0,
+        score_after=12.0,
+        new_findings_count=1,
+        delta_summary="1 new finding, Sources triggered: ofac_sdn",
+        sources_triggered=["ofac_sdn"],
+    )
+
+    resp = client.get("/api/monitor/changes?limit=5")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert len(body["changes"]) == 1
+    change = body["changes"][0]
+    assert change["vendor_name"] == "Portfolio Delta Vendor"
+    assert change["change_type"] == "new_finding"
+    assert change["sources_triggered"] == ["ofac_sdn"]
+    assert "new finding" in change["delta_summary"].lower()
+
+    portfolio_resp = client.get("/api/portfolio/changes?since=24h&limit=5")
+    assert portfolio_resp.status_code == 200
+    portfolio_body = portfolio_resp.get_json()
+    assert portfolio_body["total_count"] >= 1
+    assert portfolio_body["changed"][0]["case_id"] == case_id
+    assert portfolio_body["changed"][0]["name"] == "Portfolio Delta Vendor"
+    assert portfolio_body["changed"][0]["change_type"] == "new_finding"
 
 
 def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, monkeypatch):

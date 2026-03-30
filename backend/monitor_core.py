@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from datetime import datetime
 from typing import Callable, Optional
 
 import db
@@ -31,6 +32,69 @@ except ImportError:
 
 
 SCORE_DELTA_ALERT_THRESHOLD = 5.0
+
+
+def summarize_sources_triggered(report: dict | None) -> list[str]:
+    """Return connector names that materially contributed data in a monitoring run."""
+    connector_status = report.get("connector_status") if isinstance(report, dict) else {}
+    triggered: list[str] = []
+    for source, status in (connector_status or {}).items():
+        if not isinstance(source, str) or not isinstance(status, dict):
+            continue
+        findings_count = int(status.get("findings_count") or 0)
+        has_data = bool(status.get("has_data"))
+        if findings_count > 0 or has_data:
+            triggered.append(source)
+    return sorted(set(triggered))
+
+
+def classify_monitor_change(
+    previous_risk: str,
+    current_risk: str,
+    previous_score: float,
+    current_score: float,
+    new_findings_count: int,
+    sources_triggered: list[str] | None,
+) -> str:
+    """Classify the most important user-visible change from a monitor run."""
+    if str(previous_risk or "") != str(current_risk or ""):
+        return "score_change"
+    if abs(float(current_score or 0.0) - float(previous_score or 0.0)) >= 0.01:
+        return "score_change"
+    if int(new_findings_count or 0) > 0:
+        return "new_finding"
+    if sources_triggered:
+        return "source_triggered"
+    return "no_change"
+
+
+def build_monitor_delta_summary(
+    previous_risk: str,
+    current_risk: str,
+    previous_score: float,
+    current_score: float,
+    new_findings_count: int,
+    resolved_findings_count: int,
+    sources_triggered: list[str] | None,
+) -> str:
+    """Build a one-line summary for a monitor run."""
+    parts: list[str] = []
+    score_delta = float(current_score or 0.0) - float(previous_score or 0.0)
+    if abs(score_delta) >= 0.01:
+        direction = "increased" if score_delta > 0 else "decreased"
+        parts.append(f"Score {direction} {score_delta:+.1f}%")
+    if str(previous_risk or "") and str(current_risk or "") and str(previous_risk) != str(current_risk):
+        parts.append(f"Tier {previous_risk} -> {current_risk}")
+    if int(new_findings_count or 0) > 0:
+        parts.append(f"{int(new_findings_count)} new finding{'s' if int(new_findings_count) != 1 else ''}")
+    if int(resolved_findings_count or 0) > 0:
+        parts.append(f"{int(resolved_findings_count)} resolved finding{'s' if int(resolved_findings_count) != 1 else ''}")
+    if sources_triggered:
+        if len(sources_triggered) <= 2:
+            parts.append(f"Sources triggered: {', '.join(sources_triggered)}")
+        else:
+            parts.append(f"{len(sources_triggered)} sources triggered")
+    return ", ".join(parts) if parts else "No material delta detected"
 
 
 def fingerprint_finding(finding: dict) -> str:
@@ -130,6 +194,7 @@ def run_monitor_check(
     profile = vendor.get("profile", "defense_acquisition")
 
     t0 = time.time()
+    started_at = datetime.utcnow().isoformat() + "Z"
     previous_report = db.get_latest_enrichment(vendor_id)
     previous_score = db.get_latest_score(vendor_id)
     previous_tier = (
@@ -164,6 +229,25 @@ def run_monitor_check(
     current_score_pct = score_dict.get("composite_score", 0)
     score_delta = abs(current_score_pct - previous_score_pct)
     elapsed_ms = int((time.time() - t0) * 1000)
+    completed_at = datetime.utcnow().isoformat() + "Z"
+    sources_triggered = summarize_sources_triggered(current_report)
+    change_type = classify_monitor_change(
+        previous_tier,
+        current_tier,
+        float(previous_score_pct or 0.0),
+        float(current_score_pct or 0.0),
+        len(new_findings),
+        sources_triggered,
+    )
+    delta_summary = build_monitor_delta_summary(
+        previous_tier,
+        current_tier,
+        float(previous_score_pct or 0.0),
+        float(current_score_pct or 0.0),
+        len(new_findings),
+        len(resolved_findings),
+        sources_triggered,
+    )
 
     return {
         "vendor_id": vendor_id,
@@ -184,6 +268,11 @@ def run_monitor_check(
         "score_delta": score_delta,
         "score_delta_alert": score_delta >= SCORE_DELTA_ALERT_THRESHOLD,
         "elapsed_ms": elapsed_ms,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "sources_triggered": sources_triggered,
+        "change_type": change_type,
+        "delta_summary": delta_summary,
         "score_dict": score_dict,
         "current_report": current_report,
     }

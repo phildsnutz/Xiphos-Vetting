@@ -56,7 +56,7 @@ import logging
 import threading
 import argparse
 import importlib.util
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from flask import Flask, Response, g, jsonify, request, send_file, stream_with_context
@@ -146,10 +146,16 @@ except ImportError:
     HAS_MONITOR = False
 
 try:
-    from monitor_scheduler import MonitorScheduler as QueuedMonitorScheduler
+    from monitor_scheduler import (
+        DEFAULT_INTERVAL_HOURS as MONITOR_DEFAULT_INTERVAL_HOURS,
+        MonitorScheduler as QueuedMonitorScheduler,
+        TIER_INTERVALS as MONITOR_TIER_INTERVALS,
+    )
     HAS_MONITOR_SCHEDULER = True
 except ImportError:
     HAS_MONITOR_SCHEDULER = False
+    MONITOR_DEFAULT_INTERVAL_HOURS = 168
+    MONITOR_TIER_INTERVALS = {}
 
 # Optional: Dossier generators (HTML and PDF can fail independently)
 try:
@@ -410,6 +416,116 @@ def _serialize_monitor_status(sweep_id: str, status: dict, vendor_id: str | None
                     "tier": latest_score.get("calibrated", {}).get("calibrated_tier"),
                 }
     return payload
+
+
+def _parse_iso_timestamp(value):
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    text = text.replace("Z", "+00:00")
+    if " " in text and "T" not in text:
+        text = text.replace(" ", "T", 1)
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _monitor_interval_hours_for_case(case_id: str) -> int:
+    latest_score = db.get_latest_score(case_id) or {}
+    tier = ((latest_score.get("calibrated") or {}).get("calibrated_tier") or "").strip()
+    return int(MONITOR_TIER_INTERVALS.get(tier, MONITOR_DEFAULT_INTERVAL_HOURS))
+
+
+def _next_monitor_scheduled_at(case_id: str, checked_at_value):
+    checked_at = _parse_iso_timestamp(checked_at_value)
+    if not checked_at:
+        return None
+    return (checked_at + timedelta(hours=_monitor_interval_hours_for_case(case_id))).isoformat()
+
+
+def _fallback_monitor_delta_summary(entry: dict) -> str:
+    previous_risk = str(entry.get("previous_risk") or "").strip()
+    current_risk = str(entry.get("current_risk") or "").strip()
+    score_before = entry.get("score_before")
+    score_after = entry.get("score_after")
+    new_findings_count = int(entry.get("new_findings_count") or 0)
+    resolved_findings_count = int(entry.get("resolved_findings_count") or 0)
+    parts: list[str] = []
+    if score_before is not None and score_after is not None:
+        delta = float(score_after or 0.0) - float(score_before or 0.0)
+        if abs(delta) >= 0.01:
+            parts.append(f"Score {'increased' if delta > 0 else 'decreased'} {delta:+.1f}%")
+    if previous_risk and current_risk and previous_risk != current_risk:
+        parts.append(f"Tier {previous_risk} -> {current_risk}")
+    if new_findings_count > 0:
+        parts.append(f"{new_findings_count} new finding{'s' if new_findings_count != 1 else ''}")
+    if resolved_findings_count > 0:
+        parts.append(f"{resolved_findings_count} resolved finding{'s' if resolved_findings_count != 1 else ''}")
+    sources_triggered = entry.get("sources_triggered") or []
+    if sources_triggered:
+        if len(sources_triggered) <= 2:
+            parts.append(f"Sources triggered: {', '.join(str(item) for item in sources_triggered)}")
+        else:
+            parts.append(f"{len(sources_triggered)} sources triggered")
+    return ", ".join(parts) if parts else "No material delta detected"
+
+
+def _serialize_monitor_run(entry: dict) -> dict:
+    run_id = str(entry.get("run_id") or "").strip() or f"monitor-log-{entry.get('id')}"
+    checked_at = entry.get("checked_at")
+    return {
+        "run_id": run_id,
+        "vendor_id": entry.get("vendor_id"),
+        "vendor_name": entry.get("vendor_name"),
+        "started_at": entry.get("started_at") or checked_at,
+        "completed_at": entry.get("completed_at") or checked_at,
+        "status": entry.get("status") or "completed",
+        "change_type": entry.get("change_type") or "no_change",
+        "delta_summary": entry.get("delta_summary") or _fallback_monitor_delta_summary(entry),
+        "score_before": entry.get("score_before"),
+        "score_after": entry.get("score_after"),
+        "new_findings_count": int(entry.get("new_findings_count") or 0),
+        "resolved_findings_count": int(entry.get("resolved_findings_count") or 0),
+        "sources_triggered": list(entry.get("sources_triggered") or []),
+        "checked_at": checked_at,
+    }
+
+
+def _parse_since_hours(raw_since: str | None) -> int | None:
+    text = str(raw_since or "").strip().lower()
+    if not text:
+        return None
+    if text.endswith("h") and text[:-1].isdigit():
+        return int(text[:-1])
+    if text.endswith("d") and text[:-1].isdigit():
+        return int(text[:-1]) * 24
+    if text.isdigit():
+        return int(text)
+    return None
+
+
+def _augment_connector_status(case_id: str, report: dict) -> dict:
+    connector_status = report.get("connector_status")
+    if not isinstance(connector_status, dict):
+        return report
+    enriched_at = report.get("enriched_at")
+    next_scheduled_at = _next_monitor_scheduled_at(case_id, enriched_at)
+    augmented = dict(report)
+    augmented["connector_status"] = {
+        str(name): {
+            **dict(status),
+            "last_checked_at": dict(status).get("last_checked_at") or enriched_at,
+            "next_scheduled_at": dict(status).get("next_scheduled_at") or next_scheduled_at,
+        }
+        for name, status in connector_status.items()
+        if isinstance(status, dict)
+    }
+    return augmented
 
 
 @app.before_request
@@ -3400,13 +3516,20 @@ def api_monitor_vendor(case_id):
         if result is None:
             return jsonify({"error": "Monitoring check failed"}), 500
         return jsonify({
+            "run_id": result.run_id,
             "vendor_id": result.vendor_id,
             "vendor_name": result.vendor_name,
             "previous_risk": result.previous_risk,
             "current_risk": result.current_risk,
             "risk_changed": result.risk_changed,
+            "score_before": result.score_before,
+            "score_after": result.score_after,
             "new_findings_count": len(result.new_findings),
             "resolved_findings_count": len(result.resolved_findings),
+            "sources_triggered": list(result.sources_triggered or []),
+            "delta_summary": result.delta_summary,
+            "started_at": result.started_at,
+            "completed_at": result.completed_at,
             "new_findings": result.new_findings[:10],
             "new_risk_signals": result.new_risk_signals[:10],
             "elapsed_ms": result.elapsed_ms,
@@ -3463,6 +3586,24 @@ def api_monitor_vendor_history(case_id):
             "tier": ((latest_score or {}).get("calibrated", {}) or {}).get("calibrated_tier"),
             "composite_score": (latest_score or {}).get("composite_score"),
         } if latest_score else None,
+    })
+
+
+@app.route("/api/cases/<case_id>/monitor/history")
+@require_auth("monitor:read")
+def api_monitor_case_run_history(case_id):
+    """Return monitor-run history with delta summaries for a specific case."""
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+
+    limit = request.args.get("limit", 10, type=int)
+    limit = max(1, min(limit, 50))
+    runs = [_serialize_monitor_run(entry) for entry in db.get_monitor_run_history(case_id, limit=limit)]
+    return jsonify({
+        "vendor_id": case_id,
+        "vendor_name": vendor["name"],
+        "runs": runs,
     })
 
 
@@ -3523,11 +3664,37 @@ def api_monitor_sweep_status(sweep_id):
 def api_monitor_changes():
     """Get recent risk changes from monitoring."""
     limit = request.args.get("limit", 20, type=int)
+    since_hours = _parse_since_hours(request.args.get("since"))
     try:
-        changes = db.get_recent_risk_changes(limit)
+        changes = [_serialize_monitor_run(entry) for entry in db.get_recent_monitor_changes(limit, since_hours=since_hours)]
         return jsonify({"changes": changes})
     except Exception:
         return jsonify({"changes": [], "note": "Monitoring log table not initialized"})
+
+
+@app.route("/api/portfolio/changes")
+@require_auth("monitor:read")
+def api_portfolio_changes():
+    """Return recent portfolio changes for the top-strip summary UI."""
+    since_hours = _parse_since_hours(request.args.get("since")) or 24
+    limit = request.args.get("limit", 20, type=int)
+    changed_entries = [_serialize_monitor_run(entry) for entry in db.get_recent_monitor_changes(limit, since_hours=since_hours)]
+    total_count = len(db.list_vendors(limit=10000))
+    changed_vendor_ids = {str(entry.get("vendor_id") or "") for entry in changed_entries if entry.get("vendor_id")}
+    return jsonify({
+        "changed": [
+            {
+                "case_id": entry.get("vendor_id"),
+                "name": entry.get("vendor_name") or "",
+                "change_type": entry.get("change_type") or "no_change",
+                "summary": entry.get("delta_summary") or "",
+                "timestamp": entry.get("completed_at") or entry.get("checked_at"),
+            }
+            for entry in changed_entries
+        ],
+        "unchanged_count": max(0, total_count - len(changed_vendor_ids)),
+        "total_count": total_count,
+    })
 
 
 # ---- Portfolio Intelligence (Phase 4) ----
@@ -4426,7 +4593,7 @@ def api_get_enrichment(case_id):
     except Exception:
         report["cache_freshness"] = None
 
-    return jsonify(report)
+    return jsonify(_augment_connector_status(case_id, report))
 
 
 @app.route("/api/cases/<case_id>/cache-freshness")
@@ -4475,6 +4642,36 @@ def api_graph_stats():
         init_kg_db()
         stats = get_kg_stats()
         return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/graph/entity/<entity_id>/provenance")
+@require_auth("cases:read")
+def api_graph_entity_provenance(entity_id):
+    if not HAS_KG:
+        return jsonify({"error": "Knowledge graph module not available"}), 501
+    try:
+        kg.init_kg_db()
+        payload = kg.get_entity_provenance(entity_id)
+        if not payload:
+            return jsonify({"error": "Entity not found"}), 404
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/graph/relationship/<int:relationship_id>/provenance")
+@require_auth("cases:read")
+def api_graph_relationship_provenance(relationship_id):
+    if not HAS_KG:
+        return jsonify({"error": "Knowledge graph module not available"}), 501
+    try:
+        kg.init_kg_db()
+        payload = kg.get_relationship_provenance(relationship_id)
+        if not payload:
+            return jsonify({"error": "Relationship not found"}), 404
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
