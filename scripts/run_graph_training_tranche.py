@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,17 @@ DEFAULT_BENCHMARK_DIR = ROOT / "docs" / "reports" / "graph_training_benchmark"
 DEFAULT_NEO4J_GLOB = "neo4j_graph_drift_audit*"
 
 
+def _json_default(value: Any) -> Any:
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Helios graph-training tranche A.")
     parser.add_argument("--top-entities", type=int, default=8)
@@ -51,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-dir", default=str(DEFAULT_BENCHMARK_DIR))
     parser.add_argument("--report-dir", default=str(DEFAULT_REPORT_DIR))
     parser.add_argument("--print-json", action="store_true")
+    parser.add_argument("--json-only", action="store_true")
     return parser.parse_args()
 
 
@@ -61,6 +73,9 @@ def _latest_nested_summary(base_dir: Path) -> Path | None:
 
 def _latest_neo4j_report() -> Path | None:
     base = ROOT / "docs" / "reports"
+    candidates = sorted(base.glob(f"{DEFAULT_NEO4J_GLOB}/neo4j-graph-drift-audit-*.json"))
+    if candidates:
+        return candidates[-1]
     candidates = sorted(base.glob(f"{DEFAULT_NEO4J_GLOB}/**/*.json"))
     return candidates[-1] if candidates else None
 
@@ -70,6 +85,16 @@ def _read_json(path: Path | None) -> dict[str, Any] | None:
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
     return payload if isinstance(payload, dict) else None
+
+
+def _summary_verdict(payload: dict[str, Any] | None) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    for key in ("overall_verdict", "prime_time_verdict", "verdict"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return None
 
 
 def _get_pg_url() -> str:
@@ -256,7 +281,7 @@ def main() -> int:
     args = parse_args()
     pg_url = _get_pg_url()
 
-    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     report_dir = Path(args.report_dir) / stamp
     report_dir.mkdir(parents=True, exist_ok=True)
 
@@ -288,7 +313,7 @@ def main() -> int:
     stage_progress = _build_stage_progress(benchmark, review_stats, training_result, queue_runs)
 
     summary = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "readiness_summary": str(readiness_path) if readiness_path else None,
         "neo4j_summary": str(neo4j_path) if neo4j_path else None,
         "benchmark_summary": str(benchmark_path) if benchmark_path else None,
@@ -300,15 +325,15 @@ def main() -> int:
         "sample_review_queue": sample_review_queue,
         "stage_progress": stage_progress,
         "readiness": {
-            "overall_verdict": readiness.get("overall_verdict"),
+            "overall_verdict": _summary_verdict(readiness),
             "path": str(readiness_path) if readiness_path else None,
         },
         "neo4j": {
-            "overall_verdict": neo4j.get("overall_verdict"),
+            "overall_verdict": _summary_verdict(neo4j),
             "path": str(neo4j_path) if neo4j_path else None,
         },
         "benchmark": {
-            "overall_verdict": benchmark.get("overall_verdict"),
+            "overall_verdict": _summary_verdict(benchmark),
             "path": str(benchmark_path) if benchmark_path else None,
             "data_foundation_verdict": (benchmark.get("data_foundation") or {}).get("verdict")
             if isinstance(benchmark.get("data_foundation"), dict)
@@ -318,13 +343,16 @@ def main() -> int:
 
     json_path = report_dir / "summary.json"
     md_path = report_dir / "summary.md"
-    json_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    json_path.write_text(json.dumps(summary, indent=2, default=_json_default), encoding="utf-8")
     md_path.write_text(_render_markdown(summary), encoding="utf-8")
 
-    if args.print_json:
-        print(json.dumps(summary, indent=2))
-
-    print(f"OK: graph training tranche\nSummary: {json_path}")
+    if args.json_only:
+        print(json.dumps(summary, indent=2, default=_json_default))
+    elif args.print_json:
+        print(json.dumps(summary, indent=2, default=_json_default))
+        print(f"OK: graph training tranche\nSummary: {json_path}")
+    else:
+        print(f"OK: graph training tranche\nSummary: {json_path}")
     return 0
 
 

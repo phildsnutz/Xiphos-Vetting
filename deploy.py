@@ -13,6 +13,7 @@ Legacy names are still accepted for backward compatibility.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
 import shlex
@@ -260,6 +261,36 @@ def run_cmd(ssh: Any, cmd: str, timeout: int = 300) -> tuple[int, str, str]:
 
     exit_code = channel.recv_exit_status()
     return exit_code, b"".join(out_chunks).decode(), b"".join(err_chunks).decode()
+
+
+def _decode_json_from_stdout(stdout: str) -> dict[str, Any] | None:
+    text = stdout.strip()
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def run_graph_training_runtime_probe(ssh: Any, compose_prefix: str) -> dict[str, Any]:
+    remote_report_dir = "/data/reports/graph_training_probe"
+    probe_cmd = (
+        f"{compose_prefix}"
+        "docker compose exec -T xiphos "
+        "python3 /app/scripts/run_graph_training_tranche.py "
+        "--skip-train --skip-queue "
+        f"--report-dir {shlex.quote(remote_report_dir)} "
+        "--json-only"
+    )
+    code, out, err = run_cmd(ssh, probe_cmd, timeout=300)
+    if code != 0:
+        raise RuntimeError((err or out or "graph training runtime probe failed").strip())
+    payload = _decode_json_from_stdout(out)
+    if not payload:
+        raise RuntimeError("graph training runtime probe did not return JSON")
+    return payload
 
 
 def cleanup_remote_vendor(vendor_id: str) -> tuple[bool, str]:
@@ -600,6 +631,18 @@ def verify() -> None:
         else:
             print(f"  FAIL: '{term}' still present in bundle")
             issues.append(f"Stale bundle text: {term}")
+
+    try:
+        graph_training = run_graph_training_runtime_probe(ssh, compose_prefix)
+        review_stats = graph_training.get("review_stats") if isinstance(graph_training.get("review_stats"), dict) else {}
+        print(
+            "  PASS: Graph training runtime probe "
+            f"(predicted_links={review_stats.get('total_links', 0)}, "
+            f"reviewed={review_stats.get('reviewed_links', 0)})"
+        )
+    except Exception as exc:
+        print(f"  FAIL: Graph training runtime probe failed: {exc}")
+        issues.append(f"Graph training runtime probe failed: {exc}")
 
     ssh.close()
 
