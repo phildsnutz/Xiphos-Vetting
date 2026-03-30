@@ -81,7 +81,7 @@ def test_review_queue_endpoint_returns_filtered_rows(monkeypatch):
 
     response = client.get(
         "/api/graph/predicted-links/review-queue"
-        "?reviewed=false&confirmed=true&edge_family=ownership_control&limit=20&offset=5"
+        "?reviewed=false&confirmed=true&novel_only=true&edge_family=ownership_control&limit=20&offset=5"
     )
 
     assert response.status_code == 200
@@ -89,6 +89,7 @@ def test_review_queue_endpoint_returns_filtered_rows(monkeypatch):
     assert payload["count"] == 1
     assert captured["reviewed"] is False
     assert captured["analyst_confirmed"] is True
+    assert captured["novel_only"] is True
     assert captured["edge_family"] == "ownership_control"
     assert captured["limit"] == 20
     assert captured["offset"] == 5
@@ -121,6 +122,7 @@ def test_single_review_endpoint_uses_review_helper(monkeypatch):
                 {
                     "id": reviews[0]["id"],
                     "status": "confirmed",
+                    "rejection_reason": None,
                     "relationship_created": True,
                     "promoted_relationship_id": 44,
                 }
@@ -145,6 +147,51 @@ def test_single_review_endpoint_uses_review_helper(monkeypatch):
     assert payload["relationship_created"] is True
     assert payload["promoted_relationship_id"] == 44
     assert payload["reviewed_by"] == "analyst-1"
+
+
+def test_review_batch_endpoint_forwards_rejection_reason(monkeypatch):
+    monkeypatch.setenv("XIPHOS_PG_URL", "postgresql://test")
+
+    api = _reload_fresh("link_prediction_api")
+    captured = {}
+
+    def fake_review(pg_url, reviews, reviewed_by="unknown"):
+        captured["reviews"] = reviews
+        captured["reviewed_by"] = reviewed_by
+        return {
+            "reviewed_count": len(reviews),
+            "confirmed_count": 0,
+            "rejected_count": len(reviews),
+            "reviewed_by": reviewed_by,
+            "reviewed_at": "2026-03-30T08:00:00Z",
+            "items": [
+                {
+                    "id": reviews[0]["id"],
+                    "status": "rejected",
+                    "rejection_reason": reviews[0].get("rejection_reason"),
+                    "relationship_created": False,
+                    "promoted_relationship_id": None,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(api, "review_predicted_links", fake_review)
+
+    app = Flask(__name__)
+    app.register_blueprint(api.link_prediction_bp)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/graph/predicted-links/review-batch",
+        json={"reviews": [{"id": 21, "confirmed": False, "rejection_reason": "wrong_target_entity", "notes": "wrong company"}]},
+        headers={"X-User-Id": "analyst-2"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["rejected_count"] == 1
+    assert captured["reviews"][0]["rejection_reason"] == "wrong_target_entity"
+    assert captured["reviewed_by"] == "analyst-2"
 
 
 def test_review_stats_endpoint_returns_helper_payload(monkeypatch):

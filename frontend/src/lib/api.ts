@@ -2583,11 +2583,13 @@ export interface PredictedLinkQueueItem {
   target_entity_name: string;
   predicted_relation: string;
   predicted_edge_family: string;
+  edge_already_exists?: boolean;
   score: number;
   model_version: string;
   candidate_rank?: number | null;
   reviewed: boolean;
   analyst_confirmed?: boolean | null;
+  rejection_reason?: string | null;
   review_notes?: string | null;
   reviewed_by?: string | null;
   reviewed_at?: string | null;
@@ -2617,6 +2619,7 @@ export interface PredictedLinkEdgeFamilyStats {
   total_links: number;
   reviewed_links: number;
   pending_links: number;
+  novel_pending_links?: number;
   confirmed_links: number;
   promoted_relationships: number;
 }
@@ -2632,6 +2635,8 @@ export interface PredictedLinkSourceEntityStats {
 
 export interface MissingEdgeRecoveryMetrics {
   queue_depth: number;
+  novel_pending_links?: number;
+  existing_pending_links?: number;
   analyst_confirmation_rate: number;
   review_coverage_pct: number;
   novel_edge_yield: number;
@@ -2647,6 +2652,8 @@ export interface PredictedLinkReviewStats {
   total_links: number;
   reviewed_links: number;
   pending_links: number;
+  novel_pending_links?: number;
+  existing_pending_links?: number;
   confirmed_links: number;
   rejected_links: number;
   promoted_relationships: number;
@@ -2657,6 +2664,10 @@ export interface PredictedLinkReviewStats {
   latest_activity_at?: string | null;
   by_edge_family: PredictedLinkEdgeFamilyStats[];
   by_source_entity: PredictedLinkSourceEntityStats[];
+  rejection_reason_counts?: Array<{
+    rejection_reason: string;
+    count: number;
+  }>;
   scope?: {
     source_entity_id?: string | null;
   };
@@ -2667,6 +2678,7 @@ export interface PredictedLinkReviewInput {
   id: number;
   confirmed: boolean;
   notes?: string;
+  rejection_reason?: string;
 }
 
 export interface PredictedLinkReviewBatchResponse {
@@ -2693,6 +2705,7 @@ export async function queuePredictedLinks(entityId: string, topK = 25): Promise<
 export async function fetchPredictedLinkReviewQueue(params: {
   reviewed?: boolean;
   confirmed?: boolean;
+  novelOnly?: boolean;
   edgeFamily?: string;
   sourceEntityId?: string;
   limit?: number;
@@ -2701,6 +2714,7 @@ export async function fetchPredictedLinkReviewQueue(params: {
   const search = new URLSearchParams();
   if (params.reviewed !== undefined) search.set("reviewed", String(params.reviewed));
   if (params.confirmed !== undefined) search.set("confirmed", String(params.confirmed));
+  if (params.novelOnly !== undefined) search.set("novel_only", String(params.novelOnly));
   if (params.edgeFamily) search.set("edge_family", params.edgeFamily);
   if (params.sourceEntityId) search.set("source_entity_id", params.sourceEntityId);
   if (params.limit !== undefined) search.set("limit", String(params.limit));

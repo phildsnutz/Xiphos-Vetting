@@ -390,6 +390,7 @@ def create_deploy_archive(backend_only: bool = False) -> pathlib.Path:
         "deploy.env.example",
         "DEPLOY.md",
         "scripts",
+        "fixtures",
     }
     with tarfile.open(archive_path, "w:gz") as tar:
         for path in sorted(LOCAL_ROOT.rglob("*")):

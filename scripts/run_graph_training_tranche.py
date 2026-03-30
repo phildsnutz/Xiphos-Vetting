@@ -27,6 +27,8 @@ if str(BACKEND_DIR) not in sys.path:
 from graph_embeddings import (  # noqa: E402
     ensure_prediction_tables,
     export_reviewed_link_labels,
+    get_graph_construction_training_metrics,
+    get_missing_edge_recovery_metrics,
     get_prediction_review_stats,
     list_predicted_link_queue,
     queue_predicted_links,
@@ -175,6 +177,7 @@ def _build_stage_progress(
     review_stats: dict[str, Any],
     training_result: dict[str, Any] | None,
     queue_runs: list[dict[str, Any]],
+    stage_metrics: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     benchmark_rows = benchmark.get("stage_results") if isinstance((benchmark or {}).get("stage_results"), list) else []
     benchmark_by_id = {
@@ -184,12 +187,18 @@ def _build_stage_progress(
     }
     seeded_candidates = sum(int(row.get("queued_count") or 0) for row in queue_runs)
     total_candidates = sum(int(row.get("count") or 0) for row in queue_runs)
+    construction_metrics = stage_metrics.get("construction_training") if isinstance(stage_metrics.get("construction_training"), dict) else {}
+    recovery_metrics = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
     progress = [
         {
             "stage_id": "construction_training",
             "benchmark_verdict": benchmark_by_id.get("construction_training", "UNKNOWN"),
             "status": "active" if total_candidates > 0 else "seeded",
-            "notes": f"{review_stats.get('reviewed_links', 0)} reviewed labels available; {seeded_candidates} new candidates seeded this tranche",
+            "notes": (
+                f"{review_stats.get('reviewed_links', 0)} reviewed labels available; "
+                f"{seeded_candidates} new candidates seeded this tranche; "
+                f"edge_family_micro_f1={construction_metrics.get('edge_family_micro_f1', 0.0):.2f}"
+            ),
         },
         {
             "stage_id": "missing_edge_recovery",
@@ -199,6 +208,7 @@ def _build_stage_progress(
                 f"confirmation_rate={review_stats.get('confirmation_rate', 0.0):.2f}; "
                 f"promoted_relationships={review_stats.get('promoted_relationships', 0)}; "
                 f"pending_links={review_stats.get('pending_links', 0)}; "
+                f"ownership_hits@10={recovery_metrics.get('ownership_control_hits_at_10', 0.0):.2f}; "
                 f"unsupported_promoted_edge_rate={review_stats.get('unsupported_promoted_edge_rate', 0.0):.2f}"
             ),
         },
@@ -234,6 +244,7 @@ def _build_stage_progress(
 
 
 def _build_stage_metrics(
+    pg_url: str,
     review_stats: dict[str, Any],
     queue_runs: list[dict[str, Any]],
     training_result: dict[str, Any] | None,
@@ -241,24 +252,30 @@ def _build_stage_metrics(
     recovery = review_stats.get("missing_edge_recovery") if isinstance(review_stats.get("missing_edge_recovery"), dict) else {}
     seeded_candidates = sum(int(row.get("queued_count") or 0) for row in queue_runs)
     total_candidates = sum(int(row.get("count") or 0) for row in queue_runs)
-    construction_metrics = {
-        "reviewed_labels": int(review_stats.get("reviewed_links") or 0),
-        "confirmed_labels": int(review_stats.get("confirmed_links") or 0),
-        "prediction_pool_size": int(review_stats.get("total_links") or 0),
-        "seeded_candidates_this_run": seeded_candidates,
-        "surfaced_candidates_this_run": total_candidates,
-    }
+    construction_metrics = get_graph_construction_training_metrics(pg_url)
+    construction_metrics.update(
+        {
+            "reviewed_labels": int(review_stats.get("reviewed_links") or 0),
+            "rejected_labels": int(review_stats.get("rejected_links") or 0),
+            "confirmed_labels": int(review_stats.get("confirmed_links") or 0),
+            "prediction_pool_size": int(review_stats.get("total_links") or 0),
+            "seeded_candidates_this_run": seeded_candidates,
+            "surfaced_candidates_this_run": total_candidates,
+        }
+    )
     if training_result:
         construction_metrics["final_loss"] = float(training_result.get("final_loss") or 0.0)
         construction_metrics["embeddings_saved"] = int(training_result.get("embeddings_saved") or 0)
+    missing_edge_metrics = get_missing_edge_recovery_metrics(pg_url, review_stats=review_stats)
     return {
         "construction_training": construction_metrics,
         "missing_edge_recovery": {
-            "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            **missing_edge_metrics,
             "review_coverage_pct": float(review_stats.get("review_coverage_pct") or 0.0),
             "pending_links": int(review_stats.get("pending_links") or 0),
+            "novel_pending_links": int(review_stats.get("novel_pending_links") or 0),
+            "existing_pending_links": int(review_stats.get("existing_pending_links") or 0),
             "promoted_relationships": int(review_stats.get("promoted_relationships") or 0),
-            "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
             "novel_edge_yield": float(recovery.get("novel_edge_yield") or 0.0),
             "mean_review_latency_hours": float(recovery.get("mean_review_latency_hours") or 0.0),
             "median_pending_age_hours": float(recovery.get("median_pending_age_hours") or 0.0),
@@ -299,6 +316,11 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Missing Edge Recovery",
         "",
+        f"- Ownership hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('ownership_control_hits_at_10', 0.0):.2f}`",
+        f"- Ownership MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('ownership_control_mrr', 0.0):.2f}`",
+        f"- Intermediary/route hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('intermediary_route_hits_at_10', 0.0):.2f}`",
+        f"- Intermediary/route MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('intermediary_route_mrr', 0.0):.2f}`",
+        f"- Cyber dependency hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('cyber_dependency_hits_at_10', 0.0):.2f}`",
         f"- Novel edge yield: `{summary['stage_metrics']['missing_edge_recovery'].get('novel_edge_yield', 0.0):.2f}`",
         f"- Mean review latency (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('mean_review_latency_hours', 0.0):.2f}`",
         f"- Median pending age (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('median_pending_age_hours', 0.0):.2f}`",
@@ -362,8 +384,8 @@ def main() -> int:
     benchmark = _read_json(benchmark_path) or {}
     readiness = _read_json(readiness_path) or {}
     neo4j = _read_json(neo4j_path) or {}
-    stage_progress = _build_stage_progress(benchmark, review_stats, training_result, queue_runs)
-    stage_metrics = _build_stage_metrics(review_stats, queue_runs, training_result)
+    stage_metrics = _build_stage_metrics(pg_url, review_stats, queue_runs, training_result)
+    stage_progress = _build_stage_progress(benchmark, review_stats, training_result, queue_runs, stage_metrics)
 
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

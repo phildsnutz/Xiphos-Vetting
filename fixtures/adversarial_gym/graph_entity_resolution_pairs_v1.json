@@ -1,0 +1,92 @@
+[
+  {
+    "pair_id": "er_yorktown_exact_suffix",
+    "name_a": "Yorktown Systems Group",
+    "name_b": "Yorktown Systems Group, Inc.",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": true,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_be_meyers_punctuation",
+    "name_a": "B.E. Meyers & Co., Inc.",
+    "name_b": "BE Meyers and Company Inc",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": true,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_mariner_plural_variant",
+    "name_a": "Mariner Capital Advisory",
+    "name_b": "Mariner Capital Advisors",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": true,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_harbor_beacon_short_form",
+    "name_a": "Harbor Beacon Holdings",
+    "name_b": "Harbor Beacon",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": true,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_offset_vs_yorktown_no_match",
+    "name_a": "Offset Systems Group",
+    "name_b": "Yorktown Systems Group",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": false,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_beacon_vs_mariner_no_match",
+    "name_a": "Beacon Strategic Capital",
+    "name_b": "Mariner Capital Advisory",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": false,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_nato_vs_us_army_no_match",
+    "name_a": "NATO Supreme Allied Commander Transformation",
+    "name_b": "U.S. Army",
+    "country_a": "BE",
+    "country_b": "US",
+    "should_match": false,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_generic_service_disabled_veteran_no_match",
+    "name_a": "Service-Disabled Veteran",
+    "name_b": "Yorktown Systems Group",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": false,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_cyber_vendor_variant",
+    "name_a": "Asteron Edge Systems",
+    "name_b": "Asteron Edge System",
+    "country_a": "US",
+    "country_b": "US",
+    "should_match": true,
+    "threshold": 0.88
+  },
+  {
+    "pair_id": "er_route_node_not_company",
+    "name_a": "Jebel Ali Free Zone",
+    "name_b": "Blue Reef Trading",
+    "country_a": "AE",
+    "country_b": "AE",
+    "should_match": false,
+    "threshold": 0.88
+  }
+]

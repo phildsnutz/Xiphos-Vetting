@@ -17,6 +17,7 @@ Used by link_prediction_api.py to serve predictions via REST API.
 import json
 import logging
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,37 @@ except ImportError:
     raise ImportError("NumPy is required for graph embeddings. Install: pip install numpy>=1.24")
 
 logger = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GRAPH_CONSTRUCTION_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_gold_set_v1.json"
+GRAPH_CONSTRUCTION_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_hard_negatives_v1.json"
+GRAPH_ENTITY_RESOLUTION_PAIRS_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_entity_resolution_pairs_v1.json"
+
+PREDICTED_LINK_REJECTION_REASONS: tuple[str, ...] = (
+    "descriptor_only_not_entity",
+    "garbage_not_entity",
+    "generic_market_language",
+    "marketing_mention_not_dependency",
+    "no_actual_route",
+    "wrong_counterparty",
+    "wrong_relationship_family",
+    "wrong_target_entity",
+    "insufficient_support",
+    "duplicate_existing_fact",
+)
+
+MISSING_EDGE_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
+    "ownership_control": ("ownership_control",),
+    "intermediary_route": (
+        "finance_intermediary",
+        "trade_and_logistics",
+        "intermediaries_and_services",
+    ),
+    "cyber_dependency": (
+        "cyber_supply_chain",
+        "component_dependency",
+    ),
+}
 
 try:
     from graph_ingest import _relationship_edge_families as _graph_edge_families
@@ -86,6 +118,97 @@ def _fetch_entity_map(cur: Any, entity_ids: list[str]) -> dict[str, dict[str, An
         }
         for row in rows
     }
+
+
+def _normalize_rel_type(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _load_fixture_rows(path: Path) -> list[dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict)]
+
+
+def _resolve_fixture_entity_ids(cur: Any, names: set[str]) -> dict[str, str]:
+    clean_names = sorted({str(name).strip() for name in names if str(name).strip()})
+    if not clean_names:
+        return {}
+
+    cur.execute(
+        """
+        SELECT id, canonical_name
+        FROM kg_entities
+        WHERE LOWER(canonical_name) = ANY(%s)
+        """,
+        ([name.lower() for name in clean_names],),
+    )
+    mapping = {
+        str(row[1]).strip().lower(): str(row[0])
+        for row in cur.fetchall()
+        if row[0] and row[1]
+    }
+    resolved = {
+        name: mapping[str(name).strip().lower()]
+        for name in clean_names
+        if str(name).strip().lower() in mapping
+    }
+    unresolved = [name for name in clean_names if name not in resolved]
+    if not unresolved:
+        return resolved
+
+    from entity_resolution import normalize_name
+    from ofac import jaro_winkler
+
+    cur.execute("SELECT id, canonical_name FROM kg_entities WHERE canonical_name IS NOT NULL")
+    candidates = [
+        (str(row[0]), str(row[1]))
+        for row in cur.fetchall()
+        if row[0] and row[1]
+    ]
+    normalized_candidates = [
+        (entity_id, canonical_name, normalize_name(canonical_name))
+        for entity_id, canonical_name in candidates
+    ]
+
+    for name in unresolved:
+        normalized_name = normalize_name(name)
+        best_entity_id = None
+        best_score = 0.0
+        for entity_id, canonical_name, normalized_candidate in normalized_candidates:
+            if not normalized_candidate:
+                continue
+            score = jaro_winkler(normalized_name, normalized_candidate)
+            if normalized_name and normalized_candidate:
+                if normalized_name in normalized_candidate or normalized_candidate in normalized_name:
+                    score = max(score, 0.96)
+            if score > best_score:
+                best_score = score
+                best_entity_id = entity_id
+        if best_entity_id and best_score >= 0.9:
+            resolved[name] = best_entity_id
+    return resolved
+
+
+def _edge_exists(cur: Any, source_entity_id: str, rel_type: str, target_entity_id: str) -> int | None:
+    cur.execute(
+        """
+        SELECT id
+        FROM kg_relationships
+        WHERE source_entity_id = %s
+          AND target_entity_id = %s
+          AND LOWER(rel_type) = %s
+        LIMIT 1
+        """,
+        (source_entity_id, target_entity_id, _normalize_rel_type(rel_type)),
+    )
+    row = cur.fetchone()
+    return int(row[0]) if row else None
+
+
+def _safe_divide(numerator: float, denominator: float) -> float:
+    return float(numerator / denominator) if denominator else 0.0
 
 
 class TransETrainer:
@@ -559,6 +682,29 @@ class TransETrainer:
                 self.relation_embeddings[idx] = np.array(emb_list, dtype=np.float32)
 
             logger.info("Loaded %d relation embeddings", num_relations)
+            cur.execute(
+                """
+                SELECT source_entity_id, rel_type, target_entity_id
+                FROM kg_relationships
+                WHERE source_entity_id IS NOT NULL
+                  AND target_entity_id IS NOT NULL
+                """
+            )
+            self.triples = []
+            for source_id, rel_type, target_id in cur.fetchall():
+                if (
+                    source_id in self.entity_to_id
+                    and target_id in self.entity_to_id
+                    and rel_type in self.relation_to_id
+                ):
+                    self.triples.append(
+                        (
+                            self.entity_to_id[source_id],
+                            self.relation_to_id[rel_type],
+                            self.entity_to_id[target_id],
+                        )
+                    )
+            logger.info("Reloaded %d graph triples for link prediction masking", len(self.triples))
             return True
 
         finally:
@@ -593,6 +739,7 @@ class TransETrainer:
                 target_entity_id TEXT NOT NULL,
                 predicted_relation TEXT NOT NULL,
                 predicted_edge_family TEXT,
+                edge_already_exists BOOLEAN NOT NULL DEFAULT FALSE,
                 score FLOAT NOT NULL,
                 model_version TEXT NOT NULL,
                 candidate_rank INTEGER,
@@ -600,6 +747,7 @@ class TransETrainer:
                 target_entity_name TEXT,
                 reviewed BOOLEAN DEFAULT FALSE,
                 analyst_confirmed BOOLEAN,
+                rejection_reason TEXT,
                 review_notes TEXT,
                 reviewed_by TEXT,
                 reviewed_at TIMESTAMP,
@@ -612,9 +760,11 @@ class TransETrainer:
         """)
 
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS predicted_edge_family TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS edge_already_exists BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS candidate_rank INTEGER")
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS source_entity_name TEXT")
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS target_entity_name TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS review_notes TEXT")
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS reviewed_by TEXT")
         cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP")
@@ -634,6 +784,11 @@ class TransETrainer:
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_kg_predicted_links_edge_family
             ON kg_predicted_links(predicted_edge_family)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_kg_predicted_links_edge_exists
+            ON kg_predicted_links(edge_already_exists)
         """)
 
         cur.execute("""
@@ -752,6 +907,8 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
             score = float(pred["score"])
             target_name = (entity_map.get(target_id) or {}).get("canonical_name", pred.get("target_name") or target_id)
             edge_family = _prediction_edge_family(rel_type)
+            existing_relationship_id = _edge_exists(cur, entity_id, rel_type, target_id)
+            edge_already_exists = existing_relationship_id is not None
 
             cur.execute(
                 """
@@ -774,12 +931,13 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
                     UPDATE kg_predicted_links
                     SET score = %s,
                         predicted_edge_family = %s,
+                        edge_already_exists = %s,
                         candidate_rank = %s,
                         source_entity_name = %s,
                         target_entity_name = %s
                     WHERE id = %s
                     """,
-                    (score, edge_family, rank, source_name, target_name, row[0]),
+                    (score, edge_family, edge_already_exists, rank, source_name, target_name, row[0]),
                 )
                 link_id = int(row[0])
                 reviewed = bool(row[1])
@@ -792,16 +950,28 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
                         target_entity_id,
                         predicted_relation,
                         predicted_edge_family,
+                        edge_already_exists,
                         score,
                         model_version,
                         candidate_rank,
                         source_entity_name,
                         target_entity_name
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (entity_id, target_id, rel_type, edge_family, score, model_version, rank, source_name, target_name),
+                    (
+                        entity_id,
+                        target_id,
+                        rel_type,
+                        edge_family,
+                        edge_already_exists,
+                        score,
+                        model_version,
+                        rank,
+                        source_name,
+                        target_name,
+                    ),
                 )
                 link_id = int(cur.fetchone()[0])
                 queued += 1
@@ -817,6 +987,7 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
                     "target_entity_name": target_name,
                     "predicted_relation": rel_type,
                     "predicted_edge_family": edge_family,
+                    "edge_already_exists": edge_already_exists,
                     "score": score,
                     "candidate_rank": rank,
                     "model_version": model_version,
@@ -846,6 +1017,7 @@ def list_predicted_link_queue(
     *,
     reviewed: bool | None = None,
     analyst_confirmed: bool | None = None,
+    novel_only: bool | None = None,
     edge_family: str | None = None,
     model_version: str | None = None,
     source_entity_id: str | None = None,
@@ -869,6 +1041,10 @@ def list_predicted_link_queue(
         if analyst_confirmed is not None:
             conditions.append("analyst_confirmed = %s")
             params.append(analyst_confirmed)
+        if novel_only is True:
+            conditions.append("edge_already_exists = FALSE")
+        elif novel_only is False:
+            conditions.append("edge_already_exists = TRUE")
         if edge_family:
             conditions.append("predicted_edge_family = %s")
             params.append(edge_family)
@@ -891,11 +1067,13 @@ def list_predicted_link_queue(
                 target_entity_name,
                 predicted_relation,
                 predicted_edge_family,
+                edge_already_exists,
                 score,
                 model_version,
                 candidate_rank,
                 reviewed,
                 analyst_confirmed,
+                rejection_reason,
                 review_notes,
                 reviewed_by,
                 reviewed_at,
@@ -905,6 +1083,7 @@ def list_predicted_link_queue(
             FROM kg_predicted_links
             {where}
             ORDER BY
+                edge_already_exists ASC,
                 reviewed ASC,
                 candidate_rank ASC NULLS LAST,
                 score ASC,
@@ -923,17 +1102,19 @@ def list_predicted_link_queue(
                 "target_entity_name": str(row[4] or row[3]),
                 "predicted_relation": str(row[5]),
                 "predicted_edge_family": str(row[6] or _prediction_edge_family(row[5])),
-                "score": float(row[7]),
-                "model_version": str(row[8]),
-                "candidate_rank": int(row[9]) if row[9] is not None else None,
-                "reviewed": bool(row[10]),
-                "analyst_confirmed": row[11],
-                "review_notes": row[12],
-                "reviewed_by": row[13],
-                "reviewed_at": row[14].isoformat() if row[14] else None,
-                "relationship_created": bool(row[15]),
-                "promoted_relationship_id": int(row[16]) if row[16] is not None else None,
-                "created_at": row[17].isoformat() if row[17] else None,
+                "edge_already_exists": bool(row[7]),
+                "score": float(row[8]),
+                "model_version": str(row[9]),
+                "candidate_rank": int(row[10]) if row[10] is not None else None,
+                "reviewed": bool(row[11]),
+                "analyst_confirmed": row[12],
+                "rejection_reason": row[13],
+                "review_notes": row[14],
+                "reviewed_by": row[15],
+                "reviewed_at": row[16].isoformat() if row[16] else None,
+                "relationship_created": bool(row[17]),
+                "promoted_relationship_id": int(row[18]) if row[18] is not None else None,
+                "created_at": row[19].isoformat() if row[19] else None,
             }
             for row in rows
         ]
@@ -961,6 +1142,9 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
             link_id = int(review["id"])
             confirmed = bool(review.get("confirmed"))
             notes = str(review.get("notes") or "").strip() or None
+            rejection_reason = str(review.get("rejection_reason") or "").strip() or None
+            if rejection_reason and rejection_reason not in PREDICTED_LINK_REJECTION_REASONS:
+                rejection_reason = "insufficient_support"
 
             cur.execute(
                 """
@@ -1013,11 +1197,11 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
                             source_entity_id,
                             target_entity_id,
                             rel_type,
-                            confidence,
-                            data_source,
-                            evidence
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                    confidence,
+                    data_source,
+                    evidence
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1032,6 +1216,7 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
                     promoted_relationship_id = int(cur.fetchone()[0])
                     relationship_created = True
                 confirmed_count += 1
+                rejection_reason = None
             else:
                 rejected_count += 1
 
@@ -1040,6 +1225,7 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
                 UPDATE kg_predicted_links
                 SET reviewed = TRUE,
                     analyst_confirmed = %s,
+                    rejection_reason = %s,
                     review_notes = %s,
                     reviewed_by = %s,
                     reviewed_at = %s,
@@ -1049,6 +1235,7 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
                 """,
                 (
                     confirmed,
+                    rejection_reason,
                     notes,
                     reviewed_by,
                     reviewed_at,
@@ -1061,6 +1248,7 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
                 {
                     "id": link_id,
                     "status": "confirmed" if confirmed else "rejected",
+                    "rejection_reason": rejection_reason,
                     "relationship_created": relationship_created,
                     "promoted_relationship_id": promoted_relationship_id,
                 }
@@ -1104,6 +1292,8 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
                 COUNT(*) AS total_links,
                 COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
                 COUNT(*) FILTER (WHERE reviewed = FALSE) AS pending_links,
+                COUNT(*) FILTER (WHERE reviewed = FALSE AND edge_already_exists = FALSE) AS novel_pending_links,
+                COUNT(*) FILTER (WHERE reviewed = FALSE AND edge_already_exists = TRUE) AS existing_pending_links,
                 COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links,
                 COUNT(*) FILTER (WHERE reviewed = TRUE AND analyst_confirmed = FALSE) AS rejected_links,
                 COUNT(*) FILTER (WHERE relationship_created = TRUE) AS promoted_relationships,
@@ -1123,6 +1313,7 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
                 COUNT(*) AS total_links,
                 COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
                 COUNT(*) FILTER (WHERE reviewed = FALSE) AS pending_links,
+                COUNT(*) FILTER (WHERE reviewed = FALSE AND edge_already_exists = FALSE) AS novel_pending_links,
                 COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links,
                 COUNT(*) FILTER (WHERE relationship_created = TRUE) AS promoted_relationships
             FROM kg_predicted_links
@@ -1138,8 +1329,42 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
                 "total_links": int(row[1]),
                 "reviewed_links": int(row[2]),
                 "pending_links": int(row[3]),
-                "confirmed_links": int(row[4]),
-                "promoted_relationships": int(row[5]),
+                "novel_pending_links": int(row[4]),
+                "confirmed_links": int(row[5]),
+                "promoted_relationships": int(row[6]),
+            }
+            for row in cur.fetchall()
+        ]
+
+        cur.execute(
+            f"""
+            SELECT
+                COALESCE(rejection_reason, 'unspecified') AS rejection_reason,
+                COUNT(*) AS rejection_count
+            FROM kg_predicted_links
+            {where}
+            AND reviewed = TRUE
+            AND analyst_confirmed = FALSE
+            GROUP BY COALESCE(rejection_reason, 'unspecified')
+            ORDER BY rejection_count DESC, rejection_reason ASC
+            """
+            if where
+            else """
+            SELECT
+                COALESCE(rejection_reason, 'unspecified') AS rejection_reason,
+                COUNT(*) AS rejection_count
+            FROM kg_predicted_links
+            WHERE reviewed = TRUE
+              AND analyst_confirmed = FALSE
+            GROUP BY COALESCE(rejection_reason, 'unspecified')
+            ORDER BY rejection_count DESC, rejection_reason ASC
+            """,
+            scoped_params,
+        )
+        rejection_reason_counts = [
+            {
+                "rejection_reason": str(row[0]),
+                "count": int(row[1]),
             }
             for row in cur.fetchall()
         ]
@@ -1201,10 +1426,12 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
         total_links = int(totals[0] or 0)
         reviewed_links = int(totals[1] or 0)
         pending_links = int(totals[2] or 0)
-        confirmed_links = int(totals[3] or 0)
-        rejected_links = int(totals[4] or 0)
-        promoted_relationships = int(totals[5] or 0)
-        unsupported_promoted_edges = int(totals[6] or 0)
+        novel_pending_links = int(totals[3] or 0)
+        existing_pending_links = int(totals[4] or 0)
+        confirmed_links = int(totals[5] or 0)
+        rejected_links = int(totals[6] or 0)
+        promoted_relationships = int(totals[7] or 0)
+        unsupported_promoted_edges = int(totals[8] or 0)
         confirmation_rate = (confirmed_links / reviewed_links) if reviewed_links else 0.0
         review_coverage_pct = (reviewed_links / total_links) if total_links else 0.0
         unsupported_promoted_edge_rate = (
@@ -1217,6 +1444,8 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
             "total_links": total_links,
             "reviewed_links": reviewed_links,
             "pending_links": pending_links,
+            "novel_pending_links": novel_pending_links,
+            "existing_pending_links": existing_pending_links,
             "confirmed_links": confirmed_links,
             "rejected_links": rejected_links,
             "promoted_relationships": promoted_relationships,
@@ -1224,14 +1453,17 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
             "unsupported_promoted_edge_rate": unsupported_promoted_edge_rate,
             "confirmation_rate": confirmation_rate,
             "review_coverage_pct": review_coverage_pct,
-            "latest_activity_at": totals[6].isoformat() if totals[6] else None,
+            "latest_activity_at": totals[9].isoformat() if totals[9] else None,
             "by_edge_family": by_family,
             "by_source_entity": by_source,
+            "rejection_reason_counts": rejection_reason_counts,
             "scope": {
                 "source_entity_id": source_entity_id,
             },
             "missing_edge_recovery": {
                 "queue_depth": pending_links,
+                "novel_pending_links": novel_pending_links,
+                "existing_pending_links": existing_pending_links,
                 "analyst_confirmation_rate": confirmation_rate,
                 "review_coverage_pct": review_coverage_pct,
                 "novel_edge_yield": novel_edge_yield,
@@ -1243,6 +1475,229 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
                 "stale_pending_7d": int(timing[4] or 0),
             },
         }
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _compute_entity_resolution_metrics() -> dict[str, Any]:
+    rows = _load_fixture_rows(GRAPH_ENTITY_RESOLUTION_PAIRS_PATH) if GRAPH_ENTITY_RESOLUTION_PAIRS_PATH.exists() else []
+    if not rows:
+        return {
+            "entity_resolution_pairwise_f1": 0.0,
+            "false_merge_rate": 0.0,
+            "entity_resolution_pairs_evaluated": 0,
+        }
+
+    from entity_resolution import normalize_name
+    from ofac import jaro_winkler
+
+    tp = fp = fn = 0
+    predicted_positive = 0
+
+    for row in rows:
+        name_a = str(row.get("name_a") or "")
+        name_b = str(row.get("name_b") or "")
+        threshold = float(row.get("threshold") or 0.88)
+        score = jaro_winkler(normalize_name(name_a), normalize_name(name_b))
+        country_a = str(row.get("country_a") or "").strip().upper()
+        country_b = str(row.get("country_b") or "").strip().upper()
+        if country_a and country_b and country_a == country_b:
+            score = min(1.0, score + 0.05)
+        predicted = score >= threshold
+        expected = bool(row.get("should_match"))
+
+        if predicted:
+            predicted_positive += 1
+        if predicted and expected:
+            tp += 1
+        elif predicted and not expected:
+            fp += 1
+        elif (not predicted) and expected:
+            fn += 1
+
+    precision = _safe_divide(tp, tp + fp)
+    recall = _safe_divide(tp, tp + fn)
+    return {
+        "entity_resolution_pairwise_f1": _safe_divide(2 * precision * recall, precision + recall),
+        "false_merge_rate": _safe_divide(fp, predicted_positive),
+        "entity_resolution_pairs_evaluated": len(rows),
+    }
+
+
+def get_graph_construction_training_metrics(pg_url: str) -> dict[str, Any]:
+    gold_rows = _load_fixture_rows(GRAPH_CONSTRUCTION_GOLD_PATH)
+    negative_rows = _load_fixture_rows(GRAPH_CONSTRUCTION_NEGATIVE_PATH)
+
+    if not gold_rows and not negative_rows:
+        metrics = {
+            "edge_family_micro_f1": 0.0,
+            "ownership_control_precision": 0.0,
+            "ownership_control_recall": 0.0,
+            "descriptor_only_false_owner_rate": 0.0,
+            "gold_positive_rows_evaluated": 0,
+            "hard_negative_rows_evaluated": 0,
+        }
+        metrics.update(_compute_entity_resolution_metrics())
+        return metrics
+
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        names: set[str] = set()
+        for row in gold_rows:
+            names.add(str(row.get("source_entity") or ""))
+            names.add(str(row.get("target_entity") or ""))
+        for row in negative_rows:
+            names.add(str(row.get("source_entity") or ""))
+            names.add(str(row.get("attempted_target") or ""))
+        entity_ids = _resolve_fixture_entity_ids(cur, names)
+
+        tp = fp = fn = 0
+        own_tp = own_fp = own_fn = 0
+        descriptor_total = descriptor_false = 0
+
+        for row in gold_rows:
+            source_id = entity_ids.get(str(row.get("source_entity") or "").strip())
+            target_id = entity_ids.get(str(row.get("target_entity") or "").strip())
+            rel_type = _normalize_rel_type(row.get("relationship_type"))
+            exists = bool(source_id and target_id and _edge_exists(cur, source_id, rel_type, target_id))
+            if exists:
+                tp += 1
+                if row.get("edge_family") == "ownership_control":
+                    own_tp += 1
+            else:
+                fn += 1
+                if row.get("edge_family") == "ownership_control":
+                    own_fn += 1
+
+        for row in negative_rows:
+            source_id = entity_ids.get(str(row.get("source_entity") or "").strip())
+            target_id = entity_ids.get(str(row.get("attempted_target") or "").strip())
+            rel_type = _normalize_rel_type(row.get("attempted_relationship_type"))
+            exists = bool(source_id and target_id and _edge_exists(cur, source_id, rel_type, target_id))
+            if exists:
+                fp += 1
+                if row.get("edge_family") == "ownership_control":
+                    own_fp += 1
+            if row.get("rejection_reason") == "descriptor_only_not_entity":
+                descriptor_total += 1
+                descriptor_false += 1 if exists else 0
+
+        precision = _safe_divide(tp, tp + fp)
+        recall = _safe_divide(tp, tp + fn)
+        own_precision = _safe_divide(own_tp, own_tp + own_fp)
+        own_recall = _safe_divide(own_tp, own_tp + own_fn)
+
+        metrics = {
+            "edge_family_micro_f1": _safe_divide(2 * precision * recall, precision + recall),
+            "ownership_control_precision": own_precision,
+            "ownership_control_recall": own_recall,
+            "descriptor_only_false_owner_rate": _safe_divide(descriptor_false, descriptor_total),
+            "gold_positive_rows_evaluated": len(gold_rows),
+            "hard_negative_rows_evaluated": len(negative_rows),
+        }
+        metrics.update(_compute_entity_resolution_metrics())
+        return metrics
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_missing_edge_recovery_metrics(
+    pg_url: str,
+    *,
+    review_stats: dict[str, Any] | None = None,
+    evaluation_top_k: int = 10,
+    max_queries_per_family: int = 100,
+) -> dict[str, Any]:
+    review_stats = review_stats or get_prediction_review_stats(pg_url)
+
+    trainer = TransETrainer()
+    if not trainer.load_embeddings_from_db(pg_url):
+        return {
+            "ownership_control_hits_at_10": 0.0,
+            "ownership_control_mrr": 0.0,
+            "intermediary_route_hits_at_10": 0.0,
+            "intermediary_route_mrr": 0.0,
+            "cyber_dependency_hits_at_10": 0.0,
+            "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
+            "missing_edge_queries_evaluated": 0,
+        }
+
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT source_entity_id, rel_type, target_entity_id
+            FROM kg_relationships
+            WHERE source_entity_id IS NOT NULL
+              AND target_entity_id IS NOT NULL
+            ORDER BY created_at ASC, id ASC
+            """
+        )
+        family_rows: dict[str, list[tuple[str, str, str]]] = {key: [] for key in MISSING_EDGE_FAMILY_GROUPS}
+        for source_entity_id, rel_type, target_entity_id in cur.fetchall():
+            if (
+                source_entity_id not in trainer.entity_to_id
+                or target_entity_id not in trainer.entity_to_id
+                or rel_type not in trainer.relation_to_id
+            ):
+                continue
+            predicted_family = _prediction_edge_family(rel_type)
+            for metric_family, edge_families in MISSING_EDGE_FAMILY_GROUPS.items():
+                if predicted_family in edge_families:
+                    family_rows[metric_family].append((str(source_entity_id), str(rel_type), str(target_entity_id)))
+                    break
+
+        metrics: dict[str, Any] = {
+            "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
+        }
+
+        total_queries = 0
+        for metric_family, edge_families in MISSING_EDGE_FAMILY_GROUPS.items():
+            hits = 0
+            reciprocal_rank_total = 0.0
+            queries = 0
+            for source_id, rel_type, target_id in family_rows.get(metric_family, [])[:max_queries_per_family]:
+                h_idx = trainer.entity_to_id.get(source_id)
+                r_idx = trainer.relation_to_id.get(rel_type)
+                t_idx = trainer.entity_to_id.get(target_id)
+                if h_idx is None or r_idx is None or t_idx is None:
+                    continue
+                queries += 1
+                total_queries += 1
+                score_vector = np.linalg.norm(
+                    trainer.entity_embeddings[h_idx] + trainer.relation_embeddings[r_idx] - trainer.entity_embeddings,
+                    axis=1,
+                )
+                score_vector[h_idx] = np.inf
+                target_score = float(score_vector[t_idx])
+                rank = int(np.sum(score_vector < target_score) + 1)
+                if rank and rank <= evaluation_top_k:
+                    hits += 1
+                if rank:
+                    reciprocal_rank_total += 1.0 / rank
+
+            metrics[f"{metric_family}_hits_at_10"] = _safe_divide(hits, queries)
+            metrics[f"{metric_family}_mrr"] = _safe_divide(reciprocal_rank_total, queries)
+            metrics[f"{metric_family}_queries_evaluated"] = queries
+
+        metrics["missing_edge_queries_evaluated"] = total_queries
+        return metrics
     finally:
         cur.close()
         conn.close()

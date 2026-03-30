@@ -18,6 +18,18 @@ interface GraphTrainingReviewPanelProps {
 }
 
 const DEFAULT_TOP_K = 12;
+const REJECTION_REASONS = [
+  "descriptor_only_not_entity",
+  "garbage_not_entity",
+  "generic_market_language",
+  "marketing_mention_not_dependency",
+  "no_actual_route",
+  "wrong_counterparty",
+  "wrong_relationship_family",
+  "wrong_target_entity",
+  "insufficient_support",
+  "duplicate_existing_fact",
+] as const;
 
 function pct(value?: number | null) {
   return `${(((value ?? 0) as number) * 100).toFixed(0)}%`;
@@ -57,8 +69,10 @@ export function GraphTrainingReviewPanel({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [edgeFamilyFilter, setEdgeFamilyFilter] = useState<string>("all");
-  const [decisions, setDecisions] = useState<Record<number, { confirmed?: boolean; notes: string }>>({});
+  const [queueScope, setQueueScope] = useState<"all" | "novel" | "existing">("all");
+  const [decisions, setDecisions] = useState<Record<number, { confirmed?: boolean; notes: string; rejectionReason?: string }>>({});
   const [bulkNotes, setBulkNotes] = useState("");
+  const [bulkRejectionReason, setBulkRejectionReason] = useState<string>("insufficient_support");
   const [autoSeededEntityIds, setAutoSeededEntityIds] = useState<Record<string, boolean>>({});
 
   const loadPanel = useCallback(async () => {
@@ -71,6 +85,7 @@ export function GraphTrainingReviewPanel({
         fetchPredictedLinkReviewQueue({
           reviewed: false,
           sourceEntityId: rootEntityId,
+          novelOnly: queueScope === "novel" ? true : queueScope === "existing" ? false : undefined,
           edgeFamily: edgeFamilyFilter === "all" ? undefined : edgeFamilyFilter,
           limit: DEFAULT_TOP_K,
         }),
@@ -82,7 +97,7 @@ export function GraphTrainingReviewPanel({
     } finally {
       setLoading(false);
     }
-  }, [edgeFamilyFilter, rootEntityId]);
+  }, [edgeFamilyFilter, queueScope, rootEntityId]);
 
   useEffect(() => {
     void loadPanel();
@@ -96,6 +111,7 @@ export function GraphTrainingReviewPanel({
           id: Number(id),
           confirmed: Boolean(value.confirmed),
           notes: value.notes.trim(),
+          rejection_reason: value.confirmed === false ? value.rejectionReason || "insufficient_support" : undefined,
         })),
     [decisions],
   );
@@ -106,6 +122,10 @@ export function GraphTrainingReviewPanel({
       [item.id]: {
         confirmed,
         notes: current[item.id]?.notes ?? "",
+        rejectionReason:
+          confirmed === false
+            ? current[item.id]?.rejectionReason || "insufficient_support"
+            : undefined,
       },
     }));
   }, []);
@@ -116,6 +136,18 @@ export function GraphTrainingReviewPanel({
       [item.id]: {
         confirmed: current[item.id]?.confirmed,
         notes,
+        rejectionReason: current[item.id]?.rejectionReason,
+      },
+    }));
+  }, []);
+
+  const setRejectionReason = useCallback((item: PredictedLinkQueueItem, rejectionReason: string) => {
+    setDecisions((current) => ({
+      ...current,
+      [item.id]: {
+        confirmed: current[item.id]?.confirmed ?? false,
+        notes: current[item.id]?.notes ?? "",
+        rejectionReason,
       },
     }));
   }, []);
@@ -175,11 +207,15 @@ export function GraphTrainingReviewPanel({
         next[item.id] = {
           confirmed,
           notes: current[item.id]?.notes || bulkNotes.trim(),
+          rejectionReason:
+            confirmed === false
+              ? current[item.id]?.rejectionReason || bulkRejectionReason
+              : undefined,
         };
       }
       return next;
     });
-  }, [bulkNotes, queue]);
+  }, [bulkNotes, bulkRejectionReason, queue]);
 
   const clearVisibleDecisions = useCallback(() => {
     setDecisions((current) => {
@@ -258,6 +294,7 @@ export function GraphTrainingReviewPanel({
       <div className="grid gap-3" style={{ marginTop: 12, gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
         {[
           { label: "Pending", value: stats?.pending_links ?? 0, tone: T.amber },
+          { label: "Novel pending", value: stats?.novel_pending_links ?? 0, tone: T.accent },
           { label: "Reviewed", value: stats?.reviewed_links ?? 0, tone: T.text },
           { label: "Confirmed", value: stats?.confirmed_links ?? 0, tone: T.green },
           { label: "Promoted", value: stats?.promoted_relationships ?? 0, tone: T.accent },
@@ -283,7 +320,7 @@ export function GraphTrainingReviewPanel({
                 Tranche B Metrics
               </div>
               <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6 }}>
-                Novel edge yield {pct(stats.missing_edge_recovery.novel_edge_yield)} · Mean review latency {ageLabel(stats.missing_edge_recovery.mean_review_latency_hours)} · P95 pending age {ageLabel(stats.missing_edge_recovery.p95_pending_age_hours)}
+                Novel edge yield {pct(stats.missing_edge_recovery.novel_edge_yield)} · Novel pending {stats.missing_edge_recovery.novel_pending_links ?? 0} · Mean review latency {ageLabel(stats.missing_edge_recovery.mean_review_latency_hours)} · P95 pending age {ageLabel(stats.missing_edge_recovery.p95_pending_age_hours)}
               </div>
             </div>
             <div style={{ fontSize: FS.sm, color: T.muted }}>
@@ -305,6 +342,17 @@ export function GraphTrainingReviewPanel({
                   {family.edge_family} · pending {family.pending_links}
                 </option>
               ))}
+            </select>
+            <label style={{ fontSize: FS.sm, color: T.muted }}>Queue scope</label>
+            <select
+              value={queueScope}
+              onChange={(event) => setQueueScope(event.target.value as "all" | "novel" | "existing")}
+              className="rounded border"
+              style={{ padding: "6px 10px", fontSize: FS.sm, color: T.text, background: T.surface, borderColor: T.border }}
+            >
+              <option value="all">All queued</option>
+              <option value="novel">Novel only</option>
+              <option value="existing">Existing-edge only</option>
             </select>
           </div>
         </div>
@@ -375,6 +423,18 @@ export function GraphTrainingReviewPanel({
           className="w-full rounded border"
           style={{ marginTop: 10, padding: 10, fontSize: FS.sm, color: T.text, background: T.surface, borderColor: T.border, resize: "vertical" }}
         />
+        <select
+          value={bulkRejectionReason}
+          onChange={(event) => setBulkRejectionReason(event.target.value)}
+          className="w-full rounded border"
+          style={{ marginTop: 10, padding: "10px 12px", fontSize: FS.sm, color: T.text, background: T.surface, borderColor: T.border }}
+        >
+          {REJECTION_REASONS.map((reason) => (
+            <option key={reason} value={reason}>
+              Reject reason: {reason}
+            </option>
+          ))}
+        </select>
       </div>
 
       {loading ? (
@@ -401,6 +461,18 @@ export function GraphTrainingReviewPanel({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}14` }}>
                       {scoreLabel(item.score)}
+                    </span>
+                    <span
+                      className="rounded-full"
+                      style={{
+                        padding: "4px 8px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: item.edge_already_exists ? T.amber : T.green,
+                        background: item.edge_already_exists ? `${T.amber}14` : `${T.green}14`,
+                      }}
+                    >
+                      {item.edge_already_exists ? "Existing graph fact" : "Novel candidate"}
                     </span>
                     <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: T.muted, background: T.surface, border: `1px solid ${T.border}` }}>
                       <span className="inline-flex items-center gap-1">
@@ -440,6 +512,20 @@ export function GraphTrainingReviewPanel({
                   className="w-full rounded border"
                   style={{ marginTop: 10, padding: 10, fontSize: FS.sm, color: T.text, background: T.surface, borderColor: T.border, resize: "vertical" }}
                 />
+                {selection?.confirmed === false && (
+                  <select
+                    value={selection?.rejectionReason ?? "insufficient_support"}
+                    onChange={(event) => setRejectionReason(item, event.target.value)}
+                    className="w-full rounded border"
+                    style={{ marginTop: 10, padding: "10px 12px", fontSize: FS.sm, color: T.text, background: T.surface, borderColor: T.border }}
+                  >
+                    {REJECTION_REASONS.map((reason) => (
+                      <option key={reason} value={reason}>
+                        Reject reason: {reason}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             );
           })}

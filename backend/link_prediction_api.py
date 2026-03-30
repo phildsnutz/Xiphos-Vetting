@@ -260,7 +260,14 @@ def review_predicted_link(link_id: int):
         data = request.get_json() or {}
         summary = review_predicted_links(
             pg_url,
-            [{"id": link_id, "confirmed": bool(data.get("confirmed", False)), "notes": data.get("notes")}],
+            [
+                {
+                    "id": link_id,
+                    "confirmed": bool(data.get("confirmed", False)),
+                    "notes": data.get("notes"),
+                    "rejection_reason": data.get("rejection_reason"),
+                }
+            ],
             reviewed_by=user_id,
         )
         item = summary["items"][0]
@@ -268,6 +275,7 @@ def review_predicted_link(link_id: int):
             {
                 "id": int(item["id"]),
                 "status": item["status"],
+                "rejection_reason": item.get("rejection_reason"),
                 "relationship_created": bool(item["relationship_created"]),
                 "promoted_relationship_id": item.get("promoted_relationship_id"),
                 "reviewed_by": user_id,
@@ -315,6 +323,7 @@ def get_predicted_links_review_queue():
             pg_url,
             reviewed=_parse_bool(request.args.get("reviewed", "")),
             analyst_confirmed=_parse_bool(request.args.get("confirmed", "")),
+            novel_only=_parse_bool(request.args.get("novel_only", "")),
             edge_family=str(request.args.get("edge_family", "")).strip() or None,
             model_version=str(request.args.get("model_version", "")).strip() or None,
             source_entity_id=str(request.args.get("source_entity_id", "")).strip() or None,

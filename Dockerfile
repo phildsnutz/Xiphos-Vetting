@@ -35,6 +35,7 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 COPY ml/__init__.py ./ml/__init__.py
 COPY ml/inference.py ./ml/inference.py
 COPY scripts/ ./scripts/
+COPY fixtures/ ./fixtures/
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
