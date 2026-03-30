@@ -539,6 +539,7 @@ def full_sync_from_postgres() -> Dict[str, Any]:
     start_time = time.time()
     entities_synced = 0
     relationships_synced = 0
+    error: str | None = None
 
     try:
         # Read entities from the SQLite knowledge graph database.
@@ -561,14 +562,17 @@ def full_sync_from_postgres() -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error during full sync: {e}", exc_info=True)
+        error = str(e)
 
     duration_ms = (time.time() - start_time) * 1000
     logger.info(f"Full sync complete: {entities_synced} entities, {relationships_synced} relationships ({duration_ms:.0f}ms)")
 
     return {
+        "status": "failed" if error else "success",
         "entities_synced": entities_synced,
         "relationships_synced": relationships_synced,
         "duration_ms": duration_ms,
+        "error": error,
     }
 
 
@@ -585,6 +589,7 @@ def incremental_sync(since_timestamp: str) -> Dict[str, Any]:
     start_time = time.time()
     entities_synced = 0
     relationships_synced = 0
+    error: str | None = None
 
     try:
         # Read recent entities from the SQLite knowledge graph database.
@@ -612,14 +617,17 @@ def incremental_sync(since_timestamp: str) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error during incremental sync: {e}")
+        error = str(e)
 
     duration_ms = (time.time() - start_time) * 1000
     logger.info(f"Incremental sync complete: {entities_synced} entities, {relationships_synced} relationships ({duration_ms:.0f}ms)")
 
     return {
+        "status": "failed" if error else "success",
         "entities_synced": entities_synced,
         "relationships_synced": relationships_synced,
         "duration_ms": duration_ms,
+        "error": error,
     }
 
 

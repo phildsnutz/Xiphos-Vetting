@@ -403,25 +403,50 @@ def test_ingest_enrichment_to_graph_models_case_input_relationships(tmp_path, mo
             "name": "Vector Mission Software",
             "country": "US",
             "profile": "supplier_cyber_trust",
-            "ownership": {"shell_layers": 2, "pep_connection": True},
+            "ownership": {
+                "shell_layers": 2,
+                "pep_connection": True,
+                "parent_chain": ["Vector Mission Holdings"],
+                "financing_entities": ["North Harbor Capital"],
+                "payment_banks": ["Atlantic Settlement Bank"],
+            },
             "seed_metadata": {
                 "product_terms": [
                     "mission firmware",
                     "remote update service",
                     "telemetry gateway",
-                ]
+                ],
+                "network_providers": ["Orbital Mesh Telecom"],
+                "service_providers": ["Harbor Patch Signing Service"],
+                "facilities": ["Vector Mission West Integration Lab"],
+                "component_suppliers": [
+                    {"supplier": "Beacon Firmware Works", "component": "secure boot module"},
+                ],
             },
             "export_authorization": {
                 "destination_country": "AE",
                 "destination_company": "Desert Trade Hub",
                 "end_use_summary": "Regional distributor support with onward delivery not yet resolved",
+                "transit_countries": ["NL", "AE"],
             },
         },
     )
 
-    assert stats["relationships_created"] >= 7
+    assert stats["relationships_created"] >= 12
 
     summary = graph_ingest.get_vendor_graph_summary("case-modeled", depth=2)
     relationship_types = {rel["rel_type"] for rel in summary["relationships"]}
 
-    assert {"owned_by", "led_by", "supplies_component", "depends_on_service", "depends_on_network", "distributed_by", "ships_via"}.issubset(relationship_types)
+    assert {
+        "owned_by",
+        "led_by",
+        "backed_by",
+        "routes_payment_through",
+        "supplies_component",
+        "depends_on_service",
+        "depends_on_network",
+        "distributed_by",
+        "ships_via",
+        "operates_facility",
+        "integrated_into",
+    }.issubset(relationship_types)

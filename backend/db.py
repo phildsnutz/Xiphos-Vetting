@@ -18,6 +18,7 @@ from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
 from runtime_paths import get_main_db_path, get_secure_artifacts_dir
+from event_extraction import compute_report_hash
 
 
 def _safe_json_loads(value):
@@ -27,7 +28,6 @@ def _safe_json_loads(value):
     if isinstance(value, (dict, list)):
         return value
     return json.loads(value)
-from event_extraction import compute_report_hash
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +418,26 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_by ON graph_workspaces(created_by);
             CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_at ON graph_workspaces(created_at);
+
+            CREATE TABLE IF NOT EXISTS neo4j_sync_jobs (
+                job_id TEXT PRIMARY KEY,
+                sync_kind TEXT NOT NULL DEFAULT 'full',
+                status TEXT NOT NULL DEFAULT 'queued',
+                since_timestamp TEXT,
+                requested_by TEXT DEFAULT '',
+                requested_by_email TEXT DEFAULT '',
+                entities_synced INTEGER NOT NULL DEFAULT 0,
+                relationships_synced INTEGER NOT NULL DEFAULT 0,
+                duration_ms REAL NOT NULL DEFAULT 0,
+                error TEXT,
+                metadata JSON,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                started_at TEXT,
+                completed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_neo4j_sync_jobs_status ON neo4j_sync_jobs(status);
+            CREATE INDEX IF NOT EXISTS idx_neo4j_sync_jobs_created ON neo4j_sync_jobs(created_at);
         """)
 
         for statement in (
@@ -1623,6 +1643,174 @@ def get_monitor_config(key: str, default: str = "") -> str:
     with get_conn() as conn:
         row = conn.execute("SELECT value FROM monitor_config WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
+
+
+# ---- Neo4j sync jobs ----
+
+def create_neo4j_sync_job(
+    job_id: str,
+    *,
+    sync_kind: str = "full",
+    since_timestamp: str = "",
+    requested_by: str = "",
+    requested_by_email: str = "",
+    metadata: dict | None = None,
+    status: str = "queued",
+) -> str:
+    """Create a durable Neo4j sync job record."""
+    started_at = "datetime('now')" if status == "running" else "NULL"
+    with get_conn() as conn:
+        conn.execute(
+            f"""
+            INSERT INTO neo4j_sync_jobs (
+                job_id,
+                sync_kind,
+                status,
+                since_timestamp,
+                requested_by,
+                requested_by_email,
+                metadata,
+                started_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, {started_at})
+            """,
+            (
+                job_id,
+                sync_kind,
+                status,
+                since_timestamp or None,
+                requested_by or "",
+                requested_by_email or "",
+                json.dumps(metadata or {}),
+            ),
+        )
+    return job_id
+
+
+def start_neo4j_sync_job(job_id: str) -> bool:
+    """Mark a Neo4j sync job as running."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE neo4j_sync_jobs
+            SET status = 'running',
+                started_at = COALESCE(started_at, datetime('now')),
+                error = NULL
+            WHERE job_id = ?
+            """,
+            (job_id,),
+        )
+        return cursor.rowcount > 0
+
+
+def complete_neo4j_sync_job(
+    job_id: str,
+    *,
+    entities_synced: int,
+    relationships_synced: int,
+    duration_ms: float,
+    metadata: dict | None = None,
+) -> bool:
+    """Mark a Neo4j sync job as completed."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE neo4j_sync_jobs
+            SET status = 'completed',
+                entities_synced = ?,
+                relationships_synced = ?,
+                duration_ms = ?,
+                metadata = ?,
+                completed_at = datetime('now')
+            WHERE job_id = ?
+            """,
+            (
+                int(entities_synced or 0),
+                int(relationships_synced or 0),
+                float(duration_ms or 0),
+                json.dumps(metadata or {}),
+                job_id,
+            ),
+        )
+        return cursor.rowcount > 0
+
+
+def fail_neo4j_sync_job(
+    job_id: str,
+    *,
+    error: str,
+    duration_ms: float = 0,
+    metadata: dict | None = None,
+) -> bool:
+    """Mark a Neo4j sync job as failed."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE neo4j_sync_jobs
+            SET status = 'failed',
+                duration_ms = ?,
+                error = ?,
+                metadata = ?,
+                completed_at = datetime('now')
+            WHERE job_id = ?
+            """,
+            (
+                float(duration_ms or 0),
+                error,
+                json.dumps(metadata or {}),
+                job_id,
+            ),
+        )
+        return cursor.rowcount > 0
+
+
+def get_neo4j_sync_job(job_id: str) -> dict | None:
+    """Fetch a Neo4j sync job by ID."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM neo4j_sync_jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["metadata"] = _safe_json_loads(result.get("metadata")) or {}
+        return result
+
+
+def get_latest_neo4j_sync_job() -> dict | None:
+    """Fetch the most recent Neo4j sync job."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM neo4j_sync_jobs
+            ORDER BY created_at DESC, job_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["metadata"] = _safe_json_loads(result.get("metadata")) or {}
+        return result
+
+
+def get_active_neo4j_sync_job() -> dict | None:
+    """Fetch the newest queued or running Neo4j sync job."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM neo4j_sync_jobs
+            WHERE status IN ('queued', 'running')
+            ORDER BY created_at DESC, job_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["metadata"] = _safe_json_loads(result.get("metadata")) or {}
+        return result
 
 
 def set_monitor_config(key: str, value: str) -> None:

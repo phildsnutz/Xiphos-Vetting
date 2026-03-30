@@ -95,7 +95,22 @@ def probe_neo4j_health(base_url: str, timeout: int) -> dict[str, Any]:
 
 
 def run_full_sync(base_url: str, headers: dict[str, str], timeout: int) -> dict[str, Any]:
-    return _get_json(base_url, "/api/neo4j/sync", headers=headers, method="POST", timeout=timeout)
+    initial = _get_json(base_url, "/api/neo4j/sync", headers=headers, method="POST", timeout=min(timeout, 30))
+    job_id = str(initial.get("job_id") or "")
+    if not job_id:
+        return initial
+
+    import time
+
+    started = time.time()
+    while True:
+        status = _get_json(base_url, f"/api/neo4j/sync/{job_id}", headers=headers, timeout=min(timeout, 30))
+        state = str(status.get("status") or "").strip().lower()
+        if state in {"completed", "failed"}:
+            return status
+        if (time.time() - started) >= timeout:
+            raise RuntimeError(f"neo4j sync job {job_id} timed out after {timeout}s")
+        time.sleep(2)
 
 
 def run_gauntlet(args: argparse.Namespace) -> dict[str, Any]:

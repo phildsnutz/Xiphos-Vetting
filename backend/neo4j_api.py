@@ -9,9 +9,10 @@ JWT token in Authorization header.
 import logging
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 
 from auth import require_auth
+from neo4j_sync_scheduler import get_neo4j_sync_scheduler
 from neo4j_integration import (
     is_neo4j_available,
     full_sync_from_postgres,
@@ -30,6 +31,29 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 neo4j_bp = Blueprint("neo4j", __name__, url_prefix="/api/neo4j")
+
+
+def _serialize_sync_job(job: dict, *, status_code: int = 200):
+    return jsonify(
+        {
+            "job_id": job.get("job_id"),
+            "sync_kind": job.get("sync_kind"),
+            "status": job.get("status"),
+            "since_timestamp": job.get("since_timestamp"),
+            "entities_synced": int(job.get("entities_synced") or 0),
+            "relationships_synced": int(job.get("relationships_synced") or 0),
+            "duration_ms": float(job.get("duration_ms") or 0),
+            "error": job.get("error"),
+            "created_at": job.get("created_at"),
+            "started_at": job.get("started_at"),
+            "completed_at": job.get("completed_at"),
+            "requested_by": job.get("requested_by") or "",
+            "requested_by_email": job.get("requested_by_email") or "",
+            "metadata": job.get("metadata") or {},
+            "status_url": f"/api/neo4j/sync/{job.get('job_id')}",
+            "reused_existing_job": bool(job.get("reused_existing_job")),
+        }
+    ), status_code
 
 
 # Health check endpoint (no auth required)
@@ -59,23 +83,33 @@ def sync_full():
         logger.error("Neo4j not available for sync")
         return jsonify({"error": "Neo4j not available"}), 503
 
-    try:
-        logger.info("Starting full sync from PostgreSQL to Neo4j")
-        result = full_sync_from_postgres()
+    body = request.get_json(silent=True) or {}
+    if body.get("sync"):
+        try:
+            logger.info("Starting full sync from PostgreSQL to Neo4j")
+            result = full_sync_from_postgres()
+            if result.get("error"):
+                return jsonify({"error": result["error"]}), 500
+            return jsonify(
+                {
+                    "status": "success",
+                    "entities_synced": result.get("entities_synced", 0),
+                    "relationships_synced": result.get("relationships_synced", 0),
+                    "duration_ms": result.get("duration_ms", 0),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            ), 200
+        except Exception as e:
+            logger.error(f"Full sync failed: {e}")
+            return jsonify({"error": str(e)}), 500
 
-        return jsonify(
-            {
-                "status": "success",
-                "entities_synced": result.get("entities_synced", 0),
-                "relationships_synced": result.get("relationships_synced", 0),
-                "duration_ms": result.get("duration_ms", 0),
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ), 200
-
-    except Exception as e:
-        logger.error(f"Full sync failed: {e}")
-        return jsonify({"error": str(e)}), 500
+    scheduler = get_neo4j_sync_scheduler()
+    job = scheduler.queue_full_sync(
+        requested_by=str((getattr(g, "user", {}) or {}).get("sub") or ""),
+        requested_by_email=str((getattr(g, "user", {}) or {}).get("email") or ""),
+        metadata={"requested_via": "api"},
+    )
+    return _serialize_sync_job(job, status_code=202)
 
 
 @neo4j_bp.route("/sync/incremental", methods=["POST"])
@@ -103,23 +137,56 @@ def sync_incremental():
         if not since_timestamp:
             return jsonify({"error": "Missing 'since' timestamp in request body"}), 400
 
-        logger.info(f"Starting incremental sync since {since_timestamp}")
-        result = incremental_sync(since_timestamp)
+        if data.get("sync"):
+            logger.info(f"Starting incremental sync since {since_timestamp}")
+            result = incremental_sync(since_timestamp)
+            if result.get("error"):
+                return jsonify({"error": result["error"]}), 500
+            return jsonify(
+                {
+                    "status": "success",
+                    "entities_synced": result.get("entities_synced", 0),
+                    "relationships_synced": result.get("relationships_synced", 0),
+                    "duration_ms": result.get("duration_ms", 0),
+                    "since": since_timestamp,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            ), 200
 
-        return jsonify(
-            {
-                "status": "success",
-                "entities_synced": result.get("entities_synced", 0),
-                "relationships_synced": result.get("relationships_synced", 0),
-                "duration_ms": result.get("duration_ms", 0),
-                "since": since_timestamp,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ), 200
+        scheduler = get_neo4j_sync_scheduler()
+        job = scheduler.queue_incremental_sync(
+            since_timestamp,
+            requested_by=str((getattr(g, "user", {}) or {}).get("sub") or ""),
+            requested_by_email=str((getattr(g, "user", {}) or {}).get("email") or ""),
+            metadata={"requested_via": "api"},
+        )
+        return _serialize_sync_job(job, status_code=202)
 
     except Exception as e:
         logger.error(f"Incremental sync failed: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@neo4j_bp.route("/sync/<job_id>", methods=["GET"])
+@require_auth("graph:read")
+def get_sync_status(job_id):
+    """Poll a Neo4j sync job."""
+    scheduler = get_neo4j_sync_scheduler()
+    job = scheduler.get_status(job_id)
+    if not job:
+        return jsonify({"error": "Sync job not found"}), 404
+    return _serialize_sync_job(job)
+
+
+@neo4j_bp.route("/sync/latest", methods=["GET"])
+@require_auth("graph:read")
+def get_latest_sync_status():
+    """Return the newest Neo4j sync job."""
+    scheduler = get_neo4j_sync_scheduler()
+    job = scheduler.get_latest_status()
+    if not job:
+        return jsonify({"error": "No sync jobs found"}), 404
+    return _serialize_sync_job(job)
 
 
 @neo4j_bp.route("/network/<entity_id>", methods=["GET"])

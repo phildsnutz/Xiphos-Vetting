@@ -26,10 +26,19 @@ def test_neo4j_sync_respects_shared_dev_mode_auth(monkeypatch):
     neo4j_api = _reload_fresh("neo4j_api")
 
     monkeypatch.setattr(neo4j_api, "is_neo4j_available", lambda: True)
+    scheduler = neo4j_api.get_neo4j_sync_scheduler()
     monkeypatch.setattr(
-        neo4j_api,
-        "full_sync_from_postgres",
-        lambda: {"entities_synced": 4, "relationships_synced": 3, "duration_ms": 12},
+        scheduler,
+        "queue_full_sync",
+        lambda **kwargs: {
+            "job_id": "job-123",
+            "sync_kind": "full",
+            "status": "queued",
+            "metadata": {},
+            "entities_synced": 0,
+            "relationships_synced": 0,
+            "duration_ms": 0,
+        },
     )
 
     app = Flask(__name__)
@@ -37,6 +46,39 @@ def test_neo4j_sync_respects_shared_dev_mode_auth(monkeypatch):
     client = app.test_client()
 
     response = client.post("/api/neo4j/sync")
+
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert payload["status"] == "queued"
+    assert payload["job_id"] == "job-123"
+    assert payload["status_url"].endswith("/api/neo4j/sync/job-123")
+
+
+def test_neo4j_sync_route_supports_opt_in_blocking_mode(monkeypatch):
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+
+    _reload_fresh("auth")
+    neo4j_api = _reload_fresh("neo4j_api")
+
+    monkeypatch.setattr(neo4j_api, "is_neo4j_available", lambda: True)
+    monkeypatch.setattr(
+        neo4j_api,
+        "full_sync_from_postgres",
+        lambda: {
+            "status": "success",
+            "entities_synced": 4,
+            "relationships_synced": 3,
+            "duration_ms": 12,
+            "error": None,
+        },
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(neo4j_api.neo4j_bp)
+    client = app.test_client()
+
+    response = client.post("/api/neo4j/sync", json={"sync": True})
 
     assert response.status_code == 200
     payload = response.get_json()

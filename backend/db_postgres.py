@@ -649,6 +649,26 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_by ON graph_workspaces(created_by);
             CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_at ON graph_workspaces(created_at);
+
+            CREATE TABLE IF NOT EXISTS neo4j_sync_jobs (
+                job_id TEXT PRIMARY KEY,
+                sync_kind TEXT NOT NULL DEFAULT 'full',
+                status TEXT NOT NULL DEFAULT 'queued',
+                since_timestamp TEXT,
+                requested_by TEXT DEFAULT '',
+                requested_by_email TEXT DEFAULT '',
+                entities_synced INTEGER NOT NULL DEFAULT 0,
+                relationships_synced INTEGER NOT NULL DEFAULT 0,
+                duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+                error TEXT,
+                metadata JSONB,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_neo4j_sync_jobs_status ON neo4j_sync_jobs(status);
+            CREATE INDEX IF NOT EXISTS idx_neo4j_sync_jobs_created ON neo4j_sync_jobs(created_at);
         """)
 
         # Transaction authorization tables

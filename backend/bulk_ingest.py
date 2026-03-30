@@ -289,10 +289,28 @@ class HeliosClient:
         resp = self.session.post(
             f"{self.host}/api/neo4j/sync",
             json={},
-            timeout=60,
+            timeout=30,
         )
         resp.raise_for_status()
-        return resp.json()
+        payload = resp.json()
+        job_id = str(payload.get("job_id") or "")
+        if not job_id:
+            return payload
+
+        started = time.time()
+        while True:
+            status_resp = self.session.get(
+                f"{self.host}/api/neo4j/sync/{job_id}",
+                timeout=30,
+            )
+            status_resp.raise_for_status()
+            status_payload = status_resp.json()
+            status = str(status_payload.get("status") or "").strip().lower()
+            if status in {"completed", "failed"}:
+                return status_payload
+            if time.time() - started > 300:
+                raise TimeoutError(f"Neo4j sync job {job_id} exceeded 300s")
+            time.sleep(2)
 
     def get_graph_stats(self) -> dict:
         """GET /api/graph/stats"""

@@ -62,7 +62,17 @@
         "named_beneficial_owner_known": false,
         "ownership_pct_resolved": 0.25,
         "shell_layers": 3,
-        "pep_connection": true
+        "pep_connection": true,
+        "parent_chain": [
+          "Beacon Strategic Holdings",
+          "North Harbor Capital Partners"
+        ],
+        "financing_entities": [
+          {"name": "Sentinel Growth Capital", "entity_type": "holding_company"}
+        ],
+        "payment_banks": [
+          {"name": "Atlantic Settlement Bank", "entity_type": "bank"}
+        ]
       },
       "data_quality": {
         "has_lei": false,
@@ -121,10 +131,19 @@
         "named_beneficial_owner_known": false,
         "ownership_pct_resolved": 0.3,
         "shell_layers": 2,
-        "pep_connection": false
+        "pep_connection": false,
+        "parent_chain": [
+          "Vector Mission Holdings"
+        ]
       },
       "seed_metadata": {
-        "product_terms": ["mission firmware", "remote update service", "telemetry gateway"]
+        "product_terms": ["mission firmware", "remote update service", "telemetry gateway"],
+        "network_providers": ["Orbital Mesh Telecom"],
+        "service_providers": ["Harbor Patch Signing Service"],
+        "facilities": ["Vector Mission West Integration Lab"],
+        "component_suppliers": [
+          {"supplier": "Beacon Firmware Works", "component": "secure boot module"}
+        ]
       }
     },
     "expected_graph": {
@@ -166,7 +185,13 @@
         "named_beneficial_owner_known": false,
         "ownership_pct_resolved": 0.25,
         "shell_layers": 2,
-        "pep_connection": false
+        "pep_connection": false,
+        "parent_chain": [
+          "Northern Channel Holdings"
+        ],
+        "payment_banks": [
+          {"name": "Gulf Trade Settlement Bank", "entity_type": "bank"}
+        ]
       },
       "export_authorization": {
         "request_type": "item_transfer",
@@ -174,7 +199,11 @@
         "destination_company": "Desert Trade Hub",
         "classification_guess": "EAR99",
         "item_or_data_summary": "Commercial edge compute gateway",
-        "end_use_summary": "Regional distributor support with onward delivery not yet resolved"
+        "end_use_summary": "Regional distributor support with onward delivery not yet resolved",
+        "transit_countries": ["NL", "AE"]
+      },
+      "seed_metadata": {
+        "distributors": ["Desert Trade Hub"]
       }
     },
     "expected_graph": {

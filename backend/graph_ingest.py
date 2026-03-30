@@ -628,6 +628,19 @@ def _ingest_modeled_case_input_relationships(
         for term in (seed_metadata.get("product_terms") or [])
         if str(term).strip()
     ]
+    parent_chain = _normalize_modeled_nodes(ownership.get("parent_chain"), "holding_company")
+    financing_entities = _normalize_modeled_nodes(ownership.get("financing_entities"), "holding_company")
+    payment_banks = _normalize_modeled_nodes(ownership.get("payment_banks"), "bank")
+    network_providers = _normalize_modeled_nodes(seed_metadata.get("network_providers"), "telecom_provider")
+    service_providers = _normalize_modeled_nodes(seed_metadata.get("service_providers"), "service")
+    facilities = _normalize_modeled_nodes(seed_metadata.get("facilities"), "facility")
+    distributors = _normalize_modeled_nodes(seed_metadata.get("distributors"), "distributor")
+    transit_points = [
+        str(value).strip().upper()
+        for value in (export_auth.get("transit_countries") or [])
+        if str(value).strip()
+    ]
+    component_suppliers = seed_metadata.get("component_suppliers") if isinstance(seed_metadata.get("component_suppliers"), list) else []
 
     modeled_relationships: list[dict[str, Any]] = []
 
@@ -683,6 +696,77 @@ def _ingest_modeled_case_input_relationships(
                 )
             )
 
+    if parent_chain:
+        previous_name = vendor_name
+        previous_type = "company"
+        for index, parent in enumerate(parent_chain, start=1):
+            modeled_relationships.append(
+                _modeled_case_relationship(
+                    rel_type=REL_OWNED_BY,
+                    source_entity=previous_name,
+                    source_entity_type=previous_type,
+                    target_entity=parent["name"],
+                    target_entity_type=parent.get("entity_type") or "holding_company",
+                    country=parent.get("country") or "",
+                    evidence=parent.get("evidence")
+                    or (
+                        f"Case input includes an explicit upstream ownership chain node at level {index}; "
+                        "the node is retained as a modeled parent/control edge."
+                    ),
+                    claim_value=f"modeled_parent_chain_{index}",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "ownership.parent_chain",
+                        "chain_index": index,
+                    },
+                    confidence=parent.get("confidence") or max(0.6, 0.82 - ((index - 1) * 0.04)),
+                )
+            )
+            previous_name = parent["name"]
+            previous_type = parent.get("entity_type") or "holding_company"
+
+    for index, financier in enumerate(financing_entities, start=1):
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_BACKED_BY,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=financier["name"],
+                target_entity_type=financier.get("entity_type") or "holding_company",
+                country=financier.get("country") or "",
+                evidence=financier.get("evidence")
+                or "Case input names a financing or sponsor entity that should remain visible in the ownership/control graph.",
+                claim_value=f"modeled_financing_entity_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "ownership.financing_entities",
+                    "entity_index": index,
+                },
+                confidence=financier.get("confidence") or 0.72,
+            )
+        )
+
+    for index, bank in enumerate(payment_banks, start=1):
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_ROUTES_PAYMENT_THROUGH,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=bank["name"],
+                target_entity_type=bank.get("entity_type") or "bank",
+                country=bank.get("country") or "",
+                evidence=bank.get("evidence")
+                or "Case input names a payment or settlement intermediary that should remain explicit in the graph.",
+                claim_value=f"modeled_payment_bank_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "ownership.payment_banks",
+                    "entity_index": index,
+                },
+                confidence=bank.get("confidence") or 0.7,
+            )
+        )
+
     destination_country = str(export_auth.get("destination_country") or "").strip().upper()
     destination_company = str(export_auth.get("destination_company") or "").strip()
     export_context = " ".join(
@@ -717,6 +801,26 @@ def _ingest_modeled_case_input_relationships(
                 confidence=0.74,
             )
         )
+    for index, distributor in enumerate(distributors, start=1):
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_DISTRIBUTED_BY,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=distributor["name"],
+                target_entity_type=distributor.get("entity_type") or "distributor",
+                country=distributor.get("country") or destination_country,
+                evidence=distributor.get("evidence")
+                or "Seed metadata names an intermediary or reseller that should remain visible in the trade path.",
+                claim_value=f"modeled_seed_distributor_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "seed_metadata.distributors",
+                    "entity_index": index,
+                },
+                confidence=distributor.get("confidence") or 0.72,
+            )
+        )
     if destination_country or export_context:
         route_suffix = destination_country or "unresolved-destination"
         modeled_relationships.append(
@@ -741,6 +845,31 @@ def _ingest_modeled_case_input_relationships(
                 confidence=0.7,
             )
         )
+    previous_route_name = None
+    for index, transit_country in enumerate(transit_points, start=1):
+        route_name = f"{vendor_name} modeled transit via {transit_country}"
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_SHIPS_VIA,
+                source_entity=previous_route_name or vendor_name,
+                source_entity_type="shipment_route" if previous_route_name else "company",
+                target_entity=route_name,
+                target_entity_type="shipment_route",
+                country=transit_country,
+                evidence=(
+                    "Case input includes a transit-country chain, so the shipment route is modeled as a multi-hop logistics path."
+                ),
+                claim_value=f"modeled_transit_route_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "export_authorization.transit_countries",
+                    "chain_index": index,
+                    "transit_country": transit_country,
+                },
+                confidence=max(0.62, 0.74 - ((index - 1) * 0.03)),
+            )
+        )
+        previous_route_name = route_name
 
     if profile == "supplier_cyber_trust" and product_terms:
         component_term = next(
@@ -863,6 +992,116 @@ def _ingest_modeled_case_input_relationships(
                     confidence=0.7,
                 )
             )
+    for index, provider in enumerate(network_providers, start=1):
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_DEPENDS_ON_NETWORK,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=provider["name"],
+                target_entity_type=provider.get("entity_type") or "telecom_provider",
+                country=provider.get("country") or "",
+                evidence=provider.get("evidence")
+                or "Seed metadata names a network dependency that should remain explicit in the cyber supply-chain graph.",
+                claim_value=f"modeled_network_provider_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "seed_metadata.network_providers",
+                    "entity_index": index,
+                },
+                confidence=provider.get("confidence") or 0.72,
+            )
+        )
+    for index, provider in enumerate(service_providers, start=1):
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_DEPENDS_ON_SERVICE,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=provider["name"],
+                target_entity_type=provider.get("entity_type") or "service",
+                country=provider.get("country") or "",
+                evidence=provider.get("evidence")
+                or "Seed metadata names a service dependency that should remain explicit in the cyber supply-chain graph.",
+                claim_value=f"modeled_service_provider_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "seed_metadata.service_providers",
+                    "entity_index": index,
+                },
+                confidence=provider.get("confidence") or 0.72,
+            )
+        )
+    for index, facility in enumerate(facilities, start=1):
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_OPERATES_FACILITY,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=facility["name"],
+                target_entity_type=facility.get("entity_type") or "facility",
+                country=facility.get("country") or "",
+                evidence=facility.get("evidence")
+                or "Seed metadata names a facility or hosted site that should remain explicit in the supply-chain graph.",
+                claim_value=f"modeled_facility_{index}",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "seed_metadata.facilities",
+                    "entity_index": index,
+                },
+                confidence=facility.get("confidence") or 0.7,
+            )
+        )
+    for index, supplier in enumerate(component_suppliers, start=1):
+        if not isinstance(supplier, dict):
+            continue
+        supplier_name = str(supplier.get("supplier") or supplier.get("name") or "").strip()
+        component_name = str(supplier.get("component") or "").strip()
+        if not supplier_name or not component_name:
+            continue
+        subsystem_name = str(supplier.get("subsystem") or f"{vendor_name} mission stack").strip()
+        supplier_type = str(supplier.get("supplier_type") or "company").strip().lower() or "company"
+        supplier_country = str(supplier.get("country") or "").strip()
+        supplier_evidence = str(supplier.get("evidence") or "").strip()
+        supplier_confidence = float(supplier.get("confidence") or 0.74)
+        modeled_relationships.extend(
+            [
+                _modeled_case_relationship(
+                    rel_type=REL_SUPPLIES_COMPONENT,
+                    source_entity=supplier_name,
+                    source_entity_type=supplier_type,
+                    target_entity=component_name,
+                    target_entity_type="component",
+                    country=supplier_country,
+                    evidence=supplier_evidence
+                    or "Seed metadata names a fourth-party component supplier that should remain explicit in the graph.",
+                    claim_value=f"modeled_component_supplier_{index}",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.component_suppliers",
+                        "entity_index": index,
+                    },
+                    confidence=supplier_confidence,
+                ),
+                _modeled_case_relationship(
+                    rel_type=REL_INTEGRATED_INTO,
+                    source_entity=component_name,
+                    source_entity_type="component",
+                    target_entity=subsystem_name,
+                    target_entity_type="subsystem",
+                    country=supplier_country,
+                    evidence=supplier_evidence
+                    or "Fourth-party supplied component is modeled as integrated into the vendor subsystem.",
+                    claim_value=f"modeled_component_integration_{index}",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.component_suppliers",
+                        "entity_index": index,
+                    },
+                    confidence=max(0.65, supplier_confidence - 0.02),
+                ),
+            ]
+        )
 
     seen_keys: set[tuple[str, str, str]] = set()
     for rel in modeled_relationships:
@@ -907,6 +1146,36 @@ def _modeled_case_relationship(
         "authority_level": "analyst_curated_fixture",
         "access_model": "case_input",
     }
+
+
+def _normalize_modeled_nodes(values: Any, default_type: str) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    if not values:
+        return nodes
+    if isinstance(values, (str, dict)):
+        values = [values]
+    for item in values:
+        if isinstance(item, str):
+            name = item.strip()
+            if name:
+                nodes.append({"name": name, "entity_type": default_type})
+            continue
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("entity") or item.get("company") or "").strip()
+        if not name:
+            continue
+        confidence_value = item.get("confidence")
+        nodes.append(
+            {
+                "name": name,
+                "entity_type": str(item.get("entity_type") or default_type).strip().lower() or default_type,
+                "country": str(item.get("country") or "").strip(),
+                "evidence": str(item.get("evidence") or "").strip(),
+                "confidence": float(confidence_value) if confidence_value not in (None, "") else None,
+            }
+        )
+    return nodes
 
 
 def _extract_aliases(vendor_name: str, report: dict) -> list[str]:
