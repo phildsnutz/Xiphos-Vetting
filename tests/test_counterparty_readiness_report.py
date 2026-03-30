@@ -42,6 +42,7 @@ def test_build_company_command_includes_common_flags():
         max_ai_seconds=90,
         max_warnings=2,
         wait_for_ready_seconds=120,
+        step_timeout_seconds=600,
         report_dir=str(ROOT / "tmp" / "readiness"),
     )
     command = module.build_company_command(args, "Yorktown Systems Group")
@@ -51,6 +52,23 @@ def test_build_company_command_includes_common_flags():
     assert "--skip-ai" in command
     assert "--skip-assistant" in command
     assert "--print-json" in command
+
+
+def test_run_step_marks_timeout_and_ignores_stale_artifacts(tmp_path, monkeypatch):
+    artifact_dir = tmp_path / "artifacts"
+    stale = artifact_dir / "old" / "summary.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps({"overall_verdict": "GO"}), encoding="utf-8")
+
+    def fake_run(*args, **kwargs):
+        raise module.subprocess.TimeoutExpired(cmd=["python"], timeout=5, output="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    result = module.run_step("slow", ["python", "slow.py"], artifact_dir=artifact_dir, timeout_seconds=5)
+    assert result.verdict == "NO_GO"
+    assert result.returncode == 124
+    assert "timed out after 5s" in result.stderr
+    assert result.artifact_json is None
 
 
 def test_ensure_access_token_promotes_email_password_to_token(monkeypatch, tmp_path):
@@ -142,7 +160,7 @@ def test_main_retries_smoke_once_after_expired_cached_token(monkeypatch, tmp_pat
 
     smoke_calls = []
 
-    def fake_run_step(name, command, artifact_dir=None):
+    def fake_run_step(name, command, artifact_dir=None, timeout_seconds=None):
         smoke_calls.append(name)
         if len(smoke_calls) == 1:
             return module.StepResult(
@@ -178,6 +196,7 @@ def test_main_retries_smoke_once_after_expired_cached_token(monkeypatch, tmp_pat
         max_ai_seconds=90,
         max_warnings=2,
         wait_for_ready_seconds=120,
+        step_timeout_seconds=600,
     )
 
     monkeypatch.setattr(module.requests, "post", fake_post)
@@ -260,6 +279,7 @@ def test_build_canary_command_includes_pack_file_and_scoped_report_dir():
         max_ai_seconds=90,
         max_warnings=2,
         wait_for_ready_seconds=120,
+        step_timeout_seconds=420,
         report_dir=str(ROOT / "tmp" / "readiness"),
     )
     command = module.build_canary_command(
@@ -291,6 +311,7 @@ def test_build_canary_command_includes_pack_file_and_scoped_report_dir():
     assert "--transient-retries-per-company" in command
     assert "--connector" in command
     assert "--minimum-official-corroboration" in command
+    assert "--step-timeout-seconds" not in command
     assert "counterparty_identity_foundation_pack.json" in joined
     assert "canary-pack/counterparty_identity_foundation" in joined
 
@@ -361,7 +382,7 @@ def test_smoke_no_go_short_circuits_canary_steps(monkeypatch, tmp_path, capsys):
     smoke = module.StepResult("read_only_smoke", "NO_GO", ["python"], 1, "", "")
     calls = []
 
-    def fake_run_step(name, command):
+    def fake_run_step(name, command, artifact_dir=None, timeout_seconds=None):
         calls.append(name)
         return smoke
 
@@ -389,6 +410,7 @@ def test_smoke_no_go_short_circuits_canary_steps(monkeypatch, tmp_path, capsys):
         max_ai_seconds=90,
         max_warnings=2,
         wait_for_ready_seconds=120,
+        step_timeout_seconds=600,
     )
     monkeypatch.setattr(module, "parse_args", lambda: args)
     code = module.main()

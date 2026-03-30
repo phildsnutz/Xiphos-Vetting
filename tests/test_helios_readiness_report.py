@@ -73,6 +73,30 @@ def test_run_step_uses_report_paths_from_payload(monkeypatch):
     assert result.artifact_md == "tmp/out.md"
 
 
+def test_run_step_timeout_does_not_load_stale_artifact(tmp_path, monkeypatch):
+    artifact_dir = tmp_path / "counterparty"
+    stale = artifact_dir / "old" / "summary.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps({"overall_verdict": "GO"}), encoding="utf-8")
+
+    def fake_run(*args, **kwargs):
+        raise module.subprocess.TimeoutExpired(cmd=["python"], timeout=7, output="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    result = module.run_step(
+        "counterparty",
+        "counterparty",
+        ["python", "counterparty.py"],
+        counterparty=True,
+        artifact_dir=artifact_dir,
+        timeout_seconds=7,
+    )
+    assert result.verdict == "NO_GO"
+    assert result.returncode == 124
+    assert "timed out after 7s" in result.stderr
+    assert result.artifact_json is None
+
+
 def test_load_lane_pack_requires_complete_entries(tmp_path):
     lane_pack = tmp_path / "lane.json"
     lane_pack.write_text(
@@ -112,6 +136,8 @@ def test_build_counterparty_command_includes_ready_wait():
         minimum_official_corroboration="strong",
         max_blocked_official_connectors=3,
         wait_for_ready_seconds=180,
+        step_timeout_seconds=1800,
+        counterparty_step_timeout_seconds=600,
         report_dir=str(ROOT / "tmp" / "helios"),
     )
     command = module.build_counterparty_command(args)
@@ -120,6 +146,7 @@ def test_build_counterparty_command_includes_ready_wait():
     assert "--ai-readiness-mode surface" in joined
     assert "--minimum-official-corroboration strong" in joined
     assert "--max-blocked-official-connectors 3" in joined
+    assert "--step-timeout-seconds 600" in joined
     assert "--print-json" in command
 
 

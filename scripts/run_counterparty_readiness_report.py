@@ -80,6 +80,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-blocked-official-connectors", type=int, default=3)
     parser.add_argument("--wait-for-ready-seconds", type=int, default=120)
+    parser.add_argument("--step-timeout-seconds", type=int, default=600)
     parser.add_argument("--print-json", action="store_true")
     return parser.parse_args()
 
@@ -109,6 +110,19 @@ def _decode_json_from_stdout(stdout: str) -> dict[str, Any] | None:
 def _latest_summary_json(base_dir: Path) -> Path | None:
     candidates = sorted(base_dir.rglob("summary.json"))
     return candidates[-1] if candidates else None
+
+
+def _latest_new_summary_json(base_dir: Path, existing: set[Path]) -> Path | None:
+    candidates = sorted(path for path in base_dir.rglob("summary.json") if path not in existing)
+    return candidates[-1] if candidates else None
+
+
+def _coerce_subprocess_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def _verdict_from_returncode(returncode: int) -> str:
@@ -284,16 +298,39 @@ def load_pack_manifest(path: str) -> list[dict[str, str]]:
     return steps
 
 
-def run_step(name: str, command: list[str], *, artifact_dir: Path | None = None) -> StepResult:
+def run_step(
+    name: str,
+    command: list[str],
+    *,
+    artifact_dir: Path | None = None,
+    timeout_seconds: int | None = None,
+) -> StepResult:
     started = time.time()
+    existing_artifacts = set(artifact_dir.rglob("summary.json")) if artifact_dir and artifact_dir.exists() else set()
     _progress(f"[counterparty readiness] starting {name}")
-    proc = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
+        )
+        returncode = proc.returncode
+        stdout = proc.stdout
+        stderr = proc.stderr
+    except subprocess.TimeoutExpired as exc:
+        returncode = 124
+        stdout = _coerce_subprocess_text(exc.stdout)
+        stderr = _coerce_subprocess_text(exc.stderr).strip()
+        timeout_note = f"step timed out after {int(timeout_seconds or 0)}s"
+        stderr = f"{stderr}\n{timeout_note}".strip() if stderr else timeout_note
     elapsed = time.time() - started
-    payload = _decode_json_from_stdout(proc.stdout)
+    payload = _decode_json_from_stdout(stdout)
     artifact_json = None
     artifact_md = None
     if payload is None and artifact_dir is not None:
-        latest_summary = _latest_summary_json(artifact_dir)
+        latest_summary = _latest_new_summary_json(artifact_dir, existing_artifacts)
         if latest_summary and latest_summary.exists():
             artifact_json = str(latest_summary)
             artifact_md = str(latest_summary.with_suffix(".md"))
@@ -311,16 +348,16 @@ def run_step(name: str, command: list[str], *, artifact_dir: Path | None = None)
             if companies:
                 artifact_json = str(companies[0].get("artifacts", {}).get("json", "")) or None
     _progress(
-        f"[counterparty readiness] finished {name}: {_verdict_from_returncode(proc.returncode)} "
+        f"[counterparty readiness] finished {name}: {_verdict_from_returncode(returncode)} "
         f"({elapsed:.1f}s)"
     )
     return StepResult(
         name=name,
-        verdict=_verdict_from_returncode(proc.returncode),
+        verdict=_verdict_from_returncode(returncode),
         command=command,
-        returncode=proc.returncode,
-        stdout=proc.stdout,
-        stderr=proc.stderr,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
         artifact_json=artifact_json,
         artifact_md=artifact_md,
         payload=payload,
@@ -533,7 +570,11 @@ def main() -> int:
     pack_manifest = load_pack_manifest(args.pack_manifest)
     results: list[StepResult] = []
     if not args.skip_smoke:
-        smoke_result = run_step("read_only_smoke", build_smoke_command(args))
+        smoke_result = run_step(
+            "read_only_smoke",
+            build_smoke_command(args),
+            timeout_seconds=args.step_timeout_seconds,
+        )
         smoke_result = _retry_smoke_with_fresh_token(args, smoke_result)
         results.append(smoke_result)
         if smoke_result.verdict == "NO_GO":
@@ -592,6 +633,7 @@ def main() -> int:
                         ),
                     ),
                     artifact_dir=Path(args.report_dir) / "canary-pack" / pack_entry["name"],
+                    timeout_seconds=args.step_timeout_seconds,
                 )
             )
     for company in args.company:
@@ -600,6 +642,7 @@ def main() -> int:
                 f"company_gate:{company}",
                 build_company_command(args, company),
                 artifact_dir=Path(args.report_dir) / "companies",
+                timeout_seconds=args.step_timeout_seconds,
             )
         )
 

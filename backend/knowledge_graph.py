@@ -727,7 +727,7 @@ def _fetch_claim_records_for_relationship(
         LEFT JOIN kg_evidence e ON e.claim_id = c.id
         WHERE c.source_entity_id = ? AND c.target_entity_id = ? AND c.rel_type = ?
         ORDER BY COALESCE(c.last_observed_at, c.observed_at, c.updated_at) DESC,
-                 COALESCE(e.observed_at, '') DESC,
+                 COALESCE(e.observed_at, c.last_observed_at, c.observed_at, c.updated_at) DESC,
                  c.id DESC
         """,
         (source_id, target_id, rel_type),
@@ -853,7 +853,7 @@ def _fetch_claim_records_for_relationships(
         LEFT JOIN kg_evidence e ON e.claim_id = c.id
         WHERE {predicate}
         ORDER BY COALESCE(c.last_observed_at, c.observed_at, c.updated_at) DESC,
-                 COALESCE(e.observed_at, '') DESC,
+                 COALESCE(e.observed_at, c.last_observed_at, c.observed_at, c.updated_at) DESC,
                  c.id DESC
     """
 

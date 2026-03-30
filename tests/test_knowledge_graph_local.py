@@ -67,6 +67,32 @@ def test_save_relationship_uses_portable_confidence_upsert(monkeypatch):
     )
 
 
+def test_claim_record_queries_do_not_sort_timestamps_against_empty_strings():
+    executed_sql: list[str] = []
+
+    class FakeCursor:
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def execute(self, sql, params=()):
+            executed_sql.append(sql)
+            return FakeCursor()
+
+    knowledge_graph._fetch_claim_records_for_relationship(FakeConn(), "source", "target", "owned_by")
+    knowledge_graph._fetch_claim_records_for_relationships(
+        FakeConn(),
+        [{"source_entity_id": "source", "target_entity_id": "target", "rel_type": "owned_by"}],
+    )
+
+    assert executed_sql
+    assert all("COALESCE(e.observed_at, '')" not in sql for sql in executed_sql)
+    assert all(
+        "COALESCE(e.observed_at, c.last_observed_at, c.observed_at, c.updated_at) DESC" in sql
+        for sql in executed_sql
+    )
+
+
 def test_retract_invalid_public_html_relationships_removes_legacy_bad_claims(monkeypatch, tmp_path):
     kg_path = tmp_path / "kg.sqlite"
     monkeypatch.setattr(knowledge_graph, "_use_postgres_kg", lambda: False)
