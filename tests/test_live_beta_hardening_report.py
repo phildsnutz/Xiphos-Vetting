@@ -40,6 +40,11 @@ def test_render_markdown_includes_readiness_section():
             "report_md": "/tmp/prime-time.md",
             "report_json": "/tmp/prime-time.json",
         },
+        "graph_95": {
+            "benchmark_overall_verdict": "PASS",
+            "benchmark_report_json": "/tmp/graph-benchmark.json",
+            "status_md": "/tmp/GRAPH_95_STATUS.md",
+        },
         "cases": [
             {
                 "vendor_name": "Demo Vendor",
@@ -62,6 +67,8 @@ def test_render_markdown_includes_readiness_section():
     assert "Readiness verdict: **GO**" in markdown
     assert "## Prime Time" in markdown
     assert "Prime-time verdict: **READY**" in markdown
+    assert "## Graph 9.5" in markdown
+    assert "Graph benchmark verdict: **PASS**" in markdown
 
 
 def test_run_readiness_requires_auth_without_skip():
@@ -187,3 +194,20 @@ def test_remote_collect_uses_ssh_key_when_provided(monkeypatch):
     assert captured["command"][:4] == ["ssh", "-o", "BatchMode=yes", "-i"]
     assert "/tmp/id_ed25519" in captured["command"]
     assert "default=str" in captured["command"][-1]
+
+
+def test_load_graph_95_status_reads_latest_benchmark(tmp_path, monkeypatch):
+    benchmark_dir = tmp_path / "reports" / "graph_training_benchmark" / "20260330213029"
+    benchmark_dir.mkdir(parents=True)
+    (benchmark_dir / "summary.json").write_text(json.dumps({"overall_verdict": "PASS"}), encoding="utf-8")
+    status_md = tmp_path / "GRAPH_95_STATUS.md"
+    status_md.write_text("# status\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(module, "GRAPH_95_STATUS_PATH", status_md)
+
+    payload = module._load_graph_95_status()
+
+    assert payload["benchmark_overall_verdict"] == "PASS"
+    assert payload["benchmark_report_json"].endswith("summary.json")
+    assert payload["status_md"].endswith("GRAPH_95_STATUS.md")

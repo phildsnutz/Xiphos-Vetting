@@ -30,6 +30,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT / "backend"
+REPORTS_DIR = ROOT / "docs" / "reports"
+GRAPH_95_STATUS_PATH = ROOT / "GRAPH_95_STATUS.md"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
@@ -59,6 +61,28 @@ PDF_SECTION_CHECKS = {
     "supplier_passport": "SUPPLIER PASSPORT",
     "ai_brief": "AI NARRATIVE BRIEF",
 }
+
+
+def _latest_nested_summary(base_dir: Path) -> Path | None:
+    candidates = sorted(base_dir.glob("*/summary.json"))
+    return candidates[-1] if candidates else None
+
+
+def _load_graph_95_status() -> dict[str, Any]:
+    benchmark_path = _latest_nested_summary(REPORTS_DIR / "graph_training_benchmark")
+    benchmark_payload: dict[str, Any] = {}
+    if benchmark_path and benchmark_path.exists():
+        try:
+            parsed = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                benchmark_payload = parsed
+        except Exception:
+            benchmark_payload = {}
+    return {
+        "benchmark_overall_verdict": str(benchmark_payload.get("overall_verdict") or "UNKNOWN"),
+        "benchmark_report_json": str(benchmark_path) if benchmark_path else "",
+        "status_md": str(GRAPH_95_STATUS_PATH) if GRAPH_95_STATUS_PATH.exists() else "",
+    }
 
 
 @dataclass
@@ -397,6 +421,7 @@ def _overall_verdict(summary: dict[str, Any]) -> str:
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
+    graph_95 = summary.get("graph_95") if isinstance(summary.get("graph_95"), dict) else {}
     lines = [
         "# Helios Beta Hardening Report",
         "",
@@ -435,6 +460,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- Prime-time verdict: **{summary['prime_time']['prime_time_verdict']}**",
         f"- Prime-time report: {summary['prime_time']['report_md']}",
+        "",
+        "## Graph 9.5",
+        "",
+        f"- Graph benchmark verdict: **{graph_95.get('benchmark_overall_verdict') or 'UNKNOWN'}**",
+        f"- Graph benchmark report: {graph_95.get('benchmark_report_json') or ''}",
+        f"- Graph status memo: {graph_95.get('status_md') or ''}",
         "",
         "## Tier Mix",
         "",
@@ -617,6 +648,7 @@ def main() -> int:
     summary["neo4j"]["required"] = bool(args.require_neo4j)
     summary["query_to_dossier"] = run_query_to_dossier(args)
     summary["readiness"] = run_readiness(args)
+    summary["graph_95"] = _load_graph_95_status()
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     summary["prime_time"] = run_prime_time(args, summary["readiness"], summary["query_to_dossier"], report_dir, stamp)

@@ -33,6 +33,8 @@ except Exception as exc:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS_DIR = ROOT / "docs" / "reports"
+GRAPH_95_STATUS_PATH = ROOT / "GRAPH_95_STATUS.md"
 
 HTML_SECTION_CHECKS = {
     "executive_strip": "Recent change",
@@ -48,6 +50,28 @@ PDF_SECTION_CHECKS = {
     "supplier_passport": "SUPPLIER PASSPORT",
     "ai_brief": "AI NARRATIVE BRIEF",
 }
+
+
+def _latest_nested_summary(base_dir: Path) -> Path | None:
+    candidates = sorted(base_dir.glob("*/summary.json"))
+    return candidates[-1] if candidates else None
+
+
+def _load_graph_95_status() -> dict[str, Any]:
+    benchmark_path = _latest_nested_summary(REPORTS_DIR / "graph_training_benchmark")
+    benchmark_payload: dict[str, Any] = {}
+    if benchmark_path and benchmark_path.exists():
+        try:
+            parsed = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                benchmark_payload = parsed
+        except Exception:
+            benchmark_payload = {}
+    return {
+        "benchmark_overall_verdict": str(benchmark_payload.get("overall_verdict") or "UNKNOWN"),
+        "benchmark_report_json": str(benchmark_path) if benchmark_path else "",
+        "status_md": str(GRAPH_95_STATUS_PATH) if GRAPH_95_STATUS_PATH.exists() else "",
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -266,6 +290,7 @@ def validate_result(case: dict[str, Any]) -> dict[str, Any]:
 
 def render_markdown(summary: dict[str, Any]) -> str:
     neo4j = summary.get("neo4j") if isinstance(summary.get("neo4j"), dict) else {}
+    graph_95 = summary.get("graph_95") if isinstance(summary.get("graph_95"), dict) else {}
     lines = [
         "# Helios Live Beta Hardening Report",
         "",
@@ -300,6 +325,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- Prime-time verdict: **{summary['prime_time']['prime_time_verdict']}**",
         f"- Prime-time report: {summary['prime_time']['report_md']}",
+        "",
+        "## Graph 9.5",
+        "",
+        f"- Graph benchmark verdict: **{graph_95.get('benchmark_overall_verdict') or 'UNKNOWN'}**",
+        f"- Graph benchmark report: {graph_95.get('benchmark_report_json') or ''}",
+        f"- Graph status memo: {graph_95.get('status_md') or ''}",
         "",
         "## Cohort Results",
         "",
@@ -509,6 +540,7 @@ def main() -> int:
         "warning_count": sum(len(result["warnings"]) for result in results),
         "query_to_dossier": run_query_to_dossier(args),
         "readiness": run_readiness(args),
+        "graph_95": _load_graph_95_status(),
         "cases": results,
     }
     summary["neo4j"] = dict(summary["query_to_dossier"].get("neo4j_summary") or {})
