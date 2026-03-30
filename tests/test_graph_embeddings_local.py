@@ -256,3 +256,108 @@ def test_load_triples_from_db_keeps_excluded_holdout_vocab():
     assert "src-1" in trainer.entity_to_id
     assert "target-1" in trainer.entity_to_id
     assert "contracts_with" in trainer.relation_to_id
+
+
+def test_candidate_ranking_score_preserves_stronger_match_order_for_contracts():
+    module = _reload_fresh("graph_embeddings")
+
+    source_context = {
+        "source_tokens": {"yorktown", "systems", "group"},
+        "relation_neighbor_tokens": {"contracts_with": {"army", "award", "idiq"}},
+        "all_neighbor_tokens": {"army", "award", "idiq"},
+        "relation_text_blobs": {
+            "contracts_with": "the u s army awards yorktown systems group an idiq contract"
+        },
+        "all_text_blob": "the u s army awards yorktown systems group an idiq contract",
+    }
+
+    exact_score = module._candidate_ranking_score(
+        "contracts_with",
+        "U.S. Army",
+        "government_agency",
+        1.75,
+        source_context=source_context,
+    )
+    generic_score = module._candidate_ranking_score(
+        "contracts_with",
+        "Department of State",
+        "government_agency",
+        1.75,
+        source_context=source_context,
+    )
+
+    assert exact_score < generic_score
+
+
+def test_build_masked_holdout_recovery_queue_surfaces_ranked_withheld_targets():
+    module = _reload_fresh("graph_embeddings")
+
+    resolved_rows = [
+        {
+            "source_entity_id": "src-1",
+            "source_entity": "Yorktown Systems Group",
+            "target_entity_id": "gov-army",
+            "target_entity": "U.S. Army",
+            "relationship_type": "contracts_with",
+        },
+        {
+            "source_entity_id": "src-1",
+            "source_entity": "Yorktown Systems Group",
+            "target_entity_id": "gov-gsa",
+            "target_entity": "General Services Administration",
+            "relationship_type": "contracts_with",
+        },
+    ]
+    ranked_candidates = [
+        {
+            "target_entity_id": f"gov-{idx}",
+            "target_name": f"Agency {idx}",
+            "predicted_relation": "contracts_with",
+            "predicted_edge_family": "contracts_and_programs",
+            "ranking_score": float(idx),
+            "score": float(idx),
+        }
+        for idx in range(1, 13)
+    ]
+    ranked_candidates.append(
+        {
+            "target_entity_id": "gov-army",
+            "target_name": "U.S. Army",
+            "predicted_relation": "contracts_with",
+            "predicted_edge_family": "contracts_and_programs",
+            "ranking_score": 13.0,
+            "score": 13.0,
+        }
+    )
+    ranked_candidates.append(
+        {
+            "target_entity_id": "gov-gsa",
+            "target_name": "General Services Administration",
+            "predicted_relation": "contracts_with",
+            "predicted_edge_family": "contracts_and_programs",
+            "ranking_score": 5.5,
+            "score": 5.5,
+        }
+    )
+    ranked_candidates.sort(key=lambda row: (row["ranking_score"], row["score"], row["target_name"]))
+
+    rank_results_by_row = {
+        ("src-1", "contracts_with", "gov-army"): {
+            "withheld_target_rank": 14,
+            "ranked_candidates": ranked_candidates,
+        },
+        ("src-1", "contracts_with", "gov-gsa"): {
+            "withheld_target_rank": 6,
+            "ranked_candidates": ranked_candidates,
+        },
+    }
+
+    recovery_queue_by_source, queue_rank_lookup = module._build_masked_holdout_recovery_queue(
+        resolved_rows,
+        rank_results_by_row,
+        recovery_queue_top_k=6,
+    )
+
+    assert recovery_queue_by_source[0]["candidate_count"] >= 14
+    assert queue_rank_lookup[("src-1", "contracts_with", "gov-army")]["candidate_rank"] == 14
+    assert queue_rank_lookup[("src-1", "contracts_with", "gov-gsa")]["candidate_rank"] == 6

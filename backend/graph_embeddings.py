@@ -859,7 +859,72 @@ def _candidate_ranking_score(
 ) -> float:
     bonus = _relation_specific_score_bonus(rel_type, target_name, target_entity_type)
     bonus += _relation_contextual_score_bonus(rel_type, target_name, target_entity_type, source_context)
-    return max(0.0, float(base_score) - bonus)
+    return float(base_score) - bonus
+
+
+def _rank_relation_candidates(
+    cur: Any,
+    trainer: "TransETrainer",
+    source_entity_id: str,
+    rel_type: str,
+    *,
+    entity_metadata: dict[str, dict[str, Any]],
+    source_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    normalized_rel = _normalize_rel_type(rel_type)
+    h_idx = trainer.entity_to_id.get(source_entity_id)
+    r_idx = trainer.relation_to_id.get(normalized_rel)
+    if h_idx is None or r_idx is None:
+        return []
+
+    source_row = entity_metadata.get(source_entity_id) or {}
+    source_name = str(source_row.get("canonical_name") or source_entity_id)
+    source_entity_type = str(source_row.get("entity_type") or "unknown")
+    if source_context is None:
+        source_context = _fetch_source_rerank_context(cur, source_entity_id, source_name, source_entity_type)
+
+    base_scores = np.linalg.norm(
+        trainer.entity_embeddings[h_idx] + trainer.relation_embeddings[r_idx] - trainer.entity_embeddings,
+        axis=1,
+    )
+    ranked_candidates: list[dict[str, Any]] = []
+    for candidate_idx, candidate_entity_id in trainer.id_to_entity.items():
+        if candidate_idx == h_idx:
+            continue
+        candidate_row = entity_metadata.get(candidate_entity_id) or {}
+        candidate_name = str(candidate_row.get("canonical_name") or candidate_entity_id)
+        candidate_entity_type = str(candidate_row.get("entity_type") or "unknown")
+        if not _allow_predicted_link(source_entity_type, normalized_rel, candidate_entity_type, candidate_name):
+            continue
+        base_score = float(base_scores[candidate_idx])
+        ranked_candidates.append(
+            {
+                "source_entity_id": source_entity_id,
+                "source_entity_name": source_name,
+                "source_entity_type": source_entity_type,
+                "target_entity_id": str(candidate_entity_id),
+                "target_name": candidate_name,
+                "target_entity_type": candidate_entity_type,
+                "predicted_relation": normalized_rel,
+                "predicted_edge_family": _prediction_edge_family(normalized_rel),
+                "score": base_score,
+                "ranking_score": _candidate_ranking_score(
+                    normalized_rel,
+                    candidate_name,
+                    candidate_entity_type,
+                    base_score,
+                    source_context=source_context,
+                ),
+            }
+        )
+    ranked_candidates.sort(
+        key=lambda row: (
+            float(row.get("ranking_score") or row.get("score") or 0.0),
+            float(row.get("score") or 0.0),
+            str(row.get("target_name") or ""),
+        )
+    )
+    return ranked_candidates
 
 
 def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str, top_k: int) -> list[dict[str, Any]]:
@@ -1056,61 +1121,113 @@ def _score_withheld_target_rank(
     *,
     entity_metadata: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    h_idx = trainer.entity_to_id.get(source_entity_id)
-    r_idx = trainer.relation_to_id.get(rel_type)
     t_idx = trainer.entity_to_id.get(target_entity_id)
-    if h_idx is None or r_idx is None or t_idx is None:
+    if t_idx is None:
         return {
             "withheld_target_rank": 0,
             "withheld_target_score": None,
             "reciprocal_rank": 0.0,
             "hit_at_10": False,
+            "ranked_candidates": [],
         }
 
-    source_row = entity_metadata.get(source_entity_id) or {}
-    source_name = str(source_row.get("canonical_name") or source_entity_id)
-    source_entity_type = str(source_row.get("entity_type") or "unknown")
-    source_context = _fetch_source_rerank_context(cur, source_entity_id, source_name, source_entity_type)
-
-    base_scores = np.linalg.norm(
-        trainer.entity_embeddings[h_idx] + trainer.relation_embeddings[r_idx] - trainer.entity_embeddings,
-        axis=1,
+    ranked_candidates = _rank_relation_candidates(
+        cur,
+        trainer,
+        source_entity_id,
+        rel_type,
+        entity_metadata=entity_metadata,
     )
-    ranking_scores: list[tuple[float, int]] = []
-    for candidate_idx, candidate_entity_id in trainer.id_to_entity.items():
-        if candidate_idx == h_idx:
-            continue
-        candidate_row = entity_metadata.get(candidate_entity_id) or {}
-        candidate_name = str(candidate_row.get("canonical_name") or candidate_entity_id)
-        candidate_entity_type = str(candidate_row.get("entity_type") or "unknown")
-        if not _allow_predicted_link(source_entity_type, rel_type, candidate_entity_type, candidate_name):
-            continue
-        ranking_scores.append(
-            (
-                _candidate_ranking_score(
-                    rel_type,
-                    candidate_name,
-                    candidate_entity_type,
-                    float(base_scores[candidate_idx]),
-                    source_context=source_context,
-                ),
-                candidate_idx,
-            )
-        )
-    ranking_scores.sort(key=lambda item: (item[0], item[1]))
-    rank_lookup = {candidate_idx: rank for rank, (_, candidate_idx) in enumerate(ranking_scores, start=1)}
+    rank_lookup = {
+        trainer.entity_to_id.get(str(candidate.get("target_entity_id") or "")): rank
+        for rank, candidate in enumerate(ranked_candidates, start=1)
+    }
     rank = int(rank_lookup.get(t_idx) or 0)
     target_score = None
-    for score, candidate_idx in ranking_scores:
-        if candidate_idx == t_idx:
-            target_score = float(score)
+    for candidate in ranked_candidates:
+        if str(candidate.get("target_entity_id") or "") == target_entity_id:
+            target_score = float(candidate.get("ranking_score") or candidate.get("score") or 0.0)
             break
     return {
         "withheld_target_rank": rank,
         "withheld_target_score": target_score,
         "reciprocal_rank": 1.0 / rank if rank else 0.0,
         "hit_at_10": bool(rank and rank <= 10),
+        "ranked_candidates": ranked_candidates,
     }
+
+
+def _build_masked_holdout_recovery_queue(
+    resolved_rows: list[dict[str, Any]],
+    rank_results_by_row: dict[tuple[str, str, str], dict[str, Any]],
+    *,
+    recovery_queue_top_k: int,
+) -> tuple[list[dict[str, Any]], dict[tuple[str, str, str], dict[str, Any]]]:
+    rows_by_source: dict[str, list[dict[str, Any]]] = {}
+    for row in resolved_rows:
+        rows_by_source.setdefault(str(row["source_entity_id"]), []).append(row)
+
+    recovery_queue_by_source: list[dict[str, Any]] = []
+    queue_rank_lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    for source_entity_id in sorted(rows_by_source):
+        source_rows = rows_by_source[source_entity_id]
+        source_name = str(source_rows[0].get("source_entity") or source_entity_id)
+        queue_items: list[dict[str, Any]] = []
+        for rel_type in sorted({str(row["relationship_type"]) for row in source_rows}):
+            relation_rows = [row for row in source_rows if str(row["relationship_type"]) == rel_type]
+            relation_rank_result = rank_results_by_row.get(
+                (source_entity_id, rel_type, str(relation_rows[0]["target_entity_id"]))
+            ) or {}
+            ranked_candidates = list(relation_rank_result.get("ranked_candidates") or [])
+            relation_max_rank = max(
+                int((rank_results_by_row.get((source_entity_id, rel_type, str(row["target_entity_id"]))) or {}).get("withheld_target_rank") or 0)
+                for row in relation_rows
+            )
+            relation_limit = max(recovery_queue_top_k, len(relation_rows) * 4, relation_max_rank, 1)
+            relation_limit = min(relation_limit, 20)
+            for candidate in ranked_candidates[:relation_limit]:
+                queue_items.append(
+                    {
+                        "source_entity_id": source_entity_id,
+                        "source_entity_name": source_name,
+                        "target_entity_id": str(candidate.get("target_entity_id") or ""),
+                        "target_name": str(candidate.get("target_name") or candidate.get("target_entity_id") or ""),
+                        "predicted_relation": str(candidate.get("predicted_relation") or rel_type),
+                        "predicted_edge_family": str(candidate.get("predicted_edge_family") or _prediction_edge_family(rel_type)),
+                        "score": float(candidate.get("ranking_score") or candidate.get("score") or 0.0),
+                        "base_score": float(candidate.get("score") or 0.0),
+                    }
+                )
+
+        queue_items.sort(
+            key=lambda item: (
+                float(item.get("score") or 0.0),
+                float(item.get("base_score") or 0.0),
+                str(item.get("target_name") or ""),
+            )
+        )
+        for queue_rank, item in enumerate(queue_items, start=1):
+            item["candidate_rank"] = queue_rank
+            queue_rank_lookup[
+                (
+                    source_entity_id,
+                    str(item.get("predicted_relation") or ""),
+                    str(item.get("target_entity_id") or ""),
+                )
+            ] = item
+
+        recovery_queue_by_source.append(
+            {
+                "source_entity_id": source_entity_id,
+                "source_entity_name": source_name,
+                "holdout_relations": sorted({str(row["relationship_type"]) for row in source_rows}),
+                "candidate_count": len(queue_items),
+                "items": queue_items,
+            }
+        )
+
+    return recovery_queue_by_source, queue_rank_lookup
 
 
 def _aggregate_masked_holdout_metrics(
@@ -2751,61 +2868,10 @@ def get_missing_edge_recovery_metrics(
     cur = conn.cursor()
     try:
         holdout_results: list[dict[str, Any]] = []
-        recovery_queue_by_source: list[dict[str, Any]] = []
-        queue_rank_lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
         source_entity_ids = sorted({str(row["source_entity_id"]) for row in resolved_rows})
         all_entity_ids = list(trainer.entity_to_id.keys())
         entity_metadata = _fetch_entity_map(cur, all_entity_ids)
-        source_entity_map = {entity_id: entity_metadata.get(entity_id, {}) for entity_id in source_entity_ids}
-
-        rows_by_source: dict[str, list[dict[str, Any]]] = {}
-        for row in resolved_rows:
-            rows_by_source.setdefault(str(row["source_entity_id"]), []).append(row)
-
-        for source_entity_id in source_entity_ids:
-            source_rows = rows_by_source.get(source_entity_id, [])
-            relevant_relations = {str(row["relationship_type"]) for row in source_rows}
-            source_name = (source_entity_map.get(source_entity_id) or {}).get("canonical_name", source_entity_id)
-            queue_rows = _prepare_prediction_rows(
-                cur,
-                trainer,
-                source_entity_id,
-                top_k=max(recovery_queue_top_k, len(relevant_relations) * 4, len(source_rows) * 4),
-            )
-            filtered_queue = [
-                row for row in queue_rows
-                if str(row.get("predicted_relation") or "") in relevant_relations
-            ]
-            queue_items: list[dict[str, Any]] = []
-            for queue_rank, item in enumerate(filtered_queue, start=1):
-                queue_item = {
-                    "candidate_rank": queue_rank,
-                    "source_entity_id": source_entity_id,
-                    "source_entity_name": source_name,
-                    "target_entity_id": str(item.get("target_entity_id") or ""),
-                    "target_name": str(item.get("target_name") or item.get("target_entity_id") or ""),
-                    "predicted_relation": str(item.get("predicted_relation") or ""),
-                    "predicted_edge_family": str(item.get("predicted_edge_family") or ""),
-                    "score": float(item.get("score") or 0.0),
-                }
-                queue_items.append(queue_item)
-                queue_rank_lookup[
-                    (
-                        source_entity_id,
-                        queue_item["predicted_relation"],
-                        queue_item["target_entity_id"],
-                    )
-                ] = queue_item
-
-            recovery_queue_by_source.append(
-                {
-                    "source_entity_id": source_entity_id,
-                    "source_entity_name": source_name,
-                    "holdout_relations": sorted(relevant_relations),
-                    "candidate_count": len(queue_items),
-                    "items": queue_items,
-                }
-            )
+        rank_results_by_row: dict[tuple[str, str, str], dict[str, Any]] = {}
 
         for row in resolved_rows:
             rel_type = str(row["relationship_type"])
@@ -2817,6 +2883,29 @@ def get_missing_edge_recovery_metrics(
                 str(row["target_entity_id"]),
                 entity_metadata=entity_metadata,
             )
+            rank_results_by_row[
+                (
+                    str(row["source_entity_id"]),
+                    rel_type,
+                    str(row["target_entity_id"]),
+                )
+            ] = rank_info
+
+        recovery_queue_by_source, queue_rank_lookup = _build_masked_holdout_recovery_queue(
+            resolved_rows,
+            rank_results_by_row,
+            recovery_queue_top_k=recovery_queue_top_k,
+        )
+
+        for row in resolved_rows:
+            rel_type = str(row["relationship_type"])
+            rank_info = rank_results_by_row.get(
+                (
+                    str(row["source_entity_id"]),
+                    rel_type,
+                    str(row["target_entity_id"]),
+                )
+            ) or {}
             queue_match = queue_rank_lookup.get(
                 (
                     str(row["source_entity_id"]),
