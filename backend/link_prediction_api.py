@@ -37,6 +37,7 @@ link_prediction_bp = Blueprint("link_prediction", __name__, url_prefix="/api/gra
 REPORTS_ROOT = Path(__file__).resolve().parents[1] / "docs" / "reports"
 RUNTIME_REPORTS_ROOT = Path("/data/reports")
 REPORT_SEARCH_ROOTS = [REPORTS_ROOT, RUNTIME_REPORTS_ROOT]
+BENCHMARK_SUITE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "adversarial_gym" / "graph_training_benchmark_suite_v1.json"
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +113,142 @@ def _summary_timestamp(payload: dict) -> str | None:
     return None
 
 
+def _runtime_neo4j_fallback(tranche: dict) -> dict:
+    nested = tranche.get("neo4j") if isinstance(tranche.get("neo4j"), dict) else {}
+    payload = {
+        "verdict": str(nested.get("overall_verdict") or nested.get("verdict") or "") or None,
+        "generated_at": _summary_timestamp(nested),
+        "path": nested.get("path"),
+        "node_count": None,
+        "relationship_count": None,
+        "runtime_status": None,
+        "runtime_error": None,
+        "source": "tranche_runtime" if nested else "runtime_health",
+    }
+    try:
+        from neo4j_integration import get_graph_stats_neo4j, is_neo4j_available
+
+        available = bool(is_neo4j_available())
+        payload["runtime_status"] = "available" if available else "unavailable"
+        if available:
+            stats = get_graph_stats_neo4j() or {}
+            payload["node_count"] = stats.get("node_count")
+            payload["relationship_count"] = stats.get("relationship_count")
+            if not payload["verdict"]:
+                payload["verdict"] = "PASS"
+        elif not payload["verdict"]:
+            payload["verdict"] = "FAIL"
+    except Exception as exc:
+        payload["runtime_status"] = "error"
+        payload["runtime_error"] = str(exc)
+        if not payload["verdict"]:
+            payload["verdict"] = "UNKNOWN"
+    return payload
+
+
+def _runtime_readiness_fallback(tranche: dict) -> dict:
+    nested = tranche.get("readiness") if isinstance(tranche.get("readiness"), dict) else {}
+    payload = {
+        "verdict": str(nested.get("overall_verdict") or nested.get("verdict") or "") or None,
+        "generated_at": _summary_timestamp(nested),
+        "path": nested.get("path"),
+        "runtime_status": None,
+        "runtime_error": None,
+        "runtime_vendor_count": None,
+        "runtime_unresolved_alerts": None,
+        "source": "tranche_runtime" if nested else "runtime_health",
+    }
+    try:
+        import db
+
+        stats = db.get_stats()
+        payload["runtime_status"] = "ok"
+        payload["runtime_vendor_count"] = stats.get("vendors")
+        payload["runtime_unresolved_alerts"] = stats.get("unresolved_alerts")
+        if not payload["verdict"]:
+            payload["verdict"] = "UNKNOWN"
+    except Exception as exc:
+        payload["runtime_status"] = "error"
+        payload["runtime_error"] = str(exc)
+        if not payload["verdict"]:
+            payload["verdict"] = "UNKNOWN"
+    return payload
+
+
+def _runtime_benchmark_fallback(tranche: dict) -> dict:
+    payload = {
+        "verdict": None,
+        "generated_at": _summary_timestamp(tranche),
+        "path": None,
+        "data_foundation_verdict": None,
+        "passing_stage_count": 0,
+        "total_stage_count": 0,
+        "stage_results": [],
+        "source": "tranche_runtime",
+    }
+    stage_metrics = tranche.get("stage_metrics") if isinstance(tranche.get("stage_metrics"), dict) else {}
+    if not BENCHMARK_SUITE_PATH.exists():
+        payload["verdict"] = "UNKNOWN"
+        return payload
+    try:
+        suite = json.loads(BENCHMARK_SUITE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        payload["verdict"] = "UNKNOWN"
+        return payload
+
+    data_foundation = suite.get("data_foundation") if isinstance(suite.get("data_foundation"), dict) else {}
+    gold_cfg = data_foundation.get("construction_gold_set") if isinstance(data_foundation.get("construction_gold_set"), dict) else {}
+    neg_cfg = data_foundation.get("hard_negative_set") if isinstance(data_foundation.get("hard_negative_set"), dict) else {}
+    construction = stage_metrics.get("construction_training") if isinstance(stage_metrics.get("construction_training"), dict) else {}
+    if construction:
+        data_checks = [
+            int(construction.get("gold_positive_rows_evaluated") or 0) >= int(gold_cfg.get("min_rows") or 0),
+            int(construction.get("hard_negative_rows_evaluated") or 0) >= int(neg_cfg.get("min_rows") or 0),
+        ]
+        payload["data_foundation_verdict"] = "PASS" if all(data_checks) else "FAIL"
+    else:
+        payload["data_foundation_verdict"] = "FAIL"
+
+    stage_defs = suite.get("training_stack") if isinstance(suite.get("training_stack"), list) else []
+    for stage in stage_defs:
+        if not isinstance(stage, dict):
+            continue
+        stage_id = str(stage.get("stage_id") or "")
+        metrics = stage.get("metrics") if isinstance(stage.get("metrics"), dict) else {}
+        actual = stage_metrics.get(stage_id) if isinstance(stage_metrics.get(stage_id), dict) else None
+        if not stage_id:
+            continue
+        if not isinstance(actual, dict):
+            verdict = "NOT_IMPLEMENTED"
+        else:
+            failed = False
+            for threshold_name, expected in metrics.items():
+                metric_name = str(threshold_name)
+                if metric_name.endswith("_min"):
+                    actual_value = actual.get(metric_name[:-4])
+                    if actual_value is None or float(actual_value) < float(expected):
+                        failed = True
+                        break
+                elif metric_name.endswith("_max"):
+                    actual_value = actual.get(metric_name[:-4])
+                    if actual_value is None or float(actual_value) > float(expected):
+                        failed = True
+                        break
+            verdict = "FAIL" if failed else "PASS"
+        payload["stage_results"].append(
+            {
+                "stage_id": stage_id,
+                "verdict": verdict,
+                "objective": str(stage.get("objective") or ""),
+            }
+        )
+
+    payload["total_stage_count"] = len(payload["stage_results"])
+    payload["passing_stage_count"] = sum(1 for row in payload["stage_results"] if row.get("verdict") == "PASS")
+    payload["verdict"] = "PASS" if payload["stage_results"] and payload["passing_stage_count"] == payload["total_stage_count"] else "FAIL"
+    return payload
+
+
 def build_training_dashboard_payload() -> dict:
     readiness_path = _latest_matching_summary("helios_readiness", "readiness")
     benchmark_path = _latest_matching_summary("graph_training_benchmark")
@@ -122,6 +259,9 @@ def build_training_dashboard_payload() -> dict:
     benchmark = _read_report_json(benchmark_path)
     tranche = _read_report_json(tranche_path)
     neo4j = _read_report_json(neo4j_path)
+    runtime_neo4j = _runtime_neo4j_fallback(tranche)
+    runtime_readiness = _runtime_readiness_fallback(tranche)
+    runtime_benchmark = _runtime_benchmark_fallback(tranche)
 
     review_stats = tranche.get("review_stats") if isinstance(tranche.get("review_stats"), dict) else {}
     stage_metrics = tranche.get("stage_metrics") if isinstance(tranche.get("stage_metrics"), dict) else {}
@@ -129,37 +269,62 @@ def build_training_dashboard_payload() -> dict:
     stage_results = benchmark.get("stage_results") if isinstance(benchmark.get("stage_results"), list) else []
     data_foundation = benchmark.get("data_foundation") if isinstance(benchmark.get("data_foundation"), dict) else {}
 
+    readiness_tile = {
+        "verdict": _summary_verdict(readiness),
+        "generated_at": _summary_timestamp(readiness),
+        "path": str(readiness_path) if readiness_path else None,
+    }
+    if not readiness_tile["verdict"]:
+        readiness_tile.update(runtime_readiness)
+    else:
+        readiness_tile["runtime_status"] = runtime_readiness.get("runtime_status")
+        readiness_tile["runtime_error"] = runtime_readiness.get("runtime_error")
+        readiness_tile["runtime_vendor_count"] = runtime_readiness.get("runtime_vendor_count")
+        readiness_tile["runtime_unresolved_alerts"] = runtime_readiness.get("runtime_unresolved_alerts")
+        readiness_tile["source"] = "report"
+
+    neo4j_tile = {
+        "verdict": _summary_verdict(neo4j),
+        "generated_at": _summary_timestamp(neo4j),
+        "path": str(neo4j_path) if neo4j_path else None,
+        "node_count": neo4j.get("neo4j_node_count"),
+        "relationship_count": neo4j.get("neo4j_relationship_count"),
+    }
+    if not neo4j_tile["verdict"]:
+        neo4j_tile.update(runtime_neo4j)
+    else:
+        neo4j_tile["runtime_status"] = runtime_neo4j.get("runtime_status")
+        neo4j_tile["runtime_error"] = runtime_neo4j.get("runtime_error")
+        neo4j_tile["runtime_node_count"] = runtime_neo4j.get("node_count")
+        neo4j_tile["runtime_relationship_count"] = runtime_neo4j.get("relationship_count")
+        neo4j_tile["source"] = "report"
+
     return {
         "generated_at": datetime.utcnow().isoformat() + "Z",
-        "readiness": {
-            "verdict": _summary_verdict(readiness),
-            "generated_at": _summary_timestamp(readiness),
-            "path": str(readiness_path) if readiness_path else None,
-        },
-        "neo4j": {
-            "verdict": _summary_verdict(neo4j),
-            "generated_at": _summary_timestamp(neo4j),
-            "path": str(neo4j_path) if neo4j_path else None,
-            "node_count": neo4j.get("neo4j_node_count"),
-            "relationship_count": neo4j.get("neo4j_relationship_count"),
-        },
-        "benchmark": {
-            "verdict": _summary_verdict(benchmark),
-            "generated_at": _summary_timestamp(benchmark),
-            "path": str(benchmark_path) if benchmark_path else None,
-            "data_foundation_verdict": data_foundation.get("verdict"),
-            "passing_stage_count": sum(1 for stage in stage_results if isinstance(stage, dict) and stage.get("verdict") == "PASS"),
-            "total_stage_count": len(stage_results),
-            "stage_results": [
-                {
-                    "stage_id": str(stage.get("stage_id") or ""),
-                    "verdict": str(stage.get("verdict") or "UNKNOWN"),
-                    "objective": str(stage.get("objective") or ""),
-                }
-                for stage in stage_results
-                if isinstance(stage, dict)
-            ],
-        },
+        "readiness": readiness_tile,
+        "neo4j": neo4j_tile,
+        "benchmark": (
+            {
+                "verdict": _summary_verdict(benchmark),
+                "generated_at": _summary_timestamp(benchmark),
+                "path": str(benchmark_path) if benchmark_path else None,
+                "data_foundation_verdict": data_foundation.get("verdict"),
+                "passing_stage_count": sum(1 for stage in stage_results if isinstance(stage, dict) and stage.get("verdict") == "PASS"),
+                "total_stage_count": len(stage_results),
+                "stage_results": [
+                    {
+                        "stage_id": str(stage.get("stage_id") or ""),
+                        "verdict": str(stage.get("verdict") or "UNKNOWN"),
+                        "objective": str(stage.get("objective") or ""),
+                    }
+                    for stage in stage_results
+                    if isinstance(stage, dict)
+                ],
+                "source": "report",
+            }
+            if _summary_verdict(benchmark)
+            else runtime_benchmark
+        ),
         "live_tranche": {
             "generated_at": _summary_timestamp(tranche),
             "path": str(tranche_path) if tranche_path else None,

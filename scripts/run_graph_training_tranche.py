@@ -25,6 +25,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from graph_embeddings import (  # noqa: E402
+    GRAPH_CONSTRUCTION_GOLD_PATH,
+    GRAPH_CONSTRUCTION_NEGATIVE_PATH,
     ensure_prediction_tables,
     export_reviewed_link_labels,
     get_graph_construction_training_metrics,
@@ -55,7 +57,7 @@ def _json_default(value: Any) -> Any:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Helios graph-training tranche A.")
-    parser.add_argument("--top-entities", type=int, default=8)
+    parser.add_argument("--top-entities", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-queue", action="store_true")
@@ -115,6 +117,8 @@ def _connect(pg_url: str):
 
 
 def _load_top_seed_entities(pg_url: str, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
     conn = _connect(pg_url)
     cur = conn.cursor()
     try:
@@ -134,7 +138,7 @@ def _load_top_seed_entities(pg_url: str, limit: int) -> list[dict[str, Any]]:
             ORDER BY degree DESC, e.canonical_name ASC
             LIMIT %s
             """,
-            (max(1, limit),),
+            (limit,),
         )
         return [
             {
@@ -145,6 +149,96 @@ def _load_top_seed_entities(pg_url: str, limit: int) -> list[dict[str, Any]]:
             }
             for row in cur.fetchall()
         ]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _load_fixture_seed_entities(pg_url: str) -> list[dict[str, Any]]:
+    source_names: set[str] = set()
+    for path, source_field in (
+        (GRAPH_CONSTRUCTION_GOLD_PATH, "source_entity"),
+        (GRAPH_CONSTRUCTION_NEGATIVE_PATH, "source_entity"),
+    ):
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            continue
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            source_name = str(row.get(source_field) or "").strip()
+            if source_name:
+                source_names.add(source_name.lower())
+
+    if not source_names:
+        return []
+
+    conn = _connect(pg_url)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT id, canonical_name, entity_type, 0 AS degree
+            FROM kg_entities
+            WHERE LOWER(canonical_name) = ANY(%s)
+            ORDER BY canonical_name ASC
+            """,
+            (sorted(source_names),),
+        )
+        rows = [
+            {
+                "entity_id": str(row[0]),
+                "canonical_name": str(row[1] or row[0]),
+                "entity_type": str(row[2] or "unknown"),
+                "degree": int(row[3] or 0),
+            }
+            for row in cur.fetchall()
+        ]
+        resolved_names = {str(row["canonical_name"]).strip().lower() for row in rows}
+        unresolved = [name for name in sorted(source_names) if name not in resolved_names]
+        if not unresolved:
+            return rows
+
+        from entity_resolution import normalize_name
+        from ofac import jaro_winkler
+
+        cur.execute("SELECT id, canonical_name, entity_type FROM kg_entities WHERE canonical_name IS NOT NULL")
+        candidates = [
+            (
+                str(row[0]),
+                str(row[1]),
+                str(row[2] or "unknown"),
+                normalize_name(str(row[1])),
+            )
+            for row in cur.fetchall()
+            if row[0] and row[1]
+        ]
+        seen_ids = {str(row["entity_id"]) for row in rows}
+        for unresolved_name in unresolved:
+            normalized_unresolved = normalize_name(unresolved_name)
+            best: tuple[str, str, str, float] | None = None
+            for entity_id, canonical_name, entity_type, normalized_candidate in candidates:
+                if not normalized_candidate:
+                    continue
+                score = jaro_winkler(normalized_unresolved, normalized_candidate)
+                if normalized_unresolved and normalized_candidate:
+                    if normalized_unresolved in normalized_candidate or normalized_candidate in normalized_unresolved:
+                        score = max(score, 0.96)
+                if best is None or score > best[3]:
+                    best = (entity_id, canonical_name, entity_type, score)
+            if best and best[3] >= 0.9 and best[0] not in seen_ids:
+                rows.append(
+                    {
+                        "entity_id": best[0],
+                        "canonical_name": best[1],
+                        "entity_type": best[2],
+                        "degree": 0,
+                    }
+                )
+                seen_ids.add(best[0])
+        return rows
     finally:
         cur.close()
         conn.close()
@@ -369,17 +463,39 @@ def main() -> int:
 
     entity_ids = [str(item).strip() for item in args.entity_id if str(item).strip()]
     if not entity_ids:
-        entity_ids = [row["entity_id"] for row in _load_top_seed_entities(pg_url, args.top_entities)]
+        combined_seed_entities = _load_fixture_seed_entities(pg_url) + _load_top_seed_entities(pg_url, args.top_entities)
+        deduped_entity_ids: list[str] = []
+        seen: set[str] = set()
+        for row in combined_seed_entities:
+            entity_id = str(row.get("entity_id") or "").strip()
+            if not entity_id or entity_id in seen:
+                continue
+            deduped_entity_ids.append(entity_id)
+            seen.add(entity_id)
+        entity_ids = deduped_entity_ids
 
     queue_runs: list[dict[str, Any]] = []
     if not args.skip_queue:
         for entity_id in entity_ids:
             queue_runs.append(queue_predicted_links(pg_url, entity_id, top_k=args.top_k))
 
-    review_export = export_reviewed_link_labels(pg_url, report_dir / "reviewed_link_labels.json")
-    review_stats = get_prediction_review_stats(pg_url)
+    review_scope_entity_ids = entity_ids or None
     embedding_stats = _fetch_embedding_stats(pg_url)
-    sample_review_queue = list_predicted_link_queue(pg_url, reviewed=False, limit=12)
+    current_model_version = str(embedding_stats.get("model_version") or "").strip() or None
+    review_export = export_reviewed_link_labels(pg_url, report_dir / "reviewed_link_labels.json")
+    review_stats = get_prediction_review_stats(
+        pg_url,
+        source_entity_ids=review_scope_entity_ids,
+        model_version=current_model_version,
+    )
+    embedding_stats["review_stats"] = review_stats
+    sample_review_queue = list_predicted_link_queue(
+        pg_url,
+        reviewed=False,
+        source_entity_ids=review_scope_entity_ids,
+        model_version=current_model_version,
+        limit=12,
+    )
 
     benchmark = _read_json(benchmark_path) or {}
     readiness = _read_json(readiness_path) or {}
@@ -397,6 +513,8 @@ def main() -> int:
         "review_stats": review_stats,
         "review_export": review_export,
         "queue_runs": queue_runs,
+        "review_scope_entity_ids": review_scope_entity_ids or [],
+        "review_scope_model_version": current_model_version,
         "sample_review_queue": sample_review_queue,
         "stage_progress": stage_progress,
         "stage_metrics": stage_metrics,

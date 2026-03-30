@@ -17,7 +17,6 @@ Used by link_prediction_api.py to serve predictions via REST API.
 import json
 import logging
 import time
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +57,149 @@ MISSING_EDGE_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
         "cyber_supply_chain",
         "component_dependency",
     ),
+}
+
+PREDICTION_RELATION_TARGET_ALLOWLIST: dict[str, set[str]] = {
+    "owned_by": {"company", "holding_company", "person", "government_agency"},
+    "parent_of": {"company", "holding_company"},
+    "subsidiary_of": {"company", "holding_company"},
+    "backed_by": {"company", "holding_company", "bank", "person"},
+    "routes_payment_through": {"bank", "company", "holding_company"},
+    "contracts_with": {"government_agency", "company"},
+    "subcontractor_of": {"company", "holding_company"},
+    "prime_contractor_of": {"company", "holding_company"},
+    "regulated_by": {"government_agency"},
+    "filed_with": {"government_agency", "court_case", "sanctions_list"},
+    "litigant_in": {"court_case"},
+    "depends_on_network": {"telecom_provider", "service", "company"},
+    "depends_on_service": {"service", "company"},
+    "distributed_by": {"distributor", "company", "holding_company"},
+    "operates_facility": {"facility"},
+    "ships_via": {"shipment_route", "facility"},
+    "integrated_into": {"company", "subsystem", "component"},
+}
+
+GENERIC_TARGET_PHRASES: tuple[str, ...] = (
+    "service disabled veteran",
+    "service-disabled veteran",
+    "family owned",
+    "family-owned",
+    "independently operated",
+    "global telecom leaders",
+    "flexible payment options",
+    "secure boot concepts",
+    "trusted by",
+    "partner ecosystem",
+    "asia pacific",
+    "asia-pacific",
+    "market context",
+    "unresolved holding layer",
+    "modeled transit via",
+    "modeled payment bank",
+    "modeled distributor",
+)
+
+GENERIC_TARGET_TOKENS: set[str] = {
+    "investors",
+    "leaders",
+    "options",
+    "concepts",
+    "partners",
+    "ecosystem",
+    "veteran",
+    "veterans",
+    "owned",
+    "owner",
+    "family",
+}
+
+CORPORATE_SUFFIX_TOKENS: set[str] = {
+    "inc",
+    "inc.",
+    "llc",
+    "l.l.c.",
+    "ltd",
+    "ltd.",
+    "plc",
+    "corp",
+    "corp.",
+    "corporation",
+    "company",
+    "co",
+    "co.",
+    "holdings",
+    "group",
+    "partners",
+    "capital",
+    "advisory",
+    "fze",
+    "gmbh",
+    "sa",
+    "nv",
+    "ag",
+}
+
+GOVERNMENT_NAME_TOKENS: set[str] = {
+    "department",
+    "ministry",
+    "agency",
+    "command",
+    "administration",
+    "army",
+    "navy",
+    "air force",
+    "defense",
+    "defence",
+    "veterans",
+    "homeland",
+    "treasury",
+    "state",
+    "justice",
+    "commission",
+    "bureau",
+    "office",
+    "u.s.",
+    "united states",
+}
+
+COURT_NAME_TOKENS: set[str] = {
+    "court",
+    "case no.",
+    "case no",
+    "cv-",
+    "district",
+    "appeals",
+    "tribunal",
+    "chancery",
+    "litigation",
+}
+
+REGULATORY_NAME_TOKENS: set[str] = {
+    "commission",
+    "agency",
+    "department",
+    "administration",
+    "bureau",
+    "authority",
+    "office",
+    "exchange",
+    "sec",
+    "fincen",
+    "bis",
+    "ofac",
+}
+
+ROUTE_REGION_TOKENS: set[str] = {
+    "asia-pacific",
+    "asia",
+    "pacific",
+    "emea",
+    "apac",
+    "global",
+    "worldwide",
+    "international",
+    "markets",
+    "region",
 }
 
 try:
@@ -209,6 +351,234 @@ def _edge_exists(cur: Any, source_entity_id: str, rel_type: str, target_entity_i
 
 def _safe_divide(numerator: float, denominator: float) -> float:
     return float(numerator / denominator) if denominator else 0.0
+
+
+def _normalize_match_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _looks_country_or_route_name(name: str) -> bool:
+    raw = str(name or "").strip()
+    normalized = _normalize_match_text(raw)
+    if not normalized or any(token in normalized for token in ROUTE_REGION_TOKENS):
+        return False
+    if any(char.isdigit() for char in raw):
+        return False
+    tokens = [token for token in normalized.replace("/", " ").split() if token]
+    if not tokens or len(tokens) > 3:
+        return False
+    corporate_suffixes = {"inc", "llc", "ltd", "plc", "corp", "corporation", "company", "co", "bank"}
+    if any(token in corporate_suffixes for token in tokens):
+        return False
+    return True
+
+
+def _looks_government_name(name: str) -> bool:
+    normalized = _normalize_match_text(name)
+    return any(token in normalized for token in GOVERNMENT_NAME_TOKENS)
+
+
+def _looks_court_name(name: str) -> bool:
+    normalized = _normalize_match_text(name)
+    return any(token in normalized for token in COURT_NAME_TOKENS)
+
+
+def _looks_regulatory_name(name: str) -> bool:
+    normalized = _normalize_match_text(name)
+    return any(token in normalized for token in REGULATORY_NAME_TOKENS)
+
+
+def _looks_corporate_name(name: str) -> bool:
+    normalized = _normalize_match_text(name)
+    if not normalized:
+        return False
+    if _looks_government_name(name) or _looks_court_name(name):
+        return False
+    tokens = set(normalized.replace(",", " ").split())
+    return any(token in CORPORATE_SUFFIX_TOKENS for token in tokens)
+
+
+def _semantic_type_hints(name: str, entity_type: str) -> set[str]:
+    normalized_name = _normalize_match_text(name)
+    normalized_type = _normalize_match_text(entity_type)
+    hints = {normalized_type} if normalized_type else set()
+
+    if _looks_government_name(name):
+        hints.add("government_agency")
+    if _looks_court_name(name):
+        hints.add("court_case")
+    if "bank" in normalized_name:
+        hints.add("bank")
+    if any(fragment in normalized_name for fragment in ("telecom", "carrier", "communications", "network")):
+        hints.add("telecom_provider")
+    if any(fragment in normalized_name for fragment in ("service", "services", "managed", "signing", "hosting", "cloud")):
+        hints.add("service")
+    if any(fragment in normalized_name for fragment in ("lab", "facility", "center", "centre", "plant", "yard", "hub")):
+        hints.add("facility")
+    if any(fragment in normalized_name for fragment in ("route", "corridor", "transit", "port")) or _looks_country_or_route_name(name):
+        hints.add("shipment_route")
+    if any(fragment in normalized_name for fragment in ("module", "component", "firmware", "gateway", "processor", "board", "sensor")):
+        hints.add("component")
+    if any(fragment in normalized_name for fragment in ("capital", "holdings", "partners", "group")):
+        hints.add("holding_company")
+    return hints
+
+
+def _is_generic_target_name(name: str, rel_type: str) -> bool:
+    normalized_name = _normalize_match_text(name)
+    if not normalized_name:
+        return True
+    if any(phrase in normalized_name for phrase in GENERIC_TARGET_PHRASES):
+        return True
+
+    tokens = set(normalized_name.replace("-", " ").split())
+    if tokens and tokens.issubset(GENERIC_TARGET_TOKENS):
+        return True
+
+    normalized_rel = _normalize_rel_type(rel_type)
+    if normalized_rel in {"owned_by", "backed_by"} and any(token in tokens for token in {"veteran", "family", "owned", "investors"}):
+        return True
+    if normalized_rel == "depends_on_service" and any(token in tokens for token in {"partners", "ecosystem"}):
+        return True
+    if normalized_rel == "depends_on_network" and "leaders" in tokens:
+        return True
+    if normalized_rel == "ships_via" and any(token in tokens for token in ROUTE_REGION_TOKENS):
+        return True
+    return False
+
+
+def _allow_predicted_link(
+    source_entity_type: str,
+    rel_type: str,
+    target_entity_type: str,
+    target_name: str,
+) -> bool:
+    normalized_rel = _normalize_rel_type(rel_type)
+    if normalized_rel not in PREDICTION_RELATION_TARGET_ALLOWLIST:
+        return False
+    if _is_generic_target_name(target_name, normalized_rel):
+        return False
+
+    hinted_types = _semantic_type_hints(target_name, target_entity_type)
+    allowed_types = PREDICTION_RELATION_TARGET_ALLOWLIST.get(normalized_rel)
+    if allowed_types and not (hinted_types & allowed_types):
+        if normalized_rel == "ships_via" and _looks_country_or_route_name(target_name):
+            return True
+        if normalized_rel == "contracts_with" and "government_agency" in hinted_types:
+            return True
+        return False
+
+    normalized_source_type = _normalize_match_text(source_entity_type)
+    normalized_target = _normalize_match_text(target_name)
+    if normalized_rel == "integrated_into" and normalized_source_type in {"company", "holding_company"}:
+        return False
+    if normalized_rel == "contracts_with" and not _looks_government_name(target_name):
+        return False
+    if normalized_rel == "filed_with" and not (
+        _looks_government_name(target_name)
+        or _looks_regulatory_name(target_name)
+        or _looks_court_name(target_name)
+        or "sanctions_list" in hinted_types
+    ):
+        return False
+    if normalized_rel == "litigant_in" and "court_case" not in hinted_types:
+        return False
+    if normalized_rel in {"subcontractor_of", "prime_contractor_of", "distributed_by"} and not _looks_corporate_name(target_name):
+        return False
+    if normalized_rel in {"owned_by", "parent_of", "subsidiary_of"} and not (
+        _looks_corporate_name(target_name)
+        or "person" in hinted_types
+        or "government_agency" in hinted_types
+    ):
+        return False
+    if normalized_rel == "backed_by" and not (
+        _looks_corporate_name(target_name)
+        or "bank" in hinted_types
+        or "person" in hinted_types
+    ):
+        return False
+    if normalized_rel == "routes_payment_through" and "bank" not in hinted_types and "bank" not in normalized_target and "trust" not in normalized_target:
+        return False
+    if normalized_rel == "operates_facility" and "facility" not in hinted_types:
+        return False
+    if normalized_rel == "ships_via" and not (
+        _looks_country_or_route_name(target_name)
+        or "shipment_route" in hinted_types
+        or "facility" in hinted_types
+    ):
+        return False
+    return True
+
+
+def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str, top_k: int) -> list[dict[str, Any]]:
+    candidate_limit = min(max(top_k * 24, top_k + 80), 1200)
+    raw_predictions = trainer.predict_links(entity_id, top_k=candidate_limit)
+    entity_map = _fetch_entity_map(cur, [entity_id, *[row["target_entity_id"] for row in raw_predictions]])
+    source_row = entity_map.get(entity_id) or {}
+    source_name = source_row.get("canonical_name", entity_id)
+    source_entity_type = source_row.get("entity_type", "unknown")
+
+    relation_buckets: dict[str, list[dict[str, Any]]] = {}
+    relation_best_score: dict[str, float] = {}
+    seen_relation_target_keys: set[tuple[str, str]] = set()
+    for pred in raw_predictions:
+        target_id = str(pred["target_entity_id"])
+        target_row = entity_map.get(target_id) or {}
+        target_name = str(target_row.get("canonical_name") or pred.get("target_name") or target_id)
+        target_entity_type = str(target_row.get("entity_type") or "unknown")
+        rel_type = str(pred["predicted_relation"])
+        if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
+            continue
+        dedupe_key = (_normalize_rel_type(rel_type), _normalize_match_text(target_name))
+        if dedupe_key in seen_relation_target_keys:
+            continue
+        seen_relation_target_keys.add(dedupe_key)
+        row = {
+            "source_entity_id": entity_id,
+            "source_entity_name": source_name,
+            "source_entity_type": source_entity_type,
+            "target_entity_id": target_id,
+            "target_name": target_name,
+            "target_entity_type": target_entity_type,
+            "predicted_relation": rel_type,
+            "predicted_edge_family": _prediction_edge_family(rel_type),
+            "score": float(pred["score"]),
+        }
+        relation_buckets.setdefault(rel_type, []).append(row)
+        relation_best_score[rel_type] = min(relation_best_score.get(rel_type, float("inf")), row["score"])
+
+    prepared: list[dict[str, Any]] = []
+    relation_limits: dict[str, int] = {}
+    edge_family_counts: dict[str, int] = {}
+    relation_cursor = {rel_type: 0 for rel_type in relation_buckets}
+    relation_order = sorted(relation_buckets, key=lambda rel: (relation_best_score.get(rel, float("inf")), rel))
+    per_relation_cap = max(2, min(4, top_k // 4 or 1))
+    per_edge_family_cap = max(3, min(8, top_k // 2 or 1))
+
+    while len(prepared) < top_k:
+        progressed = False
+        for rel_type in relation_order:
+            bucket = relation_buckets.get(rel_type, [])
+            if relation_limits.get(rel_type, 0) >= per_relation_cap:
+                continue
+            cursor = relation_cursor.get(rel_type, 0)
+            while cursor < len(bucket):
+                candidate = bucket[cursor]
+                cursor += 1
+                edge_family = str(candidate.get("predicted_edge_family") or "other")
+                if edge_family_counts.get(edge_family, 0) >= per_edge_family_cap:
+                    continue
+                prepared.append(candidate)
+                relation_limits[rel_type] = relation_limits.get(rel_type, 0) + 1
+                edge_family_counts[edge_family] = edge_family_counts.get(edge_family, 0) + 1
+                progressed = True
+                break
+            relation_cursor[rel_type] = cursor
+            if len(prepared) >= top_k:
+                break
+        if not progressed:
+            break
+    return prepared
 
 
 class TransETrainer:
@@ -834,24 +1204,17 @@ def get_predicted_links(pg_url: str, entity_id: str, top_k: int = 10) -> list[di
         logger.warning("Could not load embeddings from database")
         return []
 
-    predictions = trainer.predict_links(entity_id, top_k=top_k)
-
     # Enrich with entity names from database
     try:
         import psycopg2
     except ImportError:
-        return predictions
+        return []
 
     conn = psycopg2.connect(pg_url)
     cur = conn.cursor()
 
     try:
-        entity_map = _fetch_entity_map(cur, [pred["target_entity_id"] for pred in predictions])
-        for pred in predictions:
-            target_row = entity_map.get(str(pred["target_entity_id"]))
-            pred["target_name"] = (target_row or {}).get("canonical_name", pred["target_name"])
-            pred["predicted_edge_family"] = _prediction_edge_family(str(pred.get("predicted_relation") or ""))
-
+        predictions = _prepare_prediction_rows(cur, trainer, entity_id, top_k=top_k)
     finally:
         cur.close()
         conn.close()
@@ -883,7 +1246,6 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
     if not trainer.load_embeddings_from_db(pg_url):
         raise ValueError("Embeddings not found. Train first.")
 
-    predictions = trainer.predict_links(entity_id, top_k=top_k)
     model_version = trainer.model_version or "unknown"
 
     try:
@@ -895,8 +1257,10 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
     cur = conn.cursor()
 
     try:
-        entity_map = _fetch_entity_map(cur, [entity_id, *[row["target_entity_id"] for row in predictions]])
-        source_name = (entity_map.get(entity_id) or {}).get("canonical_name", entity_id)
+        predictions = _prepare_prediction_rows(cur, trainer, entity_id, top_k=top_k)
+        source_name = (predictions[0]["source_entity_name"] if predictions else None) or (
+            (_fetch_entity_map(cur, [entity_id]).get(entity_id) or {}).get("canonical_name", entity_id)
+        )
         queued = 0
         existing = 0
         items: list[dict[str, Any]] = []
@@ -905,8 +1269,8 @@ def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[
             target_id = str(pred["target_entity_id"])
             rel_type = str(pred["predicted_relation"])
             score = float(pred["score"])
-            target_name = (entity_map.get(target_id) or {}).get("canonical_name", pred.get("target_name") or target_id)
-            edge_family = _prediction_edge_family(rel_type)
+            target_name = str(pred.get("target_name") or target_id)
+            edge_family = str(pred.get("predicted_edge_family") or _prediction_edge_family(rel_type))
             existing_relationship_id = _edge_exists(cur, entity_id, rel_type, target_id)
             edge_already_exists = existing_relationship_id is not None
 
@@ -1021,6 +1385,7 @@ def list_predicted_link_queue(
     edge_family: str | None = None,
     model_version: str | None = None,
     source_entity_id: str | None = None,
+    source_entity_ids: list[str] | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -1051,7 +1416,10 @@ def list_predicted_link_queue(
         if model_version:
             conditions.append("model_version = %s")
             params.append(model_version)
-        if source_entity_id:
+        if source_entity_ids:
+            conditions.append("source_entity_id = ANY(%s)")
+            params.append(source_entity_ids)
+        elif source_entity_id:
             conditions.append("source_entity_id = %s")
             params.append(source_entity_id)
 
@@ -1268,7 +1636,13 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
         conn.close()
 
 
-def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = None) -> dict[str, Any]:
+def get_prediction_review_stats(
+    pg_url: str,
+    *,
+    source_entity_id: str | None = None,
+    source_entity_ids: list[str] | None = None,
+    model_version: str | None = None,
+) -> dict[str, Any]:
     ensure_prediction_tables(pg_url)
     try:
         import psycopg2
@@ -1280,9 +1654,15 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
     try:
         conditions: list[str] = []
         params: list[Any] = []
-        if source_entity_id:
+        if source_entity_ids:
+            conditions.append("source_entity_id = ANY(%s)")
+            params.append(source_entity_ids)
+        elif source_entity_id:
             conditions.append("source_entity_id = %s")
             params.append(source_entity_id)
+        if model_version:
+            conditions.append("model_version = %s")
+            params.append(model_version)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         scoped_params = tuple(params)
 
@@ -1459,6 +1839,8 @@ def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = N
             "rejection_reason_counts": rejection_reason_counts,
             "scope": {
                 "source_entity_id": source_entity_id,
+                "source_entity_ids": source_entity_ids or [],
+                "model_version": model_version,
             },
             "missing_edge_recovery": {
                 "queue_depth": pending_links,
@@ -1525,6 +1907,147 @@ def _compute_entity_resolution_metrics() -> dict[str, Any]:
     }
 
 
+def _load_prediction_state_by_name(cur: Any, source_names: set[str]) -> dict[tuple[str, str, str], dict[str, bool]]:
+    normalized_sources = sorted({_normalize_match_text(name) for name in source_names if _normalize_match_text(name)})
+    if not normalized_sources:
+        return {}
+
+    cur.execute(
+        """
+        SELECT
+            LOWER(TRIM(COALESCE(source_entity_name, ''))) AS source_name,
+            LOWER(TRIM(COALESCE(target_entity_name, ''))) AS target_name,
+            LOWER(TRIM(COALESCE(predicted_relation, ''))) AS predicted_relation,
+            BOOL_OR(reviewed = TRUE AND analyst_confirmed = TRUE) AS confirmed_candidate,
+            BOOL_OR(reviewed = FALSE) AS pending_candidate,
+            BOOL_OR(reviewed = TRUE AND analyst_confirmed = FALSE) AS rejected_candidate
+        FROM kg_predicted_links
+        WHERE LOWER(TRIM(COALESCE(source_entity_name, ''))) = ANY(%s)
+        GROUP BY 1, 2, 3
+        """,
+        (normalized_sources,),
+    )
+    state: dict[tuple[str, str, str], dict[str, bool]] = {}
+    for row in cur.fetchall():
+        key = (str(row[0] or ""), str(row[1] or ""), str(row[2] or ""))
+        state[key] = {
+            "confirmed_candidate": bool(row[3]),
+            "pending_candidate": bool(row[4]),
+            "rejected_candidate": bool(row[5]),
+        }
+    return state
+
+
+def _load_existing_edges_by_name(cur: Any, source_names: set[str]) -> set[tuple[str, str, str]]:
+    normalized_sources = sorted({_normalize_match_text(name) for name in source_names if _normalize_match_text(name)})
+    if not normalized_sources:
+        return set()
+
+    cur.execute(
+        """
+        SELECT
+            LOWER(TRIM(COALESCE(source_entities.canonical_name, ''))) AS source_name,
+            LOWER(TRIM(COALESCE(target_entities.canonical_name, ''))) AS target_name,
+            LOWER(TRIM(COALESCE(rel.rel_type, ''))) AS rel_type
+        FROM kg_relationships rel
+        JOIN kg_entities source_entities ON source_entities.id = rel.source_entity_id
+        JOIN kg_entities target_entities ON target_entities.id = rel.target_entity_id
+        WHERE LOWER(TRIM(COALESCE(source_entities.canonical_name, ''))) = ANY(%s)
+        """,
+        (normalized_sources,),
+    )
+    return {
+        (str(row[0] or ""), str(row[1] or ""), str(row[2] or ""))
+        for row in cur.fetchall()
+    }
+
+
+def _evaluate_construction_fixture_rows(
+    gold_rows: list[dict[str, Any]],
+    negative_rows: list[dict[str, Any]],
+    *,
+    existing_edges: set[tuple[str, str, str]],
+    prediction_state: dict[tuple[str, str, str], dict[str, bool]],
+) -> dict[str, Any]:
+    tp = fp = fn = 0
+    own_tp = own_fp = own_fn = 0
+    descriptor_total = descriptor_false = 0
+    gold_supported = 0
+    negative_rejected = 0
+
+    def _candidate_state(source_name: str, target_name: str, rel_type: str) -> dict[str, bool]:
+        key = (
+            _normalize_match_text(source_name),
+            _normalize_match_text(target_name),
+            _normalize_rel_type(rel_type),
+        )
+        return prediction_state.get(key, {})
+
+    def _graph_exists(source_name: str, target_name: str, rel_type: str) -> bool:
+        key = (
+            _normalize_match_text(source_name),
+            _normalize_match_text(target_name),
+            _normalize_rel_type(rel_type),
+        )
+        return key in existing_edges
+
+    for row in gold_rows:
+        source_name = str(row.get("source_entity") or "")
+        target_name = str(row.get("target_entity") or "")
+        rel_type = str(row.get("relationship_type") or "")
+        state = _candidate_state(source_name, target_name, rel_type)
+        supported = bool(
+            _graph_exists(source_name, target_name, rel_type)
+            or state.get("confirmed_candidate")
+            or state.get("pending_candidate")
+        )
+        if supported:
+            tp += 1
+            gold_supported += 1
+            if row.get("edge_family") == "ownership_control":
+                own_tp += 1
+        else:
+            fn += 1
+            if row.get("edge_family") == "ownership_control":
+                own_fn += 1
+
+    for row in negative_rows:
+        source_name = str(row.get("source_entity") or "")
+        target_name = str(row.get("attempted_target") or "")
+        rel_type = str(row.get("attempted_relationship_type") or "")
+        state = _candidate_state(source_name, target_name, rel_type)
+        false_positive = bool(
+            _graph_exists(source_name, target_name, rel_type)
+            or state.get("confirmed_candidate")
+            or state.get("pending_candidate")
+        )
+        if state.get("rejected_candidate"):
+            negative_rejected += 1
+        if false_positive:
+            fp += 1
+            if row.get("edge_family") == "ownership_control":
+                own_fp += 1
+        if row.get("rejection_reason") == "descriptor_only_not_entity":
+            descriptor_total += 1
+            descriptor_false += 1 if false_positive else 0
+
+    precision = _safe_divide(tp, tp + fp)
+    recall = _safe_divide(tp, tp + fn)
+    own_precision = _safe_divide(own_tp, own_tp + own_fp)
+    own_recall = _safe_divide(own_tp, own_tp + own_fn)
+
+    return {
+        "edge_family_micro_f1": _safe_divide(2 * precision * recall, precision + recall),
+        "ownership_control_precision": own_precision,
+        "ownership_control_recall": own_recall,
+        "descriptor_only_false_owner_rate": _safe_divide(descriptor_false, descriptor_total),
+        "gold_positive_rows_evaluated": len(gold_rows),
+        "hard_negative_rows_evaluated": len(negative_rows),
+        "gold_candidate_coverage": _safe_divide(gold_supported, len(gold_rows)),
+        "negative_rejection_coverage": _safe_divide(negative_rejected, len(negative_rows)),
+    }
+
+
 def get_graph_construction_training_metrics(pg_url: str) -> dict[str, Any]:
     gold_rows = _load_fixture_rows(GRAPH_CONSTRUCTION_GOLD_PATH)
     negative_rows = _load_fixture_rows(GRAPH_CONSTRUCTION_NEGATIVE_PATH)
@@ -1549,59 +2072,20 @@ def get_graph_construction_training_metrics(pg_url: str) -> dict[str, Any]:
     conn = psycopg2.connect(pg_url)
     cur = conn.cursor()
     try:
-        names: set[str] = set()
-        for row in gold_rows:
-            names.add(str(row.get("source_entity") or ""))
-            names.add(str(row.get("target_entity") or ""))
-        for row in negative_rows:
-            names.add(str(row.get("source_entity") or ""))
-            names.add(str(row.get("attempted_target") or ""))
-        entity_ids = _resolve_fixture_entity_ids(cur, names)
-
-        tp = fp = fn = 0
-        own_tp = own_fp = own_fn = 0
-        descriptor_total = descriptor_false = 0
-
-        for row in gold_rows:
-            source_id = entity_ids.get(str(row.get("source_entity") or "").strip())
-            target_id = entity_ids.get(str(row.get("target_entity") or "").strip())
-            rel_type = _normalize_rel_type(row.get("relationship_type"))
-            exists = bool(source_id and target_id and _edge_exists(cur, source_id, rel_type, target_id))
-            if exists:
-                tp += 1
-                if row.get("edge_family") == "ownership_control":
-                    own_tp += 1
-            else:
-                fn += 1
-                if row.get("edge_family") == "ownership_control":
-                    own_fn += 1
-
-        for row in negative_rows:
-            source_id = entity_ids.get(str(row.get("source_entity") or "").strip())
-            target_id = entity_ids.get(str(row.get("attempted_target") or "").strip())
-            rel_type = _normalize_rel_type(row.get("attempted_relationship_type"))
-            exists = bool(source_id and target_id and _edge_exists(cur, source_id, rel_type, target_id))
-            if exists:
-                fp += 1
-                if row.get("edge_family") == "ownership_control":
-                    own_fp += 1
-            if row.get("rejection_reason") == "descriptor_only_not_entity":
-                descriptor_total += 1
-                descriptor_false += 1 if exists else 0
-
-        precision = _safe_divide(tp, tp + fp)
-        recall = _safe_divide(tp, tp + fn)
-        own_precision = _safe_divide(own_tp, own_tp + own_fp)
-        own_recall = _safe_divide(own_tp, own_tp + own_fn)
-
-        metrics = {
-            "edge_family_micro_f1": _safe_divide(2 * precision * recall, precision + recall),
-            "ownership_control_precision": own_precision,
-            "ownership_control_recall": own_recall,
-            "descriptor_only_false_owner_rate": _safe_divide(descriptor_false, descriptor_total),
-            "gold_positive_rows_evaluated": len(gold_rows),
-            "hard_negative_rows_evaluated": len(negative_rows),
+        source_names = {
+            str(row.get("source_entity") or "")
+            for row in [*gold_rows, *negative_rows]
+            if str(row.get("source_entity") or "").strip()
         }
+        existing_edges = _load_existing_edges_by_name(cur, source_names)
+        prediction_state = _load_prediction_state_by_name(cur, source_names)
+
+        metrics = _evaluate_construction_fixture_rows(
+            gold_rows,
+            negative_rows,
+            existing_edges=existing_edges,
+            prediction_state=prediction_state,
+        )
         metrics.update(_compute_entity_resolution_metrics())
         return metrics
     finally:

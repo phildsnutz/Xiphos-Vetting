@@ -30,7 +30,7 @@ DEFAULT_NEO4J_GLOB = "neo4j_graph_drift_audit*"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the live Helios graph-training tranche.")
-    parser.add_argument("--top-entities", type=int, default=4)
+    parser.add_argument("--top-entities", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=12)
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-queue", action="store_true")

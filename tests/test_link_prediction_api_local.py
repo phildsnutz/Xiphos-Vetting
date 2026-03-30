@@ -310,3 +310,133 @@ def test_build_training_dashboard_payload_reads_runtime_report_roots(monkeypatch
     assert payload["live_tranche"]["intermediary_route_queries_evaluated"] == 5
     assert payload["live_tranche"]["cyber_dependency_queries_evaluated"] == 9
     assert Path(payload["live_tranche"]["path"]).parent.name == "20260330150200"
+
+
+def test_build_training_dashboard_payload_uses_runtime_fallbacks(monkeypatch, tmp_path):
+    monkeypatch.setenv("XIPHOS_PG_URL", "postgresql://test")
+
+    api = _reload_fresh("link_prediction_api")
+    monkeypatch.setattr(api, "REPORT_SEARCH_ROOTS", [tmp_path / "app-reports", tmp_path / "runtime-reports"])
+    monkeypatch.setattr(
+        api,
+        "_runtime_neo4j_fallback",
+        lambda tranche: {
+            "verdict": "PASS",
+            "generated_at": "2026-03-30T16:00:00Z",
+            "path": None,
+            "node_count": 8313,
+            "relationship_count": 21146,
+            "runtime_status": "available",
+            "runtime_error": None,
+            "source": "runtime_health",
+        },
+    )
+    monkeypatch.setattr(
+        api,
+        "_runtime_readiness_fallback",
+        lambda tranche: {
+            "verdict": "UNKNOWN",
+            "generated_at": None,
+            "path": None,
+            "runtime_status": "ok",
+            "runtime_error": None,
+            "runtime_vendor_count": 42,
+            "runtime_unresolved_alerts": 3,
+            "source": "runtime_health",
+        },
+    )
+
+    payload = api.build_training_dashboard_payload()
+    assert payload["neo4j"]["verdict"] == "PASS"
+    assert payload["neo4j"]["node_count"] == 8313
+    assert payload["neo4j"]["runtime_status"] == "available"
+    assert payload["readiness"]["verdict"] == "UNKNOWN"
+    assert payload["readiness"]["runtime_status"] == "ok"
+    assert payload["readiness"]["runtime_vendor_count"] == 42
+
+
+def test_build_training_dashboard_payload_uses_runtime_benchmark_fallback(monkeypatch, tmp_path):
+    monkeypatch.setenv("XIPHOS_PG_URL", "postgresql://test")
+
+    api = _reload_fresh("link_prediction_api")
+    app_reports = tmp_path / "app-reports"
+    runtime_reports = tmp_path / "runtime-reports"
+    monkeypatch.setattr(api, "REPORT_SEARCH_ROOTS", [app_reports, runtime_reports])
+    monkeypatch.setattr(api, "_runtime_neo4j_fallback", lambda tranche: {"verdict": "PASS", "runtime_status": "available", "node_count": 10, "relationship_count": 20, "generated_at": None, "path": None, "runtime_error": None, "source": "runtime_health"})
+    monkeypatch.setattr(api, "_runtime_readiness_fallback", lambda tranche: {"verdict": "UNKNOWN", "runtime_status": "ok", "runtime_vendor_count": 2, "runtime_unresolved_alerts": 1, "generated_at": None, "path": None, "runtime_error": None, "source": "runtime_health"})
+    monkeypatch.setattr(api, "BENCHMARK_SUITE_PATH", tmp_path / "suite.json")
+
+    (runtime_reports / "graph_training_tranche_live" / "20260330160000" / "20260330160001").mkdir(parents=True)
+    (runtime_reports / "graph_training_tranche_live" / "20260330160000" / "20260330160001" / "summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-03-30T16:00:01Z",
+                "stage_metrics": {
+                    "construction_training": {
+                        "edge_family_micro_f1": 0.25,
+                        "ownership_control_precision": 0.2,
+                        "ownership_control_recall": 0.1,
+                        "entity_resolution_pairwise_f1": 1.0,
+                        "false_merge_rate": 0.0,
+                        "descriptor_only_false_owner_rate": 0.0,
+                        "gold_positive_rows_evaluated": 13,
+                        "hard_negative_rows_evaluated": 10,
+                    },
+                    "missing_edge_recovery": {
+                        "ownership_control_hits_at_10": 0.9,
+                        "ownership_control_mrr": 0.6,
+                        "intermediary_route_hits_at_10": 0.0,
+                        "intermediary_route_mrr": 0.0,
+                        "cyber_dependency_hits_at_10": 0.0,
+                        "analyst_confirmation_rate": 0.5,
+                        "unsupported_promoted_edge_rate": 0.0,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "suite.json").write_text(
+        json.dumps(
+            {
+                "data_foundation": {
+                    "construction_gold_set": {"min_rows": 12},
+                    "hard_negative_set": {"min_rows": 10},
+                },
+                "training_stack": [
+                    {
+                        "stage_id": "construction_training",
+                        "objective": "construction",
+                        "metrics": {
+                            "edge_family_micro_f1_min": 0.93,
+                            "ownership_control_precision_min": 0.98,
+                            "ownership_control_recall_min": 0.9,
+                            "entity_resolution_pairwise_f1_min": 0.985,
+                            "false_merge_rate_max": 0.005,
+                            "descriptor_only_false_owner_rate_max": 0.0,
+                        },
+                    },
+                    {
+                        "stage_id": "missing_edge_recovery",
+                        "objective": "missing edge",
+                        "metrics": {
+                            "ownership_control_hits_at_10_min": 0.8,
+                            "ownership_control_mrr_min": 0.45,
+                            "intermediary_route_hits_at_10_min": 0.7,
+                            "intermediary_route_mrr_min": 0.35,
+                            "cyber_dependency_hits_at_10_min": 0.7,
+                            "analyst_confirmation_rate_min": 0.65,
+                            "unsupported_promoted_edge_rate_max": 0.0,
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = api.build_training_dashboard_payload()
+    assert payload["benchmark"]["source"] == "tranche_runtime"
+    assert payload["benchmark"]["verdict"] == "FAIL"
+    assert payload["benchmark"]["data_foundation_verdict"] == "PASS"
+    assert payload["benchmark"]["total_stage_count"] == 2
