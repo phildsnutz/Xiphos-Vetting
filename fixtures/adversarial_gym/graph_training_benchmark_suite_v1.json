@@ -70,7 +70,7 @@
         "masked_holdout_hits_at_10_min": 0.8,
         "masked_holdout_mrr_min": 0.45,
         "mean_withheld_target_rank_max": 10.0,
-        "masked_holdout_queries_evaluated_min": 7,
+        "masked_holdout_queries_evaluated_min": 10,
         "unsupported_promoted_edge_rate_max": 0.0
       }
     },

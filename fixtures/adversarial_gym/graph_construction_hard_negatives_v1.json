@@ -39,6 +39,45 @@
     "rejection_reason": "generic_market_language"
   },
   {
+    "label_id": "neg_yorktown_mission_support_not_contract",
+    "lane": "counterparty",
+    "source_authority": "first_party",
+    "source_url": "fixture://graph_construction_hard_negatives/mission_support",
+    "evidence_text": "Yorktown supports U.S. Army missions worldwide.",
+    "source_entity": "Yorktown Systems Group",
+    "attempted_target": "U.S. Army",
+    "attempted_relationship_type": "CONTRACTS_WITH",
+    "edge_family": "contracts_and_programs",
+    "should_create_edge": false,
+    "rejection_reason": "mission_statement_without_award"
+  },
+  {
+    "label_id": "neg_vehicle_reference_without_agency_contract",
+    "lane": "counterparty",
+    "source_authority": "secondary_public",
+    "source_url": "fixture://graph_construction_hard_negatives/vehicle_reference",
+    "evidence_text": "The company markets OASIS Plus readiness support across the sector.",
+    "source_entity": "Yorktown Systems Group",
+    "attempted_target": "OASIS Plus readiness support",
+    "attempted_relationship_type": "CONTRACTS_WITH",
+    "edge_family": "contracts_and_programs",
+    "should_create_edge": false,
+    "rejection_reason": "vehicle_reference_without_counterparty"
+  },
+  {
+    "label_id": "neg_harbor_finance_phrase_not_backed_by",
+    "lane": "counterparty",
+    "source_authority": "secondary_public",
+    "source_url": "fixture://graph_construction_hard_negatives/finance_phrase",
+    "evidence_text": "Capital markets remain volatile for the sector.",
+    "source_entity": "Harbor Beacon Holdings",
+    "attempted_target": "capital markets",
+    "attempted_relationship_type": "BACKED_BY",
+    "edge_family": "finance_intermediary",
+    "should_create_edge": false,
+    "rejection_reason": "finance_context_without_counterparty"
+  },
+  {
     "label_id": "neg_marketing_partner_not_dependency",
     "lane": "cyber",
     "source_authority": "public_html",
@@ -91,6 +130,19 @@
     "rejection_reason": "payment_context_without_counterparty"
   },
   {
+    "label_id": "neg_payment_terms_without_bank",
+    "lane": "export",
+    "source_authority": "secondary_public",
+    "source_url": "fixture://graph_construction_hard_negatives/payment_terms",
+    "evidence_text": "Net 30 payment terms are available for approved buyers.",
+    "source_entity": "Northern Channel Partners",
+    "attempted_target": "Net 30 payment terms",
+    "attempted_relationship_type": "ROUTES_PAYMENT_THROUGH",
+    "edge_family": "finance_intermediary",
+    "should_create_edge": false,
+    "rejection_reason": "payment_terms_without_bank"
+  },
+  {
     "label_id": "neg_component_mention_without_integration",
     "lane": "cyber",
     "source_authority": "secondary_public",
@@ -111,6 +163,19 @@
     "evidence_text": "The memo cites Case No. 24-cv-1182 for general market context.",
     "source_entity": "Harbor Beacon Holdings",
     "attempted_target": "Case No. 24-cv-1182 reference memo",
+    "attempted_relationship_type": "LITIGANT_IN",
+    "edge_family": "sanctions_and_legal",
+    "should_create_edge": false,
+    "rejection_reason": "reference_without_party_role"
+  },
+  {
+    "label_id": "neg_delaware_practice_note_not_litigant",
+    "lane": "counterparty",
+    "source_authority": "secondary_public",
+    "source_url": "fixture://graph_construction_hard_negatives/delaware_practice_note",
+    "evidence_text": "Counsel reviewed Delaware Chancery practice notes for general governance context.",
+    "source_entity": "Harbor Beacon Holdings",
+    "attempted_target": "Delaware Chancery practice notes",
     "attempted_relationship_type": "LITIGANT_IN",
     "edge_family": "sanctions_and_legal",
     "should_create_edge": false,

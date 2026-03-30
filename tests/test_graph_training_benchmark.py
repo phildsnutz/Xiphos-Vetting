@@ -29,7 +29,7 @@ def _pass_stage_metrics() -> dict[str, dict[str, float]]:
             "masked_holdout_hits_at_10": 0.82,
             "masked_holdout_mrr": 0.5,
             "mean_withheld_target_rank": 4.2,
-            "masked_holdout_queries_evaluated": 7,
+            "masked_holdout_queries_evaluated": 10,
             "unsupported_promoted_edge_rate": 0.0,
         },
         "temporal_recurrence_change": {

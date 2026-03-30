@@ -13,6 +13,19 @@
     "should_create_edge": true
   },
   {
+    "label_id": "holdout_yorktown_contracts_with_gsa",
+    "holdout_split": "family_balanced_masked",
+    "lane": "counterparty",
+    "source_authority": "secondary_public",
+    "source_url": "https://www.highergov.com/idv/47QRCA25DU352/",
+    "evidence_text": "HigherGov lists Yorktown Systems Group on a GSA OASIS Plus contract vehicle.",
+    "source_entity": "Yorktown Systems Group",
+    "target_entity": "General Services Administration",
+    "relationship_type": "CONTRACTS_WITH",
+    "edge_family": "contracts_and_programs",
+    "should_create_edge": true
+  },
+  {
     "label_id": "holdout_harbor_owned_by_beacon_strategic_capital",
     "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
@@ -39,6 +52,19 @@
     "should_create_edge": true
   },
   {
+    "label_id": "holdout_harbor_backed_by_sentinel_growth_capital",
+    "holdout_split": "family_balanced_masked",
+    "lane": "counterparty",
+    "source_authority": "analyst_modeled",
+    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/hidden_owner",
+    "evidence_text": "Financing entities also include Sentinel Growth Capital.",
+    "source_entity": "Harbor Beacon Holdings",
+    "target_entity": "Sentinel Growth Capital",
+    "relationship_type": "BACKED_BY",
+    "edge_family": "finance_intermediary",
+    "should_create_edge": true
+  },
+  {
     "label_id": "holdout_harbor_routes_payment_through_settlement_bank",
     "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
@@ -60,6 +86,19 @@
     "evidence_text": "Harbor Beacon Holdings appears in Case No. 24-cv-1182.",
     "source_entity": "Harbor Beacon Holdings",
     "target_entity": "Case No. 24-cv-1182",
+    "relationship_type": "LITIGANT_IN",
+    "edge_family": "sanctions_and_legal",
+    "should_create_edge": true
+  },
+  {
+    "label_id": "holdout_harbor_litigant_in_delaware_chancery_action",
+    "holdout_split": "family_balanced_masked",
+    "lane": "counterparty",
+    "source_authority": "secondary_public",
+    "source_url": "fixture://graph_construction_gold_set/harbor_delaware_chancery",
+    "evidence_text": "Harbor Beacon Holdings appears in Delaware Chancery Action 2024-1198.",
+    "source_entity": "Harbor Beacon Holdings",
+    "target_entity": "Delaware Chancery Action 2024-1198",
     "relationship_type": "LITIGANT_IN",
     "edge_family": "sanctions_and_legal",
     "should_create_edge": true

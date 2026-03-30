@@ -391,7 +391,7 @@ def test_build_training_dashboard_payload_uses_runtime_benchmark_fallback(monkey
                         "ownership_control_mrr": 0.6,
                         "intermediary_route_queries_evaluated": 2,
                         "cyber_dependency_queries_evaluated": 0,
-                        "masked_holdout_queries_evaluated": 7,
+                        "masked_holdout_queries_evaluated": 10,
                         "unsupported_promoted_edge_rate": 0.0,
                     },
                     "novel_edge_discovery": {
@@ -430,7 +430,7 @@ def test_build_training_dashboard_payload_uses_runtime_benchmark_fallback(monkey
                             "masked_holdout_hits_at_10_min": 0.8,
                             "masked_holdout_mrr_min": 0.45,
                             "mean_withheld_target_rank_max": 10.0,
-                            "masked_holdout_queries_evaluated_min": 7,
+                            "masked_holdout_queries_evaluated_min": 10,
                             "unsupported_promoted_edge_rate_max": 0.0,
                         },
                     },
