@@ -7,6 +7,39 @@
     "graph_ingest": "backend/graph_ingest.py",
     "pillar_briefing_pack": "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json"
   },
+  "data_foundation": {
+    "construction_gold_set": {
+      "path": "fixtures/adversarial_gym/graph_construction_gold_set_v1.json",
+      "min_rows": 12,
+      "min_edge_families": 8,
+      "required_edge_families": [
+        "ownership_control",
+        "finance_intermediary",
+        "trade_and_logistics",
+        "intermediaries_and_services",
+        "cyber_supply_chain",
+        "component_dependency",
+        "sanctions_and_legal",
+        "contracts_and_programs"
+      ]
+    },
+    "hard_negative_set": {
+      "path": "fixtures/adversarial_gym/graph_construction_hard_negatives_v1.json",
+      "min_rows": 10,
+      "required_rejection_reasons": [
+        "descriptor_only_not_entity",
+        "garbage_not_entity",
+        "generic_market_language",
+        "marketing_mention_not_dependency",
+        "no_actual_route"
+      ]
+    },
+    "review_table": {
+      "source": "kg_predicted_links",
+      "min_reviewed_links": 0,
+      "min_confirmed_links": 0
+    }
+  },
   "training_stack": [
     {
       "stage_id": "construction_training",

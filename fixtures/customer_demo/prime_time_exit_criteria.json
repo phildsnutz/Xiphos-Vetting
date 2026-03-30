@@ -8,6 +8,16 @@
   "min_stable_canary_companies": 10,
   "min_acceptance_registry_companies": 15,
   "required_query_to_dossier_verdict": "PASS",
+  "required_graph_training_benchmark_verdict": "PASS",
+  "required_graph_training_data_foundation_verdict": "PASS",
+  "required_graph_training_stage_verdicts": {
+    "construction_training": "PASS",
+    "missing_edge_recovery": "PASS",
+    "temporal_recurrence_change": "PASS",
+    "subgraph_anomaly": "PASS",
+    "uncertainty_fusion": "PASS",
+    "graphrag_explanation": "PASS"
+  },
   "required_neo4j_available": true,
   "required_oci_flows_passed": 1,
   "required_descriptor_only_oci_flows_passed": 1,

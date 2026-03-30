@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_READINESS_DIR = ROOT / "docs" / "reports" / "helios_readiness"
 DEFAULT_GATE_DIR = ROOT / "docs" / "reports" / "customer_demo_gate"
 DEFAULT_QUERY_TO_DOSSIER_DIR = ROOT / "docs" / "reports" / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"
+DEFAULT_GRAPH_TRAINING_BENCHMARK_DIR = ROOT / "docs" / "reports" / "graph_training_benchmark"
 DEFAULT_ACCEPTANCE_SET = ROOT / "fixtures" / "customer_demo" / "counterparty_acceptance_set.json"
 DEFAULT_STABLE_CANARY_PACK = ROOT / "fixtures" / "customer_demo" / "counterparty_canary_pack.json"
 DEFAULT_CRITERIA = ROOT / "fixtures" / "customer_demo" / "prime_time_exit_criteria.json"
@@ -34,6 +35,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--readiness-dir", default=str(DEFAULT_READINESS_DIR))
     parser.add_argument("--query-to-dossier-summary", default="")
     parser.add_argument("--query-to-dossier-dir", default=str(DEFAULT_QUERY_TO_DOSSIER_DIR))
+    parser.add_argument("--graph-training-benchmark-summary", default="")
+    parser.add_argument("--graph-training-benchmark-dir", default=str(DEFAULT_GRAPH_TRAINING_BENCHMARK_DIR))
     parser.add_argument("--acceptance-set", default=str(DEFAULT_ACCEPTANCE_SET))
     parser.add_argument("--stable-canary-pack", default=str(DEFAULT_STABLE_CANARY_PACK))
     parser.add_argument("--customer-demo-gate-dir", default=str(DEFAULT_GATE_DIR))
@@ -85,6 +88,16 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     if query_to_dossier_path is None:
         raise SystemExit("no query-to-dossier summary found")
     query_to_dossier = _read_json(query_to_dossier_path)
+    graph_training_benchmark_path = (
+        Path(args.graph_training_benchmark_summary)
+        if args.graph_training_benchmark_summary
+        else _latest_nested_summary_json(Path(args.graph_training_benchmark_dir))
+    )
+    graph_training_benchmark = (
+        _read_json(graph_training_benchmark_path)
+        if graph_training_benchmark_path is not None
+        else {}
+    )
 
     acceptance_set = json.loads(Path(args.acceptance_set).read_text(encoding="utf-8"))
     stable_pack = json.loads(Path(args.stable_canary_pack).read_text(encoding="utf-8"))
@@ -233,6 +246,61 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             )
         )
 
+    required_graph_training_verdict = criteria.get("required_graph_training_benchmark_verdict")
+    if required_graph_training_verdict is not None:
+        actual = str(graph_training_benchmark.get("overall_verdict") or "MISSING")
+        checks.append(
+            _criterion(
+                "graph_training_benchmark",
+                actual == str(required_graph_training_verdict),
+                f"graph training benchmark is {actual}",
+                actual=actual,
+                expected=str(required_graph_training_verdict),
+            )
+        )
+
+    required_graph_training_foundation = criteria.get("required_graph_training_data_foundation_verdict")
+    if required_graph_training_foundation is not None:
+        foundation = (
+            graph_training_benchmark.get("data_foundation")
+            if isinstance(graph_training_benchmark.get("data_foundation"), dict)
+            else {}
+        )
+        actual = str(foundation.get("verdict") or "MISSING")
+        checks.append(
+            _criterion(
+                "graph_training_data_foundation",
+                actual == str(required_graph_training_foundation),
+                f"graph training data foundation is {actual}",
+                actual=actual,
+                expected=str(required_graph_training_foundation),
+            )
+        )
+
+    required_stage_verdicts = (
+        criteria.get("required_graph_training_stage_verdicts")
+        if isinstance(criteria.get("required_graph_training_stage_verdicts"), dict)
+        else {}
+    )
+    if required_stage_verdicts:
+        stage_rows = graph_training_benchmark.get("stage_results")
+        stage_results = {
+            str(row.get("stage_id")): str(row.get("verdict"))
+            for row in stage_rows
+            if isinstance(stage_rows, list) and isinstance(row, dict)
+        }
+        for stage_id, expected in required_stage_verdicts.items():
+            actual = stage_results.get(str(stage_id), "MISSING")
+            checks.append(
+                _criterion(
+                    f"graph_training_stage:{stage_id}",
+                    actual == str(expected),
+                    f"graph training stage {stage_id} is {actual}",
+                    actual=actual,
+                    expected=str(expected),
+                )
+            )
+
     max_counterparty_seconds = float(criteria.get("max_counterparty_readiness_seconds") or 0.0)
     counterparty_elapsed = (
         float(counterparty_step.get("elapsed_seconds") or 0.0)
@@ -284,6 +352,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "criteria_path": str(Path(args.criteria)),
         "readiness_summary": str(readiness_path),
         "query_to_dossier_summary": str(query_to_dossier_path),
+        "graph_training_benchmark_summary": str(graph_training_benchmark_path) if graph_training_benchmark_path else None,
         "checks": checks,
         "flagships": flagship_results,
     }
@@ -298,6 +367,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Criteria: {summary['criteria_path']}",
         f"- Readiness summary: {summary['readiness_summary']}",
         f"- Query-to-dossier summary: {summary['query_to_dossier_summary']}",
+        f"- Graph training benchmark summary: {summary.get('graph_training_benchmark_summary')}",
         "",
         "## Checks",
         "",

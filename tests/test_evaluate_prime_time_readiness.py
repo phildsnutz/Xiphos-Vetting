@@ -15,6 +15,31 @@ sys.modules[SPEC.name] = module
 SPEC.loader.exec_module(module)
 
 
+def _write_graph_training_benchmark(tmp_path, *, overall_verdict: str = "PASS", data_foundation_verdict: str = "PASS", stage_verdict: str = "PASS") -> Path:
+    benchmark_dir = tmp_path / "graph_training_benchmark" / "20260329020000"
+    benchmark_dir.mkdir(parents=True)
+    summary_path = benchmark_dir / "summary.json"
+    stage_ids = [
+        "construction_training",
+        "missing_edge_recovery",
+        "temporal_recurrence_change",
+        "subgraph_anomaly",
+        "uncertainty_fusion",
+        "graphrag_explanation",
+    ]
+    summary_path.write_text(
+        json.dumps(
+            {
+                "overall_verdict": overall_verdict,
+                "data_foundation": {"verdict": data_foundation_verdict},
+                "stage_results": [{"stage_id": stage_id, "verdict": stage_verdict} for stage_id in stage_ids],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return summary_path
+
+
 def test_evaluate_prime_time_readiness_ready(tmp_path):
     readiness_dir = tmp_path / "helios_readiness" / "20260329020000"
     readiness_dir.mkdir(parents=True)
@@ -67,6 +92,7 @@ def test_evaluate_prime_time_readiness_ready(tmp_path):
         summary_dir = gate_dir / f"{slug}-20260329020000"
         summary_dir.mkdir(parents=True)
         (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path)
 
     args = module.argparse.Namespace(
         criteria=str(module.DEFAULT_CRITERIA),
@@ -74,6 +100,8 @@ def test_evaluate_prime_time_readiness_ready(tmp_path):
         readiness_dir=str(tmp_path / "helios_readiness"),
         query_to_dossier_summary=str(query_to_dossier_summary),
         query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
         acceptance_set=str(acceptance_set),
         stable_canary_pack=str(stable_pack),
         customer_demo_gate_dir=str(gate_dir),
@@ -138,6 +166,7 @@ def test_evaluate_prime_time_readiness_fails_counterparty_runtime(tmp_path):
         summary_dir = gate_dir / f"{slug}-20260329020000"
         summary_dir.mkdir(parents=True)
         (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path)
 
     args = module.argparse.Namespace(
         criteria=str(module.DEFAULT_CRITERIA),
@@ -145,6 +174,8 @@ def test_evaluate_prime_time_readiness_fails_counterparty_runtime(tmp_path):
         readiness_dir=str(tmp_path / "helios_readiness"),
         query_to_dossier_summary=str(query_to_dossier_summary),
         query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
         acceptance_set=str(acceptance_set),
         stable_canary_pack=str(stable_pack),
         customer_demo_gate_dir=str(gate_dir),
@@ -211,6 +242,7 @@ def test_evaluate_prime_time_readiness_fails_query_to_dossier(tmp_path):
         summary_dir = gate_dir / f"{slug}-20260329020000"
         summary_dir.mkdir(parents=True)
         (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path)
 
     args = module.argparse.Namespace(
         criteria=str(module.DEFAULT_CRITERIA),
@@ -218,6 +250,8 @@ def test_evaluate_prime_time_readiness_fails_query_to_dossier(tmp_path):
         readiness_dir=str(tmp_path / "helios_readiness"),
         query_to_dossier_summary=str(query_to_dossier_summary),
         query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
         acceptance_set=str(acceptance_set),
         stable_canary_pack=str(stable_pack),
         customer_demo_gate_dir=str(gate_dir),
@@ -284,6 +318,7 @@ def test_evaluate_prime_time_readiness_fails_when_neo4j_unavailable(tmp_path):
         summary_dir = gate_dir / f"{slug}-20260329020000"
         summary_dir.mkdir(parents=True)
         (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path)
 
     args = module.argparse.Namespace(
         criteria=str(module.DEFAULT_CRITERIA),
@@ -291,6 +326,8 @@ def test_evaluate_prime_time_readiness_fails_when_neo4j_unavailable(tmp_path):
         readiness_dir=str(tmp_path / "helios_readiness"),
         query_to_dossier_summary=str(query_to_dossier_summary),
         query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
         acceptance_set=str(acceptance_set),
         stable_canary_pack=str(stable_pack),
         customer_demo_gate_dir=str(gate_dir),
@@ -312,6 +349,7 @@ def test_write_outputs_writes_json_and_markdown(tmp_path):
         "criteria_path": "/tmp/criteria.json",
         "readiness_summary": "/tmp/readiness.json",
         "query_to_dossier_summary": "/tmp/query-to-dossier.json",
+        "graph_training_benchmark_summary": "/tmp/graph-training-benchmark.json",
         "checks": [{"name": "overall_readiness", "passed": True, "detail": "overall readiness is GO", "actual": "GO", "expected": "GO"}],
         "flagships": [{"company": "Yorktown Systems Group", "verdict": "GO", "summary_json": "/tmp/yorktown.json"}],
     }
@@ -325,6 +363,7 @@ def test_write_outputs_writes_json_and_markdown(tmp_path):
     assert "## Checks" in markdown
     assert "Yorktown Systems Group" in markdown
     assert "/tmp/query-to-dossier.json" in markdown
+    assert "/tmp/graph-training-benchmark.json" in markdown
 
 
 def test_evaluate_prime_time_readiness_fails_missing_required_oci_flow(tmp_path):
@@ -378,6 +417,7 @@ def test_evaluate_prime_time_readiness_fails_missing_required_oci_flow(tmp_path)
         summary_dir = gate_dir / f"{slug}-20260329020000"
         summary_dir.mkdir(parents=True)
         (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path)
 
     args = module.argparse.Namespace(
         criteria=str(module.DEFAULT_CRITERIA),
@@ -385,6 +425,8 @@ def test_evaluate_prime_time_readiness_fails_missing_required_oci_flow(tmp_path)
         readiness_dir=str(tmp_path / "helios_readiness"),
         query_to_dossier_summary=str(query_to_dossier_summary),
         query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
         acceptance_set=str(acceptance_set),
         stable_canary_pack=str(stable_pack),
         customer_demo_gate_dir=str(gate_dir),
@@ -451,6 +493,7 @@ def test_evaluate_prime_time_readiness_fails_graph_quality_thresholds(tmp_path):
         summary_dir = gate_dir / f"{slug}-20260329020000"
         summary_dir.mkdir(parents=True)
         (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path)
 
     args = module.argparse.Namespace(
         criteria=str(module.DEFAULT_CRITERIA),
@@ -458,6 +501,8 @@ def test_evaluate_prime_time_readiness_fails_graph_quality_thresholds(tmp_path):
         readiness_dir=str(tmp_path / "helios_readiness"),
         query_to_dossier_summary=str(query_to_dossier_summary),
         query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
         acceptance_set=str(acceptance_set),
         stable_canary_pack=str(stable_pack),
         customer_demo_gate_dir=str(gate_dir),
@@ -472,3 +517,81 @@ def test_evaluate_prime_time_readiness_fails_graph_quality_thresholds(tmp_path):
     missing_check = next(check for check in summary["checks"] if check["name"] == "query_to_dossier_graph_missing_families")
     assert thin_check["passed"] is False
     assert missing_check["passed"] is False
+
+
+def test_evaluate_prime_time_readiness_fails_graph_training_benchmark(tmp_path):
+    readiness_dir = tmp_path / "helios_readiness" / "20260329020000"
+    readiness_dir.mkdir(parents=True)
+    readiness_summary = readiness_dir / "summary.json"
+    readiness_summary.write_text(
+        json.dumps(
+            {
+                "verdict": "GO",
+                "steps": [
+                    {"pillar": "counterparty", "verdict": "GO", "elapsed_seconds": 320.0},
+                    {"pillar": "export", "verdict": "GO", "elapsed_seconds": 1.0},
+                    {"pillar": "supply_chain_assurance", "verdict": "GO", "elapsed_seconds": 1.0},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    gauntlet_dir = tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet" / "20260329020000"
+    gauntlet_dir.mkdir(parents=True)
+    query_to_dossier_summary = gauntlet_dir / "summary.json"
+    query_to_dossier_summary.write_text(
+        json.dumps(
+            {
+                "overall_verdict": "PASS",
+                "oci_summary": {
+                    "required_flows": 1,
+                    "passed_flows": 1,
+                    "descriptor_only_passed_flows": 1,
+                },
+                "graph_summary": {
+                    "required_flows": 1,
+                    "passed_flows": 1,
+                    "thin_graph_flows": 0,
+                    "flows_with_missing_required_edge_families": 0,
+                },
+                "neo4j_summary": {
+                    "neo4j_available": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    acceptance_set = tmp_path / "acceptance.json"
+    acceptance_set.write_text(json.dumps([{"company": f"Company {i}"} for i in range(15)]), encoding="utf-8")
+    stable_pack = tmp_path / "stable-pack.json"
+    stable_pack.write_text(json.dumps([{"company": f"Canary {i}"} for i in range(10)]), encoding="utf-8")
+    gate_dir = tmp_path / "customer_demo_gate"
+    for slug in module.DEFAULT_FLAGSHIP_COMPANIES.values():
+        summary_dir = gate_dir / f"{slug}-20260329020000"
+        summary_dir.mkdir(parents=True)
+        (summary_dir / "summary.json").write_text(json.dumps({"verdict": "GO"}), encoding="utf-8")
+    graph_training_benchmark_summary = _write_graph_training_benchmark(tmp_path, overall_verdict="FAIL", stage_verdict="FAIL")
+
+    args = module.argparse.Namespace(
+        criteria=str(module.DEFAULT_CRITERIA),
+        readiness_summary=str(readiness_summary),
+        readiness_dir=str(tmp_path / "helios_readiness"),
+        query_to_dossier_summary=str(query_to_dossier_summary),
+        query_to_dossier_dir=str(tmp_path / "live_query_to_dossier_canary" / "query_to_dossier_gauntlet"),
+        graph_training_benchmark_summary=str(graph_training_benchmark_summary),
+        graph_training_benchmark_dir=str(tmp_path / "graph_training_benchmark"),
+        acceptance_set=str(acceptance_set),
+        stable_canary_pack=str(stable_pack),
+        customer_demo_gate_dir=str(gate_dir),
+        output_json="",
+        output_md="",
+        print_json=False,
+    )
+
+    summary = module.evaluate(args)
+    assert summary["prime_time_verdict"] == "NOT_READY"
+    benchmark_check = next(check for check in summary["checks"] if check["name"] == "graph_training_benchmark")
+    stage_check = next(check for check in summary["checks"] if check["name"] == "graph_training_stage:construction_training")
+    assert benchmark_check["passed"] is False
+    assert stage_check["passed"] is False
