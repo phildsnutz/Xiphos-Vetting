@@ -556,7 +556,283 @@ def _make_signal_bar(width_inches: float, fill_pct: int, color_hex: str) -> Tabl
     return bar
 
 
+def _build_top_risk_signal(score: dict | None, enrichment: dict | None, monitoring_history: list[dict] | None) -> dict:
+    calibrated = score.get("calibrated", {}) if isinstance(score, dict) else {}
+    hard_stops = calibrated.get("hard_stop_decisions") or []
+    if hard_stops:
+        stop = hard_stops[0]
+        return {
+            "label": "Top risk signal",
+            "title": str(stop.get("trigger") or "Hard-stop rule"),
+            "detail": str(stop.get("explanation") or "Deterministic rules triggered a hard stop.")[:180],
+            "color": "#DC2626",
+        }
+
+    soft_flags = calibrated.get("soft_flags") or []
+    if soft_flags:
+        flag = soft_flags[0]
+        return {
+            "label": "Top risk signal",
+            "title": str(flag.get("trigger") or "Soft flag"),
+            "detail": str(flag.get("explanation") or "Helios surfaced an elevated advisory flag.")[:180],
+            "color": "#F59E0B",
+        }
+
+    curated = _curate_dossier_findings(enrichment or {}, limit=1) if enrichment else []
+    if curated:
+        finding = curated[0]
+        return {
+            "label": "Top risk signal",
+            "title": str(finding.get("title") or "Source finding"),
+            "detail": str(finding.get("detail") or _source_display_name(finding.get("source", "")))[:180],
+            "color": _severity_color(str(finding.get("severity") or "medium")),
+        }
+
+    recent_change = _summarize_recent_change(monitoring_history or [])
+    return {
+        "label": "Top risk signal",
+        "title": str(recent_change.get("label") or "No material change"),
+        "detail": str(recent_change.get("detail") or "No high-signal adverse change is captured in recent monitoring."),
+        "color": str(recent_change.get("color") or "#3B82F6"),
+    }
+
+
+def _append_executive_signal_strip(
+    story,
+    *,
+    tier_label: str,
+    recommendation: str,
+    recommendation_color: str,
+    top_risk: dict,
+    recommended_action: str,
+    confidence_pct: int,
+    coverage_pct: int,
+    muted_style,
+    normal_style,
+) -> None:
+    strip_label_style = ParagraphStyle(
+        "ExecutiveStripLabel",
+        parent=muted_style,
+        fontSize=6.8,
+        leading=8,
+        textColor=HexColor("#9FB0C5"),
+        fontName="Helvetica-Bold",
+    )
+    strip_value_style = ParagraphStyle(
+        "ExecutiveStripValue",
+        parent=normal_style,
+        fontSize=10,
+        leading=12,
+        textColor=HexColor("#FFFFFF"),
+        fontName="Helvetica-Bold",
+    )
+    strip_body_style = ParagraphStyle(
+        "ExecutiveStripBody",
+        parent=normal_style,
+        fontSize=7.8,
+        leading=10.5,
+        textColor=HexColor("#D6DEE8"),
+    )
+
+    badge_table = Table(
+        [
+            [Paragraph("TIER BADGE", strip_label_style)],
+            [Paragraph(tier_label, strip_value_style)],
+            [Paragraph(recommendation, strip_body_style)],
+        ],
+        colWidths=[1.2 * inch],
+    )
+    badge_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#102033")),
+        ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#1F334A")),
+        ("LINEBEFORE", (0, 0), (0, -1), 5, HexColor(recommendation_color)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    top_risk_table = Table(
+        [
+            [Paragraph(str(top_risk.get("label") or "Top risk signal").upper(), strip_label_style)],
+            [Paragraph(str(top_risk.get("title") or "No material risk signal"), strip_value_style)],
+            [Paragraph(str(top_risk.get("detail") or ""), strip_body_style)],
+        ],
+        colWidths=[2.3 * inch],
+    )
+    top_risk_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#102033")),
+        ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#1F334A")),
+        ("LINEBEFORE", (0, 0), (0, -1), 5, HexColor(str(top_risk.get("color") or "#DC2626"))),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    action_table = Table(
+        [
+            [Paragraph("RECOMMENDED ACTION", strip_label_style)],
+            [Paragraph("Immediate next move", strip_value_style)],
+            [Paragraph(recommended_action, strip_body_style)],
+        ],
+        colWidths=[2.15 * inch],
+    )
+    action_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#102033")),
+        ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#1F334A")),
+        ("LINEBEFORE", (0, 0), (0, -1), 5, HexColor("#C4A052")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    meter_table = Table(
+        [
+            [Paragraph("CONFIDENCE", strip_label_style)],
+            [_make_signal_bar(1.45, confidence_pct, "#C4A052")],
+            [Paragraph(f"{confidence_pct}% confidence", strip_body_style)],
+            [Paragraph("COVERAGE", strip_label_style)],
+            [_make_signal_bar(1.45, coverage_pct, "#3B82F6")],
+            [Paragraph(f"{coverage_pct}% source coverage", strip_body_style)],
+        ],
+        colWidths=[1.55 * inch],
+    )
+    meter_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#102033")),
+        ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#1F334A")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    strip = Table(
+        [[badge_table, top_risk_table, action_table, meter_table]],
+        colWidths=[1.3 * inch, 2.4 * inch, 2.25 * inch, 1.55 * inch],
+    )
+    strip.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(strip)
+    story.append(Spacer(1, 0.1 * inch))
+
+
+def _append_recommendation_callout(story, title: str, body: str, accent_color: str, normal_style, muted_style) -> None:
+    callout_title = ParagraphStyle(
+        f"CalloutTitle{title}",
+        parent=normal_style,
+        fontSize=10,
+        leading=12,
+        textColor=HexColor("#111827"),
+        fontName="Helvetica-Bold",
+    )
+    callout_body = ParagraphStyle(
+        f"CalloutBody{title}",
+        parent=normal_style,
+        fontSize=8.4,
+        leading=11.5,
+        textColor=HexColor("#374151"),
+    )
+    callout_note = ParagraphStyle(
+        f"CalloutNote{title}",
+        parent=muted_style,
+        fontSize=7.4,
+        leading=9.5,
+        textColor=HexColor("#6B7280"),
+        fontName="Helvetica-Bold",
+    )
+    callout = Table(
+        [
+            [Paragraph("EXECUTIVE ACTION", callout_note)],
+            [Paragraph(title, callout_title)],
+            [Paragraph(body, callout_body)],
+        ],
+        colWidths=[7.2 * inch],
+    )
+    callout.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F8FAFC")),
+        ("BOX", (0, 0), (-1, -1), 0.6, HexColor("#D8E0EA")),
+        ("LINEBEFORE", (0, 0), (0, -1), 5, HexColor(accent_color)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(callout)
+    story.append(Spacer(1, 0.12 * inch))
+
+
+def _append_evidence_snapshot_grid(story, findings, subheading_style, normal_style, muted_style) -> None:
+    if not findings:
+        return
+
+    label_style = ParagraphStyle(
+        "EvidenceSnapshotLabel",
+        parent=muted_style,
+        fontSize=6.8,
+        leading=8,
+        textColor=HexColor("#6B7280"),
+        fontName="Helvetica-Bold",
+    )
+    title_style = ParagraphStyle(
+        "EvidenceSnapshotTitle",
+        parent=normal_style,
+        fontSize=9.2,
+        leading=11.5,
+        textColor=HexColor("#111827"),
+        fontName="Helvetica-Bold",
+    )
+    body_style = ParagraphStyle(
+        "EvidenceSnapshotBody",
+        parent=normal_style,
+        fontSize=7.8,
+        leading=10,
+        textColor=HexColor("#374151"),
+    )
+
+    story.append(Paragraph("EVIDENCE SNAPSHOT", subheading_style))
+    row_cards = []
+    for finding in findings[:4]:
+        severity = str(finding.get("severity") or "medium")
+        confidence = round(float(finding.get("confidence") or 0.0) * 100)
+        source = _source_display_name(finding.get("source", ""))
+        card = Table(
+            [
+                [Paragraph(f"{severity.upper()}  |  {source}", label_style)],
+                [Paragraph(str(finding.get("title") or "Source finding"), title_style)],
+                [Paragraph(str(finding.get("detail") or "")[:180], body_style)],
+                [Paragraph(f"{confidence}% confidence", label_style)],
+            ],
+            colWidths=[3.5 * inch],
+        )
+        card.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F8FAFC")),
+            ("BOX", (0, 0), (-1, -1), 0.6, HexColor("#D8E0EA")),
+            ("LINEBEFORE", (0, 0), (0, -1), 4, HexColor(_severity_color(severity))),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        row_cards.append(card)
+        if len(row_cards) == 2:
+            row = Table([row_cards], colWidths=[3.6 * inch, 3.6 * inch])
+            row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+            story.append(row)
+            story.append(Spacer(1, 0.08 * inch))
+            row_cards = []
+
+    if row_cards:
+        if len(row_cards) == 1:
+            row_cards.append(Spacer(1, 0.01 * inch))
+        row = Table([row_cards], colWidths=[3.6 * inch, 3.6 * inch])
+        row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        story.append(row)
+        story.append(Spacer(1, 0.08 * inch))
+
+
 def _append_pdf_chapter_header(story, kicker: str, title: str, summary: str, dark: bool = False) -> None:
+    chapter_number = "".join(ch for ch in str(kicker or "") if ch.isdigit())[-2:] or "00"
     kicker_color = "#D4BF89" if dark else "#C4A052"
     title_color = "#FFFFFF" if dark else "#111827"
     body_color = "#D6DEE8" if dark else "#4B5563"
@@ -585,17 +861,56 @@ def _append_pdf_chapter_header(story, kicker: str, title: str, summary: str, dar
         leading=12,
         textColor=HexColor(body_color),
     )
-    chapter_table = Table(
+    badge_style = ParagraphStyle(
+        f"ChapterBadge{title}",
+        fontSize=15,
+        leading=18,
+        textColor=HexColor("#FFFFFF" if dark else "#102033"),
+        fontName="Helvetica-Bold",
+        alignment=1,
+    )
+    accent_band = Table(
+        [["", "", ""]],
+        colWidths=[2.4 * inch, 2.4 * inch, 2.4 * inch],
+        rowHeights=[0.08 * inch],
+    )
+    accent_colors = ["#0F1E2F", "#1F334A", kicker_color] if dark else ["#102033", "#345172", "#C4A052"]
+    accent_band.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), HexColor(accent_colors[0])),
+        ("BACKGROUND", (1, 0), (1, 0), HexColor(accent_colors[1])),
+        ("BACKGROUND", (2, 0), (2, 0), HexColor(accent_colors[2])),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(accent_band)
+    badge = Table([[Paragraph(chapter_number, badge_style)]], colWidths=[0.72 * inch], rowHeights=[0.72 * inch])
+    badge.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor(kicker_color)),
+        ("BOX", (0, 0), (-1, -1), 0.6, HexColor(kicker_color)),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    content = Table(
         [
             [Paragraph(kicker.upper(), kicker_style)],
             [Paragraph(title, title_style)],
             [Paragraph(summary, summary_style)],
         ],
-        colWidths=[7.2 * inch],
+        colWidths=[6.2 * inch],
     )
+    content.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    chapter_table = Table([[badge, content]], colWidths=[0.82 * inch, 6.28 * inch])
     chapter_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), background),
         ("BOX", (0, 0), (-1, -1), 0.6, border),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 16),
         ("RIGHTPADDING", (0, 0), (-1, -1), 16),
         ("TOPPADDING", (0, 0), (-1, -1), 12),
@@ -837,23 +1152,43 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         wordWrap='CJK',
     )
 
-    # === HEADER: Xiphos Helios branding ===
+    # === COVER HEADER: Xiphos Helios branding ===
     header_style = ParagraphStyle(
-        'Header', parent=styles['Title'], fontSize=9, textColor=HexColor("#C4A052"),
+        'Header', parent=styles['Title'], fontSize=8, textColor=HexColor("#C4A052"),
         fontName='Helvetica-Bold', spaceAfter=0, letterSpacing=3,
     )
     header_main = ParagraphStyle(
-        'HeaderMain', parent=styles['Title'], fontSize=24, textColor=HexColor("#0A1628"),
+        'HeaderMain', parent=styles['Title'], fontSize=31, textColor=HexColor("#0A1628"),
         fontName='Helvetica', spaceAfter=2, letterSpacing=4,
     )
-
-    story.append(Paragraph("HELIOS", header_style))
-    story.append(Paragraph("Vendor Compliance Dossier", header_main))
+    header_sub = ParagraphStyle(
+        'HeaderSub', parent=styles['Title'], fontSize=10, textColor=HexColor("#5B6878"),
+        fontName='Helvetica-Bold', spaceAfter=6,
+    )
+    cover_band = Table(
+        [["", "", ""]],
+        colWidths=[2.4 * inch, 2.4 * inch, 2.4 * inch],
+        rowHeights=[0.12 * inch],
+    )
+    cover_band.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), HexColor("#0F1E2F")),
+        ("BACKGROUND", (1, 0), (1, 0), HexColor("#23405E")),
+        ("BACKGROUND", (2, 0), (2, 0), HexColor("#C4A052")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(cover_band)
+    story.append(Spacer(1, 0.08 * inch))
+    story.append(Paragraph("XIPHOS INTELLIGENCE", header_style))
+    story.append(Paragraph("HELIOS", header_main))
+    story.append(Paragraph("Vendor Compliance Dossier", header_sub))
     story.append(Paragraph(
         '<font color="#C4A052">____________________</font>',
         ParagraphStyle('Rule', parent=styles['Normal'], spaceAfter=4)
     ))
-    story.append(Paragraph("Vendor Compliance Dossier", muted_style))
+    story.append(Paragraph("Portable trust brief, evidence posture, and audit-ready appendix.", muted_style))
 
     # CUI banner
     cui_style = ParagraphStyle(
@@ -1224,6 +1559,32 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         signal_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
         story.append(Spacer(1, 0.09 * inch))
         story.append(signal_table)
+        story.append(Spacer(1, 0.09 * inch))
+        top_risk = _build_top_risk_signal(score, enrichment, monitoring_history)
+        _append_executive_signal_strip(
+            story,
+            tier_label=str(tier_key).replace("_", " ").upper(),
+            recommendation=recommendation,
+            recommendation_color=recommendation_color,
+            top_risk=top_risk,
+            recommended_action=str(lane_brief.get("next_action") or "Escalate only after corroborated evidence review."),
+            confidence_pct=confidence_pct,
+            coverage_pct=coverage_pct,
+            muted_style=muted_style,
+            normal_style=normal_style,
+        )
+        _append_recommendation_callout(
+            story,
+            title=recommendation,
+            body=(
+                f"Tier {str(tier_key).replace('_', ' ').upper()} with {probability}% estimated risk, "
+                f"{confidence_label.lower()} assessment confidence, and {connectors_with_data}/{connectors_run} responsive sources. "
+                f"Primary move: {lane_brief.get('next_action') or 'Complete analyst review against the current evidence bundle.'}"
+            ),
+            accent_color=recommendation_color,
+            normal_style=normal_style,
+            muted_style=muted_style,
+        )
         story.append(Spacer(1, 0.18 * inch))
 
     _append_pdf_chapter_header(
@@ -1602,6 +1963,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         # Key evidence snapshot -- filter out connector gaps and low-signal clears
         findings = _curate_dossier_findings(enrichment, limit=10)
         if findings:
+            _append_evidence_snapshot_grid(story, findings, subheading_style, normal_style, muted_style)
             story.append(Paragraph("KEY EVIDENCE SNAPSHOT", subheading_style))
 
             cell_style = ParagraphStyle('CellWrap', parent=normal_style, fontSize=7, wordWrap='CJK')

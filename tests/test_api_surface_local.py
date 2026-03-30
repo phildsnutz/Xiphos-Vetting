@@ -857,6 +857,63 @@ def test_dossier_pdf_handles_datetime_decision_timestamps(client, monkeypatch):
     assert response.headers["Content-Type"].startswith("application/pdf")
 
 
+def test_dossier_pdf_premium_cover_includes_executive_strip_and_snapshot(client, monkeypatch):
+    from pypdf import PdfReader
+
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Premium PDF Vendor")
+    server.db.save_enrichment(
+        case_id,
+        {
+            "vendor_name": "Premium PDF Vendor",
+            "country": "US",
+            "overall_risk": "MEDIUM",
+            "enriched_at": "2026-03-30T19:15:00Z",
+            "summary": {
+                "findings_total": 1,
+                "critical": 0,
+                "high": 1,
+                "medium": 0,
+                "connectors_run": 2,
+                "connectors_with_data": 1,
+                "errors": 0,
+            },
+            "findings": [
+                {
+                    "source": "sam_gov",
+                    "category": "contracts",
+                    "title": "Active contracting signal",
+                    "detail": "Prime contract evidence is present and requires analyst review.",
+                    "severity": "high",
+                    "confidence": 0.91,
+                }
+            ],
+            "identifiers": {},
+            "identifier_sources": {},
+            "relationships": [],
+            "risk_signals": [],
+            "connector_status": {
+                "sam_gov": {"has_data": True, "findings_count": 1, "elapsed_ms": 8, "error": None},
+                "rss_public": {"has_data": False, "findings_count": 0, "elapsed_ms": 4, "error": None},
+            },
+            "errors": [],
+            "evidence_lanes": {"source_classes": {}, "authority_levels": {}, "access_models": {}},
+        },
+    )
+
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *args, **kwargs: {"status": "queued"})
+    response = client.post(f"/api/cases/{case_id}/dossier-pdf", json={})
+
+    assert response.status_code == 200
+    pdf_text = "\n".join(
+        (page.extract_text() or "")
+        for page in PdfReader(io.BytesIO(response.data)).pages
+    ).lower()
+    assert "top risk signal" in pdf_text
+    assert "immediate next move" in pdf_text
+    assert "evidence snapshot" in pdf_text
+
+
 def test_server_entrypoint_is_after_last_route_definition():
     server_path = os.path.join(BACKEND_DIR, "server.py")
     source = open(server_path, "r", encoding="utf-8").read().splitlines()

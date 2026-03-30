@@ -19,7 +19,7 @@ def test_json_loads_accepts_native_postgres_jsonb_values():
     assert knowledge_graph._json_loads(None, []) == []
 
 
-def test_save_relationship_uses_postgres_safe_greatest(monkeypatch):
+def test_save_relationship_uses_portable_confidence_upsert(monkeypatch):
     executed_sql: list[str] = []
 
     class FakeCursor:
@@ -61,7 +61,10 @@ def test_save_relationship_uses_postgres_safe_greatest(monkeypatch):
     )
 
     assert relationship_id == 1
-    assert any("GREATEST(kg_claims.confidence, excluded.confidence)" in sql for sql in executed_sql)
+    assert any(
+        "WHEN excluded.confidence > kg_claims.confidence THEN excluded.confidence" in sql
+        for sql in executed_sql
+    )
 
 
 def test_retract_invalid_public_html_relationships_removes_legacy_bad_claims(monkeypatch, tmp_path):
