@@ -26,12 +26,10 @@ def _pass_stage_metrics() -> dict[str, dict[str, float]]:
             "descriptor_only_false_owner_rate": 0.0,
         },
         "missing_edge_recovery": {
-            "ownership_control_hits_at_10": 0.82,
-            "ownership_control_mrr": 0.5,
-            "intermediary_route_hits_at_10": 0.71,
-            "intermediary_route_mrr": 0.36,
-            "cyber_dependency_hits_at_10": 0.74,
-            "missing_edge_queries_evaluated": 13,
+            "masked_holdout_hits_at_10": 0.82,
+            "masked_holdout_mrr": 0.5,
+            "mean_withheld_target_rank": 4.2,
+            "masked_holdout_queries_evaluated": 7,
             "unsupported_promoted_edge_rate": 0.0,
         },
         "temporal_recurrence_change": {
@@ -153,4 +151,5 @@ def test_graph_training_benchmark_uses_tranche_summary_for_defaults(tmp_path):
     assert summary["data_foundation"]["reviewed_predicted_links"] == 11
     assert summary["data_foundation"]["confirmed_predicted_links"] == 7
     missing_edge_stage = next(stage for stage in summary["stage_results"] if stage["stage_id"] == "missing_edge_recovery")
-    assert missing_edge_stage["actual_metrics"]["ownership_control_hits_at_10"] == 0.82
+    assert missing_edge_stage["actual_metrics"]["masked_holdout_hits_at_10"] == 0.82
+    assert missing_edge_stage["actual_metrics"]["mean_withheld_target_rank"] == 4.2

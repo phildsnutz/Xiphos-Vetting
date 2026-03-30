@@ -304,8 +304,9 @@ def _build_stage_progress(
             "status": "active" if review_stats.get("reviewed_links", 0) > 0 else "seeded",
             "notes": (
                 f"protocol={recovery_metrics.get('evaluation_protocol', 'unknown')}; "
-                f"ownership_hits@10={recovery_metrics.get('ownership_control_hits_at_10', 0.0):.2f}; "
-                f"holdout_queries={recovery_metrics.get('missing_edge_queries_evaluated', 0)}; "
+                f"masked_hits@10={recovery_metrics.get('masked_holdout_hits_at_10', 0.0):.2f}; "
+                f"holdout_queries={recovery_metrics.get('masked_holdout_queries_evaluated', 0)}; "
+                f"mean_rank={recovery_metrics.get('mean_withheld_target_rank', 0.0):.2f}; "
                 f"unsupported_promoted_edge_rate={review_stats.get('unsupported_promoted_edge_rate', 0.0):.2f}"
             ),
         },
@@ -425,12 +426,12 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "## Missing Edge Recovery",
         "",
         f"- Evaluation protocol: `{summary['stage_metrics']['missing_edge_recovery'].get('evaluation_protocol', 'unknown')}`",
-        f"- Ownership hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('ownership_control_hits_at_10', 0.0):.2f}`",
-        f"- Ownership MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('ownership_control_mrr', 0.0):.2f}`",
-        f"- Intermediary/route hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('intermediary_route_hits_at_10', 0.0):.2f}`",
-        f"- Intermediary/route MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('intermediary_route_mrr', 0.0):.2f}`",
-        f"- Cyber dependency hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('cyber_dependency_hits_at_10', 0.0):.2f}`",
-        f"- Holdout queries evaluated: `{summary['stage_metrics']['missing_edge_recovery'].get('missing_edge_queries_evaluated', 0)}`",
+        f"- Masked holdout hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('masked_holdout_hits_at_10', 0.0):.2f}`",
+        f"- Masked holdout MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('masked_holdout_mrr', 0.0):.2f}`",
+        f"- Mean withheld target rank: `{summary['stage_metrics']['missing_edge_recovery'].get('mean_withheld_target_rank', 0.0):.2f}`",
+        f"- Holdout queries evaluated: `{summary['stage_metrics']['missing_edge_recovery'].get('masked_holdout_queries_evaluated', 0)}`",
+        f"- Affected source entities: `{summary['stage_metrics']['missing_edge_recovery'].get('holdout_source_entity_count', 0)}`",
+        f"- Recovery queue candidates: `{summary['stage_metrics']['missing_edge_recovery'].get('recovery_queue_candidate_count', 0)}`",
         "",
         "## Novel Edge Discovery",
         "",

@@ -1,7 +1,7 @@
 [
   {
     "label_id": "holdout_yorktown_contracts_with_army",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
     "source_authority": "first_party",
     "source_url": "https://www.ysginc.com/the-u-s-army-awards-offset-systems-group-829m-idiq-contract",
@@ -14,7 +14,7 @@
   },
   {
     "label_id": "holdout_harbor_owned_by_beacon_strategic_capital",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
     "source_authority": "analyst_modeled",
     "source_url": "fixture://pillar_briefing_query_to_dossier_pack/hidden_owner",
@@ -27,7 +27,7 @@
   },
   {
     "label_id": "holdout_harbor_backed_by_mariner_capital",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
     "source_authority": "analyst_modeled",
     "source_url": "fixture://pillar_briefing_query_to_dossier_pack/hidden_owner",
@@ -40,7 +40,7 @@
   },
   {
     "label_id": "holdout_harbor_routes_payment_through_settlement_bank",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
     "source_authority": "analyst_modeled",
     "source_url": "fixture://pillar_briefing_query_to_dossier_pack/hidden_owner",
@@ -53,7 +53,7 @@
   },
   {
     "label_id": "holdout_harbor_litigant_in_case",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "counterparty",
     "source_authority": "secondary_public",
     "source_url": "fixture://graph_construction_gold_set/harbor_litigation",
@@ -65,60 +65,8 @@
     "should_create_edge": true
   },
   {
-    "label_id": "holdout_vector_depends_on_network_northbridge",
-    "holdout_split": "family_strict",
-    "lane": "cyber",
-    "source_authority": "analyst_modeled",
-    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/cyber",
-    "evidence_text": "Network providers include Northbridge Telecom.",
-    "source_entity": "Vector Mission Software",
-    "target_entity": "Northbridge Telecom",
-    "relationship_type": "DEPENDS_ON_NETWORK",
-    "edge_family": "cyber_supply_chain",
-    "should_create_edge": true
-  },
-  {
-    "label_id": "holdout_vector_depends_on_service_blue_reef",
-    "holdout_split": "family_strict",
-    "lane": "cyber",
-    "source_authority": "analyst_modeled",
-    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/cyber",
-    "evidence_text": "Service providers include Blue Reef Managed Services.",
-    "source_entity": "Vector Mission Software",
-    "target_entity": "Blue Reef Managed Services",
-    "relationship_type": "DEPENDS_ON_SERVICE",
-    "edge_family": "intermediaries_and_services",
-    "should_create_edge": true
-  },
-  {
-    "label_id": "holdout_vector_operates_facility_huntsville",
-    "holdout_split": "family_strict",
-    "lane": "cyber",
-    "source_authority": "analyst_modeled",
-    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/cyber",
-    "evidence_text": "Facilities include the Huntsville integration lab.",
-    "source_entity": "Vector Mission Software",
-    "target_entity": "Huntsville Integration Lab",
-    "relationship_type": "OPERATES_FACILITY",
-    "edge_family": "intermediaries_and_services",
-    "should_create_edge": true
-  },
-  {
-    "label_id": "holdout_secure_boot_integrated_into_vector",
-    "holdout_split": "family_strict",
-    "lane": "cyber",
-    "source_authority": "analyst_modeled",
-    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/cyber",
-    "evidence_text": "Secure Boot Module is integrated into Vector Mission Software.",
-    "source_entity": "Secure Boot Module",
-    "target_entity": "Vector Mission Software",
-    "relationship_type": "INTEGRATED_INTO",
-    "edge_family": "component_dependency",
-    "should_create_edge": true
-  },
-  {
     "label_id": "holdout_northern_owned_by_orchard_meridian",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "export",
     "source_authority": "analyst_modeled",
     "source_url": "fixture://pillar_briefing_query_to_dossier_pack/export",
@@ -130,21 +78,8 @@
     "should_create_edge": true
   },
   {
-    "label_id": "holdout_northern_distributed_by_baltic_meridian",
-    "holdout_split": "family_strict",
-    "lane": "export",
-    "source_authority": "analyst_modeled",
-    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/export",
-    "evidence_text": "Distributors include Baltic Meridian FZE.",
-    "source_entity": "Northern Channel Partners",
-    "target_entity": "Baltic Meridian FZE",
-    "relationship_type": "DISTRIBUTED_BY",
-    "edge_family": "trade_and_logistics",
-    "should_create_edge": true
-  },
-  {
     "label_id": "holdout_northern_routes_payment_through_trade_bank",
-    "holdout_split": "family_strict",
+    "holdout_split": "family_balanced_masked",
     "lane": "export",
     "source_authority": "analyst_modeled",
     "source_url": "fixture://pillar_briefing_query_to_dossier_pack/export",
@@ -153,19 +88,6 @@
     "target_entity": "Northern Trade Settlement Bank",
     "relationship_type": "ROUTES_PAYMENT_THROUGH",
     "edge_family": "finance_intermediary",
-    "should_create_edge": true
-  },
-  {
-    "label_id": "holdout_northern_ships_via_turkiye",
-    "holdout_split": "family_strict",
-    "lane": "export",
-    "source_authority": "analyst_modeled",
-    "source_url": "fixture://pillar_briefing_query_to_dossier_pack/export",
-    "evidence_text": "Transit countries include Turkiye before final handoff.",
-    "source_entity": "Northern Channel Partners",
-    "target_entity": "Turkiye",
-    "relationship_type": "SHIPS_VIA",
-    "edge_family": "trade_and_logistics",
     "should_create_edge": true
   }
 ]

@@ -1,6 +1,7 @@
 import importlib
 import os
 import sys
+import types
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -177,3 +178,81 @@ def test_evaluate_construction_fixture_rows_uses_pending_and_rejected_candidate_
     assert metrics["descriptor_only_false_owner_rate"] == 0.0
     assert metrics["gold_candidate_coverage"] == 1.0
     assert metrics["negative_rejection_coverage"] == 1.0
+
+
+def test_aggregate_masked_holdout_metrics_tracks_relation_hits_and_rank():
+    module = _reload_fresh("graph_embeddings")
+
+    holdout_results = [
+        {
+            "relationship_type": "owned_by",
+            "withheld_target_rank": 1,
+            "reciprocal_rank": 1.0,
+            "hit_at_10": True,
+        },
+        {
+            "relationship_type": "backed_by",
+            "withheld_target_rank": 4,
+            "reciprocal_rank": 0.25,
+            "hit_at_10": True,
+        },
+        {
+            "relationship_type": "routes_payment_through",
+            "withheld_target_rank": 11,
+            "reciprocal_rank": 1 / 11,
+            "hit_at_10": False,
+        },
+    ]
+
+    metrics = module._aggregate_masked_holdout_metrics(
+        holdout_results,
+        {"unsupported_promoted_edge_rate": 0.0},
+    )
+
+    assert metrics["masked_holdout_queries_evaluated"] == 3
+    assert metrics["masked_holdout_hits_at_10"] == 2 / 3
+    assert round(metrics["masked_holdout_mrr"], 6) == round((1.0 + 0.25 + (1 / 11)) / 3, 6)
+    assert metrics["mean_withheld_target_rank"] == (1 + 4 + 11) / 3
+    assert metrics["owned_by_hits_at_10"] == 1.0
+    assert metrics["routes_payment_through_hits_at_10"] == 0.0
+    assert metrics["ownership_control_queries_evaluated"] == 2
+
+
+def test_load_triples_from_db_keeps_excluded_holdout_vocab():
+    module = _reload_fresh("graph_embeddings")
+
+    class FakeCursor:
+        def execute(self, query, params=None):
+            return None
+
+        def fetchall(self):
+            return [("src-1", "CONTRACTS_WITH", "target-1")]
+
+        def close(self):
+            return None
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            return None
+
+    original = sys.modules.get("psycopg2")
+    sys.modules["psycopg2"] = types.SimpleNamespace(connect=lambda url: FakeConnection())
+    try:
+        trainer = module.TransETrainer(dim=8, epochs=1)
+        trainer.load_triples_from_db(
+            "postgresql://test",
+            exclude_triples={("src-1", "contracts_with", "target-1")},
+        )
+    finally:
+        if original is not None:
+            sys.modules["psycopg2"] = original
+        else:
+            del sys.modules["psycopg2"]
+
+    assert trainer.triples == []
+    assert "src-1" in trainer.entity_to_id
+    assert "target-1" in trainer.entity_to_id
+    assert "contracts_with" in trainer.relation_to_id

@@ -33,6 +33,18 @@ GRAPH_CONSTRUCTION_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "gra
 GRAPH_CONSTRUCTION_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_hard_negatives_v1.json"
 GRAPH_ENTITY_RESOLUTION_PAIRS_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_entity_resolution_pairs_v1.json"
 GRAPH_MISSING_EDGE_HOLDOUT_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_missing_edge_holdout_v1.json"
+MASKED_HOLDOUT_RELATION_TYPES: tuple[str, ...] = (
+    "owned_by",
+    "backed_by",
+    "routes_payment_through",
+    "contracts_with",
+    "litigant_in",
+)
+MASKED_HOLDOUT_RELATION_GROUPS: dict[str, tuple[str, ...]] = {
+    "ownership_control": ("owned_by", "backed_by"),
+    "intermediary_route": ("routes_payment_through",),
+    "contracts_legal": ("contracts_with", "litigant_in"),
+}
 
 PREDICTED_LINK_REJECTION_REASONS: tuple[str, ...] = (
     "descriptor_only_not_entity",
@@ -278,6 +290,23 @@ def _load_fixture_rows(path: Path) -> list[dict[str, Any]]:
     return [row for row in payload if isinstance(row, dict)]
 
 
+def _load_masked_holdout_rows(path: Path | None = None) -> tuple[Path, list[dict[str, Any]]]:
+    holdout_path = path or (
+        GRAPH_MISSING_EDGE_HOLDOUT_PATH if GRAPH_MISSING_EDGE_HOLDOUT_PATH.exists() else GRAPH_CONSTRUCTION_GOLD_PATH
+    )
+    rows = []
+    for row in _load_fixture_rows(holdout_path):
+        rel_type = _normalize_rel_type(row.get("relationship_type"))
+        if rel_type not in MASKED_HOLDOUT_RELATION_TYPES:
+            continue
+        if row.get("should_create_edge") is False:
+            continue
+        normalized_row = dict(row)
+        normalized_row["relationship_type"] = rel_type
+        rows.append(normalized_row)
+    return holdout_path, rows
+
+
 def _resolve_fixture_entity_ids(cur: Any, names: set[str]) -> dict[str, str]:
     clean_names = sorted({str(name).strip() for name in names if str(name).strip()})
     if not clean_names:
@@ -356,6 +385,10 @@ def _edge_exists(cur: Any, source_entity_id: str, rel_type: str, target_entity_i
 
 def _safe_divide(numerator: float, denominator: float) -> float:
     return float(numerator / denominator) if denominator else 0.0
+
+
+def _mean_or_zero(values: list[float]) -> float:
+    return float(sum(values) / len(values)) if values else 0.0
 
 
 def _normalize_match_text(value: Any) -> str:
@@ -645,6 +678,129 @@ def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str,
     return prepared
 
 
+def _resolve_masked_holdout_rows(cur: Any, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    name_to_entity_id = _resolve_fixture_entity_ids(
+        cur,
+        {
+            str(row.get("source_entity") or "").strip()
+            for row in rows
+        }
+        | {
+            str(row.get("target_entity") or "").strip()
+            for row in rows
+        },
+    )
+    resolved_rows: list[dict[str, Any]] = []
+    unresolved_rows: list[dict[str, Any]] = []
+    for row in rows:
+        source_name = str(row.get("source_entity") or "").strip()
+        target_name = str(row.get("target_entity") or "").strip()
+        rel_type = _normalize_rel_type(row.get("relationship_type"))
+        source_entity_id = name_to_entity_id.get(source_name)
+        target_entity_id = name_to_entity_id.get(target_name)
+        if not source_entity_id or not target_entity_id or not rel_type:
+            unresolved_rows.append(
+                {
+                    "label_id": str(row.get("label_id") or ""),
+                    "source_entity": source_name,
+                    "target_entity": target_name,
+                    "relationship_type": rel_type,
+                }
+            )
+            continue
+        resolved_row = dict(row)
+        resolved_row["source_entity_id"] = source_entity_id
+        resolved_row["target_entity_id"] = target_entity_id
+        resolved_row["relationship_type"] = rel_type
+        resolved_rows.append(resolved_row)
+    return resolved_rows, unresolved_rows
+
+
+def _score_withheld_target_rank(
+    trainer: "TransETrainer",
+    source_entity_id: str,
+    rel_type: str,
+    target_entity_id: str,
+) -> dict[str, Any]:
+    h_idx = trainer.entity_to_id.get(source_entity_id)
+    r_idx = trainer.relation_to_id.get(rel_type)
+    t_idx = trainer.entity_to_id.get(target_entity_id)
+    if h_idx is None or r_idx is None or t_idx is None:
+        return {
+            "withheld_target_rank": 0,
+            "withheld_target_score": None,
+            "reciprocal_rank": 0.0,
+            "hit_at_10": False,
+        }
+
+    score_vector = np.linalg.norm(
+        trainer.entity_embeddings[h_idx] + trainer.relation_embeddings[r_idx] - trainer.entity_embeddings,
+        axis=1,
+    )
+    score_vector[h_idx] = np.inf
+    target_score = float(score_vector[t_idx])
+    rank = int(np.sum(score_vector < target_score) + 1)
+    return {
+        "withheld_target_rank": rank,
+        "withheld_target_score": target_score,
+        "reciprocal_rank": 1.0 / rank if rank else 0.0,
+        "hit_at_10": bool(rank and rank <= 10),
+    }
+
+
+def _aggregate_masked_holdout_metrics(
+    holdout_results: list[dict[str, Any]],
+    review_stats: dict[str, Any],
+) -> dict[str, Any]:
+    metrics: dict[str, Any] = {
+        "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
+        "masked_holdout_queries_evaluated": len(holdout_results),
+        "missing_edge_queries_evaluated": len(holdout_results),
+        "masked_holdout_hits_at_10": _safe_divide(
+            sum(1 for row in holdout_results if row.get("hit_at_10")), len(holdout_results)
+        ),
+        "masked_holdout_mrr": _safe_divide(
+            sum(float(row.get("reciprocal_rank") or 0.0) for row in holdout_results),
+            len(holdout_results),
+        ),
+        "mean_withheld_target_rank": _mean_or_zero(
+            [float(row["withheld_target_rank"]) for row in holdout_results if row.get("withheld_target_rank")]
+        ),
+    }
+
+    for rel_type in MASKED_HOLDOUT_RELATION_TYPES:
+        relation_rows = [row for row in holdout_results if row.get("relationship_type") == rel_type]
+        metrics[f"{rel_type}_queries_evaluated"] = len(relation_rows)
+        metrics[f"{rel_type}_hits_at_10"] = _safe_divide(
+            sum(1 for row in relation_rows if row.get("hit_at_10")),
+            len(relation_rows),
+        )
+        metrics[f"{rel_type}_mrr"] = _safe_divide(
+            sum(float(row.get("reciprocal_rank") or 0.0) for row in relation_rows),
+            len(relation_rows),
+        )
+        metrics[f"{rel_type}_mean_rank"] = _mean_or_zero(
+            [float(row["withheld_target_rank"]) for row in relation_rows if row.get("withheld_target_rank")]
+        )
+
+    for metric_family, relation_types in MASKED_HOLDOUT_RELATION_GROUPS.items():
+        family_rows = [row for row in holdout_results if row.get("relationship_type") in relation_types]
+        metrics[f"{metric_family}_queries_evaluated"] = len(family_rows)
+        metrics[f"{metric_family}_hits_at_10"] = _safe_divide(
+            sum(1 for row in family_rows if row.get("hit_at_10")),
+            len(family_rows),
+        )
+        metrics[f"{metric_family}_mrr"] = _safe_divide(
+            sum(float(row.get("reciprocal_rank") or 0.0) for row in family_rows),
+            len(family_rows),
+        )
+
+    metrics.setdefault("cyber_dependency_queries_evaluated", 0)
+    metrics.setdefault("cyber_dependency_hits_at_10", 0.0)
+    metrics.setdefault("cyber_dependency_mrr", 0.0)
+    return metrics
+
+
 class TransETrainer:
     """TransE embedding trainer and inference engine."""
 
@@ -678,7 +834,12 @@ class TransETrainer:
         self.loss_history = []
         self.model_version = None
 
-    def load_triples_from_db(self, pg_url: str) -> None:
+    def load_triples_from_db(
+        self,
+        pg_url: str,
+        *,
+        exclude_triples: set[tuple[str, str, str]] | None = None,
+    ) -> None:
         """
         Load entity/relationship triples from kg_relationships table.
 
@@ -689,6 +850,12 @@ class TransETrainer:
             import psycopg2
         except ImportError:
             raise ImportError("psycopg2 is required. Install: pip install psycopg2-binary>=2.9")
+
+        excluded = {
+            (str(source_id), _normalize_rel_type(rel_type), str(target_id))
+            for source_id, rel_type, target_id in (exclude_triples or set())
+            if source_id and rel_type and target_id
+        }
 
         logger.info("Loading triples from PostgreSQL: %s", pg_url)
         conn = psycopg2.connect(pg_url)
@@ -707,6 +874,7 @@ class TransETrainer:
             )
 
             for source_id, rel_type, target_id in cur.fetchall():
+                normalized_rel_type = _normalize_rel_type(rel_type)
                 # Build entity and relation mappings
                 if source_id not in self.entity_to_id:
                     idx = len(self.entity_to_id)
@@ -718,14 +886,17 @@ class TransETrainer:
                     self.entity_to_id[target_id] = idx
                     self.id_to_entity[idx] = target_id
 
-                if rel_type not in self.relation_to_id:
+                if normalized_rel_type not in self.relation_to_id:
                     idx = len(self.relation_to_id)
-                    self.relation_to_id[rel_type] = idx
-                    self.id_to_relation[idx] = rel_type
+                    self.relation_to_id[normalized_rel_type] = idx
+                    self.id_to_relation[idx] = normalized_rel_type
+
+                if excluded and (str(source_id), normalized_rel_type, str(target_id)) in excluded:
+                    continue
 
                 # Add triple using indices
                 h_idx = self.entity_to_id[source_id]
-                r_idx = self.relation_to_id[rel_type]
+                r_idx = self.relation_to_id[normalized_rel_type]
                 t_idx = self.entity_to_id[target_id]
                 self.triples.append((h_idx, r_idx, t_idx))
 
@@ -854,6 +1025,7 @@ class TransETrainer:
             "duration_ms": duration_ms,
             "entity_count": num_entities,
             "relation_count": num_relations,
+            "triple_count": len(self.triples),
         }
 
     def _normalize_embeddings(self) -> None:
@@ -2162,108 +2334,168 @@ def get_missing_edge_recovery_metrics(
     *,
     review_stats: dict[str, Any] | None = None,
     evaluation_top_k: int = 10,
-    max_queries_per_family: int = 100,
+    recovery_queue_top_k: int = 16,
 ) -> dict[str, Any]:
     review_stats = review_stats or get_prediction_review_stats(pg_url)
-
-    trainer = TransETrainer()
-    if not trainer.load_embeddings_from_db(pg_url):
-        return {
-            "evaluation_protocol": "family_strict_fixture_holdout",
-            "training_holdout_enforced": False,
-            "ownership_control_hits_at_10": 0.0,
-            "ownership_control_mrr": 0.0,
-            "intermediary_route_hits_at_10": 0.0,
-            "intermediary_route_mrr": 0.0,
-            "cyber_dependency_hits_at_10": 0.0,
-            "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
-            "missing_edge_queries_evaluated": 0,
-        }
 
     try:
         import psycopg2
     except ImportError as exc:  # pragma: no cover
         raise ImportError("psycopg2 is required") from exc
 
-    conn = psycopg2.connect(pg_url)
-    cur = conn.cursor()
-    try:
-        holdout_path = GRAPH_MISSING_EDGE_HOLDOUT_PATH if GRAPH_MISSING_EDGE_HOLDOUT_PATH.exists() else GRAPH_CONSTRUCTION_GOLD_PATH
-        holdout_rows = _load_fixture_rows(holdout_path)
-        name_to_entity_id = _resolve_fixture_entity_ids(
-            cur,
-            {
-                str(row.get("source_entity") or "").strip()
-                for row in holdout_rows
-            }
-            | {
-                str(row.get("target_entity") or "").strip()
-                for row in holdout_rows
-            },
-        )
-        family_rows: dict[str, list[tuple[str, str, str]]] = {key: [] for key in MISSING_EDGE_FAMILY_GROUPS}
-        for row in holdout_rows:
-            source_name = str(row.get("source_entity") or "").strip()
-            target_name = str(row.get("target_entity") or "").strip()
-            rel_type = _normalize_rel_type(row.get("relationship_type"))
-            source_entity_id = name_to_entity_id.get(source_name)
-            target_entity_id = name_to_entity_id.get(target_name)
-            if (
-                not source_entity_id
-                or not target_entity_id
-                or source_entity_id not in trainer.entity_to_id
-                or target_entity_id not in trainer.entity_to_id
-                or rel_type not in trainer.relation_to_id
-            ):
-                continue
-            predicted_family = _prediction_edge_family(rel_type)
-            for metric_family, edge_families in MISSING_EDGE_FAMILY_GROUPS.items():
-                fixture_family = str(row.get("edge_family") or "").strip().lower()
-                if predicted_family in edge_families or fixture_family in edge_families:
-                    family_rows[metric_family].append((str(source_entity_id), rel_type, str(target_entity_id)))
-                    break
-
-        metrics: dict[str, Any] = {
-            "evaluation_protocol": "family_strict_fixture_holdout",
+    holdout_path, holdout_rows = _load_masked_holdout_rows()
+    if not holdout_rows:
+        return {
+            "evaluation_protocol": "family_balanced_masked_holdout",
             "holdout_fixture_path": str(holdout_path),
             "training_holdout_enforced": False,
             "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
+            "masked_holdout_queries_evaluated": 0,
+            "missing_edge_queries_evaluated": 0,
+            "masked_holdout_hits_at_10": 0.0,
+            "masked_holdout_mrr": 0.0,
+            "mean_withheld_target_rank": 0.0,
+            "holdout_results": [],
+            "recovery_queue_by_source": [],
+            "recovery_queue_source_count": 0,
+            "recovery_queue_candidate_count": 0,
         }
 
-        total_queries = 0
-        for metric_family, edge_families in MISSING_EDGE_FAMILY_GROUPS.items():
-            hits = 0
-            reciprocal_rank_total = 0.0
-            queries = 0
-            for source_id, rel_type, target_id in family_rows.get(metric_family, [])[:max_queries_per_family]:
-                h_idx = trainer.entity_to_id.get(source_id)
-                r_idx = trainer.relation_to_id.get(rel_type)
-                t_idx = trainer.entity_to_id.get(target_id)
-                if h_idx is None or r_idx is None or t_idx is None:
-                    continue
-                queries += 1
-                total_queries += 1
-                score_vector = np.linalg.norm(
-                    trainer.entity_embeddings[h_idx] + trainer.relation_embeddings[r_idx] - trainer.entity_embeddings,
-                    axis=1,
-                )
-                score_vector[h_idx] = np.inf
-                target_score = float(score_vector[t_idx])
-                rank = int(np.sum(score_vector < target_score) + 1)
-                if rank and rank <= evaluation_top_k:
-                    hits += 1
-                if rank:
-                    reciprocal_rank_total += 1.0 / rank
-
-            metrics[f"{metric_family}_hits_at_10"] = _safe_divide(hits, queries)
-            metrics[f"{metric_family}_mrr"] = _safe_divide(reciprocal_rank_total, queries)
-            metrics[f"{metric_family}_queries_evaluated"] = queries
-
-        metrics["missing_edge_queries_evaluated"] = total_queries
-        return metrics
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        resolved_rows, unresolved_rows = _resolve_masked_holdout_rows(cur, holdout_rows)
     finally:
         cur.close()
         conn.close()
+
+    excluded_triples = {
+        (
+            str(row["source_entity_id"]),
+            _normalize_rel_type(row["relationship_type"]),
+            str(row["target_entity_id"]),
+        )
+        for row in resolved_rows
+    }
+
+    trainer = TransETrainer()
+    trainer.load_triples_from_db(pg_url, exclude_triples=excluded_triples)
+    training_result = trainer.train()
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        holdout_results: list[dict[str, Any]] = []
+        recovery_queue_by_source: list[dict[str, Any]] = []
+        queue_rank_lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
+        source_entity_ids = sorted({str(row["source_entity_id"]) for row in resolved_rows})
+        source_entity_map = _fetch_entity_map(cur, source_entity_ids)
+
+        rows_by_source: dict[str, list[dict[str, Any]]] = {}
+        for row in resolved_rows:
+            rows_by_source.setdefault(str(row["source_entity_id"]), []).append(row)
+
+        for source_entity_id in source_entity_ids:
+            source_rows = rows_by_source.get(source_entity_id, [])
+            relevant_relations = {str(row["relationship_type"]) for row in source_rows}
+            source_name = (source_entity_map.get(source_entity_id) or {}).get("canonical_name", source_entity_id)
+            queue_rows = _prepare_prediction_rows(
+                cur,
+                trainer,
+                source_entity_id,
+                top_k=max(recovery_queue_top_k, len(relevant_relations) * 4, len(source_rows) * 4),
+            )
+            filtered_queue = [
+                row for row in queue_rows
+                if str(row.get("predicted_relation") or "") in relevant_relations
+            ]
+            queue_items: list[dict[str, Any]] = []
+            for queue_rank, item in enumerate(filtered_queue, start=1):
+                queue_item = {
+                    "candidate_rank": queue_rank,
+                    "source_entity_id": source_entity_id,
+                    "source_entity_name": source_name,
+                    "target_entity_id": str(item.get("target_entity_id") or ""),
+                    "target_name": str(item.get("target_name") or item.get("target_entity_id") or ""),
+                    "predicted_relation": str(item.get("predicted_relation") or ""),
+                    "predicted_edge_family": str(item.get("predicted_edge_family") or ""),
+                    "score": float(item.get("score") or 0.0),
+                }
+                queue_items.append(queue_item)
+                queue_rank_lookup[
+                    (
+                        source_entity_id,
+                        queue_item["predicted_relation"],
+                        queue_item["target_entity_id"],
+                    )
+                ] = queue_item
+
+            recovery_queue_by_source.append(
+                {
+                    "source_entity_id": source_entity_id,
+                    "source_entity_name": source_name,
+                    "holdout_relations": sorted(relevant_relations),
+                    "candidate_count": len(queue_items),
+                    "items": queue_items,
+                }
+            )
+
+        for row in resolved_rows:
+            rel_type = str(row["relationship_type"])
+            rank_info = _score_withheld_target_rank(
+                trainer,
+                str(row["source_entity_id"]),
+                rel_type,
+                str(row["target_entity_id"]),
+            )
+            queue_match = queue_rank_lookup.get(
+                (
+                    str(row["source_entity_id"]),
+                    rel_type,
+                    str(row["target_entity_id"]),
+                )
+            )
+            holdout_results.append(
+                {
+                    "label_id": str(row.get("label_id") or ""),
+                    "source_entity_id": str(row["source_entity_id"]),
+                    "source_entity": str(row.get("source_entity") or row["source_entity_id"]),
+                    "target_entity_id": str(row["target_entity_id"]),
+                    "target_entity": str(row.get("target_entity") or row["target_entity_id"]),
+                    "relationship_type": rel_type,
+                    "edge_family": str(row.get("edge_family") or _prediction_edge_family(rel_type)),
+                    "withheld_target_rank": int(rank_info["withheld_target_rank"] or 0),
+                    "withheld_target_score": rank_info["withheld_target_score"],
+                    "reciprocal_rank": float(rank_info["reciprocal_rank"] or 0.0),
+                    "hit_at_10": bool(rank_info["hit_at_10"]),
+                    "surfaced_in_recovery_queue": bool(queue_match),
+                    "recovery_queue_rank": int(queue_match["candidate_rank"]) if queue_match else 0,
+                }
+            )
+    finally:
+        cur.close()
+        conn.close()
+
+    metrics = _aggregate_masked_holdout_metrics(holdout_results, review_stats)
+    metrics.update(
+        {
+            "evaluation_protocol": "family_balanced_masked_holdout",
+            "holdout_fixture_path": str(holdout_path),
+            "training_holdout_enforced": True,
+            "holdout_relation_types": list(MASKED_HOLDOUT_RELATION_TYPES),
+            "holdout_source_entity_count": len({str(row["source_entity_id"]) for row in resolved_rows}),
+            "holdout_triples_excluded": len(excluded_triples),
+            "holdout_training_duration_ms": int(training_result.get("duration_ms") or 0),
+            "holdout_training_final_loss": float(training_result.get("final_loss") or 0.0),
+            "holdout_training_triple_count": int(training_result.get("triple_count") or len(trainer.triples)),
+            "recovery_queue_source_count": len(recovery_queue_by_source),
+            "recovery_queue_candidate_count": sum(int(row.get("candidate_count") or 0) for row in recovery_queue_by_source),
+            "holdout_results": holdout_results,
+            "recovery_queue_by_source": recovery_queue_by_source,
+            "unresolved_holdout_rows": unresolved_rows,
+        }
+    )
+    return metrics
 
 
 def get_novel_edge_discovery_metrics(review_stats: dict[str, Any] | None = None) -> dict[str, Any]:

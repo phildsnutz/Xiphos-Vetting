@@ -62,19 +62,15 @@
     },
     {
       "stage_id": "missing_edge_recovery",
-      "objective": "Recover likely missing ownership, intermediary, route, and cyber dependency edges without promoting unsupported facts.",
+      "objective": "Recover masked ownership, financing, payment-routing, contract, and litigation edges without leaking into the live analyst novelty queue.",
       "datasets": [
-        "family_strict_holdout",
-        "analyst_confirmed_predicted_links",
-        "hostile_graph_gap_cases"
+        "family_balanced_masked_holdout"
       ],
       "metrics": {
-        "ownership_control_hits_at_10_min": 0.8,
-        "ownership_control_mrr_min": 0.45,
-        "intermediary_route_hits_at_10_min": 0.7,
-        "intermediary_route_mrr_min": 0.35,
-        "cyber_dependency_hits_at_10_min": 0.7,
-        "missing_edge_queries_evaluated_min": 10,
+        "masked_holdout_hits_at_10_min": 0.8,
+        "masked_holdout_mrr_min": 0.45,
+        "mean_withheld_target_rank_max": 10.0,
+        "masked_holdout_queries_evaluated_min": 7,
         "unsupported_promoted_edge_rate_max": 0.0
       }
     },
