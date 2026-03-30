@@ -58,6 +58,8 @@ export function GraphTrainingReviewPanel({
   const [success, setSuccess] = useState<string | null>(null);
   const [edgeFamilyFilter, setEdgeFamilyFilter] = useState<string>("all");
   const [decisions, setDecisions] = useState<Record<number, { confirmed?: boolean; notes: string }>>({});
+  const [bulkNotes, setBulkNotes] = useState("");
+  const [autoSeededEntityIds, setAutoSeededEntityIds] = useState<Record<string, boolean>>({});
 
   const loadPanel = useCallback(async () => {
     if (!rootEntityId) return;
@@ -118,16 +120,18 @@ export function GraphTrainingReviewPanel({
     }));
   }, []);
 
-  const handleSeedQueue = useCallback(async () => {
+  const handleSeedQueue = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!rootEntityId) return;
     setQueueing(true);
     setError(null);
-    setSuccess(null);
+    if (!silent) setSuccess(null);
     try {
       const result = await queuePredictedLinks(rootEntityId, DEFAULT_TOP_K);
-      setSuccess(
-        `Queued ${result.queued_count} new candidates for ${result.entity_name}. Reused ${result.existing_count} existing predictions.`,
-      );
+      if (!silent) {
+        setSuccess(
+          `Queued ${result.queued_count} new candidates for ${result.entity_name}. Reused ${result.existing_count} existing predictions.`,
+        );
+      }
       await loadPanel();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to seed predicted-link queue");
@@ -135,6 +139,14 @@ export function GraphTrainingReviewPanel({
       setQueueing(false);
     }
   }, [loadPanel, rootEntityId]);
+
+  useEffect(() => {
+    if (!rootEntityId || !stats || queueing || loading) return;
+    if (autoSeededEntityIds[rootEntityId]) return;
+    if ((stats.total_links ?? 0) > 0 || queue.length > 0) return;
+    setAutoSeededEntityIds((current) => ({ ...current, [rootEntityId]: true }));
+    void handleSeedQueue({ silent: true });
+  }, [autoSeededEntityIds, handleSeedQueue, loading, queue.length, queueing, rootEntityId, stats]);
 
   const handleSubmitBatch = useCallback(async () => {
     if (!pendingDecisions.length) return;
@@ -155,6 +167,29 @@ export function GraphTrainingReviewPanel({
       setSubmitting(false);
     }
   }, [loadPanel, onGraphRefresh, pendingDecisions]);
+
+  const applyVisibleDecision = useCallback((confirmed: boolean) => {
+    setDecisions((current) => {
+      const next = { ...current };
+      for (const item of queue) {
+        next[item.id] = {
+          confirmed,
+          notes: current[item.id]?.notes || bulkNotes.trim(),
+        };
+      }
+      return next;
+    });
+  }, [bulkNotes, queue]);
+
+  const clearVisibleDecisions = useCallback(() => {
+    setDecisions((current) => {
+      const next = { ...current };
+      for (const item of queue) {
+        delete next[item.id];
+      }
+      return next;
+    });
+  }, [queue]);
 
   if (!rootEntityId) {
     return (
@@ -279,24 +314,67 @@ export function GraphTrainingReviewPanel({
         <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
           Review Queue
         </div>
-        <button
-          onClick={() => void handleSubmitBatch()}
-          disabled={!pendingDecisions.length || submitting}
-          className="rounded border cursor-pointer"
-          style={{
-            padding: "7px 10px",
-            fontSize: FS.sm,
-            color: pendingDecisions.length ? T.text : T.muted,
-            background: pendingDecisions.length ? `${T.green}12` : T.surface,
-            borderColor: pendingDecisions.length ? `${T.green}33` : T.border,
-            opacity: submitting ? 0.7 : 1,
-          }}
-        >
-          <span className="inline-flex items-center gap-2">
-            {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-            Submit {pendingDecisions.length} review{pendingDecisions.length === 1 ? "" : "s"}
-          </span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => applyVisibleDecision(true)}
+            disabled={!queue.length}
+            className="rounded border cursor-pointer"
+            style={{ padding: "7px 10px", fontSize: FS.sm, color: T.green, background: T.surface, borderColor: T.border, opacity: queue.length ? 1 : 0.6 }}
+          >
+            Confirm visible
+          </button>
+          <button
+            onClick={() => applyVisibleDecision(false)}
+            disabled={!queue.length}
+            className="rounded border cursor-pointer"
+            style={{ padding: "7px 10px", fontSize: FS.sm, color: T.red, background: T.surface, borderColor: T.border, opacity: queue.length ? 1 : 0.6 }}
+          >
+            Reject visible
+          </button>
+          <button
+            onClick={clearVisibleDecisions}
+            disabled={!queue.length}
+            className="rounded border cursor-pointer"
+            style={{ padding: "7px 10px", fontSize: FS.sm, color: T.muted, background: T.surface, borderColor: T.border, opacity: queue.length ? 1 : 0.6 }}
+          >
+            Clear visible
+          </button>
+          <button
+            onClick={() => void handleSubmitBatch()}
+            disabled={!pendingDecisions.length || submitting}
+            className="rounded border cursor-pointer"
+            style={{
+              padding: "7px 10px",
+              fontSize: FS.sm,
+              color: pendingDecisions.length ? T.text : T.muted,
+              background: pendingDecisions.length ? `${T.green}12` : T.surface,
+              borderColor: pendingDecisions.length ? `${T.green}33` : T.border,
+              opacity: submitting ? 0.7 : 1,
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              Submit {pendingDecisions.length} review{pendingDecisions.length === 1 ? "" : "s"}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-lg p-3" style={{ marginTop: 12, background: T.bg, border: `1px solid ${T.border}` }}>
+        <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+          Bulk Review Mode
+        </div>
+        <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6 }}>
+          Apply one decision to the visible queue, then refine exceptions item by item before submission.
+        </div>
+        <textarea
+          value={bulkNotes}
+          onChange={(event) => setBulkNotes(event.target.value)}
+          placeholder="Optional bulk rationale to copy into visible queue items"
+          rows={2}
+          className="w-full rounded border"
+          style={{ marginTop: 10, padding: 10, fontSize: FS.sm, color: T.text, background: T.surface, borderColor: T.border, resize: "vertical" }}
+        />
       </div>
 
       {loading ? (
