@@ -113,6 +113,86 @@ def test_ensure_access_token_uses_cached_token(monkeypatch, tmp_path):
     assert args.password == ""
 
 
+def test_main_retries_smoke_once_after_expired_cached_token(monkeypatch, tmp_path, capsys):
+    cache_path = tmp_path / "readiness_token.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "base_url": "http://127.0.0.1:8080",
+                "email": "ops@example.com",
+                "token": "expired-token",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "TOKEN_CACHE_PATH", cache_path)
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"token": "fresh-token"}
+
+    login_calls = []
+
+    def fake_post(url, json=None, timeout=None):
+        login_calls.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    smoke_calls = []
+
+    def fake_run_step(name, command, artifact_dir=None):
+        smoke_calls.append(name)
+        if len(smoke_calls) == 1:
+            return module.StepResult(
+                "read_only_smoke",
+                "NO_GO",
+                command,
+                1,
+                'FAIL: 401 UNAUTHORIZED: {"error":"Invalid or expired token"}',
+                "",
+            )
+        return module.StepResult("read_only_smoke", "GO", command, 0, "PASS: read-only smoke complete", "")
+
+    args = module.argparse.Namespace(
+        token="",
+        email="ops@example.com",
+        password="secret",
+        skip_smoke=False,
+        skip_canary_pack=True,
+        company=[],
+        pack_manifest=str(module.DEFAULT_PACK_MANIFEST),
+        report_dir=str(tmp_path),
+        print_json=False,
+        base_url="http://127.0.0.1:8080",
+        country="US",
+        program="dod_unclassified",
+        profile="defense_acquisition",
+        include_ai=True,
+        ai_readiness_mode="surface",
+        check_assistant=True,
+        max_enrich_seconds=90,
+        max_dossier_seconds=60,
+        max_pdf_seconds=60,
+        max_ai_seconds=90,
+        max_warnings=2,
+        wait_for_ready_seconds=120,
+    )
+
+    monkeypatch.setattr(module.requests, "post", fake_post)
+    monkeypatch.setattr(module, "run_step", fake_run_step)
+    monkeypatch.setattr(module, "parse_args", lambda: args)
+
+    code = module.main()
+    capsys.readouterr()
+
+    assert code == 0
+    assert smoke_calls == ["read_only_smoke", "read_only_smoke"]
+    assert len(login_calls) == 1
+    assert args.token == "fresh-token"
+
+
 def test_load_pack_manifest_requires_name_and_pack_file(tmp_path):
     manifest = tmp_path / "counterparty.json"
     manifest.write_text(

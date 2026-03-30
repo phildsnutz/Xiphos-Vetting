@@ -155,31 +155,58 @@ def store_cached_token(args: argparse.Namespace, token: str) -> None:
     )
 
 
-def ensure_access_token(args: argparse.Namespace) -> None:
-    if getattr(args, "token", ""):
+def clear_cached_token() -> None:
+    if TOKEN_CACHE_PATH.exists():
+        TOKEN_CACHE_PATH.unlink()
+
+
+def _remember_login_credentials(args: argparse.Namespace) -> None:
+    email = str(getattr(args, "email", "") or "").strip()
+    password = str(getattr(args, "password", "") or "").strip()
+    if email:
+        setattr(args, "_login_email", email)
+    if password:
+        setattr(args, "_login_password", password)
+
+
+def _login_email(args: argparse.Namespace) -> str:
+    return str(getattr(args, "_login_email", "") or getattr(args, "email", "") or "").strip()
+
+
+def _login_password(args: argparse.Namespace) -> str:
+    return str(getattr(args, "_login_password", "") or getattr(args, "password", "") or "").strip()
+
+
+def ensure_access_token(args: argparse.Namespace, *, force_refresh: bool = False) -> None:
+    _remember_login_credentials(args)
+    if getattr(args, "token", "") and not force_refresh:
         return
-    if not (getattr(args, "email", "") and getattr(args, "password", "")):
+    login_email = _login_email(args)
+    login_password = _login_password(args)
+    if not (login_email and login_password):
         return
-    cached_token = load_cached_token(args)
-    if cached_token:
-        args.token = cached_token
-        args.email = ""
-        args.password = ""
-        return
-    response = requests.post(
-        f"{args.base_url.rstrip('/')}/api/auth/login",
-        json={"email": args.email, "password": args.password},
-        timeout=30,
-    )
-    try:
-        response.raise_for_status()
-    except requests.HTTPError:
+    if not force_refresh:
         cached_token = load_cached_token(args)
         if cached_token:
             args.token = cached_token
             args.email = ""
             args.password = ""
             return
+    response = requests.post(
+        f"{args.base_url.rstrip('/')}/api/auth/login",
+        json={"email": login_email, "password": login_password},
+        timeout=30,
+    )
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        if not force_refresh:
+            cached_token = load_cached_token(args)
+            if cached_token:
+                args.token = cached_token
+                args.email = ""
+                args.password = ""
+                return
         raise
     payload = response.json()
     token = str(payload.get("token") or "").strip()
@@ -189,6 +216,33 @@ def ensure_access_token(args: argparse.Namespace) -> None:
     args.token = token
     args.email = ""
     args.password = ""
+
+
+def _smoke_failed_due_to_auth(result: StepResult) -> bool:
+    combined = "\n".join(
+        text
+        for text in (str(result.stdout or ""), str(result.stderr or ""))
+        if str(text or "").strip()
+    ).lower()
+    auth_markers = (
+        "invalid or expired token",
+        "401 unauthorized",
+        '"error":"invalid or expired token"',
+        "'error': 'invalid or expired token'",
+    )
+    return any(marker in combined for marker in auth_markers)
+
+
+def _retry_smoke_with_fresh_token(args: argparse.Namespace, smoke_result: StepResult) -> StepResult:
+    if smoke_result.verdict != "NO_GO" or not _smoke_failed_due_to_auth(smoke_result):
+        return smoke_result
+    if not (_login_email(args) and _login_password(args)):
+        return smoke_result
+    _progress("[counterparty readiness] smoke failed with stale auth, refreshing token and retrying once")
+    clear_cached_token()
+    args.token = ""
+    ensure_access_token(args, force_refresh=True)
+    return run_step("read_only_smoke", build_smoke_command(args))
 
 
 def load_pack_manifest(path: str) -> list[dict[str, str]]:
@@ -480,6 +534,7 @@ def main() -> int:
     results: list[StepResult] = []
     if not args.skip_smoke:
         smoke_result = run_step("read_only_smoke", build_smoke_command(args))
+        smoke_result = _retry_smoke_with_fresh_token(args, smoke_result)
         results.append(smoke_result)
         if smoke_result.verdict == "NO_GO":
             output_dir = Path(args.report_dir) / datetime.utcnow().strftime("%Y%m%d%H%M%S")

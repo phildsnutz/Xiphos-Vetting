@@ -44,6 +44,7 @@ def test_allow_predicted_link_rejects_placeholder_and_wrong_official_targets():
     assert module._allow_predicted_link("company", "OWNED_BY", "holding_company", "Unresolved Holding Layer 2 for Vector Mission Software") is False
     assert module._allow_predicted_link("company", "SHIPS_VIA", "shipment_route", "Northern Channel Partners modeled transit via AE") is False
     assert module._allow_predicted_link("company", "FILED_WITH", "government_agency", "Spire Global, Inc.") is False
+    assert module._allow_predicted_link("company", "DEPENDS_ON_SERVICE", "service", "Name") is False
 
 
 def test_prepare_prediction_rows_dedupes_and_diversifies_relations():
@@ -121,6 +122,97 @@ def test_prepare_prediction_rows_applies_relation_specific_reranking():
     assert "Beacon Strategic Capital" not in names_in_order
     assert "Harbor Settlement Bank" in names_in_order
     assert "Case No. 24-cv-1182" in names_in_order
+
+
+def test_prepare_prediction_rows_uses_context_to_filter_junk_novelty_candidates():
+    module = _reload_fresh("graph_embeddings")
+
+    class FakeTrainer:
+        def predict_links(self, entity_id, top_k=10):
+            return [
+                {"target_entity_id": "gov-1", "predicted_relation": "owned_by", "score": 0.10, "target_name": "Department of State"},
+                {"target_entity_id": "own-1", "predicted_relation": "owned_by", "score": 0.11, "target_name": "Beacon Strategic Capital"},
+                {"target_entity_id": "svc-1", "predicted_relation": "depends_on_service", "score": 0.12, "target_name": "Name"},
+                {"target_entity_id": "gov-2", "predicted_relation": "contracts_with", "score": 0.13, "target_name": "U.S. Army"},
+            ]
+
+    entity_rows = {
+        "src-1": {"entity_id": "src-1", "canonical_name": "Yorktown Systems Group", "entity_type": "company"},
+        "gov-1": {"entity_id": "gov-1", "canonical_name": "Department of State", "entity_type": "government_agency"},
+        "own-1": {"entity_id": "own-1", "canonical_name": "Beacon Strategic Capital", "entity_type": "holding_company"},
+        "svc-1": {"entity_id": "svc-1", "canonical_name": "Name", "entity_type": "service"},
+        "gov-2": {"entity_id": "gov-2", "canonical_name": "U.S. Army", "entity_type": "government_agency"},
+    }
+
+    module._fetch_entity_map = lambda cur, entity_ids: {entity_id: entity_rows[entity_id] for entity_id in entity_ids if entity_id in entity_rows}
+    module._fetch_source_rerank_context = lambda cur, entity_id, source_name, source_entity_type: {
+        "source_entity_id": entity_id,
+        "source_name": source_name,
+        "source_entity_type": source_entity_type,
+        "source_tokens": {"yorktown", "systems", "group"},
+        "all_neighbor_tokens": {"beacon", "strategic", "capital", "u.s.", "army"},
+        "relation_neighbor_tokens": {
+            "owned_by": {"beacon", "strategic", "capital"},
+            "contracts_with": {"u.s.", "army"},
+        },
+        "all_text_blob": "yorktown systems group shows beneficial ownership tied to beacon strategic capital and a contract award supporting the u.s. army",
+        "relation_text_blobs": {
+            "owned_by": "beneficial ownership tied to beacon strategic capital",
+            "contracts_with": "contract award for the u.s. army program office",
+        },
+    }
+
+    rows = module._prepare_prediction_rows(cur=object(), trainer=FakeTrainer(), entity_id="src-1", top_k=6)
+    target_names = {row["target_name"] for row in rows}
+
+    assert "Beacon Strategic Capital" in target_names
+    assert "U.S. Army" in target_names
+    assert "Department of State" not in target_names
+    assert "Name" not in target_names
+
+
+def test_prepare_prediction_rows_requires_relation_support_terms_for_high_risk_surface_candidates():
+    module = _reload_fresh("graph_embeddings")
+
+    class FakeTrainer:
+        def predict_links(self, entity_id, top_k=10):
+            return [
+                {"target_entity_id": "gov-1", "predicted_relation": "contracts_with", "score": 0.10, "target_name": "Department of State"},
+                {"target_entity_id": "own-1", "predicted_relation": "owned_by", "score": 0.11, "target_name": "Beacon Strategic Capital"},
+                {"target_entity_id": "gov-2", "predicted_relation": "contracts_with", "score": 0.12, "target_name": "U.S. Army"},
+            ]
+
+    entity_rows = {
+        "src-1": {"entity_id": "src-1", "canonical_name": "Harbor Beacon Holdings", "entity_type": "company"},
+        "gov-1": {"entity_id": "gov-1", "canonical_name": "Department of State", "entity_type": "government_agency"},
+        "own-1": {"entity_id": "own-1", "canonical_name": "Beacon Strategic Capital", "entity_type": "holding_company"},
+        "gov-2": {"entity_id": "gov-2", "canonical_name": "U.S. Army", "entity_type": "government_agency"},
+    }
+
+    module._fetch_entity_map = lambda cur, entity_ids: {entity_id: entity_rows[entity_id] for entity_id in entity_ids if entity_id in entity_rows}
+    module._fetch_source_rerank_context = lambda cur, entity_id, source_name, source_entity_type: {
+        "source_entity_id": entity_id,
+        "source_name": source_name,
+        "source_entity_type": source_entity_type,
+        "source_tokens": {"harbor", "beacon", "holdings"},
+        "all_neighbor_tokens": {"beacon", "strategic", "capital", "u.s.", "army"},
+        "relation_neighbor_tokens": {
+            "owned_by": {"beacon", "strategic", "capital"},
+            "contracts_with": {"u.s.", "army"},
+        },
+        "all_text_blob": "harbor beacon holdings has beneficial ownership links to beacon strategic capital and a contract award with the u.s. army",
+        "relation_text_blobs": {
+            "owned_by": "beneficial ownership links to beacon strategic capital",
+            "contracts_with": "department of state profile page u.s. army contract award",
+        },
+    }
+
+    rows = module._prepare_prediction_rows(cur=object(), trainer=FakeTrainer(), entity_id="src-1", top_k=6)
+    target_names = [row["target_name"] for row in rows]
+
+    assert "Beacon Strategic Capital" in target_names
+    assert "U.S. Army" in target_names
+    assert "Department of State" not in target_names
 
 
 def test_evaluate_construction_fixture_rows_uses_pending_and_rejected_candidate_state():

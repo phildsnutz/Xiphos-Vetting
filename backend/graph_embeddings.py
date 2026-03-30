@@ -88,6 +88,62 @@ TEMPORAL_FRESHNESS_THRESHOLDS_DAYS: dict[str, int] = {
     "litigant_in": 180,
 }
 
+RELATION_SUPPORT_TERMS: dict[str, tuple[str, ...]] = {
+    "owned_by": (
+        "owned by",
+        "ownership",
+        "owner",
+        "parent",
+        "subsidiary",
+        "beneficial owner",
+        "beneficial ownership",
+        "holding company",
+    ),
+    "backed_by": (
+        "backed by",
+        "credit facility",
+        "revolving facility",
+        "financed by",
+        "funded by",
+        "investment",
+        "investor",
+        "capital partner",
+    ),
+    "routes_payment_through": (
+        "payment",
+        "settlement",
+        "wire",
+        "bank",
+        "remittance",
+        "account",
+        "treasury",
+        "financial institution",
+    ),
+    "contracts_with": (
+        "contract",
+        "award",
+        "task order",
+        "delivery order",
+        "program office",
+        "subcontract",
+        "prime contractor",
+        "agreement",
+        "procurement",
+        "solicitation",
+    ),
+    "litigant_in": (
+        "case",
+        "court",
+        "complaint",
+        "litigation",
+        "lawsuit",
+        "petition",
+        "tribunal",
+        "docket",
+        "cv-",
+    ),
+}
+
 PREDICTION_RELATION_TARGET_ALLOWLIST: dict[str, set[str]] = {
     "owned_by": {"company", "holding_company", "person", "government_agency"},
     "parent_of": {"company", "holding_company"},
@@ -131,6 +187,7 @@ GENERIC_TARGET_PHRASES: tuple[str, ...] = (
 GENERIC_TARGET_TOKENS: set[str] = {
     "investors",
     "leaders",
+    "name",
     "options",
     "concepts",
     "partners",
@@ -741,6 +798,63 @@ def _allow_predicted_link(
     return True
 
 
+def _surface_prediction_supported(
+    source_entity_type: str,
+    rel_type: str,
+    target_entity_type: str,
+    target_name: str,
+    source_context: dict[str, Any] | None,
+) -> bool:
+    if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
+        return False
+    if not source_context:
+        return True
+
+    relation_text_blobs = source_context.get("relation_text_blobs") or {}
+    all_neighbor_tokens = set(source_context.get("all_neighbor_tokens") or set())
+    relation_neighbor_tokens = set(
+        (source_context.get("relation_neighbor_tokens") or {}).get(_normalize_rel_type(rel_type)) or set()
+    )
+    if not relation_text_blobs and not all_neighbor_tokens and not relation_neighbor_tokens:
+        return True
+
+    normalized_rel = _normalize_rel_type(rel_type)
+    normalized_target = _normalize_match_text(target_name)
+    relation_text_blob = str(relation_text_blobs.get(normalized_rel) or "")
+    all_text_blob = str(source_context.get("all_text_blob") or "")
+    target_tokens = _tokenize_signal_text(target_name)
+    target_tokens.update(_tokenize_signal_text(target_entity_type))
+    source_tokens = set(source_context.get("source_tokens") or set())
+    hinted_types = _semantic_type_hints(target_name, target_entity_type)
+
+    direct_relation_match = bool(normalized_target and relation_text_blob and normalized_target in relation_text_blob)
+    direct_global_match = bool(normalized_target and all_text_blob and normalized_target in all_text_blob)
+    relation_overlap = len(target_tokens & relation_neighbor_tokens)
+    source_overlap = len(target_tokens & source_tokens)
+    all_overlap = len(target_tokens & all_neighbor_tokens)
+    support_terms = RELATION_SUPPORT_TERMS.get(normalized_rel, ())
+    relation_support = any(term in relation_text_blob for term in support_terms) if support_terms else True
+    global_support = any(term in all_text_blob for term in support_terms) if support_terms else True
+
+    if normalized_rel in {"owned_by", "backed_by"}:
+        if "government_agency" in hinted_types:
+            return False
+        return relation_support and (direct_relation_match or relation_overlap >= 1 or source_overlap >= 1)
+
+    if normalized_rel == "contracts_with":
+        return (relation_support or global_support) and (relation_overlap >= 1 or all_overlap >= 2)
+
+    if normalized_rel in {"litigant_in", "routes_payment_through"}:
+        return (relation_support or global_support) and (
+            direct_relation_match or relation_overlap >= 1 or all_overlap >= 2
+        )
+
+    if normalized_rel in {"depends_on_service", "depends_on_network", "ships_via"}:
+        return direct_relation_match or relation_overlap >= 1
+
+    return True
+
+
 def _relation_specific_score_bonus(rel_type: str, target_name: str, target_entity_type: str) -> float:
     normalized_rel = _normalize_rel_type(rel_type)
     normalized_target = _normalize_match_text(target_name)
@@ -1060,7 +1174,13 @@ def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str,
                 target_row = entity_map.get(target_id) or {}
                 target_name = str(target_row.get("canonical_name") or target_id)
                 target_entity_type = str(target_row.get("entity_type") or "unknown")
-                if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
+                if not _surface_prediction_supported(
+                    source_entity_type,
+                    rel_type,
+                    target_entity_type,
+                    target_name,
+                    source_context,
+                ):
                     continue
                 dedupe_key = (_normalize_rel_type(rel_type), _normalize_match_text(target_name))
                 if dedupe_key in seen_relation_target_keys:
@@ -1097,7 +1217,13 @@ def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str,
             target_name = str(target_row.get("canonical_name") or pred.get("target_name") or target_id)
             target_entity_type = str(target_row.get("entity_type") or "unknown")
             rel_type = str(pred["predicted_relation"])
-            if not _allow_predicted_link(source_entity_type, rel_type, target_entity_type, target_name):
+            if not _surface_prediction_supported(
+                source_entity_type,
+                rel_type,
+                target_entity_type,
+                target_name,
+                source_context,
+            ):
                 continue
             dedupe_key = (_normalize_rel_type(rel_type), _normalize_match_text(target_name))
             if dedupe_key in seen_relation_target_keys:
