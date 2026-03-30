@@ -1080,7 +1080,7 @@ def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, review
         conn.close()
 
 
-def get_prediction_review_stats(pg_url: str) -> dict[str, Any]:
+def get_prediction_review_stats(pg_url: str, *, source_entity_id: str | None = None) -> dict[str, Any]:
     ensure_prediction_tables(pg_url)
     try:
         import psycopg2
@@ -1090,58 +1090,158 @@ def get_prediction_review_stats(pg_url: str) -> dict[str, Any]:
     conn = psycopg2.connect(pg_url)
     cur = conn.cursor()
     try:
+        conditions: list[str] = []
+        params: list[Any] = []
+        if source_entity_id:
+            conditions.append("source_entity_id = %s")
+            params.append(source_entity_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        scoped_params = tuple(params)
+
         cur.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS total_links,
                 COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
+                COUNT(*) FILTER (WHERE reviewed = FALSE) AS pending_links,
                 COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links,
                 COUNT(*) FILTER (WHERE reviewed = TRUE AND analyst_confirmed = FALSE) AS rejected_links,
                 COUNT(*) FILTER (WHERE relationship_created = TRUE) AS promoted_relationships,
+                COUNT(*) FILTER (WHERE relationship_created = TRUE AND COALESCE(analyst_confirmed, FALSE) = FALSE) AS unsupported_promoted_edges,
                 COALESCE(MAX(reviewed_at), MAX(created_at)) AS latest_activity_at
             FROM kg_predicted_links
-            """
+            {where}
+            """,
+            scoped_params,
         )
-        totals = cur.fetchone() or (0, 0, 0, 0, 0, None)
+        totals = cur.fetchone() or (0, 0, 0, 0, 0, 0, None)
 
         cur.execute(
-            """
+            f"""
             SELECT
                 COALESCE(predicted_edge_family, 'other') AS edge_family,
                 COUNT(*) AS total_links,
                 COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
-                COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links
+                COUNT(*) FILTER (WHERE reviewed = FALSE) AS pending_links,
+                COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links,
+                COUNT(*) FILTER (WHERE relationship_created = TRUE) AS promoted_relationships
             FROM kg_predicted_links
+            {where}
             GROUP BY COALESCE(predicted_edge_family, 'other')
             ORDER BY total_links DESC, edge_family ASC
-            """
+            """,
+            scoped_params,
         )
         by_family = [
             {
                 "edge_family": str(row[0]),
                 "total_links": int(row[1]),
                 "reviewed_links": int(row[2]),
-                "confirmed_links": int(row[3]),
+                "pending_links": int(row[3]),
+                "confirmed_links": int(row[4]),
+                "promoted_relationships": int(row[5]),
+            }
+            for row in cur.fetchall()
+        ]
+
+        cur.execute(
+            f"""
+            SELECT
+                COALESCE(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at)) / 3600.0) FILTER (WHERE reviewed = TRUE), 0),
+                COALESCE(
+                    percentile_cont(0.5) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0
+                    ) FILTER (WHERE reviewed = FALSE),
+                    0
+                ),
+                COALESCE(
+                    percentile_cont(0.95) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0
+                    ) FILTER (WHERE reviewed = FALSE),
+                    0
+                ),
+                COUNT(*) FILTER (WHERE reviewed = FALSE AND created_at <= NOW() - INTERVAL '24 hours'),
+                COUNT(*) FILTER (WHERE reviewed = FALSE AND created_at <= NOW() - INTERVAL '168 hours')
+            FROM kg_predicted_links
+            {where}
+            """,
+            scoped_params,
+        )
+        timing = cur.fetchone() or (0.0, 0.0, 0.0, 0, 0)
+
+        cur.execute(
+            f"""
+            SELECT
+                source_entity_id,
+                COALESCE(MAX(source_entity_name), source_entity_id) AS source_entity_name,
+                COUNT(*) AS total_links,
+                COUNT(*) FILTER (WHERE reviewed = FALSE) AS pending_links,
+                COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
+                COUNT(*) FILTER (WHERE relationship_created = TRUE) AS promoted_relationships
+            FROM kg_predicted_links
+            {where}
+            GROUP BY source_entity_id
+            ORDER BY pending_links DESC, total_links DESC, source_entity_name ASC
+            LIMIT 10
+            """,
+            scoped_params,
+        )
+        by_source = [
+            {
+                "source_entity_id": str(row[0]),
+                "source_entity_name": str(row[1] or row[0]),
+                "total_links": int(row[2]),
+                "pending_links": int(row[3]),
+                "reviewed_links": int(row[4]),
+                "promoted_relationships": int(row[5]),
             }
             for row in cur.fetchall()
         ]
 
         total_links = int(totals[0] or 0)
         reviewed_links = int(totals[1] or 0)
-        confirmed_links = int(totals[2] or 0)
-        rejected_links = int(totals[3] or 0)
+        pending_links = int(totals[2] or 0)
+        confirmed_links = int(totals[3] or 0)
+        rejected_links = int(totals[4] or 0)
+        promoted_relationships = int(totals[5] or 0)
+        unsupported_promoted_edges = int(totals[6] or 0)
         confirmation_rate = (confirmed_links / reviewed_links) if reviewed_links else 0.0
         review_coverage_pct = (reviewed_links / total_links) if total_links else 0.0
+        unsupported_promoted_edge_rate = (
+            unsupported_promoted_edges / promoted_relationships
+            if promoted_relationships
+            else 0.0
+        )
+        novel_edge_yield = (promoted_relationships / confirmed_links) if confirmed_links else 0.0
         return {
             "total_links": total_links,
             "reviewed_links": reviewed_links,
+            "pending_links": pending_links,
             "confirmed_links": confirmed_links,
             "rejected_links": rejected_links,
-            "promoted_relationships": int(totals[4] or 0),
+            "promoted_relationships": promoted_relationships,
+            "unsupported_promoted_edges": unsupported_promoted_edges,
+            "unsupported_promoted_edge_rate": unsupported_promoted_edge_rate,
             "confirmation_rate": confirmation_rate,
             "review_coverage_pct": review_coverage_pct,
-            "latest_activity_at": totals[5].isoformat() if totals[5] else None,
+            "latest_activity_at": totals[6].isoformat() if totals[6] else None,
             "by_edge_family": by_family,
+            "by_source_entity": by_source,
+            "scope": {
+                "source_entity_id": source_entity_id,
+            },
+            "missing_edge_recovery": {
+                "queue_depth": pending_links,
+                "analyst_confirmation_rate": confirmation_rate,
+                "review_coverage_pct": review_coverage_pct,
+                "novel_edge_yield": novel_edge_yield,
+                "unsupported_promoted_edge_rate": unsupported_promoted_edge_rate,
+                "mean_review_latency_hours": float(timing[0] or 0.0),
+                "median_pending_age_hours": float(timing[1] or 0.0),
+                "p95_pending_age_hours": float(timing[2] or 0.0),
+                "stale_pending_24h": int(timing[3] or 0),
+                "stale_pending_7d": int(timing[4] or 0),
+            },
         }
     finally:
         cur.close()

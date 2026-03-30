@@ -195,7 +195,12 @@ def _build_stage_progress(
             "stage_id": "missing_edge_recovery",
             "benchmark_verdict": benchmark_by_id.get("missing_edge_recovery", "UNKNOWN"),
             "status": "active" if review_stats.get("reviewed_links", 0) > 0 else "seeded",
-            "notes": f"confirmation_rate={review_stats.get('confirmation_rate', 0.0):.2f}; promoted_relationships={review_stats.get('promoted_relationships', 0)}",
+            "notes": (
+                f"confirmation_rate={review_stats.get('confirmation_rate', 0.0):.2f}; "
+                f"promoted_relationships={review_stats.get('promoted_relationships', 0)}; "
+                f"pending_links={review_stats.get('pending_links', 0)}; "
+                f"unsupported_promoted_edge_rate={review_stats.get('unsupported_promoted_edge_rate', 0.0):.2f}"
+            ),
         },
         {
             "stage_id": "temporal_recurrence_change",
@@ -228,6 +233,42 @@ def _build_stage_progress(
     return progress
 
 
+def _build_stage_metrics(
+    review_stats: dict[str, Any],
+    queue_runs: list[dict[str, Any]],
+    training_result: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    recovery = review_stats.get("missing_edge_recovery") if isinstance(review_stats.get("missing_edge_recovery"), dict) else {}
+    seeded_candidates = sum(int(row.get("queued_count") or 0) for row in queue_runs)
+    total_candidates = sum(int(row.get("count") or 0) for row in queue_runs)
+    construction_metrics = {
+        "reviewed_labels": int(review_stats.get("reviewed_links") or 0),
+        "confirmed_labels": int(review_stats.get("confirmed_links") or 0),
+        "prediction_pool_size": int(review_stats.get("total_links") or 0),
+        "seeded_candidates_this_run": seeded_candidates,
+        "surfaced_candidates_this_run": total_candidates,
+    }
+    if training_result:
+        construction_metrics["final_loss"] = float(training_result.get("final_loss") or 0.0)
+        construction_metrics["embeddings_saved"] = int(training_result.get("embeddings_saved") or 0)
+    return {
+        "construction_training": construction_metrics,
+        "missing_edge_recovery": {
+            "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            "review_coverage_pct": float(review_stats.get("review_coverage_pct") or 0.0),
+            "pending_links": int(review_stats.get("pending_links") or 0),
+            "promoted_relationships": int(review_stats.get("promoted_relationships") or 0),
+            "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
+            "novel_edge_yield": float(recovery.get("novel_edge_yield") or 0.0),
+            "mean_review_latency_hours": float(recovery.get("mean_review_latency_hours") or 0.0),
+            "median_pending_age_hours": float(recovery.get("median_pending_age_hours") or 0.0),
+            "p95_pending_age_hours": float(recovery.get("p95_pending_age_hours") or 0.0),
+            "stale_pending_24h": int(recovery.get("stale_pending_24h") or 0),
+            "stale_pending_7d": int(recovery.get("stale_pending_7d") or 0),
+        },
+    }
+
+
 def _render_markdown(summary: dict[str, Any]) -> str:
     lines = [
         "# Helios Graph Training Tranche",
@@ -250,9 +291,20 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         f"- Reviewed links: `{summary['review_stats'].get('reviewed_links', 0)}`",
         f"- Confirmed links: `{summary['review_stats'].get('confirmed_links', 0)}`",
         f"- Rejected links: `{summary['review_stats'].get('rejected_links', 0)}`",
+        f"- Pending links: `{summary['review_stats'].get('pending_links', 0)}`",
         f"- Confirmation rate: `{summary['review_stats'].get('confirmation_rate', 0.0):.2f}`",
         f"- Review coverage: `{summary['review_stats'].get('review_coverage_pct', 0.0):.2f}`",
+        f"- Unsupported promoted edge rate: `{summary['review_stats'].get('unsupported_promoted_edge_rate', 0.0):.2f}`",
         f"- Reviewed label export: `{summary['review_export'].get('output_path')}`",
+        "",
+        "## Missing Edge Recovery",
+        "",
+        f"- Novel edge yield: `{summary['stage_metrics']['missing_edge_recovery'].get('novel_edge_yield', 0.0):.2f}`",
+        f"- Mean review latency (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('mean_review_latency_hours', 0.0):.2f}`",
+        f"- Median pending age (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('median_pending_age_hours', 0.0):.2f}`",
+        f"- P95 pending age (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('p95_pending_age_hours', 0.0):.2f}`",
+        f"- Stale pending >24h: `{summary['stage_metrics']['missing_edge_recovery'].get('stale_pending_24h', 0)}`",
+        f"- Stale pending >7d: `{summary['stage_metrics']['missing_edge_recovery'].get('stale_pending_7d', 0)}`",
         "",
         "## Seed Queue Runs",
         "",
@@ -311,6 +363,7 @@ def main() -> int:
     readiness = _read_json(readiness_path) or {}
     neo4j = _read_json(neo4j_path) or {}
     stage_progress = _build_stage_progress(benchmark, review_stats, training_result, queue_runs)
+    stage_metrics = _build_stage_metrics(review_stats, queue_runs, training_result)
 
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -324,6 +377,7 @@ def main() -> int:
         "queue_runs": queue_runs,
         "sample_review_queue": sample_review_queue,
         "stage_progress": stage_progress,
+        "stage_metrics": stage_metrics,
         "readiness": {
             "overall_verdict": _summary_verdict(readiness),
             "path": str(readiness_path) if readiness_path else None,

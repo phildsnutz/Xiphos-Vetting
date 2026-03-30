@@ -2572,6 +2572,160 @@ export async function fetchComplianceDashboard(caseId?: string): Promise<Complia
 }
 
 // ---------------------------------------------------------------------------
+// Graph Training Review API
+// ---------------------------------------------------------------------------
+
+export interface PredictedLinkQueueItem {
+  id: number;
+  source_entity_id: string;
+  source_entity_name: string;
+  target_entity_id: string;
+  target_entity_name: string;
+  predicted_relation: string;
+  predicted_edge_family: string;
+  score: number;
+  model_version: string;
+  candidate_rank?: number | null;
+  reviewed: boolean;
+  analyst_confirmed?: boolean | null;
+  review_notes?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  relationship_created?: boolean;
+  promoted_relationship_id?: number | null;
+  created_at?: string | null;
+}
+
+export interface PredictedLinkQueueSummary {
+  entity_id: string;
+  entity_name: string;
+  model_version: string;
+  top_k: number;
+  queued_count: number;
+  existing_count: number;
+  count: number;
+  items: PredictedLinkQueueItem[];
+}
+
+export interface PredictedLinkReviewQueueResponse {
+  count: number;
+  predictions: PredictedLinkQueueItem[];
+}
+
+export interface PredictedLinkEdgeFamilyStats {
+  edge_family: string;
+  total_links: number;
+  reviewed_links: number;
+  pending_links: number;
+  confirmed_links: number;
+  promoted_relationships: number;
+}
+
+export interface PredictedLinkSourceEntityStats {
+  source_entity_id: string;
+  source_entity_name: string;
+  total_links: number;
+  pending_links: number;
+  reviewed_links: number;
+  promoted_relationships: number;
+}
+
+export interface MissingEdgeRecoveryMetrics {
+  queue_depth: number;
+  analyst_confirmation_rate: number;
+  review_coverage_pct: number;
+  novel_edge_yield: number;
+  unsupported_promoted_edge_rate: number;
+  mean_review_latency_hours: number;
+  median_pending_age_hours: number;
+  p95_pending_age_hours: number;
+  stale_pending_24h: number;
+  stale_pending_7d: number;
+}
+
+export interface PredictedLinkReviewStats {
+  total_links: number;
+  reviewed_links: number;
+  pending_links: number;
+  confirmed_links: number;
+  rejected_links: number;
+  promoted_relationships: number;
+  unsupported_promoted_edges: number;
+  unsupported_promoted_edge_rate: number;
+  confirmation_rate: number;
+  review_coverage_pct: number;
+  latest_activity_at?: string | null;
+  by_edge_family: PredictedLinkEdgeFamilyStats[];
+  by_source_entity: PredictedLinkSourceEntityStats[];
+  scope?: {
+    source_entity_id?: string | null;
+  };
+  missing_edge_recovery: MissingEdgeRecoveryMetrics;
+}
+
+export interface PredictedLinkReviewInput {
+  id: number;
+  confirmed: boolean;
+  notes?: string;
+}
+
+export interface PredictedLinkReviewBatchResponse {
+  reviewed_count: number;
+  confirmed_count: number;
+  rejected_count: number;
+  reviewed_by: string;
+  reviewed_at: string;
+  items: Array<{
+    id: number;
+    status: string;
+    relationship_created: boolean;
+    promoted_relationship_id?: number | null;
+  }>;
+}
+
+export async function queuePredictedLinks(entityId: string, topK = 25): Promise<PredictedLinkQueueSummary> {
+  return json(`/api/graph/predicted-links/${encodeURIComponent(entityId)}/queue`, {
+    method: "POST",
+    body: JSON.stringify({ top_k: topK }),
+  });
+}
+
+export async function fetchPredictedLinkReviewQueue(params: {
+  reviewed?: boolean;
+  confirmed?: boolean;
+  edgeFamily?: string;
+  sourceEntityId?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<PredictedLinkReviewQueueResponse> {
+  const search = new URLSearchParams();
+  if (params.reviewed !== undefined) search.set("reviewed", String(params.reviewed));
+  if (params.confirmed !== undefined) search.set("confirmed", String(params.confirmed));
+  if (params.edgeFamily) search.set("edge_family", params.edgeFamily);
+  if (params.sourceEntityId) search.set("source_entity_id", params.sourceEntityId);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  if (params.offset !== undefined) search.set("offset", String(params.offset));
+  const qs = search.toString();
+  return json(`/api/graph/predicted-links/review-queue${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchPredictedLinkReviewStats(sourceEntityId?: string): Promise<PredictedLinkReviewStats> {
+  const search = new URLSearchParams();
+  if (sourceEntityId) search.set("source_entity_id", sourceEntityId);
+  const qs = search.toString();
+  return json(`/api/graph/predicted-links/review-stats${qs ? `?${qs}` : ""}`);
+}
+
+export async function reviewPredictedLinksBatch(
+  reviews: PredictedLinkReviewInput[],
+): Promise<PredictedLinkReviewBatchResponse> {
+  return json("/api/graph/predicted-links/review-batch", {
+    method: "POST",
+    body: JSON.stringify({ reviews }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Neo4j Graph Intelligence API
 // ---------------------------------------------------------------------------
 

@@ -71,6 +71,11 @@ def _summary_verdict(payload: dict[str, Any] | None) -> str | None:
 
 
 def _render_markdown(summary: dict[str, Any]) -> str:
+    missing_edge_metrics = (
+        summary.get("stage_metrics", {}).get("missing_edge_recovery", {})
+        if isinstance(summary.get("stage_metrics"), dict)
+        else {}
+    )
     lines = [
         "# Live Helios Graph Training Tranche",
         "",
@@ -91,6 +96,15 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         f"- Confirmed links: `{summary['review_stats'].get('confirmed_links', 0)}`",
         f"- Confirmation rate: `{summary['review_stats'].get('confirmation_rate', 0.0):.2f}`",
         f"- Review coverage: `{summary['review_stats'].get('review_coverage_pct', 0.0):.2f}`",
+        "",
+        "## Missing Edge Recovery",
+        "",
+        f"- Pending links: `{summary['review_stats'].get('pending_links', 0)}`",
+        f"- Unsupported promoted edge rate: `{summary['review_stats'].get('unsupported_promoted_edge_rate', 0.0):.2f}`",
+        f"- Novel edge yield: `{missing_edge_metrics.get('novel_edge_yield', 0.0):.2f}`",
+        f"- Median pending age (hours): `{missing_edge_metrics.get('median_pending_age_hours', 0.0):.2f}`",
+        f"- Stale pending >24h: `{missing_edge_metrics.get('stale_pending_24h', 0)}`",
+        f"- Stale pending >7d: `{missing_edge_metrics.get('stale_pending_7d', 0)}`",
         "",
         "## Queue Runs",
         "",

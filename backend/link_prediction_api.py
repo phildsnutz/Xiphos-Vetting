@@ -347,7 +347,8 @@ def review_predicted_links_batch_endpoint():
 def get_predicted_link_review_stats_endpoint():
     try:
         pg_url = _get_pg_url()
-        return jsonify(get_prediction_review_stats(pg_url)), 200
+        source_entity_id = str(request.args.get("source_entity_id", "")).strip() or None
+        return jsonify(get_prediction_review_stats(pg_url, source_entity_id=source_entity_id)), 200
     except Exception as e:
         logger.exception("Failed to fetch predicted link review stats")
         return jsonify({"error": str(e)}), 500

@@ -7,6 +7,7 @@ import { ContribBar } from "./charts";
 import { EnrichmentPanel } from "./enrichment-panel";
 import { EnrichmentStream } from "./enrichment-stream";
 import { EntityGraph } from "./entity-graph";
+import { GraphTrainingReviewPanel } from "./graph-training-review-panel";
 import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { ActionPanel } from "./action-panel";
 import { LoadingSpinner } from "./loader";
@@ -5786,6 +5787,14 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       </button>
                     </div>
                   </div>
+                  <GraphTrainingReviewPanel
+                    rootEntityId={graphData?.root_entity_id}
+                    entityName={
+                      graphData?.entities.find((entity) => entity.id === graphData.root_entity_id)?.canonical_name
+                      || c.name
+                    }
+                    onGraphRefresh={() => refreshDerivedCaseData({ reloadGraph: true })}
+                  />
                   {graphProvenanceSummary && (
                     <div
                       className="rounded-lg p-4"

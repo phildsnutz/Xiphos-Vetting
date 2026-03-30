@@ -151,20 +151,27 @@ def test_review_stats_endpoint_returns_helper_payload(monkeypatch):
     monkeypatch.setenv("XIPHOS_PG_URL", "postgresql://test")
 
     api = _reload_fresh("link_prediction_api")
+    captured = {}
+
+    def fake_stats(pg_url, source_entity_id=None):
+        captured["source_entity_id"] = source_entity_id
+        return {"total_links": 14, "reviewed_links": 5, "confirmation_rate": 0.6}
+
     monkeypatch.setattr(
         api,
         "get_prediction_review_stats",
-        lambda pg_url: {"total_links": 14, "reviewed_links": 5, "confirmation_rate": 0.6},
+        fake_stats,
     )
 
     app = Flask(__name__)
     app.register_blueprint(api.link_prediction_bp)
     client = app.test_client()
 
-    response = client.get("/api/graph/predicted-links/review-stats")
+    response = client.get("/api/graph/predicted-links/review-stats?source_entity_id=ent-source")
 
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["total_links"] == 14
     assert payload["reviewed_links"] == 5
     assert payload["confirmation_rate"] == 0.6
+    assert captured["source_entity_id"] == "ent-source"
