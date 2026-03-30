@@ -19,7 +19,15 @@ from datetime import datetime
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
-from graph_embeddings import TransETrainer, train_and_save, get_predicted_links
+from graph_embeddings import (
+    TransETrainer,
+    get_predicted_links,
+    get_prediction_review_stats,
+    list_predicted_link_queue,
+    queue_predicted_links,
+    review_predicted_links,
+    train_and_save,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,8 +134,9 @@ def get_predicted_links_endpoint(entity_id: str):
         if not entity_name:
             return jsonify({"error": f"Entity {entity_id} not found"}), 404
 
-        # Get predictions
+        persist = str(request.args.get("persist", "")).strip().lower() in {"1", "true", "yes"}
         predictions = get_predicted_links(pg_url, entity_id, top_k=top_k)
+        queue_summary = queue_predicted_links(pg_url, entity_id, top_k=top_k) if persist else None
 
         response = {
             "entity_id": entity_id,
@@ -135,6 +144,8 @@ def get_predicted_links_endpoint(entity_id: str):
             "predictions": predictions,
             "model_version": _get_model_version(pg_url),
             "count": len(predictions),
+            "persisted": persist,
+            "queue_summary": queue_summary,
         }
 
         logger.info("Returned %d predicted links for %s", len(predictions), entity_id)
@@ -196,8 +207,8 @@ def get_similar_entities(entity_id: str):
             for item in similar:
                 eid = item["entity_id"]
                 cur.execute(
-                    "SELECT name, entity_type FROM kg_entities WHERE entity_id = %s",
-                    (eid,)
+                    "SELECT canonical_name, entity_type FROM kg_entities WHERE id = %s",
+                    (eid,),
                 )
                 row = cur.fetchone()
                 if row:
@@ -247,71 +258,98 @@ def review_predicted_link(link_id: int):
         pg_url = _get_pg_url()
         user_id = _get_auth_user()
         data = request.get_json() or {}
-        confirmed = data.get("confirmed", False)
-
-        import psycopg2
-        conn = psycopg2.connect(pg_url)
-        cur = conn.cursor()
-
-        try:
-            # Fetch the predicted link
-            cur.execute(
-                """
-                SELECT id, source_entity_id, target_entity_id, predicted_relation, score
-                FROM kg_predicted_links
-                WHERE id = %s
-                """,
-                (link_id,),
-            )
-            row = cur.fetchone()
-
-            if not row:
-                return jsonify({"error": f"Predicted link {link_id} not found"}), 404
-
-            link_id_val, source_id, target_id, rel_type, score = row
-
-            # Update review status
-            cur.execute(
-                """
-                UPDATE kg_predicted_links
-                SET reviewed = TRUE, analyst_confirmed = %s
-                WHERE id = %s
-                """,
-                (confirmed, link_id_val),
-            )
-
-            # If confirmed, create real relationship
-            if confirmed:
-                cur.execute(
-                    """
-                    INSERT INTO kg_relationships
-                        (source_entity_id, target_entity_id, relationship_type, confidence, source)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (source_entity_id, target_entity_id, relationship_type) DO NOTHING
-                    """,
-                    (source_id, target_id, rel_type, score, "link_prediction_analyst_review"),
-                )
-                logger.info("Created relationship: %s -> %s (%s) [score=%.4f, analyst=%s]",
-                           source_id, target_id, rel_type, score, user_id)
-
-            conn.commit()
-
-            response = {
-                "id": link_id_val,
-                "status": "confirmed" if confirmed else "rejected",
-                "relationship_created": confirmed,
+        summary = review_predicted_links(
+            pg_url,
+            [{"id": link_id, "confirmed": bool(data.get("confirmed", False)), "notes": data.get("notes")}],
+            reviewed_by=user_id,
+        )
+        item = summary["items"][0]
+        return jsonify(
+            {
+                "id": int(item["id"]),
+                "status": item["status"],
+                "relationship_created": bool(item["relationship_created"]),
+                "promoted_relationship_id": item.get("promoted_relationship_id"),
                 "reviewed_by": user_id,
-                "reviewed_at": datetime.utcnow().isoformat(),
+                "reviewed_at": summary["reviewed_at"],
             }
-
-            return jsonify(response), 200
-
-        finally:
-            cur.close()
-            conn.close()
+        ), 200
 
     except Exception as e:
         logger.exception("Failed to review predicted link %d", link_id)
+        return jsonify({"error": str(e)}), 500
+
+
+@link_prediction_bp.route("/predicted-links/<entity_id>/queue", methods=["POST"])
+def queue_predicted_links_endpoint(entity_id: str):
+    """Generate and persist predicted-link candidates for analyst review."""
+    try:
+        pg_url = _get_pg_url()
+        data = request.get_json(silent=True) or {}
+        top_k = min(int(data.get("top_k", request.args.get("top_k", 25))), 100)
+        entity_name = _get_entity_name(pg_url, entity_id)
+        if not entity_name:
+            return jsonify({"error": f"Entity {entity_id} not found"}), 404
+        summary = queue_predicted_links(pg_url, entity_id, top_k=top_k)
+        return jsonify(summary), 202
+    except Exception as e:
+        logger.exception("Failed to queue predicted links for %s", entity_id)
+        return jsonify({"error": str(e)}), 500
+
+
+@link_prediction_bp.route("/predicted-links/review-queue", methods=["GET"])
+def get_predicted_links_review_queue():
+    """Return queued predicted links with analyst review metadata."""
+    try:
+        pg_url = _get_pg_url()
+
+        def _parse_bool(raw: str) -> Optional[bool]:
+            normalized = str(raw or "").strip().lower()
+            if normalized in {"1", "true", "yes"}:
+                return True
+            if normalized in {"0", "false", "no"}:
+                return False
+            return None
+
+        rows = list_predicted_link_queue(
+            pg_url,
+            reviewed=_parse_bool(request.args.get("reviewed", "")),
+            analyst_confirmed=_parse_bool(request.args.get("confirmed", "")),
+            edge_family=str(request.args.get("edge_family", "")).strip() or None,
+            model_version=str(request.args.get("model_version", "")).strip() or None,
+            source_entity_id=str(request.args.get("source_entity_id", "")).strip() or None,
+            limit=min(int(request.args.get("limit", 100)), 500),
+            offset=max(int(request.args.get("offset", 0)), 0),
+        )
+        return jsonify({"count": len(rows), "predictions": rows}), 200
+    except Exception as e:
+        logger.exception("Failed to fetch predicted link review queue")
+        return jsonify({"error": str(e)}), 500
+
+
+@link_prediction_bp.route("/predicted-links/review-batch", methods=["POST"])
+def review_predicted_links_batch_endpoint():
+    """Review multiple predicted links in one call."""
+    try:
+        pg_url = _get_pg_url()
+        user_id = _get_auth_user()
+        data = request.get_json() or {}
+        reviews = data.get("reviews")
+        if not isinstance(reviews, list) or not reviews:
+            return jsonify({"error": "reviews list is required"}), 400
+        return jsonify(review_predicted_links(pg_url, reviews, reviewed_by=user_id)), 200
+    except Exception as e:
+        logger.exception("Failed to review predicted links in batch")
+        return jsonify({"error": str(e)}), 500
+
+
+@link_prediction_bp.route("/predicted-links/review-stats", methods=["GET"])
+def get_predicted_link_review_stats_endpoint():
+    try:
+        pg_url = _get_pg_url()
+        return jsonify(get_prediction_review_stats(pg_url)), 200
+    except Exception as e:
+        logger.exception("Failed to fetch predicted link review stats")
         return jsonify({"error": str(e)}), 500
 
 
@@ -348,24 +386,19 @@ def get_embedding_stats():
             cur.execute("SELECT COUNT(*) FROM kg_relation_embeddings")
             (relation_count,) = cur.fetchone() or (0,)
 
-            # Predicted links stats
-            cur.execute("SELECT COUNT(*) FROM kg_predicted_links")
-            (total_links,) = cur.fetchone() or (0,)
-
-            cur.execute("SELECT COUNT(*) FROM kg_predicted_links WHERE reviewed = TRUE")
-            (reviewed_links,) = cur.fetchone() or (0,)
-
-            cur.execute("SELECT COUNT(*) FROM kg_predicted_links WHERE analyst_confirmed = TRUE")
-            (confirmed_links,) = cur.fetchone() or (0,)
+            review_stats = get_prediction_review_stats(pg_url)
 
             response = {
                 "entity_count": entity_count or 0,
                 "relation_count": relation_count or 0,
                 "model_version": model_version or "unknown",
                 "trained_at": trained_at.isoformat() if trained_at else None,
-                "predicted_links_count": total_links or 0,
-                "predicted_links_reviewed": reviewed_links or 0,
-                "predicted_links_confirmed": confirmed_links or 0,
+                "predicted_links_count": review_stats.get("total_links", 0),
+                "predicted_links_reviewed": review_stats.get("reviewed_links", 0),
+                "predicted_links_confirmed": review_stats.get("confirmed_links", 0),
+                "predicted_links_confirmation_rate": review_stats.get("confirmation_rate", 0.0),
+                "predicted_links_review_coverage_pct": review_stats.get("review_coverage_pct", 0.0),
+                "predicted_links_by_edge_family": review_stats.get("by_edge_family", []),
             }
 
             return jsonify(response), 200
@@ -391,7 +424,7 @@ def _get_entity_name(pg_url: str, entity_id: str) -> Optional[str]:
         cur = conn.cursor()
 
         try:
-            cur.execute("SELECT name FROM kg_entities WHERE entity_id = %s", (entity_id,))
+            cur.execute("SELECT canonical_name FROM kg_entities WHERE id = %s", (entity_id,))
             row = cur.fetchone()
             return row[0] if row else None
 

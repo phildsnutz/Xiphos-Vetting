@@ -14,11 +14,12 @@ TransE algorithm:
 Used by link_prediction_api.py to serve predictions via REST API.
 """
 
+import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
-import json
 
 try:
     import numpy as np
@@ -26,6 +27,65 @@ except ImportError:
     raise ImportError("NumPy is required for graph embeddings. Install: pip install numpy>=1.24")
 
 logger = logging.getLogger(__name__)
+
+try:
+    from graph_ingest import _relationship_edge_families as _graph_edge_families
+except Exception:  # pragma: no cover - fallback keeps helpers usable in isolation
+    _graph_edge_families = None
+
+
+def _prediction_edge_family(rel_type: str) -> str:
+    families: tuple[str, ...] = ()
+    if callable(_graph_edge_families):
+        try:
+            families = tuple(_graph_edge_families(rel_type))
+        except Exception:
+            families = ()
+    if families:
+        return families[0]
+    normalized = str(rel_type or "").strip().lower()
+    if "own" in normalized or "parent" in normalized or "subsidiary" in normalized:
+        return "ownership_control"
+    if "ship" in normalized or "route" in normalized or "distribut" in normalized or "facility" in normalized:
+        return "trade_and_logistics"
+    if "depend" in normalized or "component" in normalized or "integrated" in normalized:
+        return "cyber_supply_chain"
+    if "sanction" in normalized or "litig" in normalized:
+        return "sanctions_and_legal"
+    return "other"
+
+
+def _parse_embedding_vector(value: Any) -> list[float]:
+    if isinstance(value, (list, tuple)):
+        return [float(item) for item in value]
+    if value is None:
+        return []
+    text = str(value).strip()
+    if not text:
+        return []
+    return [float(item) for item in json.loads(text)]
+
+
+def _fetch_entity_map(cur: Any, entity_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not entity_ids:
+        return {}
+    cur.execute(
+        """
+        SELECT id, canonical_name, entity_type
+        FROM kg_entities
+        WHERE id = ANY(%s)
+        """,
+        (entity_ids,),
+    )
+    rows = cur.fetchall()
+    return {
+        str(row[0]): {
+            "entity_id": str(row[0]),
+            "canonical_name": str(row[1] or row[0]),
+            "entity_type": str(row[2] or "unknown"),
+        }
+        for row in rows
+    }
 
 
 class TransETrainer:
@@ -79,13 +139,15 @@ class TransETrainer:
 
         try:
             # Fetch all relationships
-            cur.execute("""
-                SELECT source_entity_id, relationship_type, target_entity_id
+            cur.execute(
+                """
+                SELECT source_entity_id, rel_type, target_entity_id
                 FROM kg_relationships
                 WHERE source_entity_id IS NOT NULL
                   AND target_entity_id IS NOT NULL
                 ORDER BY created_at ASC
-            """)
+                """
+            )
 
             for source_id, rel_type, target_id in cur.fetchall():
                 # Build entity and relation mappings
@@ -472,7 +534,7 @@ class TransETrainer:
                 self.model_version = model_version
 
                 # Parse embedding vector string
-                emb_list = json.loads(embedding_str)
+                emb_list = _parse_embedding_vector(embedding_str)
                 self.entity_embeddings[idx] = np.array(emb_list, dtype=np.float32)
 
             logger.info("Loaded %d entity embeddings (model: %s)", num_entities, model_version)
@@ -493,7 +555,7 @@ class TransETrainer:
             for idx, (relation_type, embedding_str, model_version) in enumerate(rows):
                 self.relation_to_id[relation_type] = idx
                 self.id_to_relation[idx] = relation_type
-                emb_list = json.loads(embedding_str)
+                emb_list = _parse_embedding_vector(embedding_str)
                 self.relation_embeddings[idx] = np.array(emb_list, dtype=np.float32)
 
             logger.info("Loaded %d relation embeddings", num_relations)
@@ -530,15 +592,34 @@ class TransETrainer:
                 source_entity_id TEXT NOT NULL,
                 target_entity_id TEXT NOT NULL,
                 predicted_relation TEXT NOT NULL,
+                predicted_edge_family TEXT,
                 score FLOAT NOT NULL,
                 model_version TEXT NOT NULL,
+                candidate_rank INTEGER,
+                source_entity_name TEXT,
+                target_entity_name TEXT,
                 reviewed BOOLEAN DEFAULT FALSE,
                 analyst_confirmed BOOLEAN,
+                review_notes TEXT,
+                reviewed_by TEXT,
+                reviewed_at TIMESTAMP,
+                relationship_created BOOLEAN NOT NULL DEFAULT FALSE,
+                promoted_relationship_id INTEGER,
                 created_at TIMESTAMP DEFAULT NOW(),
-                FOREIGN KEY (source_entity_id) REFERENCES kg_entities(entity_id),
-                FOREIGN KEY (target_entity_id) REFERENCES kg_entities(entity_id)
+                FOREIGN KEY (source_entity_id) REFERENCES kg_entities(id),
+                FOREIGN KEY (target_entity_id) REFERENCES kg_entities(id)
             )
         """)
+
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS predicted_edge_family TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS candidate_rank INTEGER")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS source_entity_name TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS target_entity_name TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS review_notes TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS reviewed_by TEXT")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS relationship_created BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE kg_predicted_links ADD COLUMN IF NOT EXISTS promoted_relationship_id INTEGER")
 
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_kg_predicted_links_source
@@ -548,6 +629,16 @@ class TransETrainer:
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_kg_predicted_links_reviewed
             ON kg_predicted_links(reviewed)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_kg_predicted_links_edge_family
+            ON kg_predicted_links(predicted_edge_family)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_kg_predicted_links_reviewed_at
+            ON kg_predicted_links(reviewed_at)
         """)
 
 
@@ -600,15 +691,476 @@ def get_predicted_links(pg_url: str, entity_id: str, top_k: int = 10) -> list[di
     cur = conn.cursor()
 
     try:
+        entity_map = _fetch_entity_map(cur, [pred["target_entity_id"] for pred in predictions])
         for pred in predictions:
-            target_id = pred["target_entity_id"]
-            cur.execute("SELECT name FROM kg_entities WHERE entity_id = %s", (target_id,))
-            row = cur.fetchone()
-            if row:
-                pred["target_name"] = row[0]
+            target_row = entity_map.get(str(pred["target_entity_id"]))
+            pred["target_name"] = (target_row or {}).get("canonical_name", pred["target_name"])
+            pred["predicted_edge_family"] = _prediction_edge_family(str(pred.get("predicted_relation") or ""))
 
     finally:
         cur.close()
         conn.close()
 
     return predictions
+
+
+def ensure_prediction_tables(pg_url: str) -> None:
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        TransETrainer._create_embedding_tables(cur)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def queue_predicted_links(pg_url: str, entity_id: str, top_k: int = 25) -> dict[str, Any]:
+    ensure_prediction_tables(pg_url)
+
+    trainer = TransETrainer()
+    if not trainer.load_embeddings_from_db(pg_url):
+        raise ValueError("Embeddings not found. Train first.")
+
+    predictions = trainer.predict_links(entity_id, top_k=top_k)
+    model_version = trainer.model_version or "unknown"
+
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+
+    try:
+        entity_map = _fetch_entity_map(cur, [entity_id, *[row["target_entity_id"] for row in predictions]])
+        source_name = (entity_map.get(entity_id) or {}).get("canonical_name", entity_id)
+        queued = 0
+        existing = 0
+        items: list[dict[str, Any]] = []
+
+        for rank, pred in enumerate(predictions, start=1):
+            target_id = str(pred["target_entity_id"])
+            rel_type = str(pred["predicted_relation"])
+            score = float(pred["score"])
+            target_name = (entity_map.get(target_id) or {}).get("canonical_name", pred.get("target_name") or target_id)
+            edge_family = _prediction_edge_family(rel_type)
+
+            cur.execute(
+                """
+                SELECT id, reviewed, analyst_confirmed
+                FROM kg_predicted_links
+                WHERE source_entity_id = %s
+                  AND target_entity_id = %s
+                  AND predicted_relation = %s
+                  AND model_version = %s
+                LIMIT 1
+                """,
+                (entity_id, target_id, rel_type, model_version),
+            )
+            row = cur.fetchone()
+
+            if row:
+                existing += 1
+                cur.execute(
+                    """
+                    UPDATE kg_predicted_links
+                    SET score = %s,
+                        predicted_edge_family = %s,
+                        candidate_rank = %s,
+                        source_entity_name = %s,
+                        target_entity_name = %s
+                    WHERE id = %s
+                    """,
+                    (score, edge_family, rank, source_name, target_name, row[0]),
+                )
+                link_id = int(row[0])
+                reviewed = bool(row[1])
+                analyst_confirmed = row[2]
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO kg_predicted_links (
+                        source_entity_id,
+                        target_entity_id,
+                        predicted_relation,
+                        predicted_edge_family,
+                        score,
+                        model_version,
+                        candidate_rank,
+                        source_entity_name,
+                        target_entity_name
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (entity_id, target_id, rel_type, edge_family, score, model_version, rank, source_name, target_name),
+                )
+                link_id = int(cur.fetchone()[0])
+                queued += 1
+                reviewed = False
+                analyst_confirmed = None
+
+            items.append(
+                {
+                    "id": link_id,
+                    "source_entity_id": entity_id,
+                    "source_entity_name": source_name,
+                    "target_entity_id": target_id,
+                    "target_entity_name": target_name,
+                    "predicted_relation": rel_type,
+                    "predicted_edge_family": edge_family,
+                    "score": score,
+                    "candidate_rank": rank,
+                    "model_version": model_version,
+                    "reviewed": reviewed,
+                    "analyst_confirmed": analyst_confirmed,
+                }
+            )
+
+        conn.commit()
+        return {
+            "entity_id": entity_id,
+            "entity_name": source_name,
+            "model_version": model_version,
+            "top_k": top_k,
+            "queued_count": queued,
+            "existing_count": existing,
+            "count": len(items),
+            "items": items,
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+
+def list_predicted_link_queue(
+    pg_url: str,
+    *,
+    reviewed: bool | None = None,
+    analyst_confirmed: bool | None = None,
+    edge_family: str | None = None,
+    model_version: str | None = None,
+    source_entity_id: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    ensure_prediction_tables(pg_url)
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        conditions: list[str] = []
+        params: list[Any] = []
+        if reviewed is not None:
+            conditions.append("reviewed = %s")
+            params.append(reviewed)
+        if analyst_confirmed is not None:
+            conditions.append("analyst_confirmed = %s")
+            params.append(analyst_confirmed)
+        if edge_family:
+            conditions.append("predicted_edge_family = %s")
+            params.append(edge_family)
+        if model_version:
+            conditions.append("model_version = %s")
+            params.append(model_version)
+        if source_entity_id:
+            conditions.append("source_entity_id = %s")
+            params.append(source_entity_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.extend([max(1, min(limit, 500)), max(0, offset)])
+        cur.execute(
+            f"""
+            SELECT
+                id,
+                source_entity_id,
+                source_entity_name,
+                target_entity_id,
+                target_entity_name,
+                predicted_relation,
+                predicted_edge_family,
+                score,
+                model_version,
+                candidate_rank,
+                reviewed,
+                analyst_confirmed,
+                review_notes,
+                reviewed_by,
+                reviewed_at,
+                relationship_created,
+                promoted_relationship_id,
+                created_at
+            FROM kg_predicted_links
+            {where}
+            ORDER BY
+                reviewed ASC,
+                candidate_rank ASC NULLS LAST,
+                score ASC,
+                created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            tuple(params),
+        )
+        rows = cur.fetchall()
+        return [
+            {
+                "id": int(row[0]),
+                "source_entity_id": str(row[1]),
+                "source_entity_name": str(row[2] or row[1]),
+                "target_entity_id": str(row[3]),
+                "target_entity_name": str(row[4] or row[3]),
+                "predicted_relation": str(row[5]),
+                "predicted_edge_family": str(row[6] or _prediction_edge_family(row[5])),
+                "score": float(row[7]),
+                "model_version": str(row[8]),
+                "candidate_rank": int(row[9]) if row[9] is not None else None,
+                "reviewed": bool(row[10]),
+                "analyst_confirmed": row[11],
+                "review_notes": row[12],
+                "reviewed_by": row[13],
+                "reviewed_at": row[14].isoformat() if row[14] else None,
+                "relationship_created": bool(row[15]),
+                "promoted_relationship_id": int(row[16]) if row[16] is not None else None,
+                "created_at": row[17].isoformat() if row[17] else None,
+            }
+            for row in rows
+        ]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def review_predicted_links(pg_url: str, reviews: list[dict[str, Any]], *, reviewed_by: str = "unknown") -> dict[str, Any]:
+    ensure_prediction_tables(pg_url)
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    reviewed_at = datetime.utcnow()
+    reviewed_items: list[dict[str, Any]] = []
+    confirmed_count = 0
+    rejected_count = 0
+
+    try:
+        for review in reviews:
+            link_id = int(review["id"])
+            confirmed = bool(review.get("confirmed"))
+            notes = str(review.get("notes") or "").strip() or None
+
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    source_entity_id,
+                    target_entity_id,
+                    predicted_relation,
+                    predicted_edge_family,
+                    score,
+                    model_version
+                FROM kg_predicted_links
+                WHERE id = %s
+                """,
+                (link_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"Predicted link {link_id} not found")
+
+            relationship_created = False
+            promoted_relationship_id = None
+            if confirmed:
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM kg_relationships
+                    WHERE source_entity_id = %s
+                      AND target_entity_id = %s
+                      AND rel_type = %s
+                    LIMIT 1
+                    """,
+                    (row[1], row[2], row[3]),
+                )
+                existing_rel = cur.fetchone()
+                if existing_rel:
+                    promoted_relationship_id = int(existing_rel[0])
+                else:
+                    evidence_blob = {
+                        "prediction_source": "graph_link_prediction",
+                        "predicted_edge_family": row[4] or _prediction_edge_family(row[3]),
+                        "model_version": row[6],
+                        "analyst_reviewed_by": reviewed_by,
+                        "analyst_reviewed_at": reviewed_at.isoformat() + "Z",
+                        "notes": notes,
+                    }
+                    cur.execute(
+                        """
+                        INSERT INTO kg_relationships (
+                            source_entity_id,
+                            target_entity_id,
+                            rel_type,
+                            confidence,
+                            data_source,
+                            evidence
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            row[1],
+                            row[2],
+                            row[3],
+                            float(row[5]),
+                            "graph_link_prediction_analyst_review",
+                            json.dumps(evidence_blob, sort_keys=True),
+                        ),
+                    )
+                    promoted_relationship_id = int(cur.fetchone()[0])
+                    relationship_created = True
+                confirmed_count += 1
+            else:
+                rejected_count += 1
+
+            cur.execute(
+                """
+                UPDATE kg_predicted_links
+                SET reviewed = TRUE,
+                    analyst_confirmed = %s,
+                    review_notes = %s,
+                    reviewed_by = %s,
+                    reviewed_at = %s,
+                    relationship_created = %s,
+                    promoted_relationship_id = %s
+                WHERE id = %s
+                """,
+                (
+                    confirmed,
+                    notes,
+                    reviewed_by,
+                    reviewed_at,
+                    relationship_created,
+                    promoted_relationship_id,
+                    link_id,
+                ),
+            )
+            reviewed_items.append(
+                {
+                    "id": link_id,
+                    "status": "confirmed" if confirmed else "rejected",
+                    "relationship_created": relationship_created,
+                    "promoted_relationship_id": promoted_relationship_id,
+                }
+            )
+
+        conn.commit()
+        return {
+            "reviewed_count": len(reviewed_items),
+            "confirmed_count": confirmed_count,
+            "rejected_count": rejected_count,
+            "reviewed_by": reviewed_by,
+            "reviewed_at": reviewed_at.isoformat() + "Z",
+            "items": reviewed_items,
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_prediction_review_stats(pg_url: str) -> dict[str, Any]:
+    ensure_prediction_tables(pg_url)
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("psycopg2 is required") from exc
+
+    conn = psycopg2.connect(pg_url)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS total_links,
+                COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
+                COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links,
+                COUNT(*) FILTER (WHERE reviewed = TRUE AND analyst_confirmed = FALSE) AS rejected_links,
+                COUNT(*) FILTER (WHERE relationship_created = TRUE) AS promoted_relationships,
+                COALESCE(MAX(reviewed_at), MAX(created_at)) AS latest_activity_at
+            FROM kg_predicted_links
+            """
+        )
+        totals = cur.fetchone() or (0, 0, 0, 0, 0, None)
+
+        cur.execute(
+            """
+            SELECT
+                COALESCE(predicted_edge_family, 'other') AS edge_family,
+                COUNT(*) AS total_links,
+                COUNT(*) FILTER (WHERE reviewed = TRUE) AS reviewed_links,
+                COUNT(*) FILTER (WHERE analyst_confirmed = TRUE) AS confirmed_links
+            FROM kg_predicted_links
+            GROUP BY COALESCE(predicted_edge_family, 'other')
+            ORDER BY total_links DESC, edge_family ASC
+            """
+        )
+        by_family = [
+            {
+                "edge_family": str(row[0]),
+                "total_links": int(row[1]),
+                "reviewed_links": int(row[2]),
+                "confirmed_links": int(row[3]),
+            }
+            for row in cur.fetchall()
+        ]
+
+        total_links = int(totals[0] or 0)
+        reviewed_links = int(totals[1] or 0)
+        confirmed_links = int(totals[2] or 0)
+        rejected_links = int(totals[3] or 0)
+        confirmation_rate = (confirmed_links / reviewed_links) if reviewed_links else 0.0
+        review_coverage_pct = (reviewed_links / total_links) if total_links else 0.0
+        return {
+            "total_links": total_links,
+            "reviewed_links": reviewed_links,
+            "confirmed_links": confirmed_links,
+            "rejected_links": rejected_links,
+            "promoted_relationships": int(totals[4] or 0),
+            "confirmation_rate": confirmation_rate,
+            "review_coverage_pct": review_coverage_pct,
+            "latest_activity_at": totals[5].isoformat() if totals[5] else None,
+            "by_edge_family": by_family,
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+
+def export_reviewed_link_labels(pg_url: str, output_path: str | Path) -> dict[str, Any]:
+    ensure_prediction_tables(pg_url)
+    rows = list_predicted_link_queue(pg_url, reviewed=True, limit=10000)
+    payload = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "label_type": "kg_predicted_link_review",
+        "count": len(rows),
+        "rows": rows,
+    }
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return {
+        "output_path": str(path),
+        "count": len(rows),
+    }
