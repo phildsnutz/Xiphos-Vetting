@@ -31,6 +31,7 @@ from graph_embeddings import (  # noqa: E402
     export_reviewed_link_labels,
     get_graph_construction_training_metrics,
     get_missing_edge_recovery_metrics,
+    get_novel_edge_discovery_metrics,
     get_prediction_review_stats,
     list_predicted_link_queue,
     queue_predicted_links,
@@ -285,6 +286,7 @@ def _build_stage_progress(
     total_candidates = sum(int(row.get("count") or 0) for row in queue_runs)
     construction_metrics = stage_metrics.get("construction_training") if isinstance(stage_metrics.get("construction_training"), dict) else {}
     recovery_metrics = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
+    novelty_metrics = stage_metrics.get("novel_edge_discovery") if isinstance(stage_metrics.get("novel_edge_discovery"), dict) else {}
     progress = [
         {
             "stage_id": "construction_training",
@@ -301,11 +303,21 @@ def _build_stage_progress(
             "benchmark_verdict": benchmark_by_id.get("missing_edge_recovery", "UNKNOWN"),
             "status": "active" if review_stats.get("reviewed_links", 0) > 0 else "seeded",
             "notes": (
-                f"confirmation_rate={review_stats.get('confirmation_rate', 0.0):.2f}; "
-                f"promoted_relationships={review_stats.get('promoted_relationships', 0)}; "
-                f"pending_links={review_stats.get('pending_links', 0)}; "
+                f"protocol={recovery_metrics.get('evaluation_protocol', 'unknown')}; "
                 f"ownership_hits@10={recovery_metrics.get('ownership_control_hits_at_10', 0.0):.2f}; "
+                f"holdout_queries={recovery_metrics.get('missing_edge_queries_evaluated', 0)}; "
                 f"unsupported_promoted_edge_rate={review_stats.get('unsupported_promoted_edge_rate', 0.0):.2f}"
+            ),
+        },
+        {
+            "stage_id": "novel_edge_discovery",
+            "benchmark_verdict": "INFO",
+            "status": "active" if review_stats.get("reviewed_links", 0) > 0 else "seeded",
+            "notes": (
+                f"confirmation_rate={novelty_metrics.get('analyst_confirmation_rate', 0.0):.2f}; "
+                f"promoted_relationships={novelty_metrics.get('promoted_relationships', 0)}; "
+                f"pending_links={novelty_metrics.get('pending_links', 0)}; "
+                f"novel_edge_yield={novelty_metrics.get('novel_edge_yield', 0.0):.2f}"
             ),
         },
         {
@@ -363,16 +375,14 @@ def _build_stage_metrics(
         construction_metrics["final_loss"] = float(training_result.get("final_loss") or 0.0)
         construction_metrics["embeddings_saved"] = int(training_result.get("embeddings_saved") or 0)
     missing_edge_metrics = get_missing_edge_recovery_metrics(pg_url, review_stats=review_stats)
+    novel_edge_metrics = get_novel_edge_discovery_metrics(review_stats)
     return {
         "construction_training": construction_metrics,
-        "missing_edge_recovery": {
-            **missing_edge_metrics,
-            "review_coverage_pct": float(review_stats.get("review_coverage_pct") or 0.0),
+        "missing_edge_recovery": {**missing_edge_metrics},
+        "novel_edge_discovery": {
+            **novel_edge_metrics,
             "pending_links": int(review_stats.get("pending_links") or 0),
-            "novel_pending_links": int(review_stats.get("novel_pending_links") or 0),
             "existing_pending_links": int(review_stats.get("existing_pending_links") or 0),
-            "promoted_relationships": int(review_stats.get("promoted_relationships") or 0),
-            "novel_edge_yield": float(recovery.get("novel_edge_yield") or 0.0),
             "mean_review_latency_hours": float(recovery.get("mean_review_latency_hours") or 0.0),
             "median_pending_age_hours": float(recovery.get("median_pending_age_hours") or 0.0),
             "p95_pending_age_hours": float(recovery.get("p95_pending_age_hours") or 0.0),
@@ -414,17 +424,22 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Missing Edge Recovery",
         "",
+        f"- Evaluation protocol: `{summary['stage_metrics']['missing_edge_recovery'].get('evaluation_protocol', 'unknown')}`",
         f"- Ownership hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('ownership_control_hits_at_10', 0.0):.2f}`",
         f"- Ownership MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('ownership_control_mrr', 0.0):.2f}`",
         f"- Intermediary/route hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('intermediary_route_hits_at_10', 0.0):.2f}`",
         f"- Intermediary/route MRR: `{summary['stage_metrics']['missing_edge_recovery'].get('intermediary_route_mrr', 0.0):.2f}`",
         f"- Cyber dependency hits@10: `{summary['stage_metrics']['missing_edge_recovery'].get('cyber_dependency_hits_at_10', 0.0):.2f}`",
-        f"- Novel edge yield: `{summary['stage_metrics']['missing_edge_recovery'].get('novel_edge_yield', 0.0):.2f}`",
-        f"- Mean review latency (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('mean_review_latency_hours', 0.0):.2f}`",
-        f"- Median pending age (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('median_pending_age_hours', 0.0):.2f}`",
-        f"- P95 pending age (hours): `{summary['stage_metrics']['missing_edge_recovery'].get('p95_pending_age_hours', 0.0):.2f}`",
-        f"- Stale pending >24h: `{summary['stage_metrics']['missing_edge_recovery'].get('stale_pending_24h', 0)}`",
-        f"- Stale pending >7d: `{summary['stage_metrics']['missing_edge_recovery'].get('stale_pending_7d', 0)}`",
+        f"- Holdout queries evaluated: `{summary['stage_metrics']['missing_edge_recovery'].get('missing_edge_queries_evaluated', 0)}`",
+        "",
+        "## Novel Edge Discovery",
+        "",
+        f"- Novel edge yield: `{summary['stage_metrics']['novel_edge_discovery'].get('novel_edge_yield', 0.0):.2f}`",
+        f"- Mean review latency (hours): `{summary['stage_metrics']['novel_edge_discovery'].get('mean_review_latency_hours', 0.0):.2f}`",
+        f"- Median pending age (hours): `{summary['stage_metrics']['novel_edge_discovery'].get('median_pending_age_hours', 0.0):.2f}`",
+        f"- P95 pending age (hours): `{summary['stage_metrics']['novel_edge_discovery'].get('p95_pending_age_hours', 0.0):.2f}`",
+        f"- Stale pending >24h: `{summary['stage_metrics']['novel_edge_discovery'].get('stale_pending_24h', 0)}`",
+        f"- Stale pending >7d: `{summary['stage_metrics']['novel_edge_discovery'].get('stale_pending_7d', 0)}`",
         "",
         "## Seed Queue Runs",
         "",
@@ -513,6 +528,7 @@ def main() -> int:
 
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "report_dir": str(report_dir),
         "readiness_summary": str(readiness_path) if readiness_path else None,
         "neo4j_summary": str(neo4j_path) if neo4j_path else None,
         "benchmark_summary": str(benchmark_path) if benchmark_path else None,
@@ -546,6 +562,8 @@ def main() -> int:
 
     json_path = report_dir / "summary.json"
     md_path = report_dir / "summary.md"
+    summary["report_json_path"] = str(json_path)
+    summary["report_markdown_path"] = str(md_path)
     json_path.write_text(json.dumps(summary, indent=2, default=_json_default), encoding="utf-8")
     md_path.write_text(_render_markdown(summary), encoding="utf-8")
 

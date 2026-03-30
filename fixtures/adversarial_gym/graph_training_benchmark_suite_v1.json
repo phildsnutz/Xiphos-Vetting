@@ -64,7 +64,7 @@
       "stage_id": "missing_edge_recovery",
       "objective": "Recover likely missing ownership, intermediary, route, and cyber dependency edges without promoting unsupported facts.",
       "datasets": [
-        "masked_edge_holdout",
+        "family_strict_holdout",
         "analyst_confirmed_predicted_links",
         "hostile_graph_gap_cases"
       ],
@@ -74,7 +74,7 @@
         "intermediary_route_hits_at_10_min": 0.7,
         "intermediary_route_mrr_min": 0.35,
         "cyber_dependency_hits_at_10_min": 0.7,
-        "analyst_confirmation_rate_min": 0.65,
+        "missing_edge_queries_evaluated_min": 10,
         "unsupported_promoted_edge_rate_max": 0.0
       }
     },

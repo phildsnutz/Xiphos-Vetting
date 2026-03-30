@@ -318,6 +318,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "overall_verdict": overall_verdict,
         "data_foundation": data_foundation,
         "stage_results": stage_results,
+        "stage_metrics": stage_metrics,
         "embedding_stats": embedding_stats,
         "tranche_summary": str(tranche_path) if tranche_path else None,
         "tranche_generated_at": tranche_summary.get("generated_at"),

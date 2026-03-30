@@ -76,6 +76,11 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         if isinstance(summary.get("stage_metrics"), dict)
         else {}
     )
+    novelty_metrics = (
+        summary.get("stage_metrics", {}).get("novel_edge_discovery", {})
+        if isinstance(summary.get("stage_metrics"), dict)
+        else {}
+    )
     lines = [
         "# Live Helios Graph Training Tranche",
         "",
@@ -99,12 +104,17 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Missing Edge Recovery",
         "",
-        f"- Pending links: `{summary['review_stats'].get('pending_links', 0)}`",
+        f"- Evaluation protocol: `{missing_edge_metrics.get('evaluation_protocol', 'unknown')}`",
+        f"- Holdout queries evaluated: `{missing_edge_metrics.get('missing_edge_queries_evaluated', 0)}`",
         f"- Unsupported promoted edge rate: `{summary['review_stats'].get('unsupported_promoted_edge_rate', 0.0):.2f}`",
-        f"- Novel edge yield: `{missing_edge_metrics.get('novel_edge_yield', 0.0):.2f}`",
-        f"- Median pending age (hours): `{missing_edge_metrics.get('median_pending_age_hours', 0.0):.2f}`",
-        f"- Stale pending >24h: `{missing_edge_metrics.get('stale_pending_24h', 0)}`",
-        f"- Stale pending >7d: `{missing_edge_metrics.get('stale_pending_7d', 0)}`",
+        "",
+        "## Novel Edge Discovery",
+        "",
+        f"- Pending links: `{summary['review_stats'].get('pending_links', 0)}`",
+        f"- Novel edge yield: `{novelty_metrics.get('novel_edge_yield', 0.0):.2f}`",
+        f"- Median pending age (hours): `{novelty_metrics.get('median_pending_age_hours', 0.0):.2f}`",
+        f"- Stale pending >24h: `{novelty_metrics.get('stale_pending_24h', 0)}`",
+        f"- Stale pending >7d: `{novelty_metrics.get('stale_pending_7d', 0)}`",
         "",
         "## Queue Runs",
         "",
@@ -123,6 +133,7 @@ def _render_markdown(summary: dict[str, Any]) -> str:
 
 def main() -> int:
     args = parse_args()
+    local_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     ssh = deploy.ssh_connect()
     try:
         secret_key = deploy.resolve_secret_key(ssh)
@@ -130,8 +141,7 @@ def main() -> int:
             f"cd {shlex.quote(deploy.REMOTE_DIR)} && "
             f"export XIPHOS_SECRET_KEY={shlex.quote(secret_key)} && "
         )
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        remote_report_dir = f"/data/reports/graph_training_tranche_live/{stamp}"
+        remote_report_dir = "/data/reports/graph_training_tranche_live"
         remote_cmd = [
             "python3",
             "/app/scripts/run_graph_training_tranche.py",
@@ -171,8 +181,8 @@ def main() -> int:
 
     summary = dict(payload)
     summary["generated_at"] = datetime.now(timezone.utc).isoformat()
-    summary["remote_summary_path"] = f"{remote_report_dir}/summary.json"
-    summary["remote_markdown_path"] = f"{remote_report_dir}/summary.md"
+    summary["remote_summary_path"] = str(payload.get("report_json_path") or "")
+    summary["remote_markdown_path"] = str(payload.get("report_markdown_path") or "")
     summary["readiness"] = {
         "overall_verdict": _summary_verdict(readiness),
         "path": str(readiness_path) if readiness_path else None,
@@ -189,7 +199,7 @@ def main() -> int:
         else None,
     }
 
-    local_dir = Path(args.report_dir) / stamp
+    local_dir = Path(args.report_dir) / local_stamp
     local_dir.mkdir(parents=True, exist_ok=True)
     json_path = local_dir / "summary.json"
     md_path = local_dir / "summary.md"

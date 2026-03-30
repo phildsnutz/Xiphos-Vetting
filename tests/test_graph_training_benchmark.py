@@ -31,7 +31,7 @@ def _pass_stage_metrics() -> dict[str, dict[str, float]]:
             "intermediary_route_hits_at_10": 0.71,
             "intermediary_route_mrr": 0.36,
             "cyber_dependency_hits_at_10": 0.74,
-            "analyst_confirmation_rate": 0.7,
+            "missing_edge_queries_evaluated": 13,
             "unsupported_promoted_edge_rate": 0.0,
         },
         "temporal_recurrence_change": {

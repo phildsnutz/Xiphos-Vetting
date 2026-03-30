@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GRAPH_CONSTRUCTION_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_gold_set_v1.json"
 GRAPH_CONSTRUCTION_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_hard_negatives_v1.json"
 GRAPH_ENTITY_RESOLUTION_PAIRS_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_entity_resolution_pairs_v1.json"
+GRAPH_MISSING_EDGE_HOLDOUT_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_missing_edge_holdout_v1.json"
 
 PREDICTED_LINK_REJECTION_REASONS: tuple[str, ...] = (
     "descriptor_only_not_entity",
@@ -2168,12 +2169,13 @@ def get_missing_edge_recovery_metrics(
     trainer = TransETrainer()
     if not trainer.load_embeddings_from_db(pg_url):
         return {
+            "evaluation_protocol": "family_strict_fixture_holdout",
+            "training_holdout_enforced": False,
             "ownership_control_hits_at_10": 0.0,
             "ownership_control_mrr": 0.0,
             "intermediary_route_hits_at_10": 0.0,
             "intermediary_route_mrr": 0.0,
             "cyber_dependency_hits_at_10": 0.0,
-            "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
             "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
             "missing_edge_queries_evaluated": 0,
         }
@@ -2186,31 +2188,45 @@ def get_missing_edge_recovery_metrics(
     conn = psycopg2.connect(pg_url)
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            SELECT source_entity_id, rel_type, target_entity_id
-            FROM kg_relationships
-            WHERE source_entity_id IS NOT NULL
-              AND target_entity_id IS NOT NULL
-            ORDER BY created_at ASC, id ASC
-            """
+        holdout_path = GRAPH_MISSING_EDGE_HOLDOUT_PATH if GRAPH_MISSING_EDGE_HOLDOUT_PATH.exists() else GRAPH_CONSTRUCTION_GOLD_PATH
+        holdout_rows = _load_fixture_rows(holdout_path)
+        name_to_entity_id = _resolve_fixture_entity_ids(
+            cur,
+            {
+                str(row.get("source_entity") or "").strip()
+                for row in holdout_rows
+            }
+            | {
+                str(row.get("target_entity") or "").strip()
+                for row in holdout_rows
+            },
         )
         family_rows: dict[str, list[tuple[str, str, str]]] = {key: [] for key in MISSING_EDGE_FAMILY_GROUPS}
-        for source_entity_id, rel_type, target_entity_id in cur.fetchall():
+        for row in holdout_rows:
+            source_name = str(row.get("source_entity") or "").strip()
+            target_name = str(row.get("target_entity") or "").strip()
+            rel_type = _normalize_rel_type(row.get("relationship_type"))
+            source_entity_id = name_to_entity_id.get(source_name)
+            target_entity_id = name_to_entity_id.get(target_name)
             if (
-                source_entity_id not in trainer.entity_to_id
+                not source_entity_id
+                or not target_entity_id
+                or source_entity_id not in trainer.entity_to_id
                 or target_entity_id not in trainer.entity_to_id
                 or rel_type not in trainer.relation_to_id
             ):
                 continue
             predicted_family = _prediction_edge_family(rel_type)
             for metric_family, edge_families in MISSING_EDGE_FAMILY_GROUPS.items():
-                if predicted_family in edge_families:
-                    family_rows[metric_family].append((str(source_entity_id), str(rel_type), str(target_entity_id)))
+                fixture_family = str(row.get("edge_family") or "").strip().lower()
+                if predicted_family in edge_families or fixture_family in edge_families:
+                    family_rows[metric_family].append((str(source_entity_id), rel_type, str(target_entity_id)))
                     break
 
         metrics: dict[str, Any] = {
-            "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            "evaluation_protocol": "family_strict_fixture_holdout",
+            "holdout_fixture_path": str(holdout_path),
+            "training_holdout_enforced": False,
             "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
         }
 
@@ -2248,6 +2264,29 @@ def get_missing_edge_recovery_metrics(
     finally:
         cur.close()
         conn.close()
+
+
+def get_novel_edge_discovery_metrics(review_stats: dict[str, Any] | None = None) -> dict[str, Any]:
+    review_stats = review_stats or {}
+    recovery = review_stats.get("missing_edge_recovery") if isinstance(review_stats.get("missing_edge_recovery"), dict) else {}
+    total_links = int(review_stats.get("total_links") or 0)
+    reviewed_links = int(review_stats.get("reviewed_links") or 0)
+    novel_pending_links = int(review_stats.get("novel_pending_links") or 0)
+    confirmed_links = int(review_stats.get("confirmed_links") or 0)
+    rejected_links = int(review_stats.get("rejected_links") or 0)
+    promoted_relationships = int(review_stats.get("promoted_relationships") or 0)
+    return {
+        "total_candidate_links": total_links,
+        "reviewed_candidate_links": reviewed_links,
+        "novel_pending_links": novel_pending_links,
+        "analyst_confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+        "review_coverage_pct": float(review_stats.get("review_coverage_pct") or 0.0),
+        "confirmed_links": confirmed_links,
+        "rejected_links": rejected_links,
+        "promoted_relationships": promoted_relationships,
+        "novel_edge_yield": float(recovery.get("novel_edge_yield") or 0.0),
+        "unsupported_promoted_edge_rate": float(review_stats.get("unsupported_promoted_edge_rate") or 0.0),
+    }
 
 
 def export_reviewed_link_labels(pg_url: str, output_path: str | Path) -> dict[str, Any]:

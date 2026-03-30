@@ -266,6 +266,7 @@ def build_training_dashboard_payload() -> dict:
     review_stats = tranche.get("review_stats") if isinstance(tranche.get("review_stats"), dict) else {}
     stage_metrics = tranche.get("stage_metrics") if isinstance(tranche.get("stage_metrics"), dict) else {}
     missing_edge = stage_metrics.get("missing_edge_recovery") if isinstance(stage_metrics.get("missing_edge_recovery"), dict) else {}
+    novelty = stage_metrics.get("novel_edge_discovery") if isinstance(stage_metrics.get("novel_edge_discovery"), dict) else {}
     stage_results = benchmark.get("stage_results") if isinstance(benchmark.get("stage_results"), list) else []
     data_foundation = benchmark.get("data_foundation") if isinstance(benchmark.get("data_foundation"), dict) else {}
 
@@ -328,6 +329,7 @@ def build_training_dashboard_payload() -> dict:
         "live_tranche": {
             "generated_at": _summary_timestamp(tranche),
             "path": str(tranche_path) if tranche_path else None,
+            "total_links": int(review_stats.get("total_links") or 0),
             "reviewed_links": int(review_stats.get("reviewed_links") or 0),
             "pending_links": int(review_stats.get("pending_links") or 0),
             "novel_pending_links": int(review_stats.get("novel_pending_links") or 0),
@@ -335,10 +337,13 @@ def build_training_dashboard_payload() -> dict:
             "rejected_links": int(review_stats.get("rejected_links") or 0),
             "review_coverage_pct": float(review_stats.get("review_coverage_pct") or 0.0),
             "confirmation_rate": float(review_stats.get("confirmation_rate") or 0.0),
+            "missing_edge_evaluation_protocol": str(missing_edge.get("evaluation_protocol") or ""),
             "ownership_control_hits_at_10": float(missing_edge.get("ownership_control_hits_at_10") or 0.0),
             "ownership_control_mrr": float(missing_edge.get("ownership_control_mrr") or 0.0),
             "intermediary_route_queries_evaluated": int(missing_edge.get("intermediary_route_queries_evaluated") or 0),
             "cyber_dependency_queries_evaluated": int(missing_edge.get("cyber_dependency_queries_evaluated") or 0),
+            "novel_edge_yield": float(novelty.get("novel_edge_yield") or 0.0),
+            "novel_analyst_confirmation_rate": float(novelty.get("analyst_confirmation_rate") or 0.0),
         },
     }
 
