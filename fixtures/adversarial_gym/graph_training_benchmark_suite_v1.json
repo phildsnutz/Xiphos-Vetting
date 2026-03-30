@@ -1,0 +1,171 @@
+{
+  "suite_version": "helios-graph-95-v1",
+  "goal": "Raise Helios to a 9.5+ graph-led system through construction training, link prediction, temporal recurrence, anomaly detection, uncertainty fusion, and explanation faithfulness.",
+  "baseline_assets": {
+    "graph_embeddings": "backend/graph_embeddings.py",
+    "link_prediction_api": "backend/link_prediction_api.py",
+    "graph_ingest": "backend/graph_ingest.py",
+    "pillar_briefing_pack": "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json"
+  },
+  "training_stack": [
+    {
+      "stage_id": "construction_training",
+      "objective": "Improve graph construction precision, edge-family recall, and entity resolution quality.",
+      "datasets": [
+        "official_registry_edges_gold",
+        "first_party_edges_gold",
+        "descriptor_only_negative_set",
+        "alias_hard_negative_set",
+        "contradiction_and_freshness_labels"
+      ],
+      "metrics": {
+        "edge_family_micro_f1_min": 0.93,
+        "ownership_control_precision_min": 0.98,
+        "ownership_control_recall_min": 0.9,
+        "entity_resolution_pairwise_f1_min": 0.985,
+        "false_merge_rate_max": 0.005,
+        "descriptor_only_false_owner_rate_max": 0.0
+      }
+    },
+    {
+      "stage_id": "missing_edge_recovery",
+      "objective": "Recover likely missing ownership, intermediary, route, and cyber dependency edges without promoting unsupported facts.",
+      "datasets": [
+        "masked_edge_holdout",
+        "analyst_confirmed_predicted_links",
+        "hostile_graph_gap_cases"
+      ],
+      "metrics": {
+        "ownership_control_hits_at_10_min": 0.8,
+        "ownership_control_mrr_min": 0.45,
+        "intermediary_route_hits_at_10_min": 0.7,
+        "intermediary_route_mrr_min": 0.35,
+        "cyber_dependency_hits_at_10_min": 0.7,
+        "analyst_confirmation_rate_min": 0.65,
+        "unsupported_promoted_edge_rate_max": 0.0
+      }
+    },
+    {
+      "stage_id": "temporal_recurrence_change",
+      "objective": "Predict recurrence, emergence, and drift of risk-bearing edges and subgraphs over time.",
+      "datasets": [
+        "time_sliced_relationship_snapshots",
+        "monitor_run_history",
+        "case_event_timeline_labels",
+        "route_change_sequences"
+      ],
+      "metrics": {
+        "change_detection_f1_min": 0.8,
+        "recurrence_auc_min": 0.85,
+        "lead_time_gain_vs_heuristic_min": 0.2
+      }
+    },
+    {
+      "stage_id": "subgraph_anomaly",
+      "objective": "Detect shell layering, nominee patterns, export diversion, and fourth-party cyber anomalies.",
+      "datasets": [
+        "shell_layering_scenarios",
+        "transshipment_diversion_scenarios",
+        "cyber_fourth_party_scenarios",
+        "lower_tier_hidden_dependency_scenarios"
+      ],
+      "metrics": {
+        "shell_layering_auprc_min": 0.85,
+        "transshipment_auprc_min": 0.82,
+        "cyber_fourth_party_auprc_min": 0.8,
+        "false_positive_rate_max": 0.08
+      }
+    },
+    {
+      "stage_id": "uncertainty_fusion",
+      "objective": "Calibrate edge, anomaly, and decision confidence while fusing provenance and soft rules.",
+      "datasets": [
+        "held_out_decision_cases",
+        "held_out_edge_support_cases",
+        "analyst_adjudicated_confidence_set"
+      ],
+      "metrics": {
+        "edge_confidence_ece_max": 0.05,
+        "decision_confidence_ece_max": 0.05,
+        "decision_brier_score_max": 0.12,
+        "high_confidence_unsupported_claim_rate_max": 0.0
+      }
+    },
+    {
+      "stage_id": "graphrag_explanation",
+      "objective": "Ensure graph-generated explanations stay faithful to graph claims and evidence.",
+      "datasets": [
+        "audited_dossier_set",
+        "supplier_passport_explanation_set",
+        "hostile_case_explanation_set"
+      ],
+      "metrics": {
+        "provenance_coverage_min": 0.95,
+        "unsupported_explanation_claims_max": 0,
+        "required_path_mention_rate_min": 0.9
+      }
+    }
+  ],
+  "benchmark_suites": [
+    {
+      "suite_id": "construction_gold_set",
+      "fixtures": [
+        "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json",
+        "fixtures/adversarial_gym/pillar_supply_chain_vetting_assurance_cases.json",
+        "fixtures/adversarial_gym/pillar_cyber_supply_chain_assurance_cases.json",
+        "fixtures/adversarial_gym/pillar_customs_export_trade_evasion_cases.json"
+      ],
+      "pass_condition": "All construction_training metrics pass."
+    },
+    {
+      "suite_id": "hostile_missing_edge_recovery",
+      "fixtures": [
+        "fixtures/adversarial_gym/pillar_supply_chain_vetting_assurance_cases.json",
+        "fixtures/adversarial_gym/critical_subsystem_scenarios.json",
+        "fixtures/adversarial_gym/export_lane_ai_transshipment_diversion_cases.json"
+      ],
+      "pass_condition": "All missing_edge_recovery metrics pass and unsupported promoted edges remain zero."
+    },
+    {
+      "suite_id": "temporal_recurrence_drift",
+      "fixtures": [
+        "monitor_history_replays",
+        "case_event_timeline_replays",
+        "route_shift_replays"
+      ],
+      "pass_condition": "All temporal_recurrence_change metrics pass."
+    },
+    {
+      "suite_id": "subgraph_anomaly_hostile",
+      "fixtures": [
+        "fixtures/adversarial_gym/pillar_supply_chain_vetting_assurance_cases.json",
+        "fixtures/adversarial_gym/pillar_cyber_supply_chain_assurance_cases.json",
+        "fixtures/adversarial_gym/pillar_customs_export_trade_evasion_cases.json"
+      ],
+      "pass_condition": "All subgraph_anomaly metrics pass."
+    },
+    {
+      "suite_id": "uncertainty_calibration",
+      "fixtures": [
+        "held_out_live_case_audits",
+        "audited_supplier_passports",
+        "audited_dossiers"
+      ],
+      "pass_condition": "All uncertainty_fusion metrics pass."
+    },
+    {
+      "suite_id": "explanation_faithfulness",
+      "fixtures": [
+        "fixtures/customer_demo/pillar_briefing_query_to_dossier_pack.json"
+      ],
+      "pass_condition": "All graphrag_explanation metrics pass."
+    }
+  ],
+  "graduation_gates": {
+    "hostile_pillar_pack_passes_required": 4,
+    "live_prime_time_runs_required": 3,
+    "required_edge_families_missing_max": 0,
+    "descriptor_only_false_owner_incidents_max": 0,
+    "dossier_unsupported_claims_max": 0
+  }
+}
