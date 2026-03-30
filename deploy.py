@@ -26,39 +26,48 @@ from typing import Any
 warnings.filterwarnings("ignore")
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 CONFIG_DIR = pathlib.Path(os.environ.get("XIPHOS_CONFIG_DIR", "~/.config/xiphos")).expanduser()
+HELIOS_ENV_PATH = CONFIG_DIR / "helios.env"
+SECURE_RUNTIME_ENV_KEYS = (
+    "NEO4J_URI",
+    "NEO4J_USER",
+    "NEO4J_DATABASE",
+    "NEO4J_PASSWORD",
+    "XIPHOS_SAM_API_KEY",
+)
 
 
-def _deploy_env_path() -> pathlib.Path | None:
+def _deploy_env_paths() -> list[pathlib.Path]:
+    paths: list[pathlib.Path] = []
     explicit = os.environ.get("XIPHOS_DEPLOY_ENV_FILE", "").strip()
     if explicit:
-        return pathlib.Path(explicit).expanduser()
+        paths.append(pathlib.Path(explicit).expanduser())
+    else:
+        secure_path = CONFIG_DIR / "deploy.env"
+        repo_path = SCRIPT_DIR / "deploy.env"
+        if secure_path.exists():
+            paths.append(secure_path)
+        elif repo_path.exists():
+            paths.append(repo_path)
+        else:
+            paths.append(secure_path)
 
-    secure_path = CONFIG_DIR / "deploy.env"
-    if secure_path.exists():
-        return secure_path
-
-    repo_path = SCRIPT_DIR / "deploy.env"
-    if repo_path.exists():
-        return repo_path
-
-    return secure_path
+    if HELIOS_ENV_PATH not in paths:
+        paths.append(HELIOS_ENV_PATH)
+    return paths
 
 
 def load_env_file() -> None:
-    path = _deploy_env_path()
-    if not path:
-        return
-    if not path.exists():
-        return
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for path in _deploy_env_paths():
+        if not path.exists():
             continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip("'").strip('"')
-        os.environ.setdefault(key, value)
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("'").strip('"')
+            os.environ.setdefault(key, value)
 
 
 load_env_file()
@@ -77,6 +86,20 @@ def env_bool(*names: str, default: bool = False) -> bool:
     if not value:
         return default
     return value.lower() in {"1", "true", "yes", "on"}
+
+
+def secure_runtime_env() -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for key in SECURE_RUNTIME_ENV_KEYS:
+        value = os.environ.get(key, "").strip()
+        if value:
+            payload[key] = value
+    return payload
+
+
+def expects_neo4j() -> bool:
+    payload = secure_runtime_env()
+    return bool(payload.get("NEO4J_URI") and payload.get("NEO4J_PASSWORD"))
 
 
 SSH_TARGET = env("XIPHOS_DEPLOY_SSH_TARGET")
@@ -377,6 +400,67 @@ def upload_archive(ssh: Any, archive_path: pathlib.Path) -> str:
     return remote_archive
 
 
+def sync_secure_runtime_env(ssh: Any) -> None:
+    payload = secure_runtime_env()
+    if not payload:
+        return
+
+    with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", prefix="xiphos-runtime-", suffix=".env") as handle:
+        local_path = pathlib.Path(handle.name)
+        for key in SECURE_RUNTIME_ENV_KEYS:
+            value = payload.get(key)
+            if value:
+                handle.write(f"{key}={value}\n")
+
+    remote_path = f"/tmp/{local_path.name}"
+    sftp = ssh.open_sftp()
+    try:
+        sftp.put(str(local_path), remote_path)
+    finally:
+        sftp.close()
+        local_path.unlink(missing_ok=True)
+
+    merge_cmd = (
+        f"cd {shlex.quote(REMOTE_DIR)} && "
+        f"python3 - <<'PY'\n"
+        f"from pathlib import Path\n"
+        f"keys = {list(SECURE_RUNTIME_ENV_KEYS)!r}\n"
+        f"source = Path({remote_path!r})\n"
+        f"target = Path('.env')\n"
+        f"updates = {{}}\n"
+        f"if source.exists():\n"
+        f"    for raw in source.read_text(encoding='utf-8').splitlines():\n"
+        f"        line = raw.strip()\n"
+        f"        if not line or line.startswith('#') or '=' not in line:\n"
+        f"            continue\n"
+        f"        key, value = line.split('=', 1)\n"
+        f"        if key in keys:\n"
+        f"            updates[key] = value\n"
+        f"existing = []\n"
+        f"if target.exists():\n"
+        f"    existing = target.read_text(encoding='utf-8').splitlines()\n"
+        f"kept = []\n"
+        f"for raw in existing:\n"
+        f"    line = raw.strip()\n"
+        f"    if not line or line.startswith('#') or '=' not in line:\n"
+        f"        kept.append(raw)\n"
+        f"        continue\n"
+        f"    key = line.split('=', 1)[0].strip()\n"
+        f"    if key in updates:\n"
+        f"        continue\n"
+        f"    kept.append(raw)\n"
+        f"for key in keys:\n"
+        f"    if key in updates:\n"
+        f"        kept.append(f'{{key}}={{updates[key]}}')\n"
+        f"target.write_text('\\n'.join(kept).rstrip() + '\\n', encoding='utf-8')\n"
+        f"source.unlink(missing_ok=True)\n"
+        f"PY"
+    )
+    code, out, err = run_cmd(ssh, merge_cmd, timeout=60)
+    if code != 0:
+        fail((err or out or "failed to sync secure runtime env").strip())
+
+
 def ensure_env(require_auth: bool = False) -> None:
     missing: list[str] = []
     if not (SSH_TARGET or SERVER):
@@ -425,6 +509,8 @@ def deploy(args: argparse.Namespace) -> None:
             ssh.close()
             sys.exit(1)
         print("  Remote tree synchronized")
+        sync_secure_runtime_env(ssh)
+        print("  Secure runtime env synchronized")
 
         step("REBUILDING DOCKER")
         rebuild_cmd = (
@@ -536,6 +622,15 @@ def verify() -> None:
         else:
             print(f"  FAIL: {connector_count} connectors (expected at least 28)")
             issues.append(f"Connector count mismatch: {connector_count}")
+        if expects_neo4j():
+            neo4j = requests.get(f"{APP_URL}/api/neo4j/health", verify=VERIFY_TLS, timeout=20)
+            neo4j.raise_for_status()
+            neo4j_payload = neo4j.json()
+            if bool(neo4j_payload.get("neo4j_available")):
+                print("  PASS: Neo4j health route is available")
+            else:
+                print("  FAIL: Neo4j health route reports unavailable")
+                issues.append("Neo4j unavailable")
     except Exception as exc:  # pragma: no cover - deploy helper
         print(f"  FAIL: API health check failed: {exc}")
         issues.append(f"API health failed: {exc}")

@@ -351,6 +351,9 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
         expected_oci = entry.get("expected_oci") or {}
         if expected_oci and not isinstance(expected_oci, dict):
             raise SystemExit("gauntlet spec expected_oci must be a JSON object when provided")
+        expected_graph = entry.get("expected_graph") or {}
+        if expected_graph and not isinstance(expected_graph, dict):
+            raise SystemExit("gauntlet spec expected_graph must be a JSON object when provided")
         expected_assistant_anomalies = _normalize_fragment_list(
             entry.get("expected_assistant_anomalies"),
             field_name="expected_assistant_anomalies",
@@ -371,6 +374,7 @@ def load_specs(spec_file: str) -> list[dict[str, Any]]:
                 "assistant_prompt": str(entry.get("assistant_prompt") or ASSISTANT_PROMPT),
                 "expected_workflow_lane": str(entry.get("expected_workflow_lane") or "").strip(),
                 "expected_oci": dict(expected_oci),
+                "expected_graph": dict(expected_graph),
                 "expected_tribunal_view": str(entry.get("expected_tribunal_view") or "").strip().lower(),
                 "expected_assistant_view": str(entry.get("expected_assistant_view") or "").strip().lower(),
                 "expected_assistant_anomalies": expected_assistant_anomalies,
@@ -469,6 +473,7 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
             client,
             case_id,
             expected_oci=spec.get("expected_oci") or {},
+            expected_graph=spec.get("expected_graph") or {},
             expected_tribunal_view=spec.get("expected_tribunal_view") or "",
         ),
     )
@@ -507,6 +512,9 @@ def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[
         "oci_required": bool(passport.get("oci_required")),
         "oci_passed": bool(passport.get("oci_passed", not passport.get("oci_required"))),
         "oci_details": passport.get("oci"),
+        "graph_required": bool(passport.get("graph_required")),
+        "graph_passed": bool(passport.get("graph_passed", not passport.get("graph_required"))),
+        "graph_details": passport.get("graph"),
         "warning_count": len(warnings),
         "warnings": warnings,
         "steps": [asdict(item) for item in results],
@@ -581,10 +589,11 @@ def _step_graph(client: BaseClient, case_id: str) -> dict[str, Any]:
     _assert(not body.get("error"), f"graph returned error: {body.get('error')}")
     entities = body.get("entities") or []
     relationships = body.get("relationships") or []
+    root_entity_id = str(body.get("root_entity_id") or "")
     _assert(isinstance(entities, list), "graph entities payload is not a list")
     _assert(isinstance(relationships, list), "graph relationships payload is not a list")
-    _assert(bool(body.get("root_entity_id")), "graph root entity id missing")
-    return {"entity_count": len(entities), "relationship_count": len(relationships)}
+    _assert(bool(root_entity_id), "graph root entity id missing")
+    return {"entity_count": len(entities), "relationship_count": len(relationships), "root_entity_id": root_entity_id}
 
 
 def _step_enrich_and_score(client: BaseClient, case_id: str) -> dict[str, Any]:
@@ -653,10 +662,74 @@ def _validate_expected_oci(passport: dict[str, Any], expected_oci: dict[str, Any
     }
 
 
+def _validate_expected_graph(passport: dict[str, Any], expected_graph: dict[str, Any]) -> dict[str, Any]:
+    graph = passport.get("graph") if isinstance(passport.get("graph"), dict) else {}
+    intelligence = graph.get("intelligence") if isinstance(graph.get("intelligence"), dict) else {}
+    control_paths = graph.get("control_paths") if isinstance(graph.get("control_paths"), list) else []
+    _assert(bool(graph), "supplier passport missing graph payload")
+
+    if "min_relationship_count" in expected_graph:
+        _assert(
+            int(graph.get("relationship_count") or 0) >= int(expected_graph["min_relationship_count"]),
+            "graph relationship_count below threshold",
+        )
+    if "min_network_relationship_count" in expected_graph:
+        _assert(
+            int(graph.get("network_relationship_count") or 0) >= int(expected_graph["min_network_relationship_count"]),
+            "graph network_relationship_count below threshold",
+        )
+    if "min_control_paths" in expected_graph:
+        _assert(
+            len(control_paths) >= int(expected_graph["min_control_paths"]),
+            "graph control_paths below threshold",
+        )
+    required_edge_families = [str(item).strip() for item in (expected_graph.get("require_edge_families") or []) if str(item).strip()]
+    for family in required_edge_families:
+        _assert(
+            int((intelligence.get("edge_family_counts") or {}).get(family) or 0) > 0,
+            f"graph missing required edge family: {family}",
+        )
+    if "max_missing_required_edge_families" in expected_graph:
+        _assert(
+            len(intelligence.get("missing_required_edge_families") or []) <= int(expected_graph["max_missing_required_edge_families"]),
+            "graph intelligence missing_required_edge_families above threshold",
+        )
+    if "max_legacy_unscoped_edges" in expected_graph:
+        _assert(
+            int(intelligence.get("legacy_unscoped_edge_count") or 0) <= int(expected_graph["max_legacy_unscoped_edges"]),
+            "graph intelligence legacy_unscoped_edge_count above threshold",
+        )
+    if "max_stale_edges" in expected_graph:
+        _assert(
+            int(intelligence.get("stale_edge_count") or 0) <= int(expected_graph["max_stale_edges"]),
+            "graph intelligence stale_edge_count above threshold",
+        )
+    if "min_claim_coverage_pct" in expected_graph:
+        _assert(
+            float(intelligence.get("claim_coverage_pct") or 0.0) >= float(expected_graph["min_claim_coverage_pct"]),
+            "graph intelligence claim_coverage_pct below threshold",
+        )
+    if "forbid_thin_graph" in expected_graph and bool(expected_graph["forbid_thin_graph"]):
+        _assert(not bool(intelligence.get("thin_graph")), "graph intelligence still marks the graph thin")
+
+    return {
+        "relationship_count": int(graph.get("relationship_count") or 0),
+        "network_relationship_count": int(graph.get("network_relationship_count") or 0),
+        "control_path_count": len(control_paths),
+        "edge_family_counts": dict(intelligence.get("edge_family_counts") or {}),
+        "missing_required_edge_families": list(intelligence.get("missing_required_edge_families") or []),
+        "claim_coverage_pct": float(intelligence.get("claim_coverage_pct") or 0.0),
+        "legacy_unscoped_edge_count": int(intelligence.get("legacy_unscoped_edge_count") or 0),
+        "stale_edge_count": int(intelligence.get("stale_edge_count") or 0),
+        "thin_graph": bool(intelligence.get("thin_graph")),
+    }
+
+
 def _step_supplier_passport(
     client: BaseClient,
     case_id: str,
     expected_oci: dict[str, Any] | None = None,
+    expected_graph: dict[str, Any] | None = None,
     *,
     expected_tribunal_view: str = "",
 ) -> dict[str, Any]:
@@ -666,7 +739,9 @@ def _step_supplier_passport(
     _assert(body.get("case_id") == case_id, "supplier passport case id mismatch")
     _assert(bool(body.get("passport_version")), "supplier passport version missing")
     expected_oci = expected_oci or {}
+    expected_graph = expected_graph or {}
     oci = _validate_expected_oci(body, expected_oci) if expected_oci else None
+    graph = _validate_expected_graph(body, expected_graph) if expected_graph else None
     tribunal = body.get("tribunal") if isinstance(body.get("tribunal"), dict) else {}
     if expected_tribunal_view:
         _assert(str(tribunal.get("recommended_view") or "").lower() == expected_tribunal_view, "supplier passport tribunal recommended_view mismatch")
@@ -680,6 +755,9 @@ def _step_supplier_passport(
         "oci_required": bool(expected_oci),
         "oci_passed": True if expected_oci else False,
         "oci": oci,
+        "graph_required": bool(expected_graph),
+        "graph_passed": True if expected_graph else False,
+        "graph": graph,
     }
 
 
@@ -867,6 +945,13 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Overall verdict: **{summary['overall_verdict']}**",
         "",
     ]
+    if summary.get("skipped_reason"):
+        lines.extend(
+            [
+                f"- Skipped: `{summary['skipped_reason']}`",
+                "",
+            ]
+        )
     oci_summary = summary.get("oci_summary") if isinstance(summary.get("oci_summary"), dict) else {}
     if oci_summary:
         lines.extend(
@@ -874,6 +959,17 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"- OCI required flows: `{oci_summary.get('required_flows', 0)}`",
                 f"- OCI passed flows: `{oci_summary.get('passed_flows', 0)}`",
                 f"- OCI descriptor-only passed flows: `{oci_summary.get('descriptor_only_passed_flows', 0)}`",
+                "",
+            ]
+        )
+    graph_summary = summary.get("graph_summary") if isinstance(summary.get("graph_summary"), dict) else {}
+    if graph_summary:
+        lines.extend(
+            [
+                f"- Graph required flows: `{graph_summary.get('required_flows', 0)}`",
+                f"- Graph passed flows: `{graph_summary.get('passed_flows', 0)}`",
+                f"- Graph thin flows: `{graph_summary.get('thin_graph_flows', 0)}`",
+                f"- Graph missing-family flows: `{graph_summary.get('flows_with_missing_required_edge_families', 0)}`",
                 "",
             ]
         )
@@ -972,6 +1068,28 @@ def build_oci_summary(flows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_graph_summary(flows: list[dict[str, Any]]) -> dict[str, Any]:
+    graph_flows = [flow for flow in flows if flow.get("graph_required")]
+    passed = [flow for flow in graph_flows if flow.get("graph_passed")]
+    thin_graph_flows = [
+        flow
+        for flow in graph_flows
+        if isinstance(flow.get("graph_details"), dict) and bool(flow["graph_details"].get("thin_graph"))
+    ]
+    missing_family_flows = [
+        flow
+        for flow in graph_flows
+        if isinstance(flow.get("graph_details"), dict) and bool(flow["graph_details"].get("missing_required_edge_families"))
+    ]
+    return {
+        "required_flows": len(graph_flows),
+        "passed_flows": len(passed),
+        "thin_graph_flows": len(thin_graph_flows),
+        "flows_with_missing_required_edge_families": len(missing_family_flows),
+        "failed_flows": [str(flow.get("flow_name") or "") for flow in graph_flows if not flow.get("graph_passed")],
+    }
+
+
 def main() -> int:
     args = parse_args()
     specs = load_specs(args.spec_file)
@@ -996,14 +1114,23 @@ def main() -> int:
         except Exception as exc:
             failures.append({"flow_name": "local-auth", "error": str(exc)})
 
-    overall_verdict = "PASS" if flows and not failures else "FAIL"
+    skipped_reason = ""
+    if failures:
+        overall_verdict = "FAIL"
+    elif flows:
+        overall_verdict = "PASS"
+    else:
+        overall_verdict = "PASS"
+        skipped_reason = f"no eligible flows for mode {args.mode}"
     summary = {
         "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "mode": args.mode,
         "overall_verdict": overall_verdict,
         "flows": flows,
         "oci_summary": build_oci_summary(flows),
+        "graph_summary": build_graph_summary(flows),
         "failures": failures,
+        "skipped_reason": skipped_reason,
     }
     md_path, json_path = write_report(summary, Path(args.report_dir))
     summary["report_md"] = str(md_path)

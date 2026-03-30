@@ -53,6 +53,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="${XIPHOS_CONFIG_DIR:-$HOME/.config/xiphos}"
 ENV_FILE="${XIPHOS_DEPLOY_ENV_FILE:-}"
+HELIOS_ENV_FILE="$CONFIG_DIR/helios.env"
 if [ -z "$ENV_FILE" ]; then
   if [ -f "$CONFIG_DIR/deploy.env" ]; then
     ENV_FILE="$CONFIG_DIR/deploy.env"
@@ -65,6 +66,13 @@ if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1090
   . "$ENV_FILE"
+  set +a
+fi
+
+if [ -f "$HELIOS_ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$HELIOS_ENV_FILE"
   set +a
 fi
 
@@ -152,6 +160,79 @@ remote_exec() {
   else
     ssh "${SSH_ARGS[@]}" "$SSH_TARGET" "$cmd"
   fi
+}
+
+sync_secure_runtime_env() {
+  local tmp_env=""
+  tmp_env="$(mktemp /tmp/xiphos-runtime-XXXXXX.env)"
+  : > "$tmp_env"
+
+  local has_payload=false
+  for key in NEO4J_URI NEO4J_USER NEO4J_DATABASE NEO4J_PASSWORD XIPHOS_SAM_API_KEY; do
+    if [ -n "${!key:-}" ]; then
+      has_payload=true
+      printf '%s=%s\n' "$key" "${!key}" >> "$tmp_env"
+    fi
+  done
+
+  if [ "$has_payload" = false ]; then
+    rm -f "$tmp_env"
+    return
+  fi
+
+  local remote_tmp="/tmp/$(basename "$tmp_env")"
+  if [ "$DRY_RUN" = true ]; then
+    echo ""
+    echo ">> [dry-run] sync secure runtime env to $SSH_TARGET:$REMOTE_DIR/.env"
+    rm -f "$tmp_env"
+    return
+  fi
+
+  local scp_args=(-o StrictHostKeyChecking=accept-new)
+  if [ -n "$SSH_KEY" ]; then
+    scp_args+=(-i "$SSH_KEY")
+  fi
+  scp "${scp_args[@]}" "$tmp_env" "$SSH_TARGET:$remote_tmp"
+  rm -f "$tmp_env"
+
+  local merge_cmd
+  merge_cmd=$(cat <<EOF
+cd $REMOTE_DIR && python3 - <<'PY'
+from pathlib import Path
+keys = ["NEO4J_URI", "NEO4J_USER", "NEO4J_DATABASE", "NEO4J_PASSWORD", "XIPHOS_SAM_API_KEY"]
+source = Path("$remote_tmp")
+target = Path(".env")
+updates = {}
+if source.exists():
+    for raw in source.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key in keys:
+            updates[key] = value
+existing = []
+if target.exists():
+    existing = target.read_text(encoding="utf-8").splitlines()
+kept = []
+for raw in existing:
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        kept.append(raw)
+        continue
+    key = line.split("=", 1)[0].strip()
+    if key in updates:
+        continue
+    kept.append(raw)
+for key in keys:
+    if key in updates:
+        kept.append(f"{key}={updates[key]}")
+target.write_text("\\n".join(kept).rstrip() + "\\n", encoding="utf-8")
+source.unlink(missing_ok=True)
+PY
+EOF
+  )
+  run "Syncing secure runtime env..." "$merge_cmd"
 }
 
 run() {
@@ -301,6 +382,7 @@ fi
 resolve_secret_key
 refresh_remote_ai_cmds
 sync_repo
+sync_secure_runtime_env
 run "Stopping existing containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose down"
 run "Building Docker image..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && export DOCKER_BUILDKIT=0 && BUILD_LOG=/tmp/xiphos-build.log && rm -f \$BUILD_LOG && if docker build --no-cache -t xiphos-xiphos . >\$BUILD_LOG 2>&1; then echo '  Docker build OK'; else code=\$?; tail -n 200 \$BUILD_LOG; exit \$code; fi"
 run "Starting containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose up -d --no-build"

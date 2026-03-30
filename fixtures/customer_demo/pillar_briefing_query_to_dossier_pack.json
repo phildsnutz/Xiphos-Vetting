@@ -25,6 +25,11 @@
       "min_control_resolution_pct": 0.3,
       "require_owner_class_evidence": true
     },
+    "expected_graph": {
+      "min_network_relationship_count": 1,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
+    },
     "expected_tribunal_view": "watch",
     "expected_assistant_view": "watch",
     "expected_assistant_anomalies": [
@@ -41,8 +46,9 @@
   },
   {
     "flow_name": "briefing_hidden_owner_counterparty",
-    "enabled_modes": ["fixture", "local-auth"],
+    "enabled_modes": ["local-auth"],
     "preserve_case_name": true,
+    "run_enrich_and_score": true,
     "expected_workflow_lane": "counterparty",
     "case_payload": {
       "name": "Harbor Beacon Holdings",
@@ -73,6 +79,14 @@
         "litigation_history": 1
       }
     },
+    "expected_graph": {
+      "min_network_relationship_count": 1,
+      "min_control_paths": 1,
+      "require_edge_families": ["ownership_control"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
+    },
     "expected_tribunal_view": "watch",
     "expected_assistant_view": "watch",
     "expected_assistant_anomalies": [
@@ -85,13 +99,14 @@
       "Defense counterparty trust",
       "Ownership / control intelligence",
       "Ownership resolved",
-      "25%"
+      "Foreign Ownership Depth"
     ]
   },
   {
     "flow_name": "briefing_cyber_supply_chain_review",
-    "enabled_modes": ["fixture", "local-auth"],
+    "enabled_modes": ["local-auth"],
     "preserve_case_name": true,
+    "run_enrich_and_score": true,
     "expected_workflow_lane": "cyber",
     "assistant_prompt": "Review the cyber evidence and supply chain assurance posture.",
     "case_payload": {
@@ -99,9 +114,25 @@
       "country": "US",
       "profile": "supplier_cyber_trust",
       "program": "dod_unclassified",
+      "ownership": {
+        "publicly_traded": false,
+        "state_owned": false,
+        "beneficial_owner_known": false,
+        "named_beneficial_owner_known": false,
+        "ownership_pct_resolved": 0.3,
+        "shell_layers": 2,
+        "pep_connection": false
+      },
       "seed_metadata": {
         "product_terms": ["mission firmware", "remote update service", "telemetry gateway"]
       }
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 3,
+      "require_edge_families": ["ownership_control", "cyber_supply_chain"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
     },
     "expected_tribunal_view": "watch",
     "expected_assistant_view": "watch",
@@ -118,8 +149,9 @@
   },
   {
     "flow_name": "briefing_export_transshipment_review",
-    "enabled_modes": ["fixture", "local-auth"],
+    "enabled_modes": ["local-auth"],
     "preserve_case_name": true,
+    "run_enrich_and_score": true,
     "expected_workflow_lane": "export",
     "assistant_prompt": "Review the export license posture and explain any routing ambiguity.",
     "case_payload": {
@@ -127,6 +159,15 @@
       "country": "CA",
       "profile": "trade_compliance",
       "program": "regulated_commercial",
+      "ownership": {
+        "publicly_traded": false,
+        "state_owned": false,
+        "beneficial_owner_known": false,
+        "named_beneficial_owner_known": false,
+        "ownership_pct_resolved": 0.25,
+        "shell_layers": 2,
+        "pep_connection": false
+      },
       "export_authorization": {
         "request_type": "item_transfer",
         "destination_country": "AE",
@@ -135,6 +176,13 @@
         "item_or_data_summary": "Commercial edge compute gateway",
         "end_use_summary": "Regional distributor support with onward delivery not yet resolved"
       }
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 2,
+      "require_edge_families": ["ownership_control", "trade_and_logistics"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
     },
     "expected_tribunal_view": "watch",
     "expected_assistant_view": "watch",

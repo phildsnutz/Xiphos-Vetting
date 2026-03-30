@@ -234,6 +234,56 @@ def test_clear_vendor_graph_state_removes_stale_vendor_relationships(tmp_path, m
     assert vendor_link_count == 0
 
 
+def test_backfill_legacy_relationship_claims_scopes_existing_edges_to_vendor(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos.db"))
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path))
+    kg = _reload_kg()
+    kg.init_kg_db()
+
+    kg.save_entity(_entity("entity:vendor", "Legacy Vendor"))
+    kg.save_entity(_entity("entity:agency", "Department of Defense", entity_type="government_agency"))
+    kg.link_entity_to_vendor("entity:vendor", "case-legacy")
+
+    with kg.get_kg_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO kg_relationships (
+                source_entity_id,
+                target_entity_id,
+                rel_type,
+                confidence,
+                data_source,
+                evidence
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "entity:vendor",
+                "entity:agency",
+                "contracts_with",
+                0.88,
+                "usaspending",
+                "Legacy contract evidence",
+            ),
+        )
+
+    stats = kg.backfill_legacy_relationship_claims()
+
+    assert stats["legacy_relationships_scanned"] == 1
+    assert stats["relationships_backfilled"] == 1
+    assert stats["claims_backfilled"] == 1
+    assert stats["evidence_backfilled"] == 1
+    assert stats["relationships_without_vendor_scope"] == 0
+
+    network = kg.get_entity_network("entity:vendor", depth=1)
+    relationship = network["relationships"][0]
+    assert len(relationship["claim_records"]) == 1
+    assert relationship["claim_records"][0]["vendor_id"] == "case-legacy"
+    assert relationship["claim_records"][0]["structured_fields"]["backfilled_legacy_claim"] is True
+    assert relationship["claim_records"][0]["evidence_records"][0]["artifact_ref"].startswith("kg-relationship://")
+
+
 def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
     graph_ingest = _reload_graph_ingest()
 
@@ -309,3 +359,69 @@ def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
     assert summary["stale_edge_count"] >= 1
     assert summary["claim_coverage_pct"] == 0.6667
     assert summary["evidence_coverage_pct"] == 0.6667
+
+
+def test_graph_intelligence_summary_accepts_external_ownership_coverage():
+    graph_ingest = _reload_graph_ingest()
+
+    summary = graph_ingest.build_graph_intelligence_summary(
+        {
+            "entity_count": 1,
+            "relationship_count": 0,
+            "relationships": [],
+        },
+        workflow_lane="defense_counterparty_trust",
+        satisfied_required_edge_families=["ownership_control"],
+    )
+
+    assert summary["required_edge_families"] == ["ownership_control"]
+    assert summary["present_required_edge_families"] == ["ownership_control"]
+    assert summary["externally_satisfied_edge_families"] == ["ownership_control"]
+    assert summary["missing_required_edge_families"] == []
+
+
+def test_ingest_enrichment_to_graph_models_case_input_relationships(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos.db"))
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path))
+    kg = _reload_kg()
+    graph_ingest = _reload_graph_ingest()
+    kg.init_kg_db()
+
+    stats = graph_ingest.ingest_enrichment_to_graph(
+        "case-modeled",
+        "Vector Mission Software",
+        {
+            "vendor_name": "Vector Mission Software",
+            "country": "US",
+            "identifiers": {},
+            "findings": [],
+            "relationships": [],
+            "connector_status": {},
+        },
+        vendor_input={
+            "name": "Vector Mission Software",
+            "country": "US",
+            "profile": "supplier_cyber_trust",
+            "ownership": {"shell_layers": 2, "pep_connection": True},
+            "seed_metadata": {
+                "product_terms": [
+                    "mission firmware",
+                    "remote update service",
+                    "telemetry gateway",
+                ]
+            },
+            "export_authorization": {
+                "destination_country": "AE",
+                "destination_company": "Desert Trade Hub",
+                "end_use_summary": "Regional distributor support with onward delivery not yet resolved",
+            },
+        },
+    )
+
+    assert stats["relationships_created"] >= 7
+
+    summary = graph_ingest.get_vendor_graph_summary("case-modeled", depth=2)
+    relationship_types = {rel["rel_type"] for rel in summary["relationships"]}
+
+    assert {"owned_by", "led_by", "supplies_component", "depends_on_service", "depends_on_network", "distributed_by", "ships_via"}.issubset(relationship_types)

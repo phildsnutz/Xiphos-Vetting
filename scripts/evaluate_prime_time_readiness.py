@@ -158,6 +158,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         )
     )
     oci_summary = query_to_dossier.get("oci_summary") if isinstance(query_to_dossier.get("oci_summary"), dict) else {}
+    graph_summary = query_to_dossier.get("graph_summary") if isinstance(query_to_dossier.get("graph_summary"), dict) else {}
+    neo4j_summary = query_to_dossier.get("neo4j_summary") if isinstance(query_to_dossier.get("neo4j_summary"), dict) else {}
     required_oci_flows = int(criteria.get("required_oci_flows_passed") or 0)
     if required_oci_flows:
         actual = int(oci_summary.get("passed_flows") or 0)
@@ -180,6 +182,54 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 f"query-to-dossier OCI preserved descriptor-only ownership in {actual} flows",
                 actual=actual,
                 expected=required_descriptor_only_oci,
+            )
+        )
+    required_graph_flows = int(criteria.get("required_graph_flows_passed") or 0)
+    if required_graph_flows:
+        actual = int(graph_summary.get("passed_flows") or 0)
+        checks.append(
+            _criterion(
+                "query_to_dossier_graph",
+                actual >= required_graph_flows,
+                f"query-to-dossier graph requirements passed in {actual} flows",
+                actual=actual,
+                expected=required_graph_flows,
+            )
+        )
+    max_thin_graph_flows = int(criteria.get("max_thin_graph_flows") or 0)
+    if "max_thin_graph_flows" in criteria:
+        actual = int(graph_summary.get("thin_graph_flows") or 0)
+        checks.append(
+            _criterion(
+                "query_to_dossier_graph_thin",
+                actual <= max_thin_graph_flows,
+                f"query-to-dossier has {actual} thin graph flows",
+                actual=actual,
+                expected=max_thin_graph_flows,
+            )
+        )
+    max_missing_required_graph_families_flows = int(criteria.get("max_missing_required_graph_families_flows") or 0)
+    if "max_missing_required_graph_families_flows" in criteria:
+        actual = int(graph_summary.get("flows_with_missing_required_edge_families") or 0)
+        checks.append(
+            _criterion(
+                "query_to_dossier_graph_missing_families",
+                actual <= max_missing_required_graph_families_flows,
+                f"query-to-dossier has {actual} flows with missing required graph edge families",
+                actual=actual,
+                expected=max_missing_required_graph_families_flows,
+            )
+        )
+    if "required_neo4j_available" in criteria:
+        expected = bool(criteria.get("required_neo4j_available"))
+        actual = bool(neo4j_summary.get("neo4j_available"))
+        checks.append(
+            _criterion(
+                "neo4j_available",
+                actual is expected,
+                f"query-to-dossier Neo4j availability is {actual}",
+                actual=actual,
+                expected=expected,
             )
         )
 

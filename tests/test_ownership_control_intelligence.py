@@ -84,6 +84,51 @@ def test_descriptor_only_evidence_sets_owner_class_without_named_owner():
     assert summary["control_resolution_pct"] == 0.35
 
 
+def test_subcontractor_business_types_do_not_override_subject_owner_class():
+    summary = build_oci_summary(
+        {
+            "beneficial_owner_known": False,
+            "named_beneficial_owner_known": False,
+            "owner_class_known": False,
+            "ownership_pct_resolved": 0.0,
+            "control_resolution_pct": 0.0,
+        },
+        [
+            {
+                "source": "sam_subaward_reporting",
+                "category": "subcontract_reporting",
+                "title": "SAM subcontract reports: 305 subcontractor(s), $2,105,588,438 total",
+                "detail": (
+                    "Official SAM.gov subcontract reports show subcontractors including "
+                    "LODSTAR CONSULTING, INC. [{'code': '23', 'name': 'Minority-Owned Business'}]."
+                ),
+                "confidence": 0.92,
+                "structured_fields": {
+                    "top_subcontractors": [
+                        {"name": "LODSTAR CONSULTING, INC.", "business_type": "Minority-Owned Business"}
+                    ]
+                },
+            },
+            {
+                "source": "sam_gov",
+                "category": "registration",
+                "title": "SAM authority record: YORKTOWN SYSTEMS GROUP INC",
+                "detail": (
+                    "UEI: L5LMQSN59YE5 | CAGE: 4VJW9 | Business types: For Profit Organization, "
+                    "Veteran-Owned Business, Service-Disabled Veteran-Owned Business"
+                ),
+                "confidence": 0.9,
+                "structured_fields": {},
+            },
+        ],
+        [],
+    )
+
+    assert summary["owner_class_known"] is True
+    assert summary["owner_class"] == "Service-Disabled Veteran"
+    assert all(item["source"] != "sam_subaward_reporting" for item in summary["owner_class_evidence"])
+
+
 def test_official_beneficial_owner_relationship_counts_as_named_owner():
     relationship = {
         "type": "beneficially_owned_by",

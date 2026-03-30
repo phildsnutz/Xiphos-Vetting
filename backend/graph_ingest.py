@@ -180,6 +180,7 @@ def build_graph_intelligence_summary(
     graph_summary: dict[str, Any] | None,
     *,
     workflow_lane: str | None = None,
+    satisfied_required_edge_families: list[str] | None = None,
 ) -> dict[str, Any]:
     relationships = (
         [rel for rel in (graph_summary or {}).get("relationships", []) if isinstance(rel, dict)]
@@ -264,11 +265,25 @@ def build_graph_intelligence_summary(
             stale_edges += 1
 
     required_edge_families = list(_REQUIRED_EDGE_FAMILIES_BY_LANE.get(str(workflow_lane or "").strip().lower(), ()))
+    satisfied_required_edge_families = [
+        str(item).strip()
+        for item in (satisfied_required_edge_families or [])
+        if str(item).strip()
+    ]
+    externally_satisfied_edge_families = [
+        family
+        for family in required_edge_families
+        if family in satisfied_required_edge_families and edge_family_counts.get(family, 0) <= 0
+    ]
     present_required_edge_families = [
-        family for family in required_edge_families if edge_family_counts.get(family, 0) > 0
+        family
+        for family in required_edge_families
+        if edge_family_counts.get(family, 0) > 0 or family in satisfied_required_edge_families
     ]
     missing_required_edge_families = [
-        family for family in required_edge_families if edge_family_counts.get(family, 0) <= 0
+        family
+        for family in required_edge_families
+        if edge_family_counts.get(family, 0) <= 0 and family not in satisfied_required_edge_families
     ]
     dominant_edge_family = max(edge_family_counts.items(), key=lambda item: (item[1], item[0]))[0] if edge_family_counts else None
     claim_coverage_pct = round(claim_backed_edges / relationship_count, 4) if relationship_count else 0.0
@@ -285,6 +300,7 @@ def build_graph_intelligence_summary(
         "edge_family_counts": dict(sorted(edge_family_counts.items())),
         "required_edge_families": required_edge_families,
         "present_required_edge_families": present_required_edge_families,
+        "externally_satisfied_edge_families": externally_satisfied_edge_families,
         "missing_required_edge_families": missing_required_edge_families,
         "claim_coverage_pct": claim_coverage_pct,
         "evidence_coverage_pct": evidence_coverage_pct,
@@ -494,6 +510,7 @@ def ingest_enrichment_to_graph(
     vendor_id: str,
     vendor_name: str,
     enrichment_report: dict,
+    vendor_input: dict | None = None,
 ) -> dict:
     """
     Extract entities and relationships from an enrichment report
@@ -558,6 +575,19 @@ def ingest_enrichment_to_graph(
         except Exception as e:
             stats["errors"].append(f"relationship inference: {e}")
 
+        # 6. Modeled case-input graph context for adversarial and low-data scenarios
+        try:
+            _ingest_modeled_case_input_relationships(
+                kg,
+                er,
+                entity_id,
+                vendor_name,
+                vendor_input if isinstance(vendor_input, dict) else {},
+                stats,
+            )
+        except Exception as e:
+            stats["errors"].append(f"modeled case input ingest: {e}")
+
         logger.info(
             "Graph ingest for %s: %d entities, %d relationships, %d errors",
             vendor_name, stats["entities_created"], stats["relationships_created"], len(stats["errors"]),
@@ -568,6 +598,315 @@ def ingest_enrichment_to_graph(
         logger.warning("Graph ingest failed for %s: %s", vendor_name, e)
 
     return stats
+
+
+def _ingest_modeled_case_input_relationships(
+    kg,
+    er,
+    primary_entity_id: str,
+    vendor_name: str,
+    vendor_input: dict[str, Any],
+    stats: dict[str, Any],
+) -> None:
+    if not vendor_input:
+        return
+
+    ownership = vendor_input.get("ownership") if isinstance(vendor_input.get("ownership"), dict) else {}
+    export_auth = (
+        vendor_input.get("export_authorization")
+        if isinstance(vendor_input.get("export_authorization"), dict)
+        else {}
+    )
+    seed_metadata = (
+        vendor_input.get("seed_metadata")
+        if isinstance(vendor_input.get("seed_metadata"), dict)
+        else {}
+    )
+    profile = str(vendor_input.get("profile") or "").strip().lower()
+    product_terms = [
+        str(term).strip()
+        for term in (seed_metadata.get("product_terms") or [])
+        if str(term).strip()
+    ]
+
+    modeled_relationships: list[dict[str, Any]] = []
+
+    shell_layers = int(ownership.get("shell_layers") or 0)
+    pep_connection = bool(ownership.get("pep_connection"))
+    if shell_layers > 0:
+        previous_name = vendor_name
+        previous_type = "company"
+        for layer_index in range(1, shell_layers + 1):
+            layer_name = f"Unresolved Holding Layer {layer_index} for {vendor_name}"
+            modeled_relationships.append(
+                _modeled_case_relationship(
+                    rel_type=REL_OWNED_BY,
+                    source_entity=previous_name,
+                    source_entity_type=previous_type,
+                    target_entity=layer_name,
+                    target_entity_type="holding_company",
+                    evidence=(
+                        f"Case input models {shell_layers} unresolved shell layer(s); "
+                        f"layer {layer_index} remains a placeholder control node until named owners are resolved."
+                    ),
+                    claim_value=f"modeled_shell_layer_{layer_index}",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "ownership.shell_layers",
+                        "shell_layers": shell_layers,
+                        "layer_index": layer_index,
+                    },
+                    confidence=0.72 if layer_index == 1 else 0.66,
+                )
+            )
+            previous_name = layer_name
+            previous_type = "holding_company"
+        if pep_connection:
+            modeled_relationships.append(
+                _modeled_case_relationship(
+                    rel_type=REL_LED_BY,
+                    source_entity=previous_name,
+                    source_entity_type=previous_type,
+                    target_entity=f"Potential PEP-Linked Controller ({vendor_name})",
+                    target_entity_type="person",
+                    evidence=(
+                        "Case input flags PEP-linked control pressure but does not resolve a named controller. "
+                        "A modeled placeholder preserves the control-risk path for adjudication."
+                    ),
+                    claim_value="modeled_pep_control_overlap",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "ownership.pep_connection",
+                        "pep_connection": True,
+                    },
+                    confidence=0.62,
+                )
+            )
+
+    destination_country = str(export_auth.get("destination_country") or "").strip().upper()
+    destination_company = str(export_auth.get("destination_company") or "").strip()
+    export_context = " ".join(
+        str(value or "").strip()
+        for value in (
+            export_auth.get("request_type"),
+            export_auth.get("access_context"),
+            export_auth.get("end_use_summary"),
+            export_auth.get("notes"),
+        )
+        if str(value or "").strip()
+    ).lower()
+    if destination_company:
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_DISTRIBUTED_BY,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=destination_company,
+                target_entity_type="distributor",
+                country=destination_country,
+                evidence=(
+                    "Case input names a distribution or reseller intermediary for the export workflow; "
+                    "the intermediary is retained as a modeled trade/logistics edge."
+                ),
+                claim_value="modeled_distribution_intermediary",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "export_authorization.destination_company",
+                    "destination_country": destination_country,
+                },
+                confidence=0.74,
+            )
+        )
+    if destination_country or export_context:
+        route_suffix = destination_country or "unresolved-destination"
+        modeled_relationships.append(
+            _modeled_case_relationship(
+                rel_type=REL_SHIPS_VIA,
+                source_entity=vendor_name,
+                source_entity_type="company",
+                target_entity=f"{vendor_name} modeled route to {route_suffix}",
+                target_entity_type="shipment_route",
+                country=destination_country,
+                evidence=(
+                    "Case input includes destination and onward-delivery context, so a modeled shipment route is retained "
+                    "until a concrete logistics chain is resolved."
+                ),
+                claim_value="modeled_export_route",
+                structured_fields={
+                    "modeled_case_input": True,
+                    "input_field": "export_authorization.destination_country",
+                    "destination_country": destination_country,
+                    "context": export_context,
+                },
+                confidence=0.7,
+            )
+        )
+
+    if profile == "supplier_cyber_trust" and product_terms:
+        component_term = next(
+            (
+                term
+                for term in product_terms
+                if not any(token in term.lower() for token in ("service", "network", "gateway", "telemetry"))
+            ),
+            product_terms[0],
+        )
+        subsystem_name = f"{vendor_name} mission stack"
+        modeled_relationships.extend(
+            [
+                _modeled_case_relationship(
+                    rel_type=REL_SUPPLIES_COMPONENT,
+                    source_entity=vendor_name,
+                    source_entity_type="company",
+                    target_entity=component_term,
+                    target_entity_type="component",
+                    evidence=(
+                        "Seed product terms identify a vendor-supplied component that should appear in the cyber supply-chain graph."
+                    ),
+                    claim_value="modeled_component_supply",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.product_terms",
+                        "product_term": component_term,
+                    },
+                    confidence=0.78,
+                ),
+                _modeled_case_relationship(
+                    rel_type=REL_SUPPLIES_COMPONENT_TO,
+                    source_entity=vendor_name,
+                    source_entity_type="company",
+                    target_entity=subsystem_name,
+                    target_entity_type="subsystem",
+                    evidence=(
+                        "Seed product terms indicate a vendor-delivered subsystem or mission stack dependency."
+                    ),
+                    claim_value="modeled_subsystem_supply",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.product_terms",
+                        "product_terms": product_terms,
+                    },
+                    confidence=0.76,
+                ),
+                _modeled_case_relationship(
+                    rel_type=REL_INTEGRATED_INTO,
+                    source_entity=component_term,
+                    source_entity_type="component",
+                    target_entity=subsystem_name,
+                    target_entity_type="subsystem",
+                    evidence=(
+                        "Component-to-subsystem integration is modeled from the analyst-supplied product term bundle."
+                    ),
+                    claim_value="modeled_component_integration",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.product_terms",
+                        "product_term": component_term,
+                    },
+                    confidence=0.74,
+                ),
+            ]
+        )
+        network_term = next(
+            (
+                term
+                for term in product_terms
+                if any(token in term.lower() for token in ("network", "gateway", "telemetry", "modem", "mesh"))
+            ),
+            "",
+        )
+        if network_term:
+            modeled_relationships.append(
+                _modeled_case_relationship(
+                    rel_type=REL_DEPENDS_ON_NETWORK,
+                    source_entity=vendor_name,
+                    source_entity_type="company",
+                    target_entity=network_term,
+                    target_entity_type="telecom_provider",
+                    evidence=(
+                        "Seed product terms imply a network or telemetry dependency that should remain visible in the graph."
+                    ),
+                    claim_value="modeled_network_dependency",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.product_terms",
+                        "product_term": network_term,
+                    },
+                    confidence=0.7,
+                )
+            )
+        service_term = next(
+            (
+                term
+                for term in product_terms
+                if any(token in term.lower() for token in ("service", "update", "patch", "signing", "cloud"))
+            ),
+            "",
+        )
+        if service_term:
+            modeled_relationships.append(
+                _modeled_case_relationship(
+                    rel_type=REL_DEPENDS_ON_SERVICE,
+                    source_entity=vendor_name,
+                    source_entity_type="company",
+                    target_entity=service_term,
+                    target_entity_type="service",
+                    evidence=(
+                        "Seed product terms imply a service dependency that should remain explicit in the cyber supply-chain graph."
+                    ),
+                    claim_value="modeled_service_dependency",
+                    structured_fields={
+                        "modeled_case_input": True,
+                        "input_field": "seed_metadata.product_terms",
+                        "product_term": service_term,
+                    },
+                    confidence=0.7,
+                )
+            )
+
+    seen_keys: set[tuple[str, str, str]] = set()
+    for rel in modeled_relationships:
+        rel_key = (
+            str(rel.get("type") or ""),
+            str(rel.get("source_entity") or ""),
+            str(rel.get("target_entity") or ""),
+        )
+        if rel_key in seen_keys:
+            continue
+        seen_keys.add(rel_key)
+        _ingest_relationship(kg, er, primary_entity_id, vendor_name, rel, stats)
+
+
+def _modeled_case_relationship(
+    *,
+    rel_type: str,
+    source_entity: str,
+    source_entity_type: str,
+    target_entity: str,
+    target_entity_type: str,
+    evidence: str,
+    claim_value: str,
+    structured_fields: dict[str, Any],
+    confidence: float,
+    country: str = "",
+) -> dict[str, Any]:
+    return {
+        "type": rel_type,
+        "source_entity": source_entity,
+        "source_entity_type": source_entity_type,
+        "target_entity": target_entity,
+        "target_entity_type": target_entity_type,
+        "country": country,
+        "data_source": "case_input_model",
+        "confidence": confidence,
+        "evidence": evidence,
+        "claim_value": claim_value,
+        "contradiction_state": "unreviewed",
+        "structured_fields": structured_fields,
+        "source_class": "analyst_fixture",
+        "authority_level": "analyst_curated_fixture",
+        "access_model": "case_input",
+    }
 
 
 def _extract_aliases(vendor_name: str, report: dict) -> list[str]:
@@ -1499,34 +1838,48 @@ def get_vendor_graph_summary(
             summary["intelligence"] = build_graph_intelligence_summary(summary)
             return summary
 
-        # Get the full network for each entity
-        all_entities = {}
-        all_relationships = []
-        root_entity_id = entities[0].id if entities else None
-
-        for entity in entities:
-            network = kg.get_entity_network(
-                entity.id,
+        root_entity_ids = [entity.id for entity in entities if getattr(entity, "id", "")]
+        if callable(getattr(kg, "get_multi_entity_network", None)):
+            network = kg.get_multi_entity_network(
+                root_entity_ids,
                 depth=depth,
-                include_provenance=include_provenance,
+                include_provenance=False,
                 max_claim_records=max_claim_records,
                 max_evidence_records=max_evidence_records,
             )
-            all_entities.update(network.get("entities", {}))
-            all_relationships.extend(network.get("relationships", []))
+            all_entities = dict(network.get("entities", {}) or {})
+            all_relationships = list(network.get("relationships", []) or [])
+            root_entity_id = network.get("root_entity_id")
+        else:
+            # Legacy fallback for older knowledge_graph modules.
+            all_entities = {}
+            all_relationships = []
+            root_entity_id = entities[0].id if entities else None
+            for entity in entities:
+                network = kg.get_entity_network(
+                    entity.id,
+                    depth=depth,
+                    include_provenance=False,
+                    max_claim_records=max_claim_records,
+                    max_evidence_records=max_evidence_records,
+                )
+                all_entities.update(network.get("entities", {}))
+                all_relationships.extend(network.get("relationships", []))
 
         unique_rels = _aggregate_graph_relationships(all_relationships)
-        if vendor_id and unique_rels and callable(getattr(kg, "attach_relationship_provenance", None)):
-            # Even "light" graph reads need vendor-scoped claim hydration before filtering.
-            # Otherwise globally deduped entity networks leak stale control edges from older cases.
-            needs_scope_hydration = any(not (rel.get("claim_records") or []) for rel in unique_rels)
-            if needs_scope_hydration:
-                unique_rels = kg.attach_relationship_provenance(
-                    unique_rels,
-                    max_claim_records=max(1, int(max_claim_records or 1)),
-                    max_evidence_records=max(1, int(max_evidence_records or 1)),
-                )
-        unique_rels = _filter_relationships_to_vendor_claims(unique_rels, vendor_id)
+        unique_rels = _prefilter_relationships_to_vendor_scope(kg, unique_rels, vendor_id)
+        if (
+            include_provenance
+            and vendor_id
+            and unique_rels
+            and callable(getattr(kg, "attach_relationship_provenance", None))
+        ):
+            unique_rels = kg.attach_relationship_provenance(
+                unique_rels,
+                max_claim_records=max(1, int(max_claim_records or 1)),
+                max_evidence_records=max(1, int(max_evidence_records or 1)),
+            )
+            unique_rels = _filter_relationships_to_vendor_claims(unique_rels, vendor_id)
         if not include_provenance:
             for rel in unique_rels:
                 rel["claim_records"] = []
@@ -1561,7 +1914,7 @@ def get_vendor_graph_summary(
         summary = {
             "vendor_id": vendor_id,
             "root_entity_id": root_entity_id,
-            "root_entity_ids": [entity.id for entity in entities],
+            "root_entity_ids": root_entity_ids,
             "graph_depth": depth,
             "entity_count": len(all_entities),
             "relationship_count": len(unique_rels),
@@ -1576,6 +1929,58 @@ def get_vendor_graph_summary(
     except Exception as e:
         logger.warning("Graph summary failed for vendor %s: %s", vendor_id, e)
         return {"error": str(e)}
+
+
+def _prefilter_relationships_to_vendor_scope(kg: Any, relationships: list[dict], vendor_id: str) -> list[dict]:
+    if not vendor_id or not relationships or not callable(getattr(kg, "get_kg_conn", None)):
+        return relationships
+
+    relationship_keys = {
+        (
+            str(rel.get("source_entity_id") or ""),
+            str(rel.get("target_entity_id") or ""),
+            str(rel.get("rel_type") or ""),
+        )
+        for rel in relationships
+    }
+    if not relationship_keys:
+        return relationships
+
+    claimed_keys: set[tuple[str, str, str]] = set()
+    vendor_claim_keys: set[tuple[str, str, str]] = set()
+    with kg.get_kg_conn() as conn:
+        claim_rows = conn.execute(
+            "SELECT source_entity_id, target_entity_id, rel_type, vendor_id FROM kg_claims"
+        ).fetchall()
+    for row in claim_rows:
+        key = (
+            str(row["source_entity_id"] if not isinstance(row, tuple) else row[0] or ""),
+            str(row["target_entity_id"] if not isinstance(row, tuple) else row[1] or ""),
+            str(row["rel_type"] if not isinstance(row, tuple) else row[2] or ""),
+        )
+        if key not in relationship_keys:
+            continue
+        claimed_keys.add(key)
+        row_vendor_id = str(row["vendor_id"] if not isinstance(row, tuple) else row[3] or "")
+        if row_vendor_id == vendor_id:
+            vendor_claim_keys.add(key)
+
+    filtered: list[dict] = []
+    for rel in relationships:
+        key = (
+            str(rel.get("source_entity_id") or ""),
+            str(rel.get("target_entity_id") or ""),
+            str(rel.get("rel_type") or ""),
+        )
+        if key in vendor_claim_keys:
+            filtered.append(rel)
+            continue
+        if key not in claimed_keys:
+            rel_copy = dict(rel)
+            rel_copy["legacy_unscoped"] = True
+            rel_copy["claim_records"] = []
+            filtered.append(rel_copy)
+    return filtered
 
 
 def _aggregate_graph_relationships(all_relationships: list[dict]) -> list[dict]:
@@ -1859,6 +2264,11 @@ def backfill_all_vendors() -> dict:
         "vendors_processed": 0,
         "total_entities": 0,
         "total_relationships": 0,
+        "legacy_relationships_scanned": 0,
+        "legacy_relationships_backfilled": 0,
+        "legacy_claims_backfilled": 0,
+        "legacy_evidence_backfilled": 0,
+        "legacy_relationships_without_vendor_scope": 0,
         "errors": [],
     }
 
@@ -1891,6 +2301,19 @@ def backfill_all_vendors() -> dict:
                total_stats["vendors_processed"],
                total_stats["total_entities"],
                total_stats["total_relationships"])
+
+    try:
+        legacy_stats = kg.backfill_legacy_relationship_claims()
+        total_stats["legacy_relationships_scanned"] = int(legacy_stats.get("legacy_relationships_scanned") or 0)
+        total_stats["legacy_relationships_backfilled"] = int(legacy_stats.get("relationships_backfilled") or 0)
+        total_stats["legacy_claims_backfilled"] = int(legacy_stats.get("claims_backfilled") or 0)
+        total_stats["legacy_evidence_backfilled"] = int(legacy_stats.get("evidence_backfilled") or 0)
+        total_stats["legacy_relationships_without_vendor_scope"] = int(
+            legacy_stats.get("relationships_without_vendor_scope") or 0
+        )
+    except Exception as e:
+        total_stats["errors"].append(f"legacy-claim-backfill: {e}")
+        logger.warning("Legacy graph claim backfill failed: %s", e)
 
     return total_stats
 

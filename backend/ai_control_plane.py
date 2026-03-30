@@ -219,6 +219,7 @@ def _graph_anomalies(passport: dict[str, Any] | None) -> list[dict[str, Any]]:
         return []
     graph = passport.get("graph") or {}
     claim_health = graph.get("claim_health") or {}
+    intelligence = graph.get("intelligence") if isinstance(graph.get("intelligence"), dict) else {}
     anomalies: list[dict[str, Any]] = []
     if int(graph.get("relationship_count") or 0) < 3:
         anomalies.append(
@@ -250,6 +251,32 @@ def _graph_anomalies(passport: dict[str, Any] | None) -> list[dict[str, Any]]:
                 "code": "no_control_paths",
                 "severity": "medium",
                 "message": "No control-path edges are captured yet.",
+            }
+        )
+    missing_edge_families = intelligence.get("missing_required_edge_families") if isinstance(intelligence.get("missing_required_edge_families"), list) else []
+    if missing_edge_families:
+        anomalies.append(
+            {
+                "code": "missing_graph_edge_families",
+                "severity": "high" if len(missing_edge_families) >= 2 else "medium",
+                "message": "Required graph edge families are missing for this lane: "
+                + ", ".join(str(item).replace("_", " ") for item in missing_edge_families[:4]),
+            }
+        )
+    if float(intelligence.get("claim_coverage_pct") or 0.0) < 0.5 and int(graph.get("relationship_count") or 0) > 0:
+        anomalies.append(
+            {
+                "code": "graph_claim_coverage_thin",
+                "severity": "medium",
+                "message": "Too many graph edges are not backed by scoped claim records yet.",
+            }
+        )
+    if int(intelligence.get("legacy_unscoped_edge_count") or 0) > 0:
+        anomalies.append(
+            {
+                "code": "legacy_graph_edges",
+                "severity": "medium",
+                "message": f"{int(intelligence.get('legacy_unscoped_edge_count') or 0)} legacy unscoped graph edge(s) are still present.",
             }
         )
     return anomalies

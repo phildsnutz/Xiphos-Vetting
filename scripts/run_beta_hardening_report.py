@@ -21,6 +21,7 @@ import json
 import subprocess
 import sys
 import time
+import urllib.request
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -114,6 +115,8 @@ def parse_args() -> argparse.Namespace:
         "--gauntlet-spec-file",
         default=str(ROOT / "fixtures" / "customer_demo" / "query_to_dossier_canary_pack.json"),
     )
+    parser.add_argument("--require-neo4j", action="store_true")
+    parser.add_argument("--allow-missing-neo4j", dest="require_neo4j", action="store_false")
     parser.add_argument("--warm-monitoring", action="store_true", help="Attempt one local monitoring pass before warning")
     parser.add_argument("--print-json", action="store_true", help="Print the JSON summary to stdout")
     return parser.parse_args()
@@ -355,8 +358,33 @@ def _gate_success(verdict: str, success_values: set[str]) -> bool:
     return verdict in success_values | {"SKIPPED"}
 
 
+def probe_neo4j_health(base_url: str) -> dict[str, Any]:
+    req = urllib.request.Request(f"{base_url.rstrip('/')}/api/neo4j/health", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read()
+            payload = json.loads(body.decode("utf-8")) if body else {}
+            return {
+                "http_status": resp.status,
+                "neo4j_available": bool(payload.get("neo4j_available")),
+                "status": str(payload.get("status") or ""),
+                "timestamp": str(payload.get("timestamp") or ""),
+            }
+    except Exception as exc:
+        return {
+            "http_status": 0,
+            "neo4j_available": False,
+            "status": "probe_failed",
+            "timestamp": "",
+            "error": str(exc),
+        }
+
+
 def _overall_verdict(summary: dict[str, Any]) -> str:
     if summary["cases_with_failures"] > 0:
+        return "FAIL"
+    neo4j = summary.get("neo4j") if isinstance(summary.get("neo4j"), dict) else {}
+    if bool(neo4j.get("required")) and not bool(neo4j.get("neo4j_available")):
         return "FAIL"
     gauntlet_verdict = str(summary["query_to_dossier"]["overall_verdict"])
     readiness_verdict = str(summary["readiness"]["overall_verdict"])
@@ -386,6 +414,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Cases without warmed AI yet: {summary['ai_not_warmed']}",
         f"- Cases missing monitoring history: {summary['monitoring_missing']}",
         f"- Total warnings: {summary['warning_count']}",
+        "",
+        "## Neo4j",
+        "",
+        f"- Required: **{'yes' if summary['neo4j']['required'] else 'no'}**",
+        f"- Available: **{'yes' if summary['neo4j']['neo4j_available'] else 'no'}**",
+        f"- Status: `{summary['neo4j']['status']}`",
         "",
         "## Query To Dossier",
         "",
@@ -579,6 +613,8 @@ def main() -> int:
 
     results = [run_case(vendor, args.graph_depth, warm_monitoring=args.warm_monitoring) for vendor in vendors]
     summary = build_summary(results, args.graph_depth)
+    summary["neo4j"] = probe_neo4j_health(args.gauntlet_base_url)
+    summary["neo4j"]["required"] = bool(args.require_neo4j)
     summary["query_to_dossier"] = run_query_to_dossier(args)
     summary["readiness"] = run_readiness(args)
 

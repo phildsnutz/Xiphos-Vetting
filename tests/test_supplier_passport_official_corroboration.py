@@ -12,6 +12,15 @@ if BACKEND_DIR not in sys.path:
 supplier_passport = importlib.import_module("supplier_passport")
 
 
+def test_light_passport_mode_keeps_minimal_graph_provenance():
+    settings = supplier_passport._passport_mode_settings("light")
+
+    assert settings["graph_depth"] == 1
+    assert settings["include_provenance"] is True
+    assert settings["max_claim_records"] == 1
+    assert settings["max_evidence_records"] == 1
+
+
 def test_official_corroboration_counts_uk_and_canada_registry_fields():
     identifier_status = {
         "uk_company_number": {

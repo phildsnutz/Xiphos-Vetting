@@ -148,8 +148,22 @@ def extract_owner_class_evidence(findings: list[dict[str, Any]] | None) -> list[
     evidence: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for finding in findings or []:
+        source = str(finding.get("source") or "").strip().lower()
+        category = str(finding.get("category") or "").strip().lower()
+        title = str(finding.get("title") or "")
+        detail = str(finding.get("detail") or "")
         structured = finding.get("structured_fields") if isinstance(finding.get("structured_fields"), dict) else {}
-        descriptor = normalize_owner_class(structured.get("ownership_descriptor") or finding.get("detail") or "")
+        descriptor_text = structured.get("ownership_descriptor")
+        if not descriptor_text:
+            if source == "sam_gov" and category == "registration":
+                descriptor_text = detail
+            elif source in {"public_html_ownership", "public_search_ownership"}:
+                descriptor_text = detail
+            else:
+                # Do not let lower-tier supply chain or generic snippet text
+                # rewrite the subject vendor's owner class.
+                continue
+        descriptor = normalize_owner_class(descriptor_text)
         if not descriptor:
             continue
         artifact_ref = str(finding.get("artifact_ref") or finding.get("url") or "")
@@ -164,8 +178,8 @@ def extract_owner_class_evidence(findings: list[dict[str, Any]] | None) -> list[
                 "authority_level": str(finding.get("authority_level") or ""),
                 "access_model": str(finding.get("access_model") or ""),
                 "confidence": float(finding.get("confidence") or 0.0),
-                "title": str(finding.get("title") or ""),
-                "detail": str(finding.get("detail") or ""),
+                "title": title,
+                "detail": detail,
                 "artifact_ref": artifact_ref,
                 "scope": str(structured.get("ownership_descriptor_scope") or ""),
             }

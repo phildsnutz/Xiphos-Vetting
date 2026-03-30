@@ -935,7 +935,12 @@ def _ingest_case_graph(case_id: str, vendor: dict, report: dict) -> dict | None:
     try:
         from graph_ingest import ingest_enrichment_to_graph
 
-        graph_stats = ingest_enrichment_to_graph(case_id, vendor.get("name", ""), report)
+        graph_stats = ingest_enrichment_to_graph(
+            case_id,
+            vendor.get("name", ""),
+            report,
+            vendor_input=vendor.get("vendor_input") if isinstance(vendor.get("vendor_input"), dict) else {},
+        )
         LOGGER.info("Graph ingest for %s: %s", case_id, graph_stats)
         return graph_stats
     except Exception as err:

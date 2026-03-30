@@ -1,7 +1,14 @@
 [
   {
     "flow_name": "counterparty_defense",
-    "expected_workflow_lane": "counterparty"
+    "enabled_modes": ["local-auth"],
+    "expected_workflow_lane": "counterparty",
+    "run_enrich_and_score": true,
+    "expected_graph": {
+      "min_network_relationship_count": 1,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
+    }
   },
   {
     "flow_name": "yorktown_descriptor_only",
@@ -28,11 +35,18 @@
       "min_ownership_resolution_pct": 0.5,
       "min_control_resolution_pct": 0.3,
       "require_owner_class_evidence": true
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 1,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
     }
   },
   {
     "flow_name": "export_trade_compliance",
+    "enabled_modes": ["local-auth"],
     "expected_workflow_lane": "export",
+    "run_enrich_and_score": true,
     "case_payload": {
       "profile": "trade_compliance",
       "export_authorization": {
@@ -40,16 +54,32 @@
         "destination_country": "AE",
         "classification_guess": "EAR99"
       }
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 2,
+      "require_edge_families": ["ownership_control", "trade_and_logistics"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
     }
   },
   {
     "flow_name": "cyber_supplier_review",
+    "enabled_modes": ["local-auth"],
     "expected_workflow_lane": "cyber",
+    "run_enrich_and_score": true,
     "case_payload": {
       "profile": "supplier_cyber_trust",
       "seed_metadata": {
         "product_terms": ["network appliance firmware", "satellite modem"]
       }
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 3,
+      "require_edge_families": ["ownership_control", "cyber_supply_chain"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
     }
   }
 ]

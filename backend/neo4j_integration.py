@@ -56,6 +56,42 @@ RELATIONSHIP_WEIGHTS = {
     "regulated_by": 0.25,
     "mentioned_with": 0.15,
 }
+NEO4J_ENTITY_BATCH_SIZE = max(1, int(os.environ.get("XIPHOS_NEO4J_ENTITY_BATCH_SIZE", "500") or "500"))
+NEO4J_REL_BATCH_SIZE = max(1, int(os.environ.get("XIPHOS_NEO4J_REL_BATCH_SIZE", "250") or "250"))
+NEO4J_REL_SINGLE_RETRIES = max(1, int(os.environ.get("XIPHOS_NEO4J_REL_SINGLE_RETRIES", "3") or "3"))
+_REL_BATCH_SIZE_OVERRIDES = {
+    "FILED_WITH": max(1, int(os.environ.get("XIPHOS_NEO4J_FILED_WITH_BATCH_SIZE", "100") or "100")),
+}
+
+
+def get_neo4j_database() -> Optional[str]:
+    """
+    Resolve the target Neo4j database name.
+
+    Aura free instances often use the instance ID as both the username and the
+    database name. If no explicit database is configured, derive it from the
+    non-default user before falling back to the server default.
+    """
+    explicit = os.environ.get("NEO4J_DATABASE", "").strip()
+    if explicit:
+        return explicit
+
+    user = os.environ.get("NEO4J_USER", "").strip()
+    if user and user.lower() != "neo4j":
+        return user
+    return None
+
+
+def _neo4j_session_kwargs() -> dict[str, Any]:
+    database = get_neo4j_database()
+    if database:
+        return {"database": database}
+    return {}
+
+
+def _verify_driver_connectivity(driver: Driver) -> None:
+    with driver.session(**_neo4j_session_kwargs()) as session:
+        session.run("RETURN 1 AS ok").single()
 
 
 def is_neo4j_available() -> bool:
@@ -76,9 +112,9 @@ def is_neo4j_available() -> bool:
 
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password), max_connection_pool_size=5)
-        driver.verify_connectivity()
+        _verify_driver_connectivity(driver)
         driver.close()
-        logger.info("Neo4j connectivity verified")
+        logger.info("Neo4j connectivity verified for database %s", get_neo4j_database() or "<default>")
         return True
     except (ServiceUnavailable, AuthError) as e:
         logger.warning(f"Neo4j unavailable: {e}")
@@ -119,13 +155,108 @@ def get_neo4j_driver() -> Optional[Driver]:
                 max_connection_pool_size=10,
                 connection_timeout=30,
             )
-            driver.verify_connectivity()
+            _verify_driver_connectivity(driver)
             _driver = driver
             logger.info(f"Neo4j driver initialized: {uri}")
             return _driver
         except Exception as e:
             logger.error(f"Failed to initialize Neo4j driver: {e}")
             return None
+
+
+def _is_deadlock_error(exc: Exception) -> bool:
+    code = str(getattr(exc, "code", "") or "")
+    message = str(exc)
+    return "DeadlockDetected" in code or "DeadlockDetected" in message
+
+
+def _relationship_merge_cypher(rel_type: str, single: bool = False) -> str:
+    if single:
+        return f"""
+        MATCH (source:Entity {{id: $rel.source_entity_id}})
+        MATCH (target:Entity {{id: $rel.target_entity_id}})
+        MERGE (source)-[r:{rel_type} {{kg_id: $rel.kg_id}}]->(target)
+        SET r.rel_type = $rel.rel_type,
+            r.source_entity_id = $rel.source_entity_id,
+            r.target_entity_id = $rel.target_entity_id,
+            r.confidence = $rel.confidence,
+            r.data_source = $rel.data_source,
+            r.evidence = $rel.evidence,
+            r.created_at = $rel.created_at,
+            r.updated_at = toString(datetime())
+        RETURN count(r) as count
+        """
+    return f"""
+    UNWIND $rels AS rel
+    WITH rel
+    ORDER BY rel.source_entity_id, rel.target_entity_id, rel.kg_id
+    MATCH (source:Entity {{id: rel.source_entity_id}})
+    MATCH (target:Entity {{id: rel.target_entity_id}})
+    MERGE (source)-[r:{rel_type} {{kg_id: rel.kg_id}}]->(target)
+    SET r.rel_type = rel.rel_type,
+        r.source_entity_id = rel.source_entity_id,
+        r.target_entity_id = rel.target_entity_id,
+        r.confidence = rel.confidence,
+        r.data_source = rel.data_source,
+        r.evidence = rel.evidence,
+        r.created_at = rel.created_at,
+        r.updated_at = toString(datetime())
+    RETURN count(r) as count
+    """
+
+
+def _run_relationship_batch(driver: Driver, rel_type: str, rels: List[Dict[str, Any]]) -> int:
+    with get_neo4j_session(driver) as session:
+        result = session.run(_relationship_merge_cypher(rel_type), rels=rels)
+        record = result.single()
+        return int((record or {}).get("count") or len(rels))
+
+
+def _relationship_batch_size(rel_type: str) -> int:
+    normalized = str(rel_type or "").strip().upper()
+    return _REL_BATCH_SIZE_OVERRIDES.get(normalized, NEO4J_REL_BATCH_SIZE)
+
+
+def _run_single_relationship(driver: Driver, rel_type: str, rel: Dict[str, Any]) -> int:
+    last_exc: Optional[Exception] = None
+    for attempt in range(NEO4J_REL_SINGLE_RETRIES):
+        try:
+            with get_neo4j_session(driver) as session:
+                result = session.run(_relationship_merge_cypher(rel_type, single=True), rel=rel)
+                record = result.single()
+                return int((record or {}).get("count") or 1)
+        except Exception as exc:  # pragma: no cover - retry logic tested via batch splitter
+            last_exc = exc
+            if not _is_deadlock_error(exc) or attempt == NEO4J_REL_SINGLE_RETRIES - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+    raise last_exc or RuntimeError("single relationship sync failed")
+
+
+def _sync_relationships_serially(driver: Driver, rel_type: str, rels: List[Dict[str, Any]]) -> int:
+    synced = 0
+    for rel in rels:
+        synced += _run_single_relationship(driver, rel_type, rel)
+    return synced
+
+
+def _sync_relationship_chunk(driver: Driver, rel_type: str, rels: List[Dict[str, Any]]) -> int:
+    if not rels:
+        return 0
+    try:
+        return _run_relationship_batch(driver, rel_type, rels)
+    except Exception as exc:
+        if not _is_deadlock_error(exc):
+            raise
+        if len(rels) == 1:
+            logger.warning("Deadlock on single %s relationship; retrying row write", rel_type)
+            return _run_single_relationship(driver, rel_type, rels[0])
+        logger.warning(
+            "Deadlock syncing %s chunk of %s rows; falling back to serial writes",
+            rel_type,
+            len(rels),
+        )
+        return _sync_relationships_serially(driver, rel_type, rels)
 
 
 def close_driver() -> None:
@@ -139,12 +270,12 @@ def close_driver() -> None:
 
 
 @contextmanager
-def get_neo4j_session() -> Session:
+def get_neo4j_session(driver: Optional[Driver] = None) -> Session:
     """Context manager for Neo4j sessions."""
-    driver = get_neo4j_driver()
-    if driver is None:
+    active_driver = driver or get_neo4j_driver()
+    if active_driver is None:
         raise RuntimeError("Neo4j driver not initialized")
-    session = driver.session()
+    session = active_driver.session(**_neo4j_session_kwargs())
     try:
         yield session
     finally:
@@ -187,7 +318,7 @@ def sync_entities_to_neo4j(entities: List[Dict[str, Any]]) -> Dict[str, Any]:
                 return _json.dumps(value, default=str)
             return str(value)
 
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             # Normalize entities: flatten complex props, assign labels
             label_map = {
                 "government_agency": "GovernmentAgency",
@@ -259,9 +390,11 @@ def sync_entities_to_neo4j(entities: List[Dict[str, Any]]) -> Dict[str, Any]:
                     e.updated_at = toString(datetime())
                 RETURN count(e) as count
                 """
-                result = session.run(cypher, entities=batch)
-                record = result.single()
-                total_synced += record["count"] if record else len(batch)
+                for start in range(0, len(batch), NEO4J_ENTITY_BATCH_SIZE):
+                    entity_chunk = batch[start : start + NEO4J_ENTITY_BATCH_SIZE]
+                    result = session.run(cypher, entities=entity_chunk)
+                    record = result.single()
+                    total_synced += record["count"] if record else len(entity_chunk)
 
             synced = total_synced
 
@@ -304,44 +437,53 @@ def sync_relationships_to_neo4j(relationships: List[Dict[str, Any]]) -> Dict[str
         import json as _json
         from collections import defaultdict
 
-        with driver.session() as session:
-            # Group relationships by type for static Cypher (no APOC needed)
-            by_type = defaultdict(list)
-            for rel in relationships:
-                rel_type = (rel.get("rel_type") or "").upper().replace(" ", "_")
-                if not rel_type:
-                    rel_type = "RELATED_TO"
-                evidence = rel.get("evidence", "")
-                if isinstance(evidence, (dict, list)):
-                    evidence = _json.dumps(evidence, default=str)
-                by_type[rel_type].append({
-                    "source_entity_id": rel.get("source_entity_id", ""),
-                    "target_entity_id": rel.get("target_entity_id", ""),
-                    "confidence": float(rel.get("confidence", 0) or 0),
-                    "data_source": str(rel.get("data_source", "")),
-                    "evidence": str(evidence or ""),
-                    "created_at": str(rel.get("created_at", "")),
-                })
+        # Group relationships by type for static Cypher (no APOC needed)
+        by_type = defaultdict(list)
+        for rel in relationships:
+            rel_type = (rel.get("rel_type") or "").upper().replace(" ", "_")
+            if not rel_type:
+                rel_type = "RELATED_TO"
+            evidence = rel.get("evidence", "")
+            if isinstance(evidence, (dict, list)):
+                evidence = _json.dumps(evidence, default=str)
+            rel_id = rel.get("id")
+            rel_key = str(rel_id) if rel_id is not None else "|".join(
+                [
+                    str(rel.get("source_entity_id", "")),
+                    str(rel.get("target_entity_id", "")),
+                    str(rel.get("rel_type", "")),
+                    str(rel.get("data_source", "")),
+                    str(evidence or ""),
+                    str(rel.get("created_at", "")),
+                ]
+            )
+            by_type[rel_type].append({
+                "kg_id": rel_key,
+                "source_entity_id": rel.get("source_entity_id", ""),
+                "target_entity_id": rel.get("target_entity_id", ""),
+                "rel_type": str(rel.get("rel_type", "")),
+                "confidence": float(rel.get("confidence", 0) or 0),
+                "data_source": str(rel.get("data_source", "")),
+                "evidence": str(evidence or ""),
+                "created_at": str(rel.get("created_at", "")),
+            })
 
-            total_synced = 0
-            for rel_type, batch in by_type.items():
-                cypher = f"""
-                UNWIND $rels AS rel
-                MATCH (source:Entity {{id: rel.source_entity_id}})
-                MATCH (target:Entity {{id: rel.target_entity_id}})
-                MERGE (source)-[r:{rel_type}]->(target)
-                SET r.confidence = rel.confidence,
-                    r.data_source = rel.data_source,
-                    r.evidence = rel.evidence,
-                    r.created_at = rel.created_at,
-                    r.updated_at = toString(datetime())
-                RETURN count(r) as count
-                """
-                result = session.run(cypher, rels=batch)
-                record = result.single()
-                total_synced += record["count"] if record else len(batch)
+        total_synced = 0
+        for rel_type, batch in by_type.items():
+            ordered_batch = sorted(
+                batch,
+                key=lambda rel: (
+                    rel["source_entity_id"],
+                    rel["target_entity_id"],
+                    rel["kg_id"],
+                ),
+            )
+            batch_size = _relationship_batch_size(rel_type)
+            for start in range(0, len(ordered_batch), batch_size):
+                rel_chunk = ordered_batch[start : start + batch_size]
+                total_synced += _sync_relationship_chunk(driver, rel_type, rel_chunk)
 
-            synced = total_synced
+        synced = total_synced
 
     except Exception as e:
         logger.error(f"Error syncing relationships to Neo4j: {e}")
@@ -352,6 +494,39 @@ def sync_relationships_to_neo4j(relationships: List[Dict[str, Any]]) -> Dict[str
     logger.info(f"Relationship sync: {synced} synced, {failed} failed ({duration_ms:.0f}ms)")
 
     return {"synced_count": synced, "failed_count": failed, "duration_ms": duration_ms}
+
+
+def clear_neo4j_relationships() -> Dict[str, Any]:
+    """
+    Remove all mirrored relationships before a provenance-preserving full rebuild.
+    """
+    driver = get_neo4j_driver()
+    if driver is None:
+        logger.warning("Neo4j not available, skipping relationship clear")
+        return {"deleted_count": 0, "duration_ms": 0}
+
+    start_time = time.time()
+    deleted_count = 0
+    try:
+        with get_neo4j_session(driver) as session:
+            result = session.run(
+                """
+                MATCH ()-[r]->()
+                WITH count(r) AS existing_count
+                MATCH ()-[r]->()
+                DELETE r
+                RETURN existing_count
+                """
+            )
+            record = result.single()
+            deleted_count = int((record or {}).get("existing_count") or 0)
+    except Exception as e:
+        logger.error(f"Error clearing Neo4j relationships: {e}")
+        return {"deleted_count": 0, "duration_ms": (time.time() - start_time) * 1000, "error": str(e)}
+
+    duration_ms = (time.time() - start_time) * 1000
+    logger.info(f"Cleared {deleted_count} Neo4j relationships ({duration_ms:.0f}ms)")
+    return {"deleted_count": deleted_count, "duration_ms": duration_ms}
 
 
 def full_sync_from_postgres() -> Dict[str, Any]:
@@ -380,6 +555,7 @@ def full_sync_from_postgres() -> Dict[str, Any]:
         entity_result = sync_entities_to_neo4j(entities)
         entities_synced = entity_result["synced_count"]
 
+        clear_neo4j_relationships()
         rel_result = sync_relationships_to_neo4j(relationships)
         relationships_synced = rel_result["synced_count"]
 
@@ -465,7 +641,7 @@ def get_entity_network_neo4j(entity_id: str, depth: int = 2) -> Optional[Dict[st
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             # Step 1: Find all nodes within `depth` hops
             node_cypher = f"""
             MATCH path = (center:Entity {{id: $entity_id}})-[*1..{depth}]-(connected:Entity)
@@ -553,7 +729,7 @@ def find_shortest_path_neo4j(
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             cypher = f"""
             MATCH (source:Entity {{id: $source_id}})
             MATCH (target:Entity {{id: $target_id}})
@@ -597,7 +773,7 @@ def find_shared_connections_neo4j(entity_id_a: str, entity_id_b: str) -> Optiona
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             cypher = """
             MATCH (a:Entity {id: $entity_id_a})-[*1..3]-(shared:Entity)-[*1..3]-(b:Entity {id: $entity_id_b})
             WITH DISTINCT shared
@@ -641,7 +817,7 @@ def compute_network_risk_neo4j(entity_id: str, max_hops: int = 2) -> Optional[Di
     start_time = time.time()
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             # Get entity with initial risk
             cypher_entity = """
             MATCH (e:Entity {id: $entity_id})
@@ -718,7 +894,7 @@ def compute_entity_centrality_neo4j(entity_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             cypher = """
             MATCH (e:Entity {id: $entity_id})
             OPTIONAL MATCH (e)-[r]-(neighbor:Entity)
@@ -778,7 +954,7 @@ def get_top_central_entities_neo4j(limit: int = 20) -> Optional[List[Dict[str, A
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             cypher = """
             MATCH (e:Entity)-[r]-(neighbor:Entity)
             WITH e, count(DISTINCT neighbor) AS degree, count(r) AS total_rels
@@ -825,7 +1001,7 @@ def get_entity_neighbors_neo4j(entity_id: str, rel_types: Optional[List[str]] = 
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             if rel_types:
                 # Build Cypher with relationship type filter
                 rel_types_upper = [rt.upper().replace(" ", "_") for rt in rel_types]
@@ -877,7 +1053,7 @@ def get_graph_stats_neo4j() -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        with driver.session() as session:
+        with get_neo4j_session(driver) as session:
             cypher_nodes = """
             MATCH (n:Entity)
             WITH CASE
@@ -885,7 +1061,7 @@ def get_graph_stats_neo4j() -> Optional[Dict[str, Any]]:
                 THEN [label IN labels(n) WHERE label <> 'Entity'][0]
                 ELSE 'Entity'
             END AS label
-            RETURN label, count(n) as count
+            RETURN label, count(*) as count
             """
 
             cypher_rels = """

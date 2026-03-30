@@ -278,6 +278,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Cases with failures: {summary['cases_with_failures']}",
         f"- Warning count: {summary['warning_count']}",
         "",
+        "## Neo4j",
+        "",
+        f"- Required: **{'yes' if summary['neo4j']['required'] else 'no'}**",
+        f"- Available: **{'yes' if summary['neo4j']['neo4j_available'] else 'no'}**",
+        f"- Status: `{summary['neo4j']['status']}`",
+        "",
         "## Query To Dossier",
         "",
         f"- Gauntlet verdict: **{summary['query_to_dossier']['overall_verdict']}**",
@@ -454,6 +460,9 @@ def _gate_success(verdict: str, success_values: set[str]) -> bool:
 def _overall_verdict(summary: dict[str, Any]) -> str:
     if summary["cases_with_failures"] > 0:
         return "FAIL"
+    neo4j = summary.get("neo4j") if isinstance(summary.get("neo4j"), dict) else {}
+    if bool(neo4j.get("required")) and not bool(neo4j.get("neo4j_available")):
+        return "FAIL"
     gauntlet_verdict = str(summary["query_to_dossier"]["overall_verdict"])
     readiness_verdict = str(summary["readiness"]["overall_verdict"])
     prime_time_verdict = str(summary["prime_time"]["prime_time_verdict"])
@@ -494,6 +503,8 @@ def main() -> int:
         "readiness": run_readiness(args),
         "cases": results,
     }
+    summary["neo4j"] = dict(summary["query_to_dossier"].get("neo4j_summary") or {})
+    summary["neo4j"]["required"] = bool(summary["query_to_dossier"].get("require_neo4j", True))
     summary["prime_time"] = run_prime_time(args, summary["readiness"], summary["query_to_dossier"], report_dir, stamp)
     summary["overall_verdict"] = _overall_verdict(summary)
 

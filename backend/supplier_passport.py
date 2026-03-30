@@ -297,9 +297,11 @@ def _passport_mode_settings(mode: str) -> dict[str, Any]:
     if normalized == "light":
         return {
             "graph_depth": 1,
-            "include_provenance": False,
-            "max_claim_records": 0,
-            "max_evidence_records": 0,
+            # Light mode still needs minimal provenance hydration so graph
+            # intelligence metrics are truthful instead of defaulting to zero.
+            "include_provenance": True,
+            "max_claim_records": 1,
+            "max_evidence_records": 1,
             "include_workflow_control": False,
             "include_network_risk": False,
             "include_tribunal": False,
@@ -1096,8 +1098,20 @@ def build_supplier_passport(
     }
 
     posture = _passport_posture(score, latest_decision=latest_decision)
+    satisfied_required_edge_families: list[str] = []
+    if (
+        bool(ownership_oci_summary.get("named_beneficial_owner_known"))
+        or bool(ownership_oci_summary.get("owner_class_known"))
+        or float(ownership_oci_summary.get("ownership_resolution_pct") or 0.0) > 0.0
+        or float(ownership_oci_summary.get("control_resolution_pct") or 0.0) > 0.0
+    ):
+        satisfied_required_edge_families.append("ownership_control")
     graph_intelligence = (
-        build_graph_intelligence_summary(graph_summary, workflow_lane=workflow_lane)
+        build_graph_intelligence_summary(
+            graph_summary,
+            workflow_lane=workflow_lane,
+            satisfied_required_edge_families=satisfied_required_edge_families,
+        )
         if callable(build_graph_intelligence_summary)
         else ((graph_summary or {}).get("intelligence") if isinstance(graph_summary, dict) else None)
     )

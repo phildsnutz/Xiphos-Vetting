@@ -38,6 +38,8 @@ def test_fixture_flow_passes_end_to_end():
     browser_step = next(step for step in result["steps"] if step["step"] == "browser_dossier_access")
     assert browser_step["details"]["permission"] == "cases:dossier"
     assert browser_step["details"]["reopen_html_bytes"] > 0
+    graph_step = next(step for step in result["steps"] if step["step"] == "graph")
+    assert graph_step["details"]["root_entity_id"]
     pdf_step = next(step for step in result["steps"] if step["step"] == "dossier_pdf")
     assert pdf_step["details"]["content_disposition"].startswith("attachment; filename=dossier-")
 
@@ -47,6 +49,12 @@ def test_render_markdown_includes_flow_table():
         "generated_at": "2026-03-29T12:00:00Z",
         "mode": "fixture",
         "overall_verdict": "PASS",
+        "graph_summary": {
+            "required_flows": 1,
+            "passed_flows": 1,
+            "thin_graph_flows": 0,
+            "flows_with_missing_required_edge_families": 0,
+        },
         "flows": [
             {
                 "flow_name": "fixture",
@@ -70,6 +78,7 @@ def test_render_markdown_includes_flow_table():
     markdown = module.render_markdown(summary)
 
     assert "# Helios Query-to-Dossier Gauntlet" in markdown
+    assert "- Graph required flows: `1`" in markdown
     assert "## fixture" in markdown
     assert "| `compare` | `PASS` | `12` |" in markdown
 
@@ -93,6 +102,11 @@ def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
                     "expected_oci": {
                         "descriptor_only": True,
                         "owner_class": "Service-Disabled Veteran",
+                    },
+                    "expected_graph": {
+                        "require_edge_families": ["ownership_control"],
+                        "max_missing_required_edge_families": 0,
+                        "min_claim_coverage_pct": 0.5,
                     },
                     "expected_tribunal_view": "watch",
                     "expected_assistant_view": "watch",
@@ -127,6 +141,8 @@ def test_load_specs_merges_defaults_and_expected_lane(tmp_path):
     assert specs[0]["case_payload"]["export_authorization"]["destination_country"] == "AE"
     assert specs[0]["compare_payload"]["name"] == "Boeing"
     assert specs[0]["expected_oci"]["owner_class"] == "Service-Disabled Veteran"
+    assert specs[0]["expected_graph"]["require_edge_families"] == ["ownership_control"]
+    assert specs[0]["expected_graph"]["max_missing_required_edge_families"] == 0
     assert specs[0]["expected_tribunal_view"] == "watch"
     assert specs[0]["expected_assistant_view"] == "watch"
     assert specs[0]["expected_assistant_anomalies"] == ["descriptor_only_ownership", "named_owner_unresolved"]
@@ -141,6 +157,22 @@ def test_step_supplier_passport_validates_expected_oci():
                 "case_id": "c-123",
                 "passport_version": "supplier-passport-v1",
                 "posture": "review",
+                "graph": {
+                    "relationship_count": 3,
+                    "network_relationship_count": 2,
+                    "control_paths": [{"path": ["company", "person"]}],
+                    "intelligence": {
+                        "edge_family_counts": {
+                            "ownership_control": 2,
+                            "trade_and_logistics": 1,
+                        },
+                        "missing_required_edge_families": [],
+                        "claim_coverage_pct": 0.67,
+                        "legacy_unscoped_edge_count": 0,
+                        "stale_edge_count": 0,
+                        "thin_graph": False,
+                    },
+                },
                 "ownership": {
                     "oci": {
                         "named_beneficial_owner_known": False,
@@ -183,14 +215,64 @@ def test_step_supplier_passport_validates_expected_oci():
             "min_control_resolution_pct": 0.3,
             "require_owner_class_evidence": True,
         },
+        expected_graph={
+            "min_relationship_count": 3,
+            "min_network_relationship_count": 2,
+            "min_control_paths": 1,
+            "require_edge_families": ["ownership_control"],
+            "max_missing_required_edge_families": 0,
+            "max_legacy_unscoped_edges": 0,
+            "max_stale_edges": 0,
+            "min_claim_coverage_pct": 0.5,
+            "forbid_thin_graph": True,
+        },
         expected_tribunal_view="watch",
     )
 
     assert details["oci_required"] is True
     assert details["oci_passed"] is True
+    assert details["graph_required"] is True
+    assert details["graph_passed"] is True
     assert details["oci"]["descriptor_only"] is True
     assert details["oci"]["owner_class_evidence_count"] == 1
+    assert details["graph"]["control_path_count"] == 1
+    assert details["graph"]["thin_graph"] is False
     assert details["tribunal_recommended_view"] == "watch"
+
+
+def test_build_graph_summary_tracks_required_and_missing_family_flows():
+    summary = module.build_graph_summary(
+        [
+            {
+                "flow_name": "counterparty",
+                "graph_required": True,
+                "graph_passed": True,
+                "graph_details": {
+                    "thin_graph": False,
+                    "missing_required_edge_families": [],
+                },
+            },
+            {
+                "flow_name": "cyber",
+                "graph_required": True,
+                "graph_passed": False,
+                "graph_details": {
+                    "thin_graph": True,
+                    "missing_required_edge_families": ["cyber_supply_chain"],
+                },
+            },
+            {
+                "flow_name": "export",
+                "graph_required": False,
+            },
+        ]
+    )
+
+    assert summary["required_flows"] == 2
+    assert summary["passed_flows"] == 1
+    assert summary["thin_graph_flows"] == 1
+    assert summary["flows_with_missing_required_edge_families"] == 1
+    assert summary["failed_flows"] == ["cyber"]
 
 
 def test_step_assistant_plan_validates_expected_view_and_anomalies():
@@ -296,3 +378,47 @@ def test_main_fixture_mode_prints_json(monkeypatch, tmp_path, capsys):
     assert payload["overall_verdict"] == "PASS"
     assert Path(payload["report_md"]).exists()
     assert Path(payload["report_json"]).exists()
+
+
+def test_main_passes_with_skip_when_mode_has_no_eligible_flows(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(module, "parse_args", lambda: module.argparse.Namespace(
+        mode="fixture",
+        base_url="http://127.0.0.1:8080",
+        email="",
+        password="",
+        token="",
+        spec_file="",
+        report_dir=str(tmp_path),
+        print_json=True,
+    ))
+    monkeypatch.setattr(
+        module,
+        "load_specs",
+        lambda _path: [
+            {
+                "flow_name": "local_only",
+                "enabled_modes": ["local-auth"],
+                "compare_payload": {},
+                "case_payload": {},
+                "assistant_prompt": "",
+                "expected_workflow_lane": "",
+                "expected_oci": {},
+                "expected_graph": {},
+                "expected_tribunal_view": "",
+                "expected_assistant_view": "",
+                "expected_assistant_anomalies": [],
+                "preserve_case_name": False,
+                "run_enrich_and_score": False,
+                "expected_dossier_fragments": [],
+                "forbidden_dossier_fragments": [],
+            }
+        ],
+    )
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["overall_verdict"] == "PASS"
+    assert payload["flows"] == []
+    assert payload["skipped_reason"] == "no eligible flows for mode fixture"

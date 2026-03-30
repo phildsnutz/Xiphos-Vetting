@@ -8,6 +8,7 @@ No external dependencies beyond Python stdlib.
 """
 
 import sqlite3
+from collections import deque
 import json
 import hashlib
 from datetime import datetime
@@ -957,6 +958,102 @@ def attach_relationship_provenance(
         )
 
 
+def _collect_entity_network(
+    conn: sqlite3.Connection,
+    root_entity_ids: list[str],
+    depth: int,
+    *,
+    include_provenance: bool = True,
+    max_claim_records: int = 4,
+    max_evidence_records: int = 4,
+) -> dict:
+    normalized_roots: list[str] = []
+    seen_roots: set[str] = set()
+    for raw_id in root_entity_ids:
+        entity_id = str(raw_id or "").strip()
+        if not entity_id or entity_id in seen_roots:
+            continue
+        seen_roots.add(entity_id)
+        normalized_roots.append(entity_id)
+
+    if not normalized_roots:
+        return {
+            "root_entity_id": None,
+            "root_entity_ids": [],
+            "entity_count": 0,
+            "entities": {},
+            "relationship_count": 0,
+            "relationships": [],
+            "depth": depth,
+        }
+
+    visited: set[str] = set()
+    queue = deque((entity_id, 0) for entity_id in normalized_roots)
+    all_entities: dict[str, dict] = {}
+    raw_relationships: list[sqlite3.Row] = []
+    seen_relationship_ids: set[int] = set()
+
+    while queue:
+        current_id, current_depth = queue.popleft()
+        if current_id in visited or current_depth > depth:
+            continue
+        visited.add(current_id)
+
+        entity_row = conn.execute(
+            "SELECT * FROM kg_entities WHERE id = ?",
+            (current_id,),
+        ).fetchone()
+
+        if not entity_row:
+            continue
+
+        all_entities[current_id] = {
+            "id": entity_row["id"],
+            "canonical_name": entity_row["canonical_name"],
+            "entity_type": entity_row["entity_type"],
+            "aliases": json.loads(entity_row["aliases"]),
+            "identifiers": json.loads(entity_row["identifiers"]),
+            "confidence": entity_row["confidence"],
+            "country": entity_row["country"],
+            "sources": json.loads(entity_row["sources"]),
+            "created_at": entity_row["created_at"],
+        }
+
+        rel_rows = conn.execute(
+            "SELECT * FROM kg_relationships WHERE source_entity_id = ? OR target_entity_id = ?",
+            (current_id, current_id),
+        ).fetchall()
+
+        for rel in rel_rows:
+            rel_id = rel["id"]
+            if rel_id not in seen_relationship_ids:
+                raw_relationships.append(rel)
+                seen_relationship_ids.add(rel_id)
+
+            neighbor_id = rel["target_entity_id"] if rel["source_entity_id"] == current_id else rel["source_entity_id"]
+            if neighbor_id not in visited and current_depth < depth:
+                queue.append((neighbor_id, current_depth + 1))
+
+    all_relationships = _aggregate_relationships(raw_relationships)
+    if include_provenance:
+        all_relationships = _attach_relationship_provenance(
+            conn,
+            all_relationships,
+            max_claim_records=max_claim_records,
+            max_evidence_records=max_evidence_records,
+        )
+
+    return {
+        "root_entity_id": normalized_roots[0],
+        "root_entity_ids": normalized_roots,
+        "entity_count": len(all_entities),
+        "entities": all_entities,
+        "relationship_count": len(all_relationships),
+        "relationships": all_relationships,
+        "depth": depth,
+    }
+
+
 def get_entity_network(
     entity_id: str,
     depth: int = 2,
@@ -973,73 +1070,37 @@ def get_entity_network(
         depth = 2
 
     with get_kg_conn() as conn:
-        visited = set()
-        queue = [(entity_id, 0)]
-        all_entities = {}
-        raw_relationships = []
-        seen_relationship_ids = set()
+        return _collect_entity_network(
+            conn,
+            [entity_id],
+            depth,
+            include_provenance=include_provenance,
+            max_claim_records=max_claim_records,
+            max_evidence_records=max_evidence_records,
+        )
 
-        while queue:
-            current_id, current_depth = queue.pop(0)
-            if current_id in visited or current_depth > depth:
-                continue
-            visited.add(current_id)
 
-            # Get entity
-            entity_row = conn.execute(
-                "SELECT * FROM kg_entities WHERE id = ?",
-                (current_id,)
-            ).fetchone()
+def get_multi_entity_network(
+    entity_ids: list[str],
+    depth: int = 2,
+    *,
+    include_provenance: bool = True,
+    max_claim_records: int = 4,
+    max_evidence_records: int = 4,
+) -> dict:
+    """Get a combined network around multiple root entities in one traversal."""
+    if depth < 0:
+        depth = 2
 
-            if entity_row:
-                all_entities[current_id] = {
-                    "id": entity_row["id"],
-                    "canonical_name": entity_row["canonical_name"],
-                    "entity_type": entity_row["entity_type"],
-                    "aliases": json.loads(entity_row["aliases"]),
-                    "identifiers": json.loads(entity_row["identifiers"]),
-                    "confidence": entity_row["confidence"],
-                    "country": entity_row["country"],
-                    "sources": json.loads(entity_row["sources"]),
-                    "created_at": entity_row["created_at"],
-                }
-
-                # Get relationships (BIDIRECTIONAL - outgoing AND incoming)
-                rel_rows = conn.execute(
-                    "SELECT * FROM kg_relationships WHERE source_entity_id = ? OR target_entity_id = ?",
-                    (current_id, current_id)
-                ).fetchall()
-
-                for rel in rel_rows:
-                    rel_id = rel["id"]
-                    if rel_id not in seen_relationship_ids:
-                        raw_relationships.append(rel)
-                        seen_relationship_ids.add(rel_id)
-
-                    # Traverse to the other end of the relationship.
-                    if rel["source_entity_id"] == current_id:
-                        neighbor_id = rel["target_entity_id"]
-                    else:
-                        neighbor_id = rel["source_entity_id"]
-                    if neighbor_id not in visited and current_depth < depth:
-                        queue.append((neighbor_id, current_depth + 1))
-
-        all_relationships = _aggregate_relationships(raw_relationships)
-        if include_provenance:
-            all_relationships = _attach_relationship_provenance(
-                conn,
-                all_relationships,
-                max_claim_records=max_claim_records,
-                max_evidence_records=max_evidence_records,
-            )
-        return {
-            "root_entity_id": entity_id,
-            "entity_count": len(all_entities),
-            "entities": all_entities,
-            "relationship_count": len(all_relationships),
-            "relationships": all_relationships,
-            "depth": depth,
-        }
+    with get_kg_conn() as conn:
+        return _collect_entity_network(
+            conn,
+            entity_ids,
+            depth,
+            include_provenance=include_provenance,
+            max_claim_records=max_claim_records,
+            max_evidence_records=max_evidence_records,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1058,38 +1119,50 @@ def link_entity_to_vendor(entity_id: str, vendor_id: str) -> None:
 def get_vendor_entities(vendor_id: str) -> list[ResolvedEntity]:
     """Get all resolved entities linked to a vendor."""
     with get_kg_conn() as conn:
-        entity_ids = conn.execute(
+        entity_rows = conn.execute(
             "SELECT entity_id FROM kg_entity_vendors WHERE vendor_id = ?",
-            (vendor_id,)
+            (vendor_id,),
         ).fetchall()
+        ordered_entity_ids = [str(row[0] if isinstance(row, tuple) else row["entity_id"] or "") for row in entity_rows]
+        ordered_entity_ids = [entity_id for entity_id in ordered_entity_ids if entity_id]
+        if not ordered_entity_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in ordered_entity_ids)
+        entity_lookup = {
+            str(row["id"]): row
+            for row in conn.execute(
+                f"SELECT * FROM kg_entities WHERE id IN ({placeholders})",
+                ordered_entity_ids,
+            ).fetchall()
+        }
+        relationship_rows = conn.execute(
+            f"SELECT * FROM kg_relationships WHERE source_entity_id IN ({placeholders})",
+            ordered_entity_ids,
+        ).fetchall()
+        relationships_by_source: dict[str, list[dict]] = {}
+        for row in relationship_rows:
+            source_entity_id = str(row["source_entity_id"] or "")
+            relationships_by_source.setdefault(source_entity_id, []).append(dict(row))
 
         results = []
-        for (eid,) in entity_ids:
-            entity_row = conn.execute(
-                "SELECT * FROM kg_entities WHERE id = ?",
-                (eid,)
-            ).fetchone()
-
-            if entity_row:
-                rel_rows = conn.execute(
-                    "SELECT * FROM kg_relationships WHERE source_entity_id = ?",
-                    (eid,)
-                ).fetchall()
-
-                entity = ResolvedEntity(
-                    id=entity_row["id"],
-                    canonical_name=entity_row["canonical_name"],
-                    entity_type=entity_row["entity_type"],
-                    aliases=json.loads(entity_row["aliases"]),
-                    identifiers=json.loads(entity_row["identifiers"]),
-                    country=entity_row["country"],
-                    relationships=[dict(r) for r in rel_rows],
-                    sources=json.loads(entity_row["sources"]),
-                    confidence=entity_row["confidence"],
-                    last_updated=entity_row["last_updated"],
-                )
-                results.append(entity)
-
+        for entity_id in ordered_entity_ids:
+            entity_row = entity_lookup.get(entity_id)
+            if not entity_row:
+                continue
+            entity = ResolvedEntity(
+                id=entity_row["id"],
+                canonical_name=entity_row["canonical_name"],
+                entity_type=entity_row["entity_type"],
+                aliases=json.loads(entity_row["aliases"]),
+                identifiers=json.loads(entity_row["identifiers"]),
+                country=entity_row["country"],
+                relationships=relationships_by_source.get(entity_id, []),
+                sources=json.loads(entity_row["sources"]),
+                confidence=entity_row["confidence"],
+                last_updated=entity_row["last_updated"],
+            )
+            results.append(entity)
         return results
 
 
@@ -1281,6 +1354,226 @@ def get_kg_stats() -> dict:
             "relationship_type_distribution": rel_dist,
             "average_entity_confidence": round(avg_conf, 3),
         }
+
+
+def backfill_legacy_relationship_claims(*, batch_size: int = 500) -> dict:
+    """Attach synthetic claim/evidence records to legacy relationships.
+
+    Early graph ingest wrote kg_relationship rows before claim/evidence provenance
+    existed. Case-scoped reasoning now depends on kg_claims, so this backfill
+    replays those legacy rows into vendor-scoped claim records using the current
+    entity-vendor links as the best available case association.
+    """
+    init_kg_db()
+    with get_kg_conn() as conn:
+        legacy_rows = conn.execute(
+            """
+            SELECT
+                r.id,
+                r.source_entity_id,
+                r.target_entity_id,
+                r.rel_type,
+                r.confidence,
+                COALESCE(r.data_source, '') AS data_source,
+                COALESCE(r.evidence, '') AS evidence,
+                COALESCE(r.created_at, '') AS created_at
+            FROM kg_relationships r
+            LEFT JOIN kg_claims c
+              ON c.source_entity_id = r.source_entity_id
+             AND COALESCE(c.target_entity_id, '') = COALESCE(r.target_entity_id, '')
+             AND c.rel_type = r.rel_type
+            WHERE c.id IS NULL
+            ORDER BY r.id ASC
+            """
+        ).fetchall()
+        if not legacy_rows:
+            return {
+                "legacy_relationships_scanned": 0,
+                "relationships_backfilled": 0,
+                "claims_backfilled": 0,
+                "evidence_backfilled": 0,
+                "relationships_without_vendor_scope": 0,
+            }
+
+        entity_ids: set[str] = set()
+        for row in legacy_rows:
+            if row["source_entity_id"]:
+                entity_ids.add(str(row["source_entity_id"]))
+            if row["target_entity_id"]:
+                entity_ids.add(str(row["target_entity_id"]))
+
+        entity_vendor_map: dict[str, set[str]] = {}
+        if entity_ids:
+            placeholders = ",".join("?" for _ in entity_ids)
+            vendor_rows = conn.execute(
+                f"""
+                SELECT entity_id, vendor_id
+                FROM kg_entity_vendors
+                WHERE entity_id IN ({placeholders})
+                """,
+                tuple(entity_ids),
+            ).fetchall()
+            for row in vendor_rows:
+                entity_vendor_map.setdefault(str(row["entity_id"]), set()).add(str(row["vendor_id"]))
+        stats = {
+            "legacy_relationships_scanned": len(legacy_rows),
+            "relationships_backfilled": 0,
+            "claims_backfilled": 0,
+            "evidence_backfilled": 0,
+            "relationships_without_vendor_scope": 0,
+        }
+        seen_relationship_ids: set[int] = set()
+        batch = max(1, int(batch_size or 1))
+
+        for start in range(0, len(legacy_rows), batch):
+            for row in legacy_rows[start : start + batch]:
+                relationship_id = int(row["id"])
+                source_entity_id = str(row["source_entity_id"] or "")
+                target_entity_id = str(row["target_entity_id"] or "")
+                rel_type = str(row["rel_type"] or "")
+                confidence = float(row["confidence"] or 0.0)
+                data_source = str(row["data_source"] or "")
+                evidence = str(row["evidence"] or "")
+                observed_at = str(row["created_at"] or "") or _utc_now()
+                structured_fields = {"backfilled_legacy_claim": True, "relationship_id": relationship_id}
+                vendor_ids = sorted(
+                    (entity_vendor_map.get(source_entity_id, set()) or set())
+                    | (entity_vendor_map.get(target_entity_id, set()) or set())
+                )
+                if not vendor_ids:
+                    vendor_ids = [""]
+                    stats["relationships_without_vendor_scope"] += 1
+
+                for vendor_id in vendor_ids:
+                    activity_id = _stable_hash(str(relationship_id), vendor_id, prefix="activity")
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO kg_source_activities (id, source, activity_type, occurred_at, metadata)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            activity_id,
+                            data_source or "legacy_relationship_backfill",
+                            "legacy_relationship_backfill",
+                            observed_at,
+                            _json_dumps({"relationship_id": relationship_id, "vendor_id": vendor_id}, {}),
+                        ),
+                    )
+
+                    agent_id = _stable_hash(data_source or "legacy_relationship_backfill", prefix="agent")
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO kg_asserting_agents (id, label, agent_type, metadata)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            agent_id,
+                            data_source or "legacy_relationship_backfill",
+                            "migration",
+                            _json_dumps({"relationship_id": relationship_id}, {}),
+                        ),
+                    )
+
+                    claim_key = _stable_hash(
+                        source_entity_id,
+                        target_entity_id,
+                        rel_type,
+                        data_source,
+                        vendor_id,
+                        evidence,
+                        f"kg-relationship://{relationship_id}",
+                        prefix="claim",
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO kg_claims (
+                            id,
+                            claim_key,
+                            source_entity_id,
+                            target_entity_id,
+                            rel_type,
+                            claim_type,
+                            claim_value,
+                            confidence,
+                            contradiction_state,
+                            observed_at,
+                            first_observed_at,
+                            last_observed_at,
+                            data_source,
+                            vendor_id,
+                            source_activity_id,
+                            asserting_agent_id,
+                            structured_fields,
+                            updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, 'relationship', ?, ?, 'unreviewed', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(claim_key) DO NOTHING
+                        """,
+                        (
+                            claim_key,
+                            claim_key,
+                            source_entity_id,
+                            target_entity_id,
+                            rel_type,
+                            evidence or rel_type,
+                            confidence,
+                            observed_at,
+                            observed_at,
+                            observed_at,
+                            data_source or None,
+                            vendor_id or None,
+                            activity_id,
+                            agent_id,
+                            _json_dumps(structured_fields, {}),
+                            _utc_now(),
+                        ),
+                    )
+
+                    evidence_key = _stable_hash(
+                        claim_key,
+                        f"kg-relationship://{relationship_id}",
+                        evidence,
+                        prefix="evidence",
+                    )
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO kg_evidence (
+                            id,
+                            claim_id,
+                            source,
+                            title,
+                            artifact_ref,
+                            snippet,
+                            structured_fields,
+                            source_class,
+                            authority_level,
+                            access_model,
+                            observed_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            evidence_key,
+                            claim_key,
+                            data_source or None,
+                            "Legacy graph relationship backfill",
+                            f"kg-relationship://{relationship_id}",
+                            evidence or rel_type,
+                            _json_dumps(structured_fields, {}),
+                            "legacy_graph_backfill",
+                            "legacy_unknown",
+                            "sqlite_backfill",
+                            observed_at,
+                        ),
+                    )
+
+                if relationship_id not in seen_relationship_ids:
+                    seen_relationship_ids.add(relationship_id)
+                    stats["relationships_backfilled"] += 1
+                stats["claims_backfilled"] += len(vendor_ids)
+                stats["evidence_backfilled"] += len(vendor_ids)
+
+        return stats
 
 
 def clear_vendor_links(vendor_id: str) -> None:

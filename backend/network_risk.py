@@ -135,7 +135,7 @@ def compute_network_risk(vendor_id: str) -> dict:
 
         # Get 2-hop network
         primary_id = getattr(primary, "id", getattr(primary, "entity_id", ""))
-        network = kg.get_entity_network(primary_id, depth=MAX_HOPS)
+        network = kg.get_entity_network(primary_id, depth=MAX_HOPS, include_provenance=False)
         all_entities = network.get("entities", {})
         all_relationships = network.get("relationships", [])
 
@@ -408,20 +408,29 @@ def _get_all_vendor_scores(db_mod) -> dict:
 
 def _map_entities_to_vendors(kg, entities: dict) -> dict:
     """Map entity IDs to their linked vendor IDs. Returns {entity_id: [vendor_ids]}."""
-    entity_vendor_map = {}
-    for eid in entities:
-        try:
-            # Get all vendors linked to this entity
-            with kg.get_kg_conn() as conn:
-                cursor = conn.execute(
-                    "SELECT vendor_id FROM kg_entity_vendors WHERE entity_id = ?",
-                    (eid,),
-                )
-                vendor_ids = [row[0] for row in cursor.fetchall()]
-            if vendor_ids:
-                entity_vendor_map[eid] = vendor_ids
-        except Exception:
-            pass
+    entity_ids = [str(eid or "").strip() for eid in entities if str(eid or "").strip()]
+    if not entity_ids:
+        return {}
+
+    entity_vendor_map: dict[str, list[str]] = {}
+    batch_size = 500
+    try:
+        with kg.get_kg_conn() as conn:
+            for offset in range(0, len(entity_ids), batch_size):
+                chunk = entity_ids[offset: offset + batch_size]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = conn.execute(
+                    f"SELECT entity_id, vendor_id FROM kg_entity_vendors WHERE entity_id IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    entity_id = str(row["entity_id"] if not isinstance(row, tuple) else row[0] or "")
+                    vendor_id = str(row["vendor_id"] if not isinstance(row, tuple) else row[1] or "")
+                    if not entity_id or not vendor_id:
+                        continue
+                    entity_vendor_map.setdefault(entity_id, []).append(vendor_id)
+    except Exception:
+        return {}
     return entity_vendor_map
 
 

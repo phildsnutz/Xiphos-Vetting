@@ -87,6 +87,11 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
                 "relationship_count": 1,
                 "control_paths": [],
                 "claim_health": {"contradicted_claims": 1, "stale_paths": 1},
+                "intelligence": {
+                    "missing_required_edge_families": ["ownership_control"],
+                    "claim_coverage_pct": 0.2,
+                    "legacy_unscoped_edge_count": 2,
+                },
             },
         },
     )
@@ -95,6 +100,9 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
     anomaly_codes = {item["code"] for item in plan["anomalies"]}
     assert "missing_core_identifiers" in anomaly_codes
     assert "thin_graph" in anomaly_codes
+    assert "missing_graph_edge_families" in anomaly_codes
+    assert "graph_claim_coverage_thin" in anomaly_codes
+    assert "legacy_graph_edges" in anomaly_codes
     assert "official_corroboration_thin" in anomaly_codes
     assert "official_connector_blocked" in anomaly_codes
     assert "high_threat_pressure" in anomaly_codes
