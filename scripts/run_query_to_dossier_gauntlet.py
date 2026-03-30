@@ -437,84 +437,114 @@ def login_http(base_url: str, email: str, password: str) -> dict[str, Any]:
 
 
 def run_query_to_dossier_flow(client: BaseClient, spec: dict[str, Any]) -> dict[str, Any]:
+    started = time.perf_counter()
     results: list[StepResult] = []
     warnings: list[str] = []
+    case_id = ""
+    vendor_name = ""
+    health: dict[str, Any] | None = None
+    dossier_html: dict[str, Any] | None = None
+    passport: dict[str, Any] | None = None
 
-    health = _run_step(
-        results,
-        "health",
-        lambda: _step_health(client),
-    )
-    _run_step(results, "ai_providers", lambda: _step_ai_providers(client))
-    _run_step(results, "compare", lambda: _step_compare(client, spec["compare_payload"]))
-    created = _run_step(
-        results,
-        "create_case",
-        lambda: _step_create_case(
-            client,
-            flow_name=spec["flow_name"],
-            case_payload=spec["case_payload"],
-            preserve_case_name=bool(spec.get("preserve_case_name")),
-        ),
-    )
-    case_id = created["case_id"]
-    _run_step(
-        results,
-        "case_detail",
-        lambda: _step_case_detail(client, case_id, expected_workflow_lane=spec.get("expected_workflow_lane", "")),
-    )
-    if spec.get("run_enrich_and_score"):
-        _run_step(results, "enrich_and_score", lambda: _step_enrich_and_score(client, case_id))
-    _run_step(results, "graph", lambda: _step_graph(client, case_id))
-    passport = _run_step(
-        results,
-        "supplier_passport",
-        lambda: _step_supplier_passport(
-            client,
-            case_id,
-            expected_oci=spec.get("expected_oci") or {},
-            expected_graph=spec.get("expected_graph") or {},
-            expected_tribunal_view=spec.get("expected_tribunal_view") or "",
-        ),
-    )
-    plan = _run_step(
-        results,
-        "assistant_plan",
-        lambda: _step_assistant_plan(
-            client,
-            case_id,
-            spec["assistant_prompt"],
-            expected_view=spec.get("expected_assistant_view") or "",
-            expected_anomaly_codes=spec.get("expected_assistant_anomalies") or [],
-        ),
-    )
-    _run_step(results, "assistant_execute", lambda: _step_assistant_execute(client, case_id, plan))
-    dossier_html = _run_step(
-        results,
-        "dossier_html",
-        lambda: _step_dossier_html(
-            client,
-            case_id,
-            expected_fragments=spec.get("expected_dossier_fragments") or [],
-            forbidden_fragments=spec.get("forbidden_dossier_fragments") or [],
-        ),
-    )
-    _run_step(results, "browser_dossier_access", lambda: _step_browser_dossier_access(client, dossier_html["download_url"]))
-    _run_step(results, "dossier_pdf", lambda: _step_dossier_pdf(client, case_id))
+    try:
+        health = _run_step(
+            results,
+            "health",
+            lambda: _step_health(client),
+        )
+        _run_step(results, "ai_providers", lambda: _step_ai_providers(client))
+        _run_step(results, "compare", lambda: _step_compare(client, spec["compare_payload"]))
+        created = _run_step(
+            results,
+            "create_case",
+            lambda: _step_create_case(
+                client,
+                flow_name=spec["flow_name"],
+                case_payload=spec["case_payload"],
+                preserve_case_name=bool(spec.get("preserve_case_name")),
+            ),
+        )
+        case_id = created["case_id"]
+        vendor_name = created["vendor_name"]
+        _run_step(
+            results,
+            "case_detail",
+            lambda: _step_case_detail(client, case_id, expected_workflow_lane=spec.get("expected_workflow_lane", "")),
+        )
+        if spec.get("run_enrich_and_score"):
+            _run_step(results, "enrich_and_score", lambda: _step_enrich_and_score(client, case_id))
+        _run_step(results, "graph", lambda: _step_graph(client, case_id))
+        passport = _run_step(
+            results,
+            "supplier_passport",
+            lambda: _step_supplier_passport(
+                client,
+                case_id,
+                expected_oci=spec.get("expected_oci") or {},
+                expected_graph=spec.get("expected_graph") or {},
+                expected_tribunal_view=spec.get("expected_tribunal_view") or "",
+            ),
+        )
+        plan = _run_step(
+            results,
+            "assistant_plan",
+            lambda: _step_assistant_plan(
+                client,
+                case_id,
+                spec["assistant_prompt"],
+                expected_view=spec.get("expected_assistant_view") or "",
+                expected_anomaly_codes=spec.get("expected_assistant_anomalies") or [],
+            ),
+        )
+        _run_step(results, "assistant_execute", lambda: _step_assistant_execute(client, case_id, plan))
+        dossier_html = _run_step(
+            results,
+            "dossier_html",
+            lambda: _step_dossier_html(
+                client,
+                case_id,
+                expected_fragments=spec.get("expected_dossier_fragments") or [],
+                forbidden_fragments=spec.get("forbidden_dossier_fragments") or [],
+            ),
+        )
+        _run_step(results, "browser_dossier_access", lambda: _step_browser_dossier_access(client, dossier_html["download_url"]))
+        _run_step(results, "dossier_pdf", lambda: _step_dossier_pdf(client, case_id))
+    except Exception as exc:
+        total_ms = int((time.perf_counter() - started) * 1000)
+        return {
+            "flow_verdict": "FAIL",
+            "case_id": case_id,
+            "vendor_name": vendor_name,
+            "health": health,
+            "download_url": (dossier_html or {}).get("download_url"),
+            "oci_required": bool(spec.get("expected_oci")),
+            "oci_passed": False,
+            "oci_details": (passport or {}).get("oci"),
+            "graph_required": bool(spec.get("expected_graph")),
+            "graph_passed": False,
+            "graph_details": (passport or {}).get("graph"),
+            "warning_count": len(warnings),
+            "warnings": warnings,
+            "steps": [asdict(item) for item in results],
+            "total_ms": total_ms,
+            "flow_name": spec["flow_name"],
+            "error": str(exc),
+            "failed_step": results[-1].step if results else "",
+        }
 
-    total_ms = sum(item.duration_ms for item in results)
+    total_ms = int((time.perf_counter() - started) * 1000)
     return {
         "flow_verdict": "PASS",
         "case_id": case_id,
-        "vendor_name": created["vendor_name"],
+        "vendor_name": vendor_name,
         "health": health,
-        "download_url": dossier_html.get("download_url"),
-        "oci_required": bool(passport.get("oci_required")),
-        "oci_passed": bool(passport.get("oci_passed", not passport.get("oci_required"))),
-        "oci_details": passport.get("oci"),
-        "graph_required": bool(passport.get("graph_required")),
-        "graph_passed": bool(passport.get("graph_passed", not passport.get("graph_required"))),
-        "graph_details": passport.get("graph"),
+        "download_url": (dossier_html or {}).get("download_url"),
+        "oci_required": bool((passport or {}).get("oci_required")),
+        "oci_passed": bool((passport or {}).get("oci_passed", not (passport or {}).get("oci_required"))),
+        "oci_details": (passport or {}).get("oci"),
+        "graph_required": bool((passport or {}).get("graph_required")),
+        "graph_passed": bool((passport or {}).get("graph_passed", not (passport or {}).get("graph_required"))),
+        "graph_details": (passport or {}).get("graph"),
         "warning_count": len(warnings),
         "warnings": warnings,
         "steps": [asdict(item) for item in results],
@@ -1115,7 +1145,8 @@ def main() -> int:
             failures.append({"flow_name": "local-auth", "error": str(exc)})
 
     skipped_reason = ""
-    if failures:
+    has_failed_flows = any(str(flow.get("flow_verdict") or "PASS") != "PASS" for flow in flows)
+    if failures or has_failed_flows:
         overall_verdict = "FAIL"
     elif flows:
         overall_verdict = "PASS"

@@ -422,3 +422,105 @@ def test_main_passes_with_skip_when_mode_has_no_eligible_flows(monkeypatch, tmp_
     assert payload["overall_verdict"] == "PASS"
     assert payload["flows"] == []
     assert payload["skipped_reason"] == "no eligible flows for mode fixture"
+
+
+def test_run_query_to_dossier_flow_returns_failed_flow_with_step_context(monkeypatch):
+    class DummyClient(module.BaseClient):
+        def request_json(self, method, path, payload=None, timeout=60):
+            raise AssertionError("unused")
+
+        def request_bytes(self, method, path, payload=None, headers=None, timeout=60):
+            raise AssertionError("unused")
+
+        def request_json_unauthenticated(self, method, path, payload=None, timeout=60):
+            raise AssertionError("unused")
+
+        def request_bytes_unauthenticated(self, method, path, payload=None, headers=None, timeout=60):
+            raise AssertionError("unused")
+
+    monkeypatch.setattr(module, "_step_health", lambda client: {"ok": True})
+    monkeypatch.setattr(module, "_step_ai_providers", lambda client: {"provider_count": 1})
+    monkeypatch.setattr(module, "_step_compare", lambda client, payload: {"comparison_count": 2})
+    monkeypatch.setattr(
+        module,
+        "_step_create_case",
+        lambda client, flow_name, case_payload, preserve_case_name=False: {
+            "case_id": "c-123",
+            "vendor_name": "Failure Fixture",
+        },
+    )
+    monkeypatch.setattr(module, "_step_case_detail", lambda client, case_id, expected_workflow_lane="": {"workflow_lane": "counterparty"})
+
+    def _timeout_graph(client, case_id):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(module, "_step_graph", _timeout_graph)
+
+    result = module.run_query_to_dossier_flow(
+        DummyClient(),
+        {
+            "flow_name": "timed_flow",
+            "compare_payload": {},
+            "case_payload": {},
+            "assistant_prompt": "Trace the path",
+            "expected_workflow_lane": "",
+            "expected_oci": {},
+            "expected_graph": {},
+            "expected_tribunal_view": "",
+            "expected_assistant_view": "",
+            "expected_assistant_anomalies": [],
+            "enabled_modes": ["fixture"],
+            "preserve_case_name": False,
+            "run_enrich_and_score": False,
+            "expected_dossier_fragments": [],
+            "forbidden_dossier_fragments": [],
+        },
+    )
+
+    assert result["flow_verdict"] == "FAIL"
+    assert result["case_id"] == "c-123"
+    assert result["vendor_name"] == "Failure Fixture"
+    assert result["failed_step"] == "graph"
+    assert result["error"] == "timed out"
+    assert result["steps"][-1]["step"] == "graph"
+    assert result["steps"][-1]["status"] == "FAIL"
+
+
+def test_main_fails_when_any_flow_record_fails(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(module, "parse_args", lambda: module.argparse.Namespace(
+        mode="fixture",
+        base_url="http://127.0.0.1:8080",
+        email="",
+        password="",
+        token="",
+        spec_file="",
+        report_dir=str(tmp_path),
+        print_json=True,
+    ))
+    monkeypatch.setattr(
+        module,
+        "run_fixture_flows",
+        lambda specs=None: [
+            {
+                "flow_name": "broken",
+                "flow_verdict": "FAIL",
+                "case_id": "c-999",
+                "vendor_name": "Broken Vendor",
+                "steps": [{"step": "graph", "status": "FAIL", "duration_ms": 10, "details": {"error": "timed out"}}],
+                "total_ms": 10,
+                "warning_count": 0,
+                "warnings": [],
+                "oci_required": False,
+                "oci_passed": False,
+                "graph_required": False,
+                "graph_passed": False,
+            }
+        ],
+    )
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["overall_verdict"] == "FAIL"
+    assert payload["flows"][0]["flow_name"] == "fixture:broken"
