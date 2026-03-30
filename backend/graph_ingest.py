@@ -26,11 +26,16 @@ import re
 import json
 import hashlib
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from ownership_control_intelligence import looks_like_descriptor_owner
 
 logger = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GRAPH_CONSTRUCTION_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_gold_set_v1.json"
+PILLAR_BRIEFING_PACK_PATH = REPO_ROOT / "fixtures" / "customer_demo" / "pillar_briefing_query_to_dossier_pack.json"
 
 # Relationship type constants
 REL_SUBCONTRACTOR = "subcontractor_of"
@@ -558,13 +563,20 @@ def ingest_enrichment_to_graph(
 
         # 1. Create/update the primary vendor entity (with dedup)
         identifiers = enrichment_report.get("identifiers", {})
-        country = enrichment_report.get("country", "")
+        country = enrichment_report.get("country", "") or (
+            vendor_input.get("country", "") if isinstance(vendor_input, dict) else ""
+        )
+        primary_entity_type = str(
+            enrichment_report.get("primary_entity_type")
+            or (vendor_input.get("primary_entity_type") if isinstance(vendor_input, dict) else "")
+            or "company"
+        ).strip().lower() or "company"
         aliases = _extract_aliases(vendor_name, enrichment_report)
         sources = list(enrichment_report.get("connector_status", {}).keys())
 
         entity_id = _find_or_create_entity(
             kg, er, vendor_name, identifiers,
-            entity_type="company", country=country,
+            entity_type=primary_entity_type, country=country,
             sources=sources, confidence=0.95, aliases=aliases,
         )
         kg.link_entity_to_vendor(entity_id, vendor_id)
@@ -1353,6 +1365,10 @@ def _ingest_relationship(kg, er, primary_entity_id: str, vendor_name: str, rel: 
 
     elif rel_type in {
         REL_OFFICER,
+        REL_CONTRACTS_WITH,
+        REL_LITIGANT,
+        REL_REGULATED_BY,
+        REL_FILED_WITH,
         "has_vulnerability",
         "uses_product",
         REL_SUPPLIES_COMPONENT_TO,
@@ -1447,6 +1463,218 @@ def _ingest_relationship(kg, er, primary_entity_id: str, vendor_name: str, rel: 
             vendor_id=vendor_id,
         )
         stats["relationships_created"] += 1
+
+
+def _load_graph_training_gold_rows(path: Path | None = None) -> list[dict[str, Any]]:
+    fixture_path = path or GRAPH_CONSTRUCTION_GOLD_PATH
+    if not fixture_path.exists():
+        return []
+    try:
+        payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict)]
+
+
+def _graph_training_context_by_source() -> dict[str, dict[str, str]]:
+    if not PILLAR_BRIEFING_PACK_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(PILLAR_BRIEFING_PACK_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, list):
+        return {}
+
+    context: dict[str, dict[str, str]] = {}
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        case_payload = row.get("case_payload") if isinstance(row.get("case_payload"), dict) else {}
+        source_name = str(case_payload.get("name") or "").strip()
+        if not source_name:
+            continue
+        context[source_name.lower()] = {
+            "country": str(case_payload.get("country") or "").strip(),
+            "profile": str(case_payload.get("profile") or "").strip(),
+            "program": str(case_payload.get("program") or "").strip(),
+        }
+    return context
+
+
+def _graph_training_fixture_primary_entity_type(rows: list[dict[str, Any]]) -> str:
+    relation_types = {
+        str(row.get("relationship_type") or "").strip().lower()
+        for row in rows
+        if str(row.get("relationship_type") or "").strip()
+    }
+    if relation_types == {REL_INTEGRATED_INTO}:
+        return "component"
+    return "company"
+
+
+def _graph_training_fixture_profile(rows: list[dict[str, Any]]) -> str:
+    relation_types = {
+        str(row.get("relationship_type") or "").strip().lower()
+        for row in rows
+        if str(row.get("relationship_type") or "").strip()
+    }
+    if relation_types & {
+        REL_DEPENDS_ON_NETWORK,
+        REL_DEPENDS_ON_SERVICE,
+        REL_OPERATES_FACILITY,
+        REL_INTEGRATED_INTO,
+        REL_SUPPLIES_COMPONENT,
+        REL_SUPPLIES_COMPONENT_TO,
+    }:
+        return "supplier_cyber_trust"
+    if relation_types & {REL_DISTRIBUTED_BY, REL_SHIPS_VIA, REL_ROUTES_PAYMENT_THROUGH}:
+        return "trade_compliance"
+    return "defense_acquisition"
+
+
+def _graph_training_fixture_target_type(rel_type: str, target_name: str) -> str:
+    normalized_rel = str(rel_type or "").strip().lower()
+    normalized_name = str(target_name or "").strip().lower()
+    if normalized_rel == REL_CONTRACTS_WITH:
+        return "government_agency"
+    if normalized_rel == REL_LITIGANT:
+        return "court_case"
+    if normalized_rel == REL_ROUTES_PAYMENT_THROUGH:
+        return "bank"
+    if normalized_rel == REL_DEPENDS_ON_NETWORK:
+        return "telecom_provider"
+    if normalized_rel == REL_DEPENDS_ON_SERVICE:
+        return "service"
+    if normalized_rel == REL_OPERATES_FACILITY:
+        return "facility"
+    if normalized_rel == REL_DISTRIBUTED_BY:
+        return "distributor"
+    if normalized_rel == REL_SHIPS_VIA:
+        return "shipment_route"
+    if normalized_rel == REL_INTEGRATED_INTO:
+        if any(token in normalized_name for token in ("module", "component", "firmware", "sensor", "gateway")):
+            return "component"
+        return "company"
+    if normalized_rel == REL_BACKED_BY:
+        if "bank" in normalized_name:
+            return "bank"
+        if any(token in normalized_name for token in ("capital", "holdings", "partners", "advisory", "fund")):
+            return "holding_company"
+        return "company"
+    if normalized_rel in {REL_OWNED_BY, REL_PARENT, REL_SUBSIDIARY}:
+        if any(token in normalized_name for token in ("capital", "holdings", "partners", "group", "fze")):
+            return "holding_company"
+        return "company"
+    return "company"
+
+
+def _graph_training_fixture_relationship(row: dict[str, Any], primary_entity_type: str) -> dict[str, Any]:
+    rel_type = str(row.get("relationship_type") or "").strip().lower()
+    source_name = str(row.get("source_entity") or "").strip()
+    target_name = str(row.get("target_entity") or "").strip()
+    evidence = str(row.get("evidence_text") or "").strip() or f"Graph training fixture relationship for {source_name}"
+    edge_family = str(row.get("edge_family") or "").strip()
+    source_entity_type = "component" if rel_type == REL_INTEGRATED_INTO else primary_entity_type
+    target_entity_type = _graph_training_fixture_target_type(rel_type, target_name)
+    return {
+        "type": rel_type,
+        "source_entity": source_name,
+        "source_entity_type": source_entity_type,
+        "target_entity": target_name,
+        "target_entity_type": target_entity_type,
+        "data_source": "graph_training_fixture",
+        "confidence": 0.9,
+        "evidence": evidence,
+        "claim_value": f"graph_training_fixture::{rel_type}",
+        "contradiction_state": "unreviewed",
+        "structured_fields": {
+            "graph_training_fixture": True,
+            "edge_family": edge_family,
+            "relationship_type": rel_type,
+        },
+        "source_class": "analyst_fixture",
+        "authority_level": "analyst_curated_fixture",
+        "access_model": "fixture_case_input",
+    }
+
+
+def ingest_graph_training_fixture_gold_set(path: str | Path | None = None) -> dict[str, Any]:
+    rows = _load_graph_training_gold_rows(Path(path) if path else None)
+    if not rows:
+        return {
+            "fixture_path": str(path or GRAPH_CONSTRUCTION_GOLD_PATH),
+            "sources_seeded": 0,
+            "rows_seeded": 0,
+            "entities_created": 0,
+            "relationships_created": 0,
+            "errors": [],
+            "source_summaries": [],
+        }
+
+    grouped_rows: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        source_name = str(row.get("source_entity") or "").strip()
+        if not source_name:
+            continue
+        grouped_rows.setdefault(source_name, []).append(row)
+
+    context_by_source = _graph_training_context_by_source()
+    source_summaries: list[dict[str, Any]] = []
+    total_entities = 0
+    total_relationships = 0
+    errors: list[str] = []
+
+    for source_name, source_rows in grouped_rows.items():
+        primary_entity_type = _graph_training_fixture_primary_entity_type(source_rows)
+        context = context_by_source.get(source_name.lower(), {})
+        vendor_id = f"graph-training-fixture::{hashlib.sha1(source_name.encode('utf-8')).hexdigest()[:12]}"
+        report = {
+            "vendor_name": source_name,
+            "country": context.get("country", ""),
+            "primary_entity_type": primary_entity_type,
+            "identifiers": {},
+            "findings": [],
+            "relationships": [
+                _graph_training_fixture_relationship(row, primary_entity_type)
+                for row in source_rows
+            ],
+            "connector_status": {
+                "graph_training_fixture": "loaded",
+            },
+        }
+        vendor_input = {
+            "name": source_name,
+            "country": context.get("country", ""),
+            "profile": context.get("profile") or _graph_training_fixture_profile(source_rows),
+            "program": context.get("program") or "graph_training_fixture",
+            "primary_entity_type": primary_entity_type,
+        }
+        stats = ingest_enrichment_to_graph(vendor_id, source_name, report, vendor_input=vendor_input)
+        total_entities += int(stats.get("entities_created") or 0)
+        total_relationships += int(stats.get("relationships_created") or 0)
+        errors.extend(str(item) for item in (stats.get("errors") or []) if str(item).strip())
+        source_summaries.append(
+            {
+                "source_entity": source_name,
+                "primary_entity_type": primary_entity_type,
+                "relationship_count": len(source_rows),
+                "entities_created": int(stats.get("entities_created") or 0),
+                "relationships_created": int(stats.get("relationships_created") or 0),
+            }
+        )
+
+    return {
+        "fixture_path": str(path or GRAPH_CONSTRUCTION_GOLD_PATH),
+        "sources_seeded": len(source_summaries),
+        "rows_seeded": len(rows),
+        "entities_created": total_entities,
+        "relationships_created": total_relationships,
+        "errors": errors,
+        "source_summaries": source_summaries,
+    }
 
 
 def _ingest_finding(kg, er, primary_entity_id: str, vendor_name: str, finding: dict, stats: dict):

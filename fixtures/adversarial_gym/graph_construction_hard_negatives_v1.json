@@ -110,7 +110,7 @@
     "source_url": "fixture://graph_construction_hard_negatives/case_reference",
     "evidence_text": "The memo cites Case No. 24-cv-1182 for general market context.",
     "source_entity": "Harbor Beacon Holdings",
-    "attempted_target": "Case No. 24-cv-1182",
+    "attempted_target": "Case No. 24-cv-1182 reference memo",
     "attempted_relationship_type": "LITIGANT_IN",
     "edge_family": "sanctions_and_legal",
     "should_create_edge": false,

@@ -39,6 +39,10 @@ PREDICTED_LINK_REJECTION_REASONS: tuple[str, ...] = (
     "generic_market_language",
     "marketing_mention_not_dependency",
     "no_actual_route",
+    "unresolved_plural_actor",
+    "payment_context_without_counterparty",
+    "concept_not_component",
+    "reference_without_party_role",
     "wrong_counterparty",
     "wrong_relationship_family",
     "wrong_target_entity",
@@ -510,6 +514,55 @@ def _allow_predicted_link(
     return True
 
 
+def _relation_specific_score_bonus(rel_type: str, target_name: str, target_entity_type: str) -> float:
+    normalized_rel = _normalize_rel_type(rel_type)
+    normalized_target = _normalize_match_text(target_name)
+    hinted_types = _semantic_type_hints(target_name, target_entity_type)
+    bonus = 0.0
+
+    if normalized_rel in {"owned_by", "parent_of", "subsidiary_of"}:
+        if "holding_company" in hinted_types:
+            bonus += 0.24
+        if any(token in normalized_target for token in ("holdings", "capital", "partners", "group", "fze")):
+            bonus += 0.1
+    elif normalized_rel == "backed_by":
+        if "bank" in hinted_types:
+            bonus += 0.2
+        if "holding_company" in hinted_types:
+            bonus += 0.16
+        if any(token in normalized_target for token in ("capital", "partners", "advisory", "fund", "ventures")):
+            bonus += 0.14
+    elif normalized_rel == "routes_payment_through":
+        if "bank" in hinted_types:
+            bonus += 0.38
+        if any(token in normalized_target for token in ("bank", "trust", "settlement")):
+            bonus += 0.14
+    elif normalized_rel == "contracts_with":
+        if "government_agency" in hinted_types:
+            bonus += 0.34
+        if any(token in normalized_target for token in ("u.s.", "united states", "department", "army", "command", "agency")):
+            bonus += 0.12
+    elif normalized_rel == "litigant_in":
+        if "court_case" in hinted_types:
+            bonus += 0.38
+        if any(token in normalized_target for token in ("case no", "cv-", "court", "district", "tribunal")):
+            bonus += 0.14
+    elif normalized_rel == "distributed_by":
+        if any(token in normalized_target for token in ("distributor", "distribution", "trading", "fze", "logistics", "hub")):
+            bonus += 0.16
+    elif normalized_rel == "depends_on_network":
+        if "telecom_provider" in hinted_types:
+            bonus += 0.16
+        if any(token in normalized_target for token in ("telecom", "carrier", "communications", "network")):
+            bonus += 0.08
+    elif normalized_rel == "depends_on_service":
+        if "service" in hinted_types:
+            bonus += 0.16
+        if any(token in normalized_target for token in ("managed", "service", "signing", "hosting", "cloud")):
+            bonus += 0.08
+    return bonus
+
+
 def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str, top_k: int) -> list[dict[str, Any]]:
     candidate_limit = min(max(top_k * 24, top_k + 80), 1200)
     raw_predictions = trainer.predict_links(entity_id, top_k=candidate_limit)
@@ -544,8 +597,18 @@ def _prepare_prediction_rows(cur: Any, trainer: "TransETrainer", entity_id: str,
             "predicted_edge_family": _prediction_edge_family(rel_type),
             "score": float(pred["score"]),
         }
+        row["ranking_score"] = max(0.0, float(row["score"]) - _relation_specific_score_bonus(rel_type, target_name, target_entity_type))
         relation_buckets.setdefault(rel_type, []).append(row)
-        relation_best_score[rel_type] = min(relation_best_score.get(rel_type, float("inf")), row["score"])
+        relation_best_score[rel_type] = min(relation_best_score.get(rel_type, float("inf")), row["ranking_score"])
+
+    for rel_type, bucket in relation_buckets.items():
+        bucket.sort(
+            key=lambda row: (
+                float(row.get("ranking_score") or row.get("score") or 0.0),
+                float(row.get("score") or 0.0),
+                str(row.get("target_name") or ""),
+            )
+        )
 
     prepared: list[dict[str, Any]] = []
     relation_limits: dict[str, int] = {}

@@ -87,6 +87,41 @@ def test_prepare_prediction_rows_dedupes_and_diversifies_relations():
     assert all(row["predicted_relation"] != "screened_for" for row in rows)
 
 
+def test_prepare_prediction_rows_applies_relation_specific_reranking():
+    module = _reload_fresh("graph_embeddings")
+
+    class FakeTrainer:
+        def predict_links(self, entity_id, top_k=10):
+            return [
+                {"target_entity_id": "bank-weaker", "predicted_relation": "routes_payment_through", "score": 0.12, "target_name": "Harbor Settlement Bank"},
+                {"target_entity_id": "corp-stronger", "predicted_relation": "routes_payment_through", "score": 0.09, "target_name": "North Harbor Capital"},
+                {"target_entity_id": "case-weaker", "predicted_relation": "litigant_in", "score": 0.16, "target_name": "Case No. 24-cv-1182"},
+                {"target_entity_id": "court-stronger", "predicted_relation": "litigant_in", "score": 0.13, "target_name": "Beacon Strategic Capital"},
+                {"target_entity_id": "agency-weaker", "predicted_relation": "contracts_with", "score": 0.15, "target_name": "U.S. Army"},
+                {"target_entity_id": "company-stronger", "predicted_relation": "contracts_with", "score": 0.12, "target_name": "Raytheon Company"},
+            ]
+
+    entity_rows = {
+        "src-1": {"entity_id": "src-1", "canonical_name": "Harbor Beacon Holdings", "entity_type": "company"},
+        "bank-weaker": {"entity_id": "bank-weaker", "canonical_name": "Harbor Settlement Bank", "entity_type": "bank"},
+        "corp-stronger": {"entity_id": "corp-stronger", "canonical_name": "North Harbor Capital", "entity_type": "holding_company"},
+        "case-weaker": {"entity_id": "case-weaker", "canonical_name": "Case No. 24-cv-1182", "entity_type": "court_case"},
+        "court-stronger": {"entity_id": "court-stronger", "canonical_name": "Beacon Strategic Capital", "entity_type": "holding_company"},
+        "agency-weaker": {"entity_id": "agency-weaker", "canonical_name": "U.S. Army", "entity_type": "government_agency"},
+        "company-stronger": {"entity_id": "company-stronger", "canonical_name": "Raytheon Company", "entity_type": "company"},
+    }
+
+    module._fetch_entity_map = lambda cur, entity_ids: {entity_id: entity_rows[entity_id] for entity_id in entity_ids if entity_id in entity_rows}
+    rows = module._prepare_prediction_rows(cur=None, trainer=FakeTrainer(), entity_id="src-1", top_k=6)
+
+    names_in_order = [row["target_name"] for row in rows]
+    assert "Raytheon Company" not in names_in_order
+    assert "North Harbor Capital" not in names_in_order
+    assert "Beacon Strategic Capital" not in names_in_order
+    assert "Harbor Settlement Bank" in names_in_order
+    assert "Case No. 24-cv-1182" in names_in_order
+
+
 def test_evaluate_construction_fixture_rows_uses_pending_and_rejected_candidate_state():
     module = _reload_fresh("graph_embeddings")
 

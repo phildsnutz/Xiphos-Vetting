@@ -36,6 +36,7 @@ from graph_embeddings import (  # noqa: E402
     queue_predicted_links,
     train_and_save,
 )
+from graph_ingest import ingest_graph_training_fixture_gold_set  # noqa: E402
 
 
 DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "graph_training_tranche"
@@ -61,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-queue", action="store_true")
+    parser.add_argument("--skip-fixture-seed", action="store_true")
     parser.add_argument("--entity-id", action="append", default=[])
     parser.add_argument("--readiness-dir", default=str(DEFAULT_READINESS_DIR))
     parser.add_argument("--benchmark-dir", default=str(DEFAULT_BENCHMARK_DIR))
@@ -391,6 +393,8 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Embeddings",
         "",
+        f"- Fixture seed rows: `{summary.get('fixture_seed', {}).get('rows_seeded', 0)}`",
+        f"- Fixture seed sources: `{summary.get('fixture_seed', {}).get('sources_seeded', 0)}`",
         f"- Entities: `{summary['embedding_stats'].get('entity_count', 0)}`",
         f"- Relations: `{summary['embedding_stats'].get('relation_count', 0)}`",
         f"- Model version: `{summary['embedding_stats'].get('model_version')}`",
@@ -457,6 +461,10 @@ def main() -> int:
     benchmark_path = _latest_nested_summary(Path(args.benchmark_dir))
     neo4j_path = _latest_neo4j_report()
 
+    fixture_seed: dict[str, Any] | None = None
+    if not args.skip_fixture_seed:
+        fixture_seed = ingest_graph_training_fixture_gold_set()
+
     training_result: dict[str, Any] | None = None
     if not args.skip_train:
         training_result = train_and_save(pg_url, dim=64)
@@ -508,6 +516,7 @@ def main() -> int:
         "readiness_summary": str(readiness_path) if readiness_path else None,
         "neo4j_summary": str(neo4j_path) if neo4j_path else None,
         "benchmark_summary": str(benchmark_path) if benchmark_path else None,
+        "fixture_seed": fixture_seed,
         "training_result": training_result,
         "embedding_stats": embedding_stats,
         "review_stats": review_stats,
