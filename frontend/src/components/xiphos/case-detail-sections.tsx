@@ -34,7 +34,7 @@ export function ScoreHistory({
   ].filter((t) => t.val < maxP);
 
   return (
-    <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+    <div className="rounded-lg p-4 glass-card animate-fade-in">
       <div className="flex items-center gap-1.5 mb-2">
         <TrendingUp size={12} color={T.muted} />
         <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
@@ -89,11 +89,6 @@ export function ScoreHistory({
       </div>
     </div>
   );
-}
-
-export function fmtContrib(s: number): string {
-  const pp = Math.abs(s * 100).toFixed(1);
-  return s > 0 ? `+${pp} pp` : s < 0 ? `\u2212${pp} pp` : `${pp} pp`;
 }
 
 export function ExpandableSection({

@@ -166,7 +166,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
 
   if (configured === null) {
     return (
-      <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <div className="rounded-lg p-4 glass-card animate-fade-in">
         <div className="flex items-center gap-2">
           <Brain size={14} color={T.muted} className="animate-pulse" />
           <span style={{ fontSize: FS.sm, color: T.muted }}>Checking AI configuration...</span>
@@ -177,7 +177,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
 
   if (!configured && !analysis) {
     return (
-      <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <div className="rounded-lg p-4 glass-card animate-fade-in">
         <div className="flex items-center gap-2 mb-2">
           <Brain size={14} color={T.muted} />
           <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
@@ -219,7 +219,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
         : { color: T.amber, bg: T.amberBg, icon: AlertTriangle };
 
   return (
-    <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+    <div className="rounded-lg glass-panel animate-slide-up">
       {/* Header */}
       <div className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${T.border}` }}>
         <div className="flex items-center gap-2">
@@ -243,7 +243,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           <button
             onClick={handleAnalyze}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
             style={{
               padding: "5px 10px",
               fontSize: FS.sm,
@@ -345,7 +345,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
               <button
                 onClick={() => handleDecision("approve")}
                 disabled={decidingLoading}
-                className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg font-semibold cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "5px 14px", fontSize: FS.sm,
                   background: decidingLoading ? T.border : T.greenBg,
@@ -360,7 +360,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
               <button
                 onClick={() => handleDecision("reject")}
                 disabled={decidingLoading}
-                className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg font-semibold cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "5px 14px", fontSize: FS.sm,
                   background: decidingLoading ? T.border : T.redBg,
@@ -375,7 +375,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
               <button
                 onClick={() => handleDecision("escalate")}
                 disabled={decidingLoading}
-                className="inline-flex items-center gap-1.5 rounded font-semibold cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg font-semibold cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "5px 14px", fontSize: FS.sm,
                   background: decidingLoading ? T.border : T.amberBg,
@@ -715,7 +715,7 @@ function ControlPlaneSection({
           <button
             onClick={() => onRun()}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
             style={{
               padding: "6px 12px",
               fontSize: FS.sm,
@@ -749,7 +749,7 @@ function ControlPlaneSection({
           <button
             onClick={onExecute}
             disabled={loading || executionLoading || !plan}
-            className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
             style={{
               padding: "6px 12px",
               fontSize: FS.sm,
@@ -838,7 +838,7 @@ function ControlPlaneSection({
               {plan.plan.map((step, index) => {
                 const tone = stepTone(step.mode);
                 return (
-                  <div key={`${step.tool_id}-${index}`} className="rounded-lg" style={{ padding: 12, background: T.raised, border: `1px solid ${T.border}` }}>
+                  <div key={`${step.tool_id}-${index}`} className="rounded-lg card-interactive" style={{ padding: 12, background: T.raised, border: `1px solid ${T.border}` }}>
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: tone.color, background: tone.background }}>
@@ -878,7 +878,7 @@ function ControlPlaneSection({
                   const assuranceHybridReview = step.tool_id === "cyber_evidence" ? getAssuranceHybridReview(step.result) : null;
                   const cyberEvidenceSummary = step.tool_id === "cyber_evidence" ? getCyberEvidenceSummary(step.result) : null;
                   return (
-                    <div key={`${step.tool_id}-${step.status}`} className="rounded-lg" style={{ padding: 12, background: T.raised, border: `1px solid ${T.border}` }}>
+                    <div key={`${step.tool_id}-${step.status}`} className="rounded-lg card-interactive" style={{ padding: 12, background: T.raised, border: `1px solid ${T.border}` }}>
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div className="flex items-center gap-2">
                           <span className="rounded-full" style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, color: tone.color, background: tone.background }}>
@@ -1262,7 +1262,7 @@ function ControlPlaneSection({
               <button
                 onClick={handleFeedbackSubmit}
                 disabled={feedbackSubmitting || !plan}
-                className="inline-flex items-center gap-1.5 rounded font-medium border cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "6px 12px",
                   fontSize: FS.sm,

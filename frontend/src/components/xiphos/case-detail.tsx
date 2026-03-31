@@ -14,7 +14,8 @@ import { AIAnalysisPanel } from "./ai-analysis-panel";
 import { ActionPanel } from "./action-panel";
 import { LoadingSpinner } from "./loader";
 import { RiskStoryline } from "./risk-storyline";
-import { ExpandableSection, fmtContrib, RegulatoryPanel, ScoreHistory } from "./case-detail-sections";
+import { ExpandableSection, RegulatoryPanel, ScoreHistory } from "./case-detail-sections";
+import { fmtContrib } from "./case-detail-formatters";
 import { buildProtectedUrl, computeCyberRiskScore, fetchAIAnalysisStatus, fetchCase, fetchCaseGraph, fetchCaseMonitorStatus, fetchCaseMonitoringHistory, fetchCaseNetworkRisk, fetchEnrichment, fetchSupplierPassport, generateDossier as requestDossier, listExportArtifacts, listFociArtifacts, listNvdOverlays, listOscalArtifacts, listSprsImports, runCaseMonitor, runNvdOverlay, uploadExportArtifact, uploadFociArtifact, uploadOscalArtifact, uploadSprsImport, runTransactionAuthorization, listTransactionAuthorizations, fetchTransactionAuthorization, fetchCaseScreenings, screenBatchCsv, screenPerson } from "@/lib/api";
 import TransactionAuthorizationPanel from "./transaction-authorization-panel";
 import type { TransactionAuthorizationResult } from "./transaction-authorization-panel";
@@ -2488,7 +2489,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   ))}
                 </div>
               ) : (
-                <div className="rounded-xl" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 13px" }}>
+                <div className="rounded-xl glass-card" style={{ padding: "12px 13px" }}>
                   <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>Single-lane case</div>
                   <div style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5, marginTop: 6 }}>
                     This case is currently driven by one decision lane. Detailed authority inputs below provide the source records behind that lane.
@@ -2600,7 +2601,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
           {/* LEVEL 1: Key Findings (always visible) */}
           {cal?.finds && cal.finds.length > 0 && (
-            <div className="mt-3 rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            <div className="mt-3 rounded-lg p-4 glass-card">
               <div className="font-semibold uppercase tracking-wider mb-3" style={{ fontSize: FS.sm, color: T.muted }}>
                 Key Findings
               </div>
@@ -2630,6 +2631,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                         <button
                           key={tab.key}
                           onClick={() => setAuthorityLaneSelection({ caseId: c.id, lane: tab.key })}
+                          className="btn-interactive focus-ring"
                           style={{
                             minWidth: 142,
                             padding: "9px 11px",
@@ -2639,6 +2641,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                             color: active ? tab.tone.color : T.text,
                             textAlign: "left",
                             cursor: "pointer",
+                            boxShadow: active ? `0 0 12px ${tab.tone.border}` : "none",
                           }}
                         >
                           <div style={{ fontSize: 12, fontWeight: 800 }}>{tab.title}</div>
@@ -2653,7 +2656,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {showFociPanel && authorityLaneKey === "counterparty" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -2697,7 +2700,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
                   {latestFociSummary && (
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-3" style={{ marginBottom: 10 }}>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Latest artifact
                         </div>
@@ -2705,7 +2708,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {String(latestFociSummary.artifact_label || "FOCI artifact")}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Foreign ownership
                         </div>
@@ -2721,7 +2724,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                             : ""}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Mitigation
                         </div>
@@ -2734,7 +2737,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           ).replaceAll("_", " ")}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Foreign counterparty
                         </div>
@@ -2835,7 +2838,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {showSprsPanel && authorityLaneKey === "cyber" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -2879,7 +2882,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
                   {latestSprsSummary && (
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-3" style={{ marginBottom: 10 }}>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Latest score
                         </div>
@@ -2889,7 +2892,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                             : "Unknown"}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           CMMC level
                         </div>
@@ -2899,7 +2902,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                             : "Unknown"}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Assessment status
                         </div>
@@ -2907,7 +2910,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {sprsStatusLabel(String(latestSprsSummary.status || ""))}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           POA&amp;M
                         </div>
@@ -2986,7 +2989,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {showOscalPanel && authorityLaneKey === "cyber" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -3030,7 +3033,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
                   {latestOscalSummary && (
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-3" style={{ marginBottom: 10 }}>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Latest document
                         </div>
@@ -3038,7 +3041,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {String(latestOscalSummary.document_label || "OSCAL artifact")}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           System
                         </div>
@@ -3046,7 +3049,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {String(latestOscalSummary.system_name || "Unnamed system")}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Open POA&amp;M items
                         </div>
@@ -3056,7 +3059,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                             : "0"}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Control references
                         </div>
@@ -3163,7 +3166,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {showNvdPanel && authorityLaneKey === "cyber" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -3220,7 +3223,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
                   {latestNvdSummary && (
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-3" style={{ marginBottom: 10 }}>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Product refs
                         </div>
@@ -3228,7 +3231,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {Array.isArray(latestNvdSummary.product_terms) ? latestNvdSummary.product_terms.length : 0}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Unique CVEs
                         </div>
@@ -3236,7 +3239,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {typeof latestNvdSummary.unique_cve_count === "number" ? latestNvdSummary.unique_cve_count : 0}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           High / critical
                         </div>
@@ -3244,7 +3247,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                           {typeof latestNvdSummary.high_or_critical_cve_count === "number" ? latestNvdSummary.high_or_critical_cve_count : 0}
                         </div>
                       </div>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           KEV-linked
                         </div>
@@ -3336,7 +3339,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {authorityLaneKey === "cyber" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -3580,7 +3583,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {authorityLaneKey === "export" && exportAuthorizationGuidance && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -3607,7 +3610,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                    <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                    <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                         Country posture
                       </div>
@@ -3619,7 +3622,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       </div>
                     </div>
 
-                    <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                    <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                         Classification posture
                       </div>
@@ -3631,7 +3634,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                       </div>
                     </div>
 
-                    <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                    <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                         Recommended next step
                       </div>
@@ -3646,7 +3649,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
                   {(exportAuthorizationGuidance.end_use_flags.length > 0 || exportAuthorizationGuidance.factors.length > 0) && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3" style={{ marginTop: 12 }}>
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
                           Decision factors
                         </div>
@@ -3660,7 +3663,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                         </div>
                       </div>
 
-                      <div className="rounded-lg" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
+                      <div className="rounded-lg card-interactive" style={{ background: T.raised, border: `1px solid ${T.border}`, padding: "11px 12px" }}>
                         <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
                           Official references
                         </div>
@@ -3706,7 +3709,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
               {/* Transaction Authorization Pipeline (S12) */}
               {authorityLaneKey === "export" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-center justify-between" style={{ marginBottom: txAuth ? 12 : 0 }}>
                     <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                       Transaction authorization pipeline
@@ -3741,7 +3744,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               )}
 
               {authorityLaneKey === "export" && (
-              <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+              <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                 <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                   <div>
                     <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -3856,7 +3859,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               </div>
               )}
               {authorityLaneKey === "export" && (
-                <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "12px 12px 10px", marginTop: 12 }}>
+                <div className="rounded-lg glass-card" style={{ padding: "12px 12px 10px", marginTop: 12 }}>
                   <div className="flex items-start justify-between gap-3 flex-wrap" style={{ marginBottom: 10 }}>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -4859,7 +4862,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="flex flex-col gap-3">
-                <div className="rounded-lg p-5" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                <div className="rounded-lg p-5 glass-card">
                   <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
                     Bayesian Posterior
                   </div>
@@ -4929,7 +4932,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
               </div>
 
               <div className="flex flex-col gap-3">
-                <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                <div className="rounded-lg p-4 glass-card">
                   <div className="font-semibold uppercase tracking-wider mb-3" style={{ fontSize: FS.sm, color: T.muted }}>
                     Case Details
                   </div>
@@ -4998,7 +5001,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                 </div>
 
                 {supplierPassport && (
-                  <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                  <div className="rounded-lg p-4 glass-card">
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div>
                         <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
@@ -5358,7 +5361,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                     ) : null}
                     defaultOpen={false}
                   >
-                    <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                    <div className="rounded-lg p-4 glass-card">
                     {cal.miv.map((m, i) => (
                       <div
                         key={i}
@@ -5391,7 +5394,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                     }
                     defaultOpen={networkRisk.network_risk_level === "critical" || networkRisk.network_risk_level === "high"}
                   >
-                    <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                    <div className="rounded-lg p-4 glass-card">
                     <div className="flex items-center gap-2 mb-3">
                       <Network size={13} color={
                         networkRisk.network_risk_level === "critical" ? T.red :
@@ -5463,7 +5466,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
         )}
 
         {(analystView === "evidence" || analystView === "model") && (
-          <div ref={evidenceRef} className="mt-3 rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 14 }}>
+          <div ref={evidenceRef} className="mt-3 rounded-lg glass-card" style={{ padding: 14 }}>
             <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
               {analystView === "model" ? "Model" : "Evidence"}
             </div>

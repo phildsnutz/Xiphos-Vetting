@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
-import { Activity, TrendingUp, TrendingDown, CheckCircle, XCircle, Clock, Loader2, Minus } from "lucide-react";
+import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, Minus } from "lucide-react";
 import { fetchMonitorRunHistory } from "@/lib/api";
 import type { MonitorRunEntry } from "@/lib/api";
 import { SkeletonCard } from "./loader";
@@ -67,7 +67,6 @@ export function MonitorHistoryPanel({ caseId, vendorName, refreshKey }: MonitorH
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     fetchMonitorRunHistory(caseId, 10)
       .then((data) => {
         if (!cancelled) {
@@ -86,7 +85,7 @@ export function MonitorHistoryPanel({ caseId, vendorName, refreshKey }: MonitorH
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [caseId, refreshKey]);
+  }, [caseId, refreshKey, vendorName]);
 
   return (
     <div className="glass-card p-4 animate-fade-in" style={{ marginTop: 14 }}>

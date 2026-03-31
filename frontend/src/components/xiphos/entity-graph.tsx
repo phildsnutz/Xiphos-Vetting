@@ -1765,10 +1765,8 @@ export function EntityGraph({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div
-        className="rounded-xl p-3"
+        className="rounded-xl p-3 glass-card"
         style={{
-          background: T.surface,
-          border: `1px solid ${T.border}`,
           display: "flex",
           flexWrap: "wrap",
           gap: 10,
@@ -1837,7 +1835,7 @@ export function EntityGraph({
                     setInteractiveGraphKey(null);
                   }
                 }}
-                className="rounded border cursor-pointer"
+                className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "7px 10px",
                   fontSize: FS.sm,
@@ -1862,7 +1860,7 @@ export function EntityGraph({
                     setTablePage(0);
                     setHasCustomizedDenseView(true);
                   }}
-                  className="rounded border cursor-pointer"
+                  className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                     style={{
                       padding: "7px 10px",
                       fontSize: FS.sm,
@@ -1880,7 +1878,7 @@ export function EntityGraph({
                   setShowAdvancedControls(true);
                   setHasCustomizedDenseView(true);
                 }}
-                className="rounded border cursor-pointer"
+                className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "7px 10px",
                   fontSize: FS.sm,
@@ -1908,7 +1906,7 @@ export function EntityGraph({
                       setTablePage(0);
                       if (isDenseNetwork) setHasCustomizedDenseView(true);
                     }}
-                    className="rounded border cursor-pointer"
+                    className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                     style={{
                       padding: "7px 10px",
                       fontSize: FS.sm,
@@ -1936,7 +1934,7 @@ export function EntityGraph({
                         setTablePage(0);
                         if (isDenseNetwork) setHasCustomizedDenseView(true);
                       }}
-                      className="rounded border cursor-pointer"
+                      className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                       style={{
                         padding: "7px 10px",
                         fontSize: FS.sm,
@@ -1959,7 +1957,7 @@ export function EntityGraph({
                   setTablePage(0);
                   if (isDenseNetwork) setHasCustomizedDenseView(true);
                 }}
-                className="rounded outline-none cursor-pointer"
+                className="rounded-lg outline-none cursor-pointer focus-ring"
                 style={{
                   padding: "8px 10px",
                   fontSize: FS.sm,
@@ -1981,7 +1979,7 @@ export function EntityGraph({
                   setTablePage(0);
                   if (isDenseNetwork) setHasCustomizedDenseView(true);
                 }}
-                className="rounded outline-none cursor-pointer"
+                className="rounded-lg outline-none cursor-pointer focus-ring"
                 style={{
                   padding: "8px 10px",
                   fontSize: FS.sm,
@@ -2031,7 +2029,7 @@ export function EntityGraph({
               {isDenseNetwork && (
                 <button
                   onClick={() => setShowAdvancedControls(false)}
-                  className="rounded border cursor-pointer"
+                  className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                   style={{
                     padding: "7px 10px",
                     fontSize: FS.sm,
@@ -2226,12 +2224,19 @@ export function EntityGraph({
             style={{
               position: "relative",
               overflow: "hidden",
-              border: `1px solid ${T.border}`,
+              border: "1px solid rgba(196,160,82,0.12)",
               background: GRAPH_BG,
               backgroundImage: GRAPH_BG_GLOW,
               minHeight: height,
+              boxShadow: "0 0 40px 2px rgba(196,160,82,0.04), 0 2px 16px rgba(0,0,0,0.4)",
             }}
           >
+            {/* Ambient overlays */}
+            <div className="graph-grid-overlay" />
+            <div className="graph-vignette" />
+            <div className="graph-scanline" />
+            <div className="graph-corner-accents" />
+            <div className="graph-corner-accents-b" />
             {!interactiveReady ? (
               <div
                 style={{
@@ -2276,7 +2281,7 @@ export function EntityGraph({
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button
                     onClick={() => setInteractiveGraphKey(currentGraphKey)}
-                    className="rounded border cursor-pointer"
+                    className="rounded-lg border cursor-pointer btn-interactive"
                     style={{
                       padding: "10px 14px",
                       fontSize: FS.sm,
@@ -2284,6 +2289,7 @@ export function EntityGraph({
                       color: GOLD,
                       borderColor: `${GOLD}44`,
                       fontWeight: 700,
+                      boxShadow: `0 0 16px 2px rgba(196,160,82,0.08)`,
                     }}
                   >
                     Open interactive graph
@@ -2309,10 +2315,40 @@ export function EntityGraph({
                 <div
                   ref={containerRef}
                   style={{
+                    position: "relative",
+                    zIndex: 5,
                     width: "100%",
                     height,
                   }}
                 />
+                {/* Floating status bar */}
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 10,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    display: "flex",
+                    gap: 12,
+                    padding: "5px 14px",
+                    borderRadius: 999,
+                    background: "rgba(7,17,25,0.8)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(196,160,82,0.12)",
+                    zIndex: 10,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, color: GOLD, letterSpacing: "0.04em" }}>
+                    {visibleEntityCount} entities
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: T.accent, letterSpacing: "0.04em" }}>
+                    {visibleRelationships.length} links
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: T.dim, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    {effectiveLayoutMode}
+                  </span>
+                </div>
                 {pathMode && (
                   <div
                     style={{
@@ -2351,12 +2387,14 @@ export function EntityGraph({
                     style={{
                       padding: "6px 10px",
                       borderRadius: 999,
-                      background: "rgba(7,17,25,0.74)",
-                      border: `1px solid ${T.border}`,
+                      background: "rgba(7,17,25,0.8)",
+                      border: "1px solid rgba(196,160,82,0.12)",
                       color: T.text,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: 700,
-                      backdropFilter: "blur(10px)",
+                      backdropFilter: "blur(12px)",
+                      letterSpacing: "0.04em",
+                      boxShadow: "0 2px 12px rgba(0,0,0,0.3)",
                     }}
                   >
                     {describeScope(layoutMode, showSecondaryLinks)}
@@ -2385,10 +2423,8 @@ export function EntityGraph({
           </div>
 
           <div
-            className="rounded-xl p-4"
+            className="rounded-xl p-4 glass-card"
             style={{
-              background: T.surface,
-              border: `1px solid ${T.border}`,
               minHeight: height,
               display: "flex",
               flexDirection: "column",
@@ -2396,7 +2432,7 @@ export function EntityGraph({
             }}
           >
           <div>
-            <div style={{ fontSize: FS.sm, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
+            <div style={{ fontSize: FS.sm, color: GOLD, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
               Graph Inspector
             </div>
             <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 6, lineHeight: 1.6 }}>
@@ -3131,10 +3167,8 @@ export function EntityGraph({
         </div>
       ) : (
         <div
-          className="rounded-xl"
+          className="rounded-xl glass-panel"
           style={{
-            border: `1px solid ${T.border}`,
-            background: T.surface,
             overflow: "hidden",
           }}
         >
@@ -3185,7 +3219,7 @@ export function EntityGraph({
               <button
                 onClick={() => setTablePage((current) => Math.max(0, current - 1))}
                 disabled={effectiveTablePage === 0}
-                className="rounded border cursor-pointer"
+                className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "7px 10px",
                   fontSize: FS.sm,
@@ -3205,7 +3239,7 @@ export function EntityGraph({
               <button
                 onClick={() => setTablePage((current) => Math.min(totalTablePages - 1, current + 1))}
                 disabled={effectiveTablePage >= totalTablePages - 1}
-                className="rounded border cursor-pointer"
+                className="rounded-lg border cursor-pointer btn-interactive focus-ring"
                 style={{
                   padding: "7px 10px",
                   fontSize: FS.sm,

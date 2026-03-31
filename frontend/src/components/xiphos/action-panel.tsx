@@ -118,7 +118,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
   // CRITICAL tier
   if (tierBand(tier) === "critical") {
     return (
-      <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <div className="rounded-lg p-4 glass-panel animate-fade-in">
         <div
           className="rounded-lg p-4 mb-4"
           style={{
@@ -140,7 +140,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
 
         {/* Hard stop reasons */}
         {cal.stops && cal.stops.length > 0 && (
-          <div className="mb-4 rounded-lg p-3" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+          <div className="mb-4 rounded-lg p-3 glass-card">
             <div className="font-semibold mb-2" style={{ fontSize: FS.sm, color: T.muted }}>
               Hard Stop Triggers
             </div>
@@ -234,7 +234,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
     }
 
     return (
-      <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <div className="rounded-lg p-4 glass-panel animate-fade-in">
         <div
           className="rounded-lg p-4 mb-4"
           style={{
@@ -255,7 +255,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
 
         {/* Soft flags if any */}
         {cal.flags && cal.flags.length > 0 && (
-          <div className="mb-4 rounded-lg p-3" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+          <div className="mb-4 rounded-lg p-3 glass-card">
             <div className="font-semibold mb-2" style={{ fontSize: FS.sm, color: T.amber }}>
               Soft Flags Detected
             </div>
@@ -340,7 +340,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
   // CONDITIONAL tier
   if (tierBand(tier) === "conditional") {
     return (
-      <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <div className="rounded-lg p-4 glass-panel animate-fade-in">
         <div
           className="rounded-lg p-4 mb-4"
           style={{
@@ -361,7 +361,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
 
         {/* Soft flags if any */}
         {cal.flags && cal.flags.length > 0 && (
-          <div className="mb-4 rounded-lg p-3" style={{ background: T.raised, border: `1px solid ${T.border}` }}>
+          <div className="mb-4 rounded-lg p-3 glass-card">
             <div className="font-semibold mb-2" style={{ fontSize: FS.sm, color: T.amber }}>
               Items Requiring Attention
             </div>
@@ -404,7 +404,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
   if (tierBand(tier) === "clear") {
     const meanConfidence = Math.min(99, Math.max(0, Math.round((cal.mc ?? 0.85) * 100)));
     return (
-      <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <div className="rounded-lg p-4 glass-panel animate-fade-in">
         <div
           className="rounded-lg p-4 mb-4"
           style={{

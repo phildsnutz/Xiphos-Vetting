@@ -136,7 +136,6 @@ export function HeliosLanding({
   onCasesRefresh,
   cases = [],
   preferredLane = "counterparty",
-  onPreferredLaneChange,
 }: HeliosLandingProps) {
   const [input, setInput] = useState("");
   const [searchMode, setSearchMode] = useState<"entity" | "vehicle" | "export">("entity");
@@ -158,13 +157,6 @@ export function HeliosLanding({
   const [exportForm, setExportForm] = useState<ExportAuthorizationCaseInput>(() => createEmptyExportForm());
   const inputRef = useRef<HTMLInputElement>(null);
   const exportRecipientRef = useRef<HTMLInputElement>(null);
-  const _priorityReviewCount = cases.filter((c) => {
-    const hasStops = (c.cal?.stops?.length ?? 0) > 0;
-    if (hasStops) return true;
-    if (!c.cal?.tier) return false;
-    const band = tierBand(parseTier(c.cal.tier));
-    return band === "critical" || band === "elevated";
-  }).length;
   const recommendedCandidate =
     resolution?.status === "recommended"
       ? candidates.find((candidate) => candidate.candidate_id === resolution.recommended_candidate_id) ?? null
@@ -173,12 +165,6 @@ export function HeliosLanding({
     ? candidates.filter((candidate) => candidate.candidate_id !== recommendedCandidate.candidate_id)
     : candidates;
   const entityWorkflowLabel = entityWorkflow === "cyber" ? "Supply chain assurance" : "Defense counterparty trust";
-  const _entityWorkflowIntro = entityWorkflow === "cyber"
-    ? "Open a supply chain assurance case and prepare the SPRS, OSCAL, SBOM, VEX, and vulnerability evidence lanes behind the decision."
-    : "Open a defense counterparty trust case for ownership, FOCI, and pre-award supplier adjudication.";
-  const entityInputPlaceholder = entityWorkflow === "cyber"
-    ? "Enter supplier name for supply chain assurance review..."
-    : "Enter company name for counterparty trust review...";
   const confirmIntro = entityWorkflow === "cyber"
     ? "Final check before Helios begins supply chain assurance review."
     : "Final check before Helios begins defense counterparty review.";
@@ -204,53 +190,20 @@ export function HeliosLanding({
 
   useEffect(() => {
     if (phase !== "idle") return;
-    if (preferredLane === "export") {
-      setSearchMode("export");
-      return;
-    }
-    setSearchMode("entity");
-    setEntityWorkflow(preferredLane === "cyber" ? "cyber" : "counterparty");
+    const syncTimer = window.setTimeout(() => {
+      if (preferredLane === "export") {
+        setSearchMode("export");
+        return;
+      }
+      setSearchMode("entity");
+      setEntityWorkflow(preferredLane === "cyber" ? "cyber" : "counterparty");
+    }, 0);
+    return () => window.clearTimeout(syncTimer);
   }, [phase, preferredLane]);
 
   const focusEntityInput = useCallback(() => {
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, []);
-
-  const _focusActiveLaneEntry = useCallback(() => {
-    if (activeLane === "export") {
-      window.setTimeout(() => {
-        exportRecipientRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-        exportRecipientRef.current?.focus();
-      }, 0);
-      return;
-    }
-    focusEntityInput();
-  }, [activeLane, focusEntityInput]);
-
-  const _openCounterpartyLane = useCallback(() => {
-    onPreferredLaneChange?.("counterparty");
-    setSearchMode("entity");
-    setEntityWorkflow("counterparty");
-    setInput("");
-    setErrorText("");
-    focusEntityInput();
-  }, [focusEntityInput, onPreferredLaneChange]);
-
-  const _openCyberLane = useCallback(() => {
-    onPreferredLaneChange?.("cyber");
-    setSearchMode("entity");
-    setEntityWorkflow("cyber");
-    setInput("");
-    setErrorText("");
-    focusEntityInput();
-  }, [focusEntityInput, onPreferredLaneChange]);
-
-  const _openExportLane = useCallback(() => {
-    onPreferredLaneChange?.("export");
-    setSearchMode("export");
-    setInput("");
-    setErrorText("");
-  }, [onPreferredLaneChange]);
 
   const openVehicleUtility = useCallback(() => {
     setSearchMode("vehicle");

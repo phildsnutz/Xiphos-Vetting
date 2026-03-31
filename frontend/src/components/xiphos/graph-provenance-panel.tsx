@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { T, FS } from "@/lib/tokens";
-import { Database, ExternalLink, Clock, Shield, Loader2, X, Globe } from "lucide-react";
+import { Database, ExternalLink, Clock, Shield, X, Globe } from "lucide-react";
 import { fetchEntityProvenance, fetchRelationshipProvenance } from "@/lib/api";
 import type { EntityProvenance, RelationshipProvenance, ProvenanceSource } from "@/lib/api";
 import { SkeletonCard } from "./loader";

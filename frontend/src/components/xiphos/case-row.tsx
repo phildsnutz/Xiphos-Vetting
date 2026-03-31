@@ -132,11 +132,9 @@ export function CaseRow({ c, onClick }: CaseRowProps) {
   const laneMeta = WORKFLOW_LANE_META[lane];
   return (
     <div
-      className="rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md"
+      className="rounded-lg cursor-pointer card-interactive"
       style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "14px 16px", borderLeft: `2px solid ${tone.color}` }}
       onClick={onClick}
-      onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
-      onMouseLeave={(e) => (e.currentTarget.style.background = T.surface)}
     >
       <div className="flex items-center gap-3">
         {/* Country chip */}

@@ -478,7 +478,7 @@ export function EnrichmentPanel({ caseId, report, section = "full" }: Enrichment
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-lg" style={{ background: T.surface, border: `1px solid ${T.border}`, padding: 14 }}>
+      <div className="rounded-lg glass-panel animate-slide-up" style={{ padding: 14 }}>
         <div className="flex items-center gap-2 mb-3">
           <Radar size={14} color={T.accent} />
           <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
@@ -584,7 +584,7 @@ export function EnrichmentPanel({ caseId, report, section = "full" }: Enrichment
         <div className="flex flex-col gap-3">
           <NormalizedEventsSection events={report.events ?? []} />
 
-          <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+          <div className="rounded-lg p-3 glass-card">
             <div className="flex items-center gap-1.5 mb-2">
               <Database size={11} color={T.muted} />
               <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
@@ -597,7 +597,7 @@ export function EnrichmentPanel({ caseId, report, section = "full" }: Enrichment
           </div>
 
           {Object.keys(report.identifiers).length > 0 && (
-            <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            <div className="rounded-lg p-3 glass-card">
               <div className="flex items-center gap-1.5 mb-2">
                 <Zap size={11} color={T.muted} />
                 <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
@@ -619,7 +619,7 @@ export function EnrichmentPanel({ caseId, report, section = "full" }: Enrichment
             </div>
           )}
 
-          <div className="rounded-lg p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+          <div className="rounded-lg p-3 glass-card">
             <div className="flex items-center gap-1.5 mb-2">
               <Clock size={11} color={T.muted} />
               <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
