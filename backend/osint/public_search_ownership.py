@@ -53,6 +53,8 @@ OWNERSHIP_SEARCH_SUFFIX = " owner investor shareholder acquired backed by"
 LEADERSHIP_OWNERSHIP_SEARCH_SUFFIX = " founder president CEO owner"
 DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX = ' "Service-Disabled Veteran" veteran-owned sdvosb owner'
 FINANCING_SEARCH_SUFFIX = " portfolio capital funding investors"
+PAYMENT_ROUTE_SEARCH_SUFFIX = " bank banking treasury settlement payment processor payment provider"
+SERVICE_NETWORK_SEARCH_SUFFIX = " managed services cloud hosting telecom network provider carrier connectivity"
 LEGACY_CORPORATE_SUFFIXES = ("Systems", "Technologies", "Solutions", "Laboratories", "Labs")
 SAME_HOST_DISCOVERY_HUB_PATHS = ("/news", "/newsroom", "/blog", "/press", "/articles", "/updates")
 SYNTHETIC_FINANCE_PROFILE_TEMPLATES = (
@@ -687,7 +689,7 @@ def _synthetic_official_candidates(vendor_name: str, country: str = "") -> list[
     return candidates[:SEARCH_RESULT_WINDOW]
 
 
-def _site_scoped_queries(vendor_name: str, website: str) -> list[str]:
+def _site_scoped_queries(vendor_name: str, website: str, *, include_control_paths: bool = False) -> list[str]:
     hosts = [
         urlparse(candidate).netloc.lower()
         for candidate in public_html_ownership._website_variants(website)
@@ -701,14 +703,22 @@ def _site_scoped_queries(vendor_name: str, website: str) -> list[str]:
     for host in hosts:
         host_label = host.removeprefix("www.").split(".", 1)[0].replace("-", " ").strip()
         for variant in _search_queries(vendor_name):
-            query = f"site:{host} {variant}{OWNERSHIP_SEARCH_SUFFIX}".strip()
-            if query not in seen:
-                seen.add(query)
-                queries.append(query)
+            for suffix in (OWNERSHIP_SEARCH_SUFFIX,):
+                query = f"site:{host} {variant}{suffix}".strip()
+                if query not in seen:
+                    seen.add(query)
+                    queries.append(query)
             descriptor_query = f"site:{host} {variant}{DESCRIPTOR_OWNERSHIP_SEARCH_SUFFIX}".strip()
             if descriptor_query not in seen:
                 seen.add(descriptor_query)
                 queries.append(descriptor_query)
+            if include_control_paths:
+                for suffix in (PAYMENT_ROUTE_SEARCH_SUFFIX, SERVICE_NETWORK_SEARCH_SUFFIX):
+                    query = f"site:{host} {variant}{suffix}".strip()
+                    if query in seen:
+                        continue
+                    seen.add(query)
+                    queries.append(query)
         if host_label:
             query = f"site:{host} {host_label}{OWNERSHIP_SEARCH_SUFFIX}".strip()
             if query not in seen:
@@ -718,10 +728,24 @@ def _site_scoped_queries(vendor_name: str, website: str) -> list[str]:
             if descriptor_query not in seen:
                 seen.add(descriptor_query)
                 queries.append(descriptor_query)
+            if include_control_paths:
+                for suffix in (PAYMENT_ROUTE_SEARCH_SUFFIX, SERVICE_NETWORK_SEARCH_SUFFIX):
+                    query = f"site:{host} {host_label}{suffix}".strip()
+                    if query in seen:
+                        continue
+                    seen.add(query)
+                    queries.append(query)
         generic_query = f"site:{host}{OWNERSHIP_SEARCH_SUFFIX}".strip()
         if generic_query not in seen:
             seen.add(generic_query)
             queries.append(generic_query)
+        if include_control_paths:
+            for suffix in (PAYMENT_ROUTE_SEARCH_SUFFIX, SERVICE_NETWORK_SEARCH_SUFFIX):
+                query = f"site:{host}{suffix}".strip()
+                if query in seen:
+                    continue
+                seen.add(query)
+                queries.append(query)
     return queries
 
 
@@ -834,6 +858,8 @@ def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> lis
             score += 20
         if any(token in title for token in ("owned", "owner", "shareholder", "service-disabled veteran", "veteran-owned", "sdvosb")):
             score += 18
+        if any(token in f"{title} {snippet}" for token in ("bank", "payment", "settlement", "telecom", "network provider", "carrier", "hosting", "managed service")):
+            score += 16
         strong_signal = any(
             token in f"{title} {snippet}"
             for token in (
@@ -852,6 +878,14 @@ def _same_host_candidate_pages(candidates: list[dict], website_root: str) -> lis
                 "service-disabled veteran",
                 "veteran-owned",
                 "sdvosb",
+                "bank",
+                "payment",
+                "settlement",
+                "telecom",
+                "network provider",
+                "carrier",
+                "hosting",
+                "managed service",
             )
         )
         if strong_signal:
@@ -2476,7 +2510,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         )
 
         if not merged_relationships:
-            for query in _site_scoped_queries(vendor_name, website):
+            for query in _site_scoped_queries(vendor_name, website, include_control_paths=True):
                 if not _within_budget(deadline):
                     break
                 site_candidates = _search_with_fallbacks(

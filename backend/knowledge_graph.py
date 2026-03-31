@@ -542,7 +542,12 @@ def save_relationship(
                 END,
                 contradiction_state = excluded.contradiction_state,
                 validity_start = COALESCE(excluded.validity_start, kg_claims.validity_start),
-                validity_end = COALESCE(excluded.validity_end, kg_claims.validity_end),
+                validity_end = CASE
+                    WHEN LOWER(COALESCE(kg_claims.contradiction_state, '')) = 'historical'
+                         AND LOWER(COALESCE(excluded.contradiction_state, '')) != 'historical'
+                    THEN excluded.validity_end
+                    ELSE COALESCE(excluded.validity_end, kg_claims.validity_end)
+                END,
                 observed_at = COALESCE(excluded.observed_at, kg_claims.observed_at),
                 last_observed_at = CASE
                     WHEN excluded.last_observed_at > kg_claims.last_observed_at THEN excluded.last_observed_at
@@ -1778,96 +1783,88 @@ def clear_vendor_links(vendor_id: str) -> None:
         )
 
 
-def clear_vendor_graph_state(vendor_id: str) -> None:
+def clear_vendor_graph_state(
+    vendor_id: str,
+    *,
+    preserve_entity_ids: list[str] | tuple[str, ...] | set[str] | None = None,
+    historical_as_of: str = "",
+) -> dict:
     """
-    Remove vendor-scoped graph observations so re-enrichment replaces stale claims
-    instead of accumulating contradictory connector output.
+    Age vendor-scoped graph observations so re-enrichment can replace stale claims
+    without destroying provenance or collapsing thin vendor graphs.
     """
     if not vendor_id:
-        return
+        return {"claims_aged": 0, "vendor_links_removed": 0}
+
+    now = historical_as_of or _utc_now()
+    preserved_ids = [
+        str(entity_id or "").strip()
+        for entity_id in (preserve_entity_ids or [])
+        if str(entity_id or "").strip()
+    ]
 
     with get_kg_conn() as conn:
-        candidate_rows = conn.execute(
+        claim_rows = conn.execute(
             """
-            SELECT DISTINCT
-                c.source_entity_id,
-                c.target_entity_id,
-                c.rel_type,
-                COALESCE(c.data_source, '') AS data_source,
-                COALESCE(e.snippet, '') AS evidence
-            FROM kg_claims c
-            LEFT JOIN kg_evidence e
-                ON e.claim_id = c.id
-            WHERE c.vendor_id = ?
+            SELECT id, contradiction_state, validity_end, structured_fields
+            FROM kg_claims
+            WHERE vendor_id = ?
             """,
             (vendor_id,),
         ).fetchall()
 
-        conn.execute("DELETE FROM kg_entity_vendors WHERE vendor_id = ?", (vendor_id,))
-        conn.execute("DELETE FROM kg_claims WHERE vendor_id = ?", (vendor_id,))
-
-        for row in candidate_rows:
-            remaining = conn.execute(
-                """
-                SELECT 1
-                FROM kg_claims c
-                LEFT JOIN kg_evidence e
-                    ON e.claim_id = c.id
-                WHERE c.source_entity_id = ?
-                  AND c.target_entity_id = ?
-                  AND c.rel_type = ?
-                  AND COALESCE(c.data_source, '') = ?
-                  AND COALESCE(e.snippet, '') = ?
-                LIMIT 1
-                """,
-                (
-                    row["source_entity_id"],
-                    row["target_entity_id"],
-                    row["rel_type"],
-                    row["data_source"],
-                    row["evidence"],
-                ),
-            ).fetchone()
-            if remaining:
-                continue
+        claims_aged = 0
+        for row in claim_rows:
+            claim_id = str(row["id"] or "")
+            contradiction_state = str(row["contradiction_state"] or "").strip().lower()
+            structured_fields = _json_loads(row["structured_fields"], {})
+            if not isinstance(structured_fields, dict):
+                structured_fields = {}
+            structured_fields["vendor_scope_state"] = "historical"
+            structured_fields["historical_vendor_scope"] = True
+            structured_fields["historical_vendor_id"] = vendor_id
+            structured_fields["vendor_scope_superseded_at"] = now
+            next_state = (
+                row["contradiction_state"]
+                if contradiction_state in {"contradicted", "disputed", "challenged", "retracted"}
+                else "historical"
+            )
             conn.execute(
                 """
-                DELETE FROM kg_relationships
-                WHERE source_entity_id = ?
-                  AND target_entity_id = ?
-                  AND rel_type = ?
-                  AND COALESCE(data_source, '') = ?
-                  AND COALESCE(evidence, '') = ?
+                UPDATE kg_claims
+                SET contradiction_state = ?,
+                    validity_end = COALESCE(validity_end, ?),
+                    structured_fields = ?,
+                    updated_at = ?
+                WHERE id = ?
                 """,
                 (
-                    row["source_entity_id"],
-                    row["target_entity_id"],
-                    row["rel_type"],
-                    row["data_source"],
-                    row["evidence"],
+                    next_state,
+                    now,
+                    _json_dumps(structured_fields, {}),
+                    now,
+                    claim_id,
                 ),
             )
+            claims_aged += 1
 
-        conn.execute(
-            """
-            DELETE FROM kg_source_activities
-            WHERE id NOT IN (
-                SELECT DISTINCT source_activity_id
-                FROM kg_claims
-                WHERE source_activity_id IS NOT NULL
+        if preserved_ids:
+            placeholders = ",".join("?" for _ in preserved_ids)
+            cursor = conn.execute(
+                f"DELETE FROM kg_entity_vendors WHERE vendor_id = ? AND entity_id NOT IN ({placeholders})",
+                [vendor_id, *preserved_ids],
             )
-            """
-        )
-        conn.execute(
-            """
-            DELETE FROM kg_asserting_agents
-            WHERE id NOT IN (
-                SELECT DISTINCT asserting_agent_id
-                FROM kg_claims
-                WHERE asserting_agent_id IS NOT NULL
-            )
-            """
-        )
+        else:
+            cursor = conn.execute("DELETE FROM kg_entity_vendors WHERE vendor_id = ?", (vendor_id,))
+
+        vendor_links_removed = int(getattr(cursor, "rowcount", 0) or 0)
+
+        return {
+            "claims_aged": claims_aged,
+            "vendor_links_removed": vendor_links_removed,
+            "preserved_entity_ids": preserved_ids,
+            "historical_as_of": now,
+        }
 
 
 def retract_invalid_public_html_relationships(source_entity_id: str) -> dict:

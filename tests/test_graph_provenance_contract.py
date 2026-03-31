@@ -198,7 +198,7 @@ def test_save_relationship_scopes_claims_by_vendor(tmp_path, monkeypatch):
     assert vendor_ids == {"case-alpha", "case-bravo"}
 
 
-def test_clear_vendor_graph_state_removes_stale_vendor_relationships(tmp_path, monkeypatch):
+def test_clear_vendor_graph_state_ages_vendor_relationships_to_historical(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
     monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos.db"))
     monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path))
@@ -228,10 +228,16 @@ def test_clear_vendor_graph_state_removes_stale_vendor_relationships(tmp_path, m
         claim_count = conn.execute("SELECT COUNT(*) FROM kg_claims").fetchone()[0]
         rel_count = conn.execute("SELECT COUNT(*) FROM kg_relationships").fetchone()[0]
         vendor_link_count = conn.execute("SELECT COUNT(*) FROM kg_entity_vendors WHERE vendor_id = 'case-alpha'").fetchone()[0]
+        claim_row = conn.execute(
+            "SELECT contradiction_state, validity_end, structured_fields FROM kg_claims LIMIT 1"
+        ).fetchone()
 
-    assert claim_count == 0
-    assert rel_count == 0
+    assert claim_count == 1
+    assert rel_count == 1
     assert vendor_link_count == 0
+    assert claim_row["contradiction_state"] == "historical"
+    assert claim_row["validity_end"]
+    assert kg._json_loads(claim_row["structured_fields"], {})["vendor_scope_state"] == "historical"
 
 
 def test_backfill_legacy_relationship_claims_scopes_existing_edges_to_vendor(tmp_path, monkeypatch):
@@ -364,13 +370,14 @@ def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
     assert summary["temporal_state_counts"]["contradicted"] == 1
     assert summary["claim_coverage_pct"] == 0.6667
     assert summary["evidence_coverage_pct"] == 0.6667
-    assert summary["strong_edge_count"] == 1
+    assert summary["strong_edge_count"] == 2
     assert summary["disputed_edge_count"] == 1
     assert summary["avg_edge_intelligence_score"] > 0.4
     assert summary["control_path_avg_intelligence_score"] > 0.45
-    assert summary["edge_intelligence_tier_counts"]["strong"] == 1
+    assert summary["edge_intelligence_tier_counts"]["strong"] == 2
     assert summary["edge_intelligence_tier_counts"]["disputed"] == 1
     assert summary["edge_family_quality"]["ownership_control"]["strong_edge_count"] == 1
+    assert summary["edge_family_quality"]["cyber_supply_chain"]["strong_edge_count"] == 1
     assert summary["edge_family_quality"]["trade_and_logistics"]["disputed_edge_count"] == 1
 
 

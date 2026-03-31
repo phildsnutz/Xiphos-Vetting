@@ -645,6 +645,94 @@ def test_public_html_discovers_funding_article_and_emits_backed_by(monkeypatch):
     assert relationship["evidence_url"] == "https://hefring.example/news/hefring-funding-round"
 
 
+def test_public_html_emits_routes_payment_through_from_bank_partner_phrase(monkeypatch):
+    bank_html = """
+    <html>
+      <body>
+        <p>
+          Example Defense's banking partner is First National Bank and treasury settlement
+          for customer invoices is routed through the same institution.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://example.example":
+            return _FakeResponse(bank_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Example Defense", country="US", website="https://example.example")
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "routes_payment_through"
+    assert result.relationships[0]["target_entity"] == "First National Bank"
+    assert result.relationships[0]["target_entity_type"] == "bank"
+    assert result.findings[0].category == "intermediary"
+
+
+def test_public_html_emits_depends_on_service_from_managed_service_phrase(monkeypatch):
+    service_html = """
+    <html>
+      <body>
+        <p>
+          Vector Mission relies on a managed services provider, Harbor Patch Signing Service,
+          for release signing and hosted operational support.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://example.example":
+            return _FakeResponse(service_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Vector Mission", country="US", website="https://example.example")
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "depends_on_service"
+    assert result.relationships[0]["target_entity"] == "Harbor Patch Signing Service"
+    assert result.relationships[0]["target_entity_type"] == "service"
+
+
+def test_public_html_emits_depends_on_network_from_network_provider_phrase(monkeypatch):
+    network_html = """
+    <html>
+      <body>
+        <p>
+          Connectivity for deployed sensors is maintained through telecom provider Orbital Mesh Telecom
+          with redundancy across regional carrier links.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://example.example":
+            return _FakeResponse(network_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Orbital Sensors", country="US", website="https://example.example")
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "depends_on_network"
+    assert result.relationships[0]["target_entity"] == "Orbital Mesh Telecom"
+    assert result.relationships[0]["target_entity_type"] == "telecom_provider"
+
+
 def test_public_html_ignores_generic_part_of_prose(monkeypatch):
     generic_html = """
     <html>

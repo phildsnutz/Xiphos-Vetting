@@ -316,7 +316,7 @@ class MonitorScheduler:
 
             for vendor in vendors_to_check:
                 try:
-                    result = self._check_vendor(vendor)
+                    result = self._check_vendor(vendor, sweep_id=sweep_id)
                     if result:
                         processed += 1
                         if result["risk_changed"]:
@@ -346,7 +346,7 @@ class MonitorScheduler:
                 if sweep_id in self._active_sweeps:
                     self._active_sweeps[sweep_id]["status"] = "failed"
 
-    def _check_vendor(self, vendor: dict) -> Optional[dict]:
+    def _check_vendor(self, vendor: dict, *, sweep_id: str | None = None) -> Optional[dict]:
         """
         Check a single vendor for risk tier changes.
 
@@ -414,7 +414,7 @@ class MonitorScheduler:
             # Log monitoring check
             db.save_monitoring_log(
                 vendor_id=str(result["vendor_id"]),
-                run_id=str(sweep_id),
+                run_id=str(sweep_id or f"manual-{result['vendor_id']}"),
                 previous_risk=str(result["old_tier"]),
                 current_risk=str(result["new_tier"]),
                 risk_changed=bool(result["risk_changed"]),

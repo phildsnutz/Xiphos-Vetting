@@ -434,6 +434,63 @@ def test_graph_summary_excludes_stale_relationships_from_other_cases(app_env):
     assert all(rel["rel_type"] != "owned_by" for rel in light_summary["relationships"])
 
 
+def test_graph_reingest_preserves_historical_paths_when_fresh_run_is_thin(app_env):
+    import graph_ingest
+
+    stale_report = {
+        "vendor_name": "Columbia Helicopters, Inc.",
+        "country": "US",
+        "identifiers": {"lei": "549300DV5B5ZO815U462"},
+        "findings": [],
+        "relationships": [
+            {
+                "type": "owned_by",
+                "source_entity": "Columbia Helicopters, Inc.",
+                "target_entity": "Rippling",
+                "source_entity_type": "company",
+                "target_entity_type": "holding_company",
+                "data_source": "public_html_ownership",
+                "confidence": 0.7,
+                "evidence": "Legacy ownership statement",
+                "artifact_ref": "https://ats.rippling.com",
+                "evidence_url": "https://ats.rippling.com",
+                "evidence_title": "Legacy ownership page",
+            },
+        ],
+        "risk_signals": [],
+    }
+    thin_report = {
+        "vendor_name": "Columbia Helicopters, Inc.",
+        "country": "US",
+        "identifiers": {"lei": "549300DV5B5ZO815U462"},
+        "findings": [],
+        "relationships": [],
+        "risk_signals": [],
+    }
+
+    graph_ingest.ingest_enrichment_to_graph("case-columbia-historical", "Columbia Helicopters, Inc.", stale_report)
+    graph_ingest.ingest_enrichment_to_graph("case-columbia-historical", "Columbia Helicopters, Inc.", thin_report)
+
+    fresh_summary = graph_ingest.get_vendor_graph_summary("case-columbia-historical", depth=1)
+    light_summary = graph_ingest.get_vendor_graph_summary(
+        "case-columbia-historical",
+        depth=1,
+        include_provenance=False,
+        max_claim_records=0,
+        max_evidence_records=0,
+    )
+
+    ownership_relationships = [rel for rel in fresh_summary["relationships"] if rel["rel_type"] == "owned_by"]
+    assert len(ownership_relationships) == 1
+    assert ownership_relationships[0]["vendor_scope_state"] == "historical"
+    assert ownership_relationships[0]["temporal_state"] == "historical"
+    assert all(
+        str(claim_record.get("contradiction_state") or "") == "historical"
+        for claim_record in ownership_relationships[0]["claim_records"]
+    )
+    assert any(rel["rel_type"] == "owned_by" for rel in light_summary["relationships"])
+
+
 def test_monitor_scheduler_uses_canonical_rescore_helpers(app_env, monkeypatch):
     import monitor_scheduler
 

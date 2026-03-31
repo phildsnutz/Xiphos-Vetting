@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-03-31T13:20:06Z",
+  "db_path": "/Users/tyegonzalez/Desktop/Helios-Package Merged/var/knowledge_graph.live.snapshot.db",
+  "global_counts": {
+    "entity_count": 8278,
+    "relationship_count": 21111,
+    "claim_count": 7171,
+    "evidence_count": 7171,
+    "vendor_link_count": 5941,
+    "vendor_count": 2395
+  },
+  "relationship_type_distribution": {
+    "subcontractor_of": 6906,
+    "filed_with": 4846,
+    "contracts_with": 3435,
+    "prime_contractor_of": 2482,
+    "subsidiary_of": 1810,
+    "litigant_in": 1087,
+    "sanctioned_on": 207,
+    "mentioned_with": 180,
+    "owned_by": 58,
+    "backed_by": 23,
+    "alias_of": 17,
+    "screened_for": 15,
+    "national_of": 13,
+    "employed_by": 9,
+    "related_entity": 9,
+    "beneficially_owned_by": 6,
+    "led_by": 5,
+    "co_national": 1,
+    "deemed_export_subject": 1,
+    "sanctioned_person": 1
+  },
+  "entity_type_distribution": {
+    "company": 7936,
+    "court_case": 181,
+    "holding_company": 91,
+    "government_agency": 35,
+    "person": 16,
+    "sanctions_list": 7,
+    "case": 6,
+    "country": 5,
+    "export_control": 1
+  },
+  "mapped_entity_buckets": {
+    "1": 1948,
+    "2": 151,
+    "3-5": 141,
+    "6-10": 55,
+    "11+": 100
+  },
+  "root_relationship_buckets_proxy": {
+    "0": 857,
+    "1": 146,
+    "2": 58,
+    "3-5": 254,
+    "6-10": 229,
+    "11+": 851
+  },
+  "control_path_buckets_proxy": {
+    "0": 1723,
+    "1": 278,
+    "2": 63,
+    "3-5": 323,
+    "6-10": 8
+  },
+  "coverage_metrics": {
+    "average_mapped_entities_per_vendor": 2.4806,
+    "single_entity_vendor_count": 1948,
+    "single_entity_vendor_pct": 0.8134,
+    "zero_relationship_vendor_count_proxy": 857,
+    "zero_relationship_vendor_pct_proxy": 0.3578,
+    "zero_control_vendor_count_proxy": 1723,
+    "zero_control_vendor_pct_proxy": 0.7194,
+    "vendors_with_any_relationship_proxy": 1538,
+    "vendors_with_any_control_path_proxy": 672
+  },
+  "control_path_relation_types": [
+    "owned_by",
+    "beneficially_owned_by",
+    "backed_by",
+    "routes_payment_through",
+    "depends_on_service",
+    "depends_on_network",
+    "distributed_by",
+    "operates_facility",
+    "ships_via"
+  ],
+  "samples": {
+    "sample_dense_vendor_ids": [
+      "c-1655d7d0",
+      "c-7b6b05b3",
+      "c-06b5564a",
+      "c-2e43f6fc",
+      "c-7374e890",
+      "c-7df8ca69",
+      "c-03fc28d9",
+      "c-afeaf0e7",
+      "c-27a79174",
+      "c-0a78d7ed"
+    ],
+    "sample_zero_control_vendor_ids": [
+      "c-000bb34c",
+      "c-005a17a7",
+      "c-0061113e",
+      "c-006215e7",
+      "c-008b41d0",
+      "c-009edf16",
+      "c-00b8763f",
+      "c-00cf613c",
+      "c-012fa0b2",
+      "c-016ba119"
+    ]
+  },
+  "diagnosis": {
+    "headline": "The live KG is globally large but vendor-scoped control graphs are thin.",
+    "locality_gap": "Most vendors map to one entity and never grow a meaningful ownership, financing, bank-route, or service-intermediary neighborhood.",
+    "proxy_note": "Relationship and control-path buckets are a root-entity proxy from vendor-linked source entities. The dossier path is stricter because it filters down to vendor-scoped claims, so real case-level thinness is usually worse than this report.",
+    "priority_gap": "The missing edge families are still ownership/control and intermediary evidence, not generic company discovery."
+  }
+}

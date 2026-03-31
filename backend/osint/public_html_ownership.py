@@ -147,6 +147,51 @@ SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
         0.60,
         "investment_from_phrase",
     ),
+    (
+        re.compile(
+            r"\b(?:payments?|receivables?|payables?)\s+(?:are|is)\s+(?:processed|settled|routed)\s+(?:through|via)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "routes_payment_through",
+        0.60,
+        "first_party_payment_intermediary",
+    ),
+    (
+        re.compile(
+            r"\b(?:banking|treasury|settlement)\s+(?:partner|provider|bank)\s+(?:is\s+|:?\s*)([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "routes_payment_through",
+        0.58,
+        "first_party_payment_intermediary",
+    ),
+    (
+        re.compile(
+            r"\b(?:managed services?|cloud hosting|hosting|patch signing|identity platform|monitoring platform)\s+(?:partner|provider|service)\s+(?:is\s+|:?\s*)([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "depends_on_service",
+        0.56,
+        "first_party_service_dependency",
+    ),
+    (
+        re.compile(
+            r"\b(?:relies on|depends on)\s+(?:a\s+)?(?:managed services?|cloud hosting|hosting|patch signing|identity platform|monitoring platform)\s+(?:partner|provider|service)?[,:\s]+([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "depends_on_service",
+        0.56,
+        "first_party_service_dependency",
+    ),
+    (
+        re.compile(
+            r"\b(?:telecom|network|connectivity|carrier)\s+(?:partner|provider|carrier)\s+(?:is\s+|:?\s*|\s+)([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "depends_on_network",
+        0.56,
+        "first_party_network_dependency",
+    ),
 )
 
 DESCRIPTOR_OWNERSHIP_PATTERNS: tuple[tuple[re.Pattern[str], float, str, str], ...] = (
@@ -189,6 +234,15 @@ DISCOVERY_KEYWORDS = (
     "invest",
     "back",
     "acquir",
+    "bank",
+    "payment",
+    "settlement",
+    "telecom",
+    "network",
+    "carrier",
+    "hosting",
+    "cloud",
+    "managed service",
     "news",
     "press",
     "growth",
@@ -387,6 +441,15 @@ DISCOVERY_SURFACE_KEYWORDS = (
     "subsidiary",
     "shareholder",
     "investor",
+    "bank",
+    "payment",
+    "settlement",
+    "telecom",
+    "network",
+    "carrier",
+    "hosting",
+    "cloud",
+    "managed service",
     "veteran",
     "sdvosb",
     "wosb",
@@ -411,7 +474,49 @@ OWNERSHIP_DISCOVERY_QUERIES = (
     "ownership",
     "owner",
     "parent company",
+    "banking partner",
+    "payment provider",
+    "network provider",
+    "managed services",
 )
+
+_RELATIONSHIP_META: dict[str, dict[str, str]] = {
+    "owned_by": {
+        "target_entity_type": "holding_company",
+        "finding_category": "ownership",
+        "finding_title_prefix": "Public site ownership hint: ",
+        "relationship_scope_default": "first_party_control",
+        "evidence_title": "Public company website ownership statement",
+    },
+    "backed_by": {
+        "target_entity_type": "holding_company",
+        "finding_category": "finance",
+        "finding_title_prefix": "Public site financial backer hint: ",
+        "relationship_scope_default": "first_party_financing",
+        "evidence_title": "Public company website financing statement",
+    },
+    "routes_payment_through": {
+        "target_entity_type": "bank",
+        "finding_category": "intermediary",
+        "finding_title_prefix": "Public site payment intermediary hint: ",
+        "relationship_scope_default": "first_party_payment_intermediary",
+        "evidence_title": "Public company website payment intermediary statement",
+    },
+    "depends_on_service": {
+        "target_entity_type": "service",
+        "finding_category": "intermediary",
+        "finding_title_prefix": "Public site service dependency hint: ",
+        "relationship_scope_default": "first_party_service_dependency",
+        "evidence_title": "Public company website service dependency statement",
+    },
+    "depends_on_network": {
+        "target_entity_type": "telecom_provider",
+        "finding_category": "intermediary",
+        "finding_title_prefix": "Public site network dependency hint: ",
+        "relationship_scope_default": "first_party_network_dependency",
+        "evidence_title": "Public company website network dependency statement",
+    },
+}
 IDENTIFIER_PATTERNS: tuple[tuple[str, str, re.Pattern[str], float], ...] = (
     (
         "cage",
@@ -728,7 +833,13 @@ def _should_stop_optional_fetches(
     if not _has_identity_anchor(identifiers, findings):
         return False
     return any(
-        relationship.get("type") in {"owned_by", "backed_by"}
+        relationship.get("type") in {
+            "owned_by",
+            "backed_by",
+            "routes_payment_through",
+            "depends_on_service",
+            "depends_on_network",
+        }
         and float(relationship.get("confidence") or 0.0) >= EARLY_STOP_RELATION_CONFIDENCE
         for relationship in relationships
     )
@@ -757,6 +868,7 @@ def _clean_parent_name(raw_name: str) -> str:
         maxsplit=1,
         flags=re.IGNORECASE,
     )[0].strip()
+    text = re.split(r",\s+(?:for|to|from|via|through)\b", text, maxsplit=1, flags=re.IGNORECASE)[0].strip()
     text = re.split(r",\s+(?:the|which|with|that)\b", text, maxsplit=1, flags=re.IGNORECASE)[0].strip()
     text = re.split(r"\s+(?:and|which|with|that)\b", text, maxsplit=1, flags=re.IGNORECASE)[0].strip()
     text = re.sub(r"^(?:the|a|an)\s+", "", text, flags=re.IGNORECASE)
@@ -1327,13 +1439,15 @@ def _build_relationship(
     scope: str,
     snippet: str,
 ) -> dict:
+    relationship_meta = _RELATIONSHIP_META.get(rel_type, _RELATIONSHIP_META["owned_by"])
+    relationship_scope = scope if rel_type == "owned_by" else relationship_meta["relationship_scope_default"]
     return {
         "type": rel_type,
         "source_entity": vendor_name,
         "source_entity_type": "company",
         "source_identifiers": {"website": website} if website else {},
         "target_entity": parent_name,
-        "target_entity_type": "holding_company",
+        "target_entity_type": relationship_meta["target_entity_type"],
         "target_identifiers": {},
         "country": country,
         "data_source": SOURCE_NAME,
@@ -1342,9 +1456,9 @@ def _build_relationship(
         "observed_at": datetime.utcnow().isoformat() + "Z",
         "artifact_ref": page_url,
         "evidence_url": page_url,
-        "evidence_title": "Public company website ownership statement",
+        "evidence_title": relationship_meta["evidence_title"],
         "structured_fields": {
-            "relationship_scope": scope if rel_type == "owned_by" else "first_party_financing",
+            "relationship_scope": relationship_scope,
             "extraction_method": "public_html_pattern",
             "source_page": page_url,
             "website": website,
@@ -1489,6 +1603,7 @@ def extract_page(
                 )
             )
         for candidate in _extract_candidates(text, vendor_name, effective_page_url):
+            relationship_meta = _RELATIONSHIP_META.get(candidate["rel_type"], _RELATIONSHIP_META["owned_by"])
             result.relationships.append(
                 _build_relationship(
                     vendor_name=vendor_name,
@@ -1505,19 +1620,19 @@ def extract_page(
             result.findings.append(
                 Finding(
                     source=SOURCE_NAME,
-                    category="ownership" if candidate["rel_type"] == "owned_by" else "finance",
-                    title=(
-                        f"Public site ownership hint: {candidate['target_entity']}"
-                        if candidate["rel_type"] == "owned_by"
-                        else f"Public site financial backer hint: {candidate['target_entity']}"
-                    ),
+                    category=relationship_meta["finding_category"],
+                    title=f"{relationship_meta['finding_title_prefix']}{candidate['target_entity']}",
                     detail=f"{candidate['snippet']} | Source page: {effective_page_url}",
                     severity="info",
                     confidence=candidate["confidence"],
                     url=effective_page_url,
                     artifact_ref=effective_page_url,
                     structured_fields={
-                        "relationship_scope": candidate["scope"] if candidate["rel_type"] == "owned_by" else "first_party_financing",
+                        "relationship_scope": (
+                            candidate["scope"]
+                            if candidate["rel_type"] == "owned_by"
+                            else relationship_meta["relationship_scope_default"]
+                        ),
                         "relationship_type": candidate["rel_type"],
                         "target_entity": candidate["target_entity"],
                         "website": canonical_website or normalized_website,
@@ -1654,7 +1769,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     str(finding.structured_fields.get("target_entity") or "").upper(),
                 ): finding
                 for finding in page_result.findings
-                if finding.category in {"ownership", "finance"}
+                if finding.category in {"ownership", "finance", "intermediary"}
             }
             for relationship in page_result.relationships:
                 dedupe_key = (relationship["type"], relationship["target_entity"].upper())
@@ -1723,7 +1838,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 "source": SOURCE_NAME,
                 "severity": "info",
                 "confidence": max((rel["confidence"] for rel in relationships), default=0.0),
-                "summary": f"Public website ownership hint found for {vendor_name}",
+                "summary": f"Public website control-path hint found for {vendor_name}",
                 "website": canonical_website or website,
             }
         )

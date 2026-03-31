@@ -161,10 +161,68 @@ def _parse_graph_timestamp(value: object) -> datetime | None:
         return None
 
 
+_HISTORICAL_CLAIM_STATES = {"historical", "expired", "superseded"}
+
+
+def _claim_is_historical(claim_record: dict[str, Any], *, now: datetime | None = None) -> bool:
+    state = str((claim_record or {}).get("contradiction_state") or "").strip().lower()
+    if state in _HISTORICAL_CLAIM_STATES:
+        return True
+    validity_end = _parse_graph_timestamp((claim_record or {}).get("validity_end"))
+    if validity_end is not None and validity_end <= (now or datetime.now(timezone.utc)):
+        return True
+    return False
+
+
+def _vendor_relationship_scope_keys(
+    kg: Any,
+    relationship_keys: set[tuple[str, str, str]],
+    vendor_id: str,
+) -> tuple[set[tuple[str, str, str]], set[tuple[str, str, str]], set[tuple[str, str, str]], bool]:
+    if not relationship_keys or not vendor_id or not callable(getattr(kg, "get_kg_conn", None)):
+        return set(), set(), set(), False
+
+    claimed_keys: set[tuple[str, str, str]] = set()
+    vendor_active_claim_keys: set[tuple[str, str, str]] = set()
+    vendor_historical_claim_keys: set[tuple[str, str, str]] = set()
+    now = datetime.now(timezone.utc)
+    with kg.get_kg_conn() as conn:
+        claim_rows = conn.execute(
+            """
+            SELECT source_entity_id, target_entity_id, rel_type, vendor_id, contradiction_state, validity_end
+            FROM kg_claims
+            """
+        ).fetchall()
+    for row in claim_rows:
+        key = (
+            str(row["source_entity_id"] if not isinstance(row, tuple) else row[0] or ""),
+            str(row["target_entity_id"] if not isinstance(row, tuple) else row[1] or ""),
+            str(row["rel_type"] if not isinstance(row, tuple) else row[2] or ""),
+        )
+        if key not in relationship_keys:
+            continue
+        claimed_keys.add(key)
+        row_vendor_id = str(row["vendor_id"] if not isinstance(row, tuple) else row[3] or "")
+        if row_vendor_id != vendor_id:
+            continue
+        claim_record = {
+            "contradiction_state": row["contradiction_state"] if not isinstance(row, tuple) else row[4],
+            "validity_end": row["validity_end"] if not isinstance(row, tuple) else row[5],
+        }
+        if _claim_is_historical(claim_record, now=now):
+            vendor_historical_claim_keys.add(key)
+        else:
+            vendor_active_claim_keys.add(key)
+    use_historical_fallback = not vendor_active_claim_keys and bool(vendor_historical_claim_keys)
+    return claimed_keys, vendor_active_claim_keys, vendor_historical_claim_keys, use_historical_fallback
+
+
 def _relationship_temporal_state(rel: dict[str, Any], *, now: datetime, age_days: float | None) -> str:
     claim_records = [row for row in (rel.get("claim_records") or []) if isinstance(row, dict)]
     if any(str(row.get("contradiction_state") or "").strip().lower() in {"contradicted", "disputed", "challenged"} for row in claim_records):
         return "contradicted"
+    if claim_records and all(_claim_is_historical(row, now=now) for row in claim_records):
+        return "historical"
 
     validity_end = _parse_graph_timestamp(rel.get("validity_end"))
     if validity_end is None:
@@ -793,9 +851,6 @@ def ingest_enrichment_to_graph(
     try:
         # Initialize the KG database if needed
         kg.init_kg_db()
-        kg.clear_vendor_graph_state(vendor_id)
-
-        # 1. Create/update the primary vendor entity (with dedup)
         identifiers = enrichment_report.get("identifiers", {})
         country = enrichment_report.get("country", "") or (
             vendor_input.get("country", "") if isinstance(vendor_input, dict) else ""
@@ -813,6 +868,8 @@ def ingest_enrichment_to_graph(
             entity_type=primary_entity_type, country=country,
             sources=sources, confidence=0.95, aliases=aliases,
         )
+        if callable(getattr(kg, "clear_vendor_graph_state", None)):
+            kg.clear_vendor_graph_state(vendor_id, preserve_entity_ids=[entity_id])
         kg.link_entity_to_vendor(entity_id, vendor_id)
         stats["entities_created"] += 1
 
@@ -2704,24 +2761,11 @@ def _prefilter_relationships_to_vendor_scope(kg: Any, relationships: list[dict],
     if not relationship_keys:
         return relationships
 
-    claimed_keys: set[tuple[str, str, str]] = set()
-    vendor_claim_keys: set[tuple[str, str, str]] = set()
-    with kg.get_kg_conn() as conn:
-        claim_rows = conn.execute(
-            "SELECT source_entity_id, target_entity_id, rel_type, vendor_id FROM kg_claims"
-        ).fetchall()
-    for row in claim_rows:
-        key = (
-            str(row["source_entity_id"] if not isinstance(row, tuple) else row[0] or ""),
-            str(row["target_entity_id"] if not isinstance(row, tuple) else row[1] or ""),
-            str(row["rel_type"] if not isinstance(row, tuple) else row[2] or ""),
-        )
-        if key not in relationship_keys:
-            continue
-        claimed_keys.add(key)
-        row_vendor_id = str(row["vendor_id"] if not isinstance(row, tuple) else row[3] or "")
-        if row_vendor_id == vendor_id:
-            vendor_claim_keys.add(key)
+    claimed_keys, vendor_active_claim_keys, vendor_historical_claim_keys, use_historical_fallback = _vendor_relationship_scope_keys(
+        kg,
+        relationship_keys,
+        vendor_id,
+    )
 
     filtered: list[dict] = []
     for rel in relationships:
@@ -2730,8 +2774,14 @@ def _prefilter_relationships_to_vendor_scope(kg: Any, relationships: list[dict],
             str(rel.get("target_entity_id") or ""),
             str(rel.get("rel_type") or ""),
         )
-        if key in vendor_claim_keys:
+        if key in vendor_active_claim_keys:
             filtered.append(rel)
+            continue
+        if use_historical_fallback and key in vendor_historical_claim_keys:
+            rel_copy = dict(rel)
+            rel_copy["vendor_scope_state"] = "historical"
+            rel_copy["temporal_state"] = rel_copy.get("temporal_state") or "historical"
+            filtered.append(rel_copy)
             continue
         if key not in claimed_keys:
             rel_copy = dict(rel)
@@ -2868,15 +2918,37 @@ def _filter_relationships_to_vendor_claims(all_relationships: list[dict], vendor
     if not vendor_id:
         return [dict(rel) for rel in all_relationships]
 
+    now = datetime.now(timezone.utc)
+    has_active_vendor_claims = any(
+        str((claim_record or {}).get("vendor_id") or "") == vendor_id
+        and not _claim_is_historical(dict(claim_record or {}), now=now)
+        for relationship in all_relationships
+        for claim_record in (relationship.get("claim_records") or [])
+        if isinstance(claim_record, dict)
+    )
+
     filtered: list[dict] = []
     for relationship in all_relationships:
         rel_copy = dict(relationship)
         all_claim_records = [dict(claim_record) for claim_record in (relationship.get("claim_records") or [])]
-        claim_records = [
+        active_claim_records = [
             dict(claim_record)
             for claim_record in all_claim_records
             if str((claim_record or {}).get("vendor_id") or "") == vendor_id
+            and not _claim_is_historical(dict(claim_record or {}), now=now)
         ]
+        historical_claim_records = [
+            dict(claim_record)
+            for claim_record in all_claim_records
+            if str((claim_record or {}).get("vendor_id") or "") == vendor_id
+            and _claim_is_historical(dict(claim_record or {}), now=now)
+        ]
+        claim_records = active_claim_records
+        if not claim_records and not has_active_vendor_claims:
+            claim_records = historical_claim_records
+            if claim_records:
+                rel_copy["vendor_scope_state"] = "historical"
+                rel_copy["temporal_state"] = rel_copy.get("temporal_state") or "historical"
         if not claim_records:
             if all_claim_records:
                 continue

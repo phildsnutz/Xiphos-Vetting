@@ -638,6 +638,17 @@ def test_site_scoped_queries_include_host_brand_and_generic_variant():
 
 
 
+def test_site_scoped_queries_can_include_control_path_suffixes():
+    queries = public_search_ownership._site_scoped_queries(
+        "APEX Space & Defense Systems",
+        "https://www.apexspace.com",
+        include_control_paths=True,
+    )
+
+    assert any("payment processor payment provider" in query for query in queries)
+    assert any("managed services cloud hosting telecom network provider carrier connectivity" in query for query in queries)
+
+
 def test_public_search_penalizes_directory_titles():
     score = public_search_ownership._score_candidate(
         "https://www.dnb.com/business-directory/company-profiles.vendor.test",
