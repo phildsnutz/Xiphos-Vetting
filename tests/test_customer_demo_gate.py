@@ -750,7 +750,7 @@ def test_run_demo_gate_surface_mode_accepts_pending_ai_without_warning(tmp_path)
     result = gate.run_demo_gate(args, client=FakeClient())
 
     assert result.verdict == "GO"
-    assert result.warnings == []
+    assert result.warnings == ["ai analysis still warming; final-ready dossier artifact was not requested"]
 
 
 def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path):
@@ -792,7 +792,7 @@ def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nExecutive judgment"
+            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\nstill warming for this case"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -805,6 +805,8 @@ def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
+            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 620, "still warming for this case")
             pdf.save()
             return buff.getvalue()
 
@@ -845,7 +847,7 @@ def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path
 
     assert result.verdict == "GO"
     assert all("missing ai brief" not in failure for failure in result.failures)
-    assert result.warnings == []
+    assert result.warnings == ["ai analysis still warming; final-ready dossier artifact was not requested"]
 
 
 def test_run_demo_gate_surface_mode_skips_assistant_execute(tmp_path):
@@ -963,7 +965,7 @@ def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
 
         def request_text(self, method, path, **kwargs):
             calls["html_include_ai"] = (kwargs.get("json") or {}).get("include_ai")
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nExecutive judgment"
+            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\nstill warming for this case"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -977,6 +979,8 @@ def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
+            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 620, "still warming for this case")
             pdf.save()
             return buff.getvalue()
 
@@ -1017,6 +1021,110 @@ def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
 
     assert result.verdict == "GO"
     assert calls == {"html_include_ai": True, "pdf_include_ai": True}
+    assert result.artifacts["html"].endswith("dossier-warming.html")
+    assert result.artifacts["pdf"].endswith("dossier-warming.pdf")
+    assert any("final-ready dossier artifact was not requested" in warning for warning in result.warnings)
+
+
+def test_run_demo_gate_surface_mode_emits_warming_and_final_artifacts(tmp_path, monkeypatch):
+    calls = {"html": 0, "pdf": 0, "status": 0}
+
+    class FakeClient:
+        def request_json(self, method, path, **kwargs):
+            if path == "/api/cases":
+                return {"case_id": "c-demo"}
+            if path.endswith("/enrich-and-score"):
+                return {"status": "ok"}
+            if path.endswith("/supplier-passport"):
+                return {
+                    "identity": {
+                        "identifiers": {"website": "https://example.com", "cage": "AB123"},
+                        "identifier_status": {
+                            "website": {"value": "https://example.com"},
+                            "cage": {"value": "AB123"},
+                        },
+                    },
+                    "graph": {"entity_count": 1, "relationship_count": 1, "network_entity_count": 1, "network_relationship_count": 1},
+                    "monitoring": {"check_count": 1},
+                    "ownership": {"profile": {}},
+                }
+            if path.endswith("/analysis-status"):
+                calls["status"] += 1
+                return {"status": "running" if calls["status"] == 1 else "ready"}
+            if path.endswith("/assistant-plan"):
+                return {"plan": [{"tool_id": "supplier_passport", "required": True}], "analyst_prompt": "demo"}
+            raise AssertionError(path)
+
+        def request_text(self, method, path, **kwargs):
+            calls["html"] += 1
+            if calls["html"] == 1:
+                return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\nstill warming for this case"
+            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+
+        def request_bytes(self, method, path, **kwargs):
+            from io import BytesIO
+
+            from reportlab.pdfgen import canvas
+
+            calls["pdf"] += 1
+            buff = BytesIO()
+            pdf = canvas.Canvas(buff)
+            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 700, "RECENT CHANGE")
+            pdf.drawString(72, 680, "RISK STORYLINE")
+            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
+            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            if calls["pdf"] == 1:
+                pdf.drawString(72, 620, "still warming for this case")
+            pdf.save()
+            return buff.getvalue()
+
+    monkeypatch.setattr(gate.time, "sleep", lambda _seconds: None)
+
+    args = argparse.Namespace(
+        base_url="http://example.test",
+        email="",
+        password="",
+        token="token",
+        company="Example Systems",
+        country="US",
+        case_id="",
+        program="dod_unclassified",
+        profile="defense_acquisition",
+        include_ai=True,
+        ai_readiness_mode="surface",
+        final_artifact_wait_seconds=5,
+        check_assistant=True,
+        max_enrich_seconds=90,
+        max_dossier_seconds=60,
+        max_pdf_seconds=60,
+        max_ai_seconds=90,
+        max_warnings=2,
+        wait_for_ready_seconds=0,
+        auto_stabilize=False,
+        expected_domain="example.com",
+        expected_cage="AB123",
+        expected_uei="",
+        expected_duns="",
+        expected_cik="",
+        expected_min_control_paths=0,
+        expected_control_target="",
+        warn_on_empty_control_paths=False,
+        require_monitoring_history=False,
+        report_dir=str(tmp_path),
+        print_json=False,
+    )
+
+    result = gate.run_demo_gate(args, client=FakeClient())
+
+    assert result.verdict == "GO"
+    assert calls == {"html": 2, "pdf": 2, "status": 2}
+    assert result.artifacts["html"].endswith("dossier.html")
+    assert result.artifacts["pdf"].endswith("dossier.pdf")
+    assert result.artifacts["html_warming"].endswith("dossier-warming.html")
+    assert result.artifacts["pdf_warming"].endswith("dossier-warming.pdf")
+    assert result.artifacts["html_final"].endswith("dossier.html")
+    assert result.artifacts["pdf_final"].endswith("dossier.pdf")
 
 
 def test_run_demo_gate_can_skip_dossier_surfaces_for_targeted_gate(tmp_path):

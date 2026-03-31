@@ -12,7 +12,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib import colors
 
 from dossier import PROGRAM_LABELS
@@ -920,6 +920,52 @@ def _append_pdf_chapter_header(story, kicker: str, title: str, summary: str, dar
     story.append(Spacer(1, 0.1 * inch))
 
 
+def _append_ai_warming_pdf_section(story, heading_style, normal_style, muted_style) -> None:
+    advisory_style = ParagraphStyle(
+        "AiWarmingAdvisory",
+        parent=muted_style,
+        fontSize=7.5,
+        leading=10,
+        textColor=HexColor("#C4A052"),
+        fontName="Helvetica-Bold",
+    )
+    warming_body_style = ParagraphStyle(
+        "AiWarmingBody",
+        parent=normal_style,
+        fontSize=9,
+        leading=12.5,
+        textColor=HexColor("#E5ECF3"),
+    )
+
+    story.append(Paragraph("AI NARRATIVE BRIEF", heading_style))
+    story.append(Paragraph(
+        "EXECUTIVE JUDGMENT",
+        advisory_style,
+    ))
+    warming_table = Table(
+        [[
+            Paragraph(
+                "The AI challenge layer is still warming for this case. The deterministic posture, supplier passport, "
+                "and control evidence in this dossier are current. Re-render once external analysis is ready to freeze "
+                "the final narrative brief.",
+                warming_body_style,
+            )
+        ]],
+        colWidths=[7.18 * inch],
+    )
+    warming_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#102033")),
+        ("BOX", (0, 0), (-1, -1), 0.6, HexColor("#1F334A")),
+        ("LINEBEFORE", (0, 0), (0, -1), 5, HexColor("#C4A052")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    story.append(warming_table)
+    story.append(Spacer(1, 0.1 * inch))
+
+
 def _append_supplier_passport_pdf_section(story, passport, styles_bundle) -> None:
     if not isinstance(passport, dict):
         return
@@ -1127,8 +1173,8 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         pagesize=letter,
         rightMargin=0.5*inch,
         leftMargin=0.5*inch,
-        topMargin=0.5*inch,
-        bottomMargin=0.5*inch,
+        topMargin=0.72*inch,
+        bottomMargin=0.65*inch,
     )
 
     # Story (content)
@@ -1161,32 +1207,32 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         'CustomNormal',
         parent=styles['Normal'],
         fontSize=9,
+        leading=12,
         textColor=HexColor("#374151"),
         spaceAfter=6,
-        wordWrap='CJK',  # Force wrap on any character (prevents URL overflow)
     )
 
     muted_style = ParagraphStyle(
         'CustomMuted',
         parent=styles['Normal'],
         fontSize=8,
+        leading=10.5,
         textColor=HexColor("#6B7280"),
         spaceAfter=4,
-        wordWrap='CJK',
     )
 
     # === COVER HEADER: Xiphos Helios branding ===
     header_style = ParagraphStyle(
         'Header', parent=styles['Title'], fontSize=8, textColor=HexColor("#C4A052"),
-        fontName='Helvetica-Bold', spaceAfter=0, letterSpacing=3,
+        fontName='Helvetica-Bold', leading=10, alignment=0, spaceAfter=2,
     )
     header_main = ParagraphStyle(
-        'HeaderMain', parent=styles['Title'], fontSize=31, textColor=HexColor("#0A1628"),
-        fontName='Helvetica', spaceAfter=2, letterSpacing=4,
+        'HeaderMain', parent=styles['Title'], fontSize=27, textColor=HexColor("#0A1628"),
+        fontName='Helvetica-Bold', alignment=0, leading=30, spaceAfter=4,
     )
     header_sub = ParagraphStyle(
         'HeaderSub', parent=styles['Title'], fontSize=10, textColor=HexColor("#5B6878"),
-        fontName='Helvetica-Bold', spaceAfter=6,
+        fontName='Helvetica-Bold', alignment=0, leading=13, spaceAfter=10,
     )
     cover_band = Table(
         [["", "", ""]],
@@ -1207,10 +1253,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
     story.append(Paragraph("XIPHOS INTELLIGENCE", header_style))
     story.append(Paragraph("HELIOS", header_main))
     story.append(Paragraph("Vendor Compliance Dossier", header_sub))
-    story.append(Paragraph(
-        '<font color="#C4A052">____________________</font>',
-        ParagraphStyle('Rule', parent=styles['Normal'], spaceAfter=4)
-    ))
+    story.append(Paragraph('<font color="#C4A052">____________________</font>', ParagraphStyle('Rule', parent=styles['Normal'], spaceAfter=6)))
     story.append(Paragraph("Portable trust brief, evidence posture, and audit-ready appendix.", muted_style))
 
     # CUI banner
@@ -1727,6 +1770,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         {"heading": heading_style, "normal": normal_style, "muted": muted_style},
     )
 
+    story.append(PageBreak())
     _append_pdf_chapter_header(
         story,
         "Chapter 2",
@@ -1816,6 +1860,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
 
         story.append(Spacer(1, 0.1*inch))
 
+    story.append(PageBreak())
     _append_pdf_chapter_header(
         story,
         "Chapter 3",
@@ -1899,6 +1944,8 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
                 muted_style,
             ))
         story.append(Spacer(1, 0.1*inch))
+    else:
+        _append_ai_warming_pdf_section(story, heading_style, normal_style, muted_style)
 
     # === INTEL SUMMARY ===
     summary_payload = (intel_summary or {}).get("summary") or {}
@@ -1921,6 +1968,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
             story.append(Spacer(1, 0.08*inch))
         story.append(Spacer(1, 0.08*inch))
 
+    story.append(PageBreak())
     _append_pdf_chapter_header(
         story,
         "Chapter 4",
@@ -1989,7 +2037,7 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
             _append_evidence_snapshot_grid(story, findings, subheading_style, normal_style, muted_style)
             story.append(Paragraph("KEY EVIDENCE SNAPSHOT", subheading_style))
 
-            cell_style = ParagraphStyle('CellWrap', parent=normal_style, fontSize=7, wordWrap='CJK')
+            cell_style = ParagraphStyle('CellWrap', parent=normal_style, fontSize=7, leading=9)
             findings_data = [
                 ["Severity", "Source", "Title", "Detail"],
             ]
@@ -2144,8 +2192,26 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
     )
     story.append(Paragraph(disclaimer, muted_style))
 
+    def _draw_page_chrome(canvas, pdf_doc):
+        page_number = canvas.getPageNumber()
+        width, height = letter
+        canvas.saveState()
+        canvas.setStrokeColor(HexColor("#D8E0EA"))
+        canvas.setLineWidth(0.6)
+        canvas.line(pdf_doc.leftMargin, height - 0.36 * inch, width - pdf_doc.rightMargin, height - 0.36 * inch)
+        canvas.line(pdf_doc.leftMargin, 0.48 * inch, width - pdf_doc.rightMargin, 0.48 * inch)
+        canvas.setFillColor(HexColor("#0F1E2F"))
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.drawString(pdf_doc.leftMargin, height - 0.28 * inch, "XIPHOS HELIOS DOSSIER")
+        canvas.setFillColor(HexColor("#6B7280"))
+        canvas.setFont("Helvetica", 7.5)
+        canvas.drawRightString(width - pdf_doc.rightMargin, height - 0.28 * inch, str(vendor.get("name") or vendor_id)[:80])
+        canvas.drawString(pdf_doc.leftMargin, 0.34 * inch, f"Case {vendor_id}")
+        canvas.drawRightString(width - pdf_doc.rightMargin, 0.34 * inch, f"Page {page_number}")
+        canvas.restoreState()
+
     # Build PDF
-    doc.build(story)
+    doc.build(story, onFirstPage=_draw_page_chrome, onLaterPages=_draw_page_chrome)
 
     # Return bytes
     pdf_buffer.seek(0)

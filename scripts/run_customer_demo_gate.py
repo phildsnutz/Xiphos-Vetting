@@ -366,6 +366,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-pdf-seconds", type=int, default=60)
     parser.add_argument("--max-ai-seconds", type=int, default=90)
     parser.add_argument("--ai-readiness-mode", choices=("full", "surface"), default="surface")
+    parser.add_argument("--final-artifact-wait-seconds", type=int, default=30)
     parser.add_argument("--max-warnings", type=int, default=2)
     parser.add_argument("--wait-for-ready-seconds", type=int, default=0)
     parser.add_argument("--auto-stabilize", action="store_true", default=True)
@@ -936,15 +937,77 @@ def run_demo_gate(args: argparse.Namespace, client: DemoGateClient | None = None
         failures: list[str] = []
         warnings: list[str] = []
         html_path = output_dir / "dossier.html"
+        warming_html_path = output_dir / "dossier-warming.html"
         pdf_path = output_dir / "dossier-pdf.skipped.txt"
+        warming_pdf_path = output_dir / "dossier-warming.pdf"
+        artifacts: dict[str, str] = {"html": str(html_path), "pdf": str(pdf_path)}
         require_dossier_html = bool(getattr(args, "require_dossier_html", True))
         require_dossier_pdf = bool(getattr(args, "require_dossier_pdf", True))
         if enrich_elapsed_ms > args.max_enrich_seconds * 1000:
             failures.append(f"enrich-and-score exceeded {args.max_enrich_seconds}s budget")
 
-        ai_status: dict[str, Any] = {}
-        ai_sections_required = args.include_ai
         include_ai_in_dossier = args.include_ai
+
+        def _render_html_artifact(target_path: Path, *, progress_key: str, progress_message: str, label: str) -> None:
+            _write_progress(output_dir, progress_key, progress_message, case_id=case_id)
+            start = time.perf_counter()
+            html = resolved_client.request_text(
+                "POST",
+                f"/api/cases/{case_id}/dossier",
+                json={"format": "html", "include_ai": include_ai_in_dossier},
+            )
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            timings_ms[progress_key] = elapsed_ms
+            _write_progress(
+                output_dir,
+                progress_key,
+                f"Rendered {label} in {elapsed_ms} ms",
+                case_id=case_id,
+                elapsed_ms=elapsed_ms,
+            )
+            target_path.write_text(html, encoding="utf-8")
+            if label == "HTML dossier" and elapsed_ms > args.max_dossier_seconds * 1000:
+                failures.append(f"html dossier exceeded {args.max_dossier_seconds}s budget")
+            html_failures, html_warnings = check_dossier_text(
+                html,
+                HTML_SECTION_CHECKS,
+                include_ai=args.include_ai,
+                label=label.lower(),
+            )
+            failures.extend(html_failures)
+            warnings.extend(html_warnings)
+
+        def _render_pdf_artifact(target_path: Path, *, progress_key: str, progress_message: str, label: str) -> None:
+            _write_progress(output_dir, progress_key, progress_message, case_id=case_id)
+            start = time.perf_counter()
+            pdf_bytes = resolved_client.request_bytes(
+                "POST",
+                f"/api/cases/{case_id}/dossier-pdf",
+                json={"include_ai": include_ai_in_dossier},
+            )
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            timings_ms[progress_key] = elapsed_ms
+            _write_progress(
+                output_dir,
+                progress_key,
+                f"Rendered {label} in {elapsed_ms} ms",
+                case_id=case_id,
+                elapsed_ms=elapsed_ms,
+            )
+            target_path.write_bytes(pdf_bytes)
+            if label == "PDF dossier" and elapsed_ms > args.max_pdf_seconds * 1000:
+                failures.append(f"pdf dossier exceeded {args.max_pdf_seconds}s budget")
+            pdf_text = extract_pdf_text(pdf_bytes)
+            pdf_failures, pdf_warnings = check_dossier_text(
+                pdf_text.upper(),
+                PDF_SECTION_CHECKS,
+                include_ai=args.include_ai,
+                label=label.lower(),
+            )
+            failures.extend(pdf_failures)
+            warnings.extend(pdf_warnings)
+
+        ai_status: dict[str, Any] = {}
         if args.include_ai:
             _write_progress(output_dir, "ai_status", "Checking AI readiness", case_id=case_id)
             start = time.perf_counter()
@@ -961,72 +1024,98 @@ def run_demo_gate(args: argparse.Namespace, client: DemoGateClient | None = None
                 failures.append(f"ai analysis not ready within {args.max_ai_seconds}s")
             if args.ai_readiness_mode == "surface" and ai_status.get("status") == "failed":
                 failures.append("ai analysis status reported failed")
-            if args.ai_readiness_mode == "surface" and ai_status.get("status") != "ready":
-                ai_sections_required = False
+        final_artifact_wait_seconds = int(
+            getattr(args, "final_artifact_wait_seconds", 30 if client is None else 0) or 0
+        )
+        warming_emitted = bool(
+            args.include_ai
+            and args.ai_readiness_mode == "surface"
+            and ai_status.get("status") not in {"ready", "failed"}
+        )
+
+        if warming_emitted:
+            if require_dossier_html:
+                _render_html_artifact(
+                    warming_html_path,
+                    progress_key="dossier_html_warming",
+                    progress_message="Rendering warming HTML dossier",
+                    label="Warming HTML dossier",
+                )
+                artifacts["html_warming"] = str(warming_html_path)
+            else:
+                warming_html_path.write_text("HTML dossier skipped by gate profile.\n", encoding="utf-8")
+            if require_dossier_pdf:
+                _render_pdf_artifact(
+                    warming_pdf_path,
+                    progress_key="dossier_pdf_warming",
+                    progress_message="Rendering warming PDF dossier",
+                    label="Warming PDF dossier",
+                )
+                artifacts["pdf_warming"] = str(warming_pdf_path)
+            else:
+                warming_pdf_path.write_text("PDF dossier skipped by gate profile.\n", encoding="utf-8")
+
+            if final_artifact_wait_seconds > 0:
+                _write_progress(
+                    output_dir,
+                    "ai_finalize",
+                    "Waiting for final-ready AI dossier artifact",
+                    case_id=case_id,
+                )
+                start = time.perf_counter()
+                deadline = time.time() + max(0, final_artifact_wait_seconds)
+                while time.time() < deadline:
+                    if ai_status.get("status") == "ready":
+                        break
+                    time.sleep(2)
+                    ai_status = resolved_client.request_json("GET", f"/api/cases/{case_id}/analysis-status")
+                    if ai_status.get("status") in {"ready", "failed"}:
+                        break
+                timings_ms["ai_finalize_wait"] = int((time.perf_counter() - start) * 1000)
+                if ai_status.get("status") == "failed":
+                    failures.append("ai analysis status reported failed")
+                elif ai_status.get("status") != "ready":
+                    warnings.append(
+                        f"ai analysis still warming after {final_artifact_wait_seconds}s; warming dossier artifact retained"
+                    )
+            else:
+                warnings.append("ai analysis still warming; final-ready dossier artifact was not requested")
 
         if require_dossier_html:
-            _write_progress(output_dir, "dossier_html", "Rendering HTML dossier", case_id=case_id)
-            start = time.perf_counter()
-            html = resolved_client.request_text(
-                "POST",
-                f"/api/cases/{case_id}/dossier",
-                json={"format": "html", "include_ai": include_ai_in_dossier},
-            )
-            timings_ms["dossier_html"] = int((time.perf_counter() - start) * 1000)
-            _write_progress(
-                output_dir,
-                "dossier_html",
-                f"Rendered HTML dossier in {timings_ms['dossier_html']} ms",
-                case_id=case_id,
-                elapsed_ms=timings_ms["dossier_html"],
-            )
-            html_path.write_text(html, encoding="utf-8")
-            if timings_ms["dossier_html"] > args.max_dossier_seconds * 1000:
-                failures.append(f"html dossier exceeded {args.max_dossier_seconds}s budget")
-            html_failures, html_warnings = check_dossier_text(
-                html,
-                HTML_SECTION_CHECKS,
-                include_ai=ai_sections_required,
-                label="html dossier",
-            )
-            failures.extend(html_failures)
-            warnings.extend(html_warnings)
+            if warming_emitted and ai_status.get("status") != "ready":
+                html_path = warming_html_path
+            else:
+                if warming_emitted:
+                    artifacts["html_final"] = str(html_path)
+                _render_html_artifact(
+                    html_path,
+                    progress_key="dossier_html_final" if warming_emitted else "dossier_html",
+                    progress_message="Rendering final HTML dossier" if warming_emitted else "Rendering HTML dossier",
+                    label="HTML dossier",
+                )
         else:
             html_path.write_text("HTML dossier skipped by gate profile.\n", encoding="utf-8")
             _write_progress(output_dir, "dossier_html", "Skipped HTML dossier by gate profile", case_id=case_id)
 
         if require_dossier_pdf:
             pdf_path = output_dir / "dossier.pdf"
-            _write_progress(output_dir, "dossier_pdf", "Rendering PDF dossier", case_id=case_id)
-            start = time.perf_counter()
-            pdf_bytes = resolved_client.request_bytes(
-                "POST",
-                f"/api/cases/{case_id}/dossier-pdf",
-                json={"include_ai": include_ai_in_dossier},
-            )
-            timings_ms["dossier_pdf"] = int((time.perf_counter() - start) * 1000)
-            _write_progress(
-                output_dir,
-                "dossier_pdf",
-                f"Rendered PDF dossier in {timings_ms['dossier_pdf']} ms",
-                case_id=case_id,
-                elapsed_ms=timings_ms["dossier_pdf"],
-            )
-            pdf_path.write_bytes(pdf_bytes)
-            if timings_ms["dossier_pdf"] > args.max_pdf_seconds * 1000:
-                failures.append(f"pdf dossier exceeded {args.max_pdf_seconds}s budget")
-            pdf_text = extract_pdf_text(pdf_bytes)
-            pdf_failures, pdf_warnings = check_dossier_text(
-                pdf_text.upper(),
-                PDF_SECTION_CHECKS,
-                include_ai=ai_sections_required,
-                label="pdf dossier",
-            )
-            failures.extend(pdf_failures)
-            warnings.extend(pdf_warnings)
+            if warming_emitted and ai_status.get("status") != "ready":
+                pdf_path = warming_pdf_path
+            else:
+                if warming_emitted:
+                    artifacts["pdf_final"] = str(pdf_path)
+                _render_pdf_artifact(
+                    pdf_path,
+                    progress_key="dossier_pdf_final" if warming_emitted else "dossier_pdf",
+                    progress_message="Rendering final PDF dossier" if warming_emitted else "Rendering PDF dossier",
+                    label="PDF dossier",
+                )
         else:
             pdf_path.write_text("PDF dossier skipped by gate profile.\n", encoding="utf-8")
             _write_progress(output_dir, "dossier_pdf", "Skipped PDF dossier by gate profile", case_id=case_id)
+
+        artifacts["html"] = str(html_path)
+        artifacts["pdf"] = str(pdf_path)
 
         _write_progress(output_dir, "supplier_passport", "Loading supplier passport", case_id=case_id)
         passport = resolved_client.request_json(
@@ -1117,7 +1206,7 @@ def run_demo_gate(args: argparse.Namespace, client: DemoGateClient | None = None
             graph=graph,
             ai_status=ai_status,
             assistant_ok=assistant_ok,
-            artifacts={"html": str(html_path), "pdf": str(pdf_path)},
+            artifacts=artifacts,
             stabilization_steps=list(stabilization_steps),
         )
 

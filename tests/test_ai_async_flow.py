@@ -419,6 +419,35 @@ def test_dossier_hydrate_keeps_warming_when_external_ai_is_configured(client, mo
     assert "still warming for this case" in html
 
 
+def test_dossier_pdf_keeps_ai_warming_section_when_external_ai_is_configured(client, monkeypatch):
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    case_id = _create_case(client, name="External AI Warming PDF Vendor")
+    import ai_analysis
+    import dossier_pdf
+
+    monkeypatch.setattr(ai_analysis, "compute_analysis_fingerprint", lambda *args, **kwargs: "hash-external-warming-pdf")
+    monkeypatch.setattr(ai_analysis, "get_latest_analysis", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        ai_analysis,
+        "get_ai_config",
+        lambda _user_id: {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "test-key"},
+    )
+    monkeypatch.setattr(
+        ai_analysis,
+        "analyze_vendor",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("pdf hydration should not make a second external AI call")),
+    )
+
+    pdf_bytes = dossier_pdf.generate_pdf_dossier(case_id, user_id="dev", hydrate_ai=True)
+    pdf_text = "\n".join((page.extract_text() or "") for page in PdfReader(BytesIO(pdf_bytes)).pages)
+
+    assert "AI NARRATIVE BRIEF" in pdf_text.upper()
+    assert "still warming for this case" in pdf_text
+
+
 def test_dossier_cache_refreshes_when_ai_analysis_becomes_ready(client, monkeypatch):
     case_id = _create_case(client, name="Cache Refresh Vendor")
     import dossier
