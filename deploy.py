@@ -127,6 +127,7 @@ ARCHIVE_EXCLUDES = {
     ".env",
     "node_modules",
     "frontend/node_modules",
+    "frontend/dist",
     "deploy.env",
     "backups",
     "vps_snapshot",
@@ -138,6 +139,11 @@ ARCHIVE_EXCLUDES = {
     "__pycache__",
     ".codex-backups",
     ".DS_Store",
+    "docs/reports",
+    "output",
+    "tmp",
+    "ml/model",
+    ".ruff_cache",
 }
 
 BUNDLE_MUST_HAVE = ["Helios | Xiphos", "Create draft cases", "Defense counterparty trust"]

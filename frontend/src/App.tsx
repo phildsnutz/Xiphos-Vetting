@@ -639,18 +639,18 @@ export default function App() {
                   style={{ padding: 4, background: T.surface, border: `1px solid ${T.borderStrong}`, boxShadow: FX.softShadow }}
                 >
                   <button
-                    onClick={() => { setTab("dashboard"); setSelected(null); }}
+                    onClick={() => { setTab("portfolio"); setSelected(null); }}
                     className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
                     style={{
                       fontSize: FS.sm,
                       fontWeight: 700,
-                      background: tab === "dashboard" ? T.accentSoft : "transparent",
-                      color: tab === "dashboard" ? T.accent : T.muted,
-                      borderBottom: tab === "dashboard" ? "2px solid #0ea5e9" : "none",
+                      background: tab === "portfolio" ? T.accentSoft : "transparent",
+                      color: tab === "portfolio" ? T.accent : T.muted,
+                      borderBottom: tab === "portfolio" ? "2px solid #0ea5e9" : "none",
                     }}
                   >
-                    <LayoutDashboard size={12} />
-                    Dashboard
+                    <Shield size={12} />
+                    Workbench
                   </button>
                   <button
                     onClick={() => { setTab("helios"); setSelected(null); }}
@@ -664,21 +664,21 @@ export default function App() {
                     }}
                   >
                     <Shield size={12} />
-                    Helios
+                    Intake
                   </button>
                   <button
-                    onClick={() => { setTab("portfolio"); setSelected(null); }}
+                    onClick={() => { setTab("dashboard"); setSelected(null); }}
                     className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
                     style={{
                       fontSize: FS.sm,
                       fontWeight: 700,
-                      background: tab === "portfolio" ? T.accentSoft : "transparent",
-                      color: tab === "portfolio" ? T.accent : T.muted,
-                      borderBottom: tab === "portfolio" ? "2px solid #0ea5e9" : "none",
+                      background: tab === "dashboard" ? T.accentSoft : "transparent",
+                      color: tab === "dashboard" ? T.accent : T.muted,
+                      borderBottom: tab === "dashboard" ? "2px solid #0ea5e9" : "none",
                     }}
                   >
-                    <Shield size={12} />
-                    Portfolio
+                    <LayoutDashboard size={12} />
+                    Overview
                   </button>
                   <button
                     onClick={() => { setTab("graph"); setSelected(null); }}

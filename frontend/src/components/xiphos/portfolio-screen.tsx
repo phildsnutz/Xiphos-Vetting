@@ -5,7 +5,7 @@ import type { WorkflowLane } from "./portfolio-utils";
 import { fetchMonitorChanges, fetchPortfolioAnomalies } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import type { MonitorChangeEntry } from "@/lib/api";
-import { AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
+import { AlertTriangle, TrendingUp, TrendingDown, ArrowRight, Grid3X3, LayoutDashboard, Shield } from "lucide-react";
 import { emit } from "@/lib/telemetry";
 
 interface PortfolioScreenProps {
@@ -34,11 +34,73 @@ type SortBy = "score" | "name" | "date";
 type PortfolioFocus = "all" | "watchlist";
 type LaneFilter = "all" | "counterparty" | "cyber" | "export";
 
+function caseTimestamp(c: VettingCase): number {
+  const raw = c.created_at || c.date;
+  if (!raw) return 0;
+  const parsed = Date.parse(raw.includes("T") ? raw : raw.replace(" ", "T"));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function relativeCaseTime(c: VettingCase): string {
+  const ts = caseTimestamp(c);
+  if (!ts) return c.date || "";
+  const diffMs = Date.now() - ts;
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMs / 3_600_000);
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffMinutes < 1) return "Now";
+  if (diffMinutes < 60) return `${diffMinutes}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function operatorPriorityScore(c: VettingCase): number {
+  const disposition = portfolioDisposition(c);
+  const base =
+    disposition === "blocked"
+      ? 400
+      : disposition === "review"
+        ? 260
+        : disposition === "qualified"
+          ? 140
+          : 80;
+  const stopWeight = (c.cal?.stops?.length ?? 0) * 20;
+  const flagWeight = (c.cal?.flags?.length ?? 0) * 10;
+  const recencyBoost = Math.max(0, 72 - Math.floor((Date.now() - caseTimestamp(c)) / 3_600_000));
+  return base + stopWeight + flagWeight + recencyBoost;
+}
+
+function operatorSummary(c: VettingCase): string {
+  const stop = c.cal?.stops?.[0]?.x?.trim();
+  if (stop) return stop;
+  const flag = c.cal?.flags?.[0]?.x?.trim();
+  if (flag) return flag;
+  const recommendation = c.cal?.recommendation?.trim();
+  if (recommendation) return recommendation;
+  const regulatory = c.cal?.regulatoryStatus?.trim();
+  if (regulatory) return regulatory;
+  const context = c.cal?.sensitivityContext?.trim();
+  if (context) return context;
+  const finding = c.cal?.finds?.[0]?.trim();
+  if (finding) return finding;
+  return c.program || c.profile || "Ready for analyst review.";
+}
+
+function dispositionTone(disposition: ReturnType<typeof portfolioDisposition>) {
+  if (disposition === "blocked") return { color: "#f87171", bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.26)" };
+  if (disposition === "review") return { color: "#fbbf24", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.24)" };
+  if (disposition === "qualified") return { color: T.accent, bg: `${T.accent}12`, border: `${T.accent}28` };
+  return { color: "#34d399", bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.24)" };
+}
+
 export function PortfolioScreen({
   allCases,
   cases,
   onSelect,
   globalLane,
+  onNavigate,
+  laneSummary,
 }: PortfolioScreenProps) {
   const [sortBy, setSortBy] = useState<SortBy>("score");
   const portfolioFocus: PortfolioFocus = "all";
@@ -51,6 +113,23 @@ export function PortfolioScreen({
     fetchMonitorChanges(20).then((r) => setMonitorChanges(r.changes ?? [])).catch(() => {});
   }, []);
   const activeLaneMeta = laneFilter === "all" ? null : WORKFLOW_LANE_META[laneFilter];
+  const blockedCases = useMemo(
+    () => cases.filter((c) => portfolioDisposition(c) === "blocked"),
+    [cases],
+  );
+  const reviewCases = useMemo(
+    () => cases.filter((c) => portfolioDisposition(c) === "review"),
+    [cases],
+  );
+  const qualifiedCases = useMemo(
+    () => cases.filter((c) => portfolioDisposition(c) === "qualified"),
+    [cases],
+  );
+  const priorityCases = useMemo(
+    () => [...cases].sort((a, b) => operatorPriorityScore(b) - operatorPriorityScore(a)).slice(0, 4),
+    [cases],
+  );
+  const recentCaseName = priorityCases[0] ? displayName(priorityCases[0].name) : laneSummary?.topCaseName ?? null;
 
   // Sorted case list
   const sortedCases = useMemo(() => {
@@ -62,23 +141,136 @@ export function PortfolioScreen({
       : focusCases.filter((c) => workflowLaneForCase(c) === laneFilter);
     const sorted = [...scopedCases];
     if (sortBy === "score") {
-      sorted.sort((a, b) => (b.cal?.p ?? b.sc) - (a.cal?.p ?? a.sc));
+      sorted.sort((a, b) => operatorPriorityScore(b) - operatorPriorityScore(a));
     } else if (sortBy === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
     } else if (sortBy === "date") {
-      sorted.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      sorted.sort((a, b) => caseTimestamp(b) - caseTimestamp(a));
     }
     return sorted;
   }, [cases, sortBy, portfolioFocus, laneFilter]);
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col p-6">
-      {/* Single-line Status Bar */}
       {activeLaneMeta && (
-        <div className="mb-6 py-2 text-xs text-slate-500">
-          {activeLaneMeta.label} · {cases?.length || 0} active · {cases?.filter((c) => portfolioDisposition(c) === "blocked").length || 0} blocked
+        <div className="mb-4 py-2 text-xs text-slate-500">
+          {activeLaneMeta.label} · {cases?.length || 0} active · {blockedCases.length} blocked
         </div>
       )}
+
+      <div className="mb-5 glass-panel animate-slide-up" style={{ padding: 24 }}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <div style={{ fontSize: 11, color: activeLaneMeta?.accent || T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>
+              Operator workbench
+            </div>
+            <h1 className="text-3xl font-bold text-slate-50" style={{ letterSpacing: "-0.04em", marginBottom: 10 }}>
+              Work the queue, not the chrome.
+            </h1>
+            <p className="text-sm leading-7 text-slate-300" style={{ maxWidth: 760 }}>
+              {laneSummary?.summary || activeLaneMeta?.description || "Review the cases that need a decision next, clear blockers, and move the lane forward."}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:min-w-[320px]">
+            <div className="glass-card" style={{ padding: 14 }}>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Blocked</div>
+              <div className="text-2xl font-bold text-red-400">{blockedCases.length}</div>
+            </div>
+            <div className="glass-card" style={{ padding: 14 }}>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Review</div>
+              <div className="text-2xl font-bold text-amber-300">{reviewCases.length}</div>
+            </div>
+            <div className="glass-card" style={{ padding: 14 }}>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Watch</div>
+              <div className="text-2xl font-bold text-sky-300">{qualifiedCases.length}</div>
+            </div>
+            <div className="glass-card" style={{ padding: 14 }}>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Top case</div>
+              <div className="text-sm font-semibold text-slate-100 truncate">{recentCaseName || "None"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => priorityCases[0] && onSelect(priorityCases[0])}
+            disabled={!priorityCases[0]}
+            className="btn-interactive"
+            style={{
+              padding: "11px 14px",
+              borderRadius: 14,
+              border: "none",
+              background: priorityCases[0] ? T.accent : T.border,
+              color: priorityCases[0] ? "#04101f" : T.muted,
+              cursor: priorityCases[0] ? "pointer" : "default",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontWeight: 700,
+            }}
+          >
+            Open top priority
+            <ArrowRight size={14} />
+          </button>
+          <button
+            onClick={() => onNavigate?.("helios")}
+            className="btn-interactive"
+            style={{
+              padding: "11px 14px",
+              borderRadius: 14,
+              border: `1px solid ${T.border}`,
+              background: T.surface,
+              color: T.text,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontWeight: 700,
+            }}
+          >
+            <Shield size={14} />
+            New intake
+          </button>
+          <button
+            onClick={() => onNavigate?.("graph")}
+            className="btn-interactive"
+            style={{
+              padding: "11px 14px",
+              borderRadius: 14,
+              border: `1px solid ${T.border}`,
+              background: T.surface,
+              color: T.text,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontWeight: 700,
+            }}
+          >
+            <Grid3X3 size={14} />
+            Graph intel
+          </button>
+          <button
+            onClick={() => onNavigate?.("dashboard")}
+            className="btn-interactive"
+            style={{
+              padding: "11px 14px",
+              borderRadius: 14,
+              border: `1px solid ${T.border}`,
+              background: T.surface,
+              color: T.text,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontWeight: 700,
+            }}
+          >
+            <LayoutDashboard size={14} />
+            Overview
+          </button>
+        </div>
+      </div>
 
       {/* What Changed Strip */}
       {monitorChanges.length > 0 && (
@@ -137,8 +329,53 @@ export function PortfolioScreen({
         </div>
       )}
 
-      {/* KPI Cards Row */}
-      <div className="mb-8 grid grid-cols-5 gap-4 stagger-children">
+      <div className="mb-5 grid grid-cols-1 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
+        <div className="glass-card" style={{ padding: 18 }}>
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Priority queue</div>
+          {priorityCases.length > 0 ? (
+            <div className="space-y-3">
+              {priorityCases.map((c) => {
+                const disposition = portfolioDisposition(c);
+                const tone = dispositionTone(disposition);
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => onSelect(c)}
+                    className="w-full text-left rounded-2xl card-interactive"
+                    style={{
+                      padding: 14,
+                      border: `1px solid ${tone.border}`,
+                      background: tone.bg,
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-slate-100 truncate">{displayName(c.name)}</div>
+                        <div className="mt-1 text-sm leading-6 text-slate-300">{operatorSummary(c)}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-xs text-slate-500">{relativeCaseTime(c)}</div>
+                        <div
+                          className="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-bold"
+                          style={{ color: tone.color, background: "rgba(15,23,42,0.45)", border: `1px solid ${tone.border}` }}
+                        >
+                          {disposition === "blocked" ? "Blocked" : disposition === "review" ? "Review" : disposition === "qualified" ? "Watch" : "Clear"}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-400">
+              No active cases in this lane yet.
+            </div>
+          )}
+        </div>
+
+        {/* KPI Cards Row */}
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
         {/* Cases in Scope */}
         <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Cases in Scope</p>
@@ -151,7 +388,7 @@ export function PortfolioScreen({
         <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Blocked</p>
           <p className="text-2xl font-bold text-red-400" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-            {cases?.filter((c) => portfolioDisposition(c) === "blocked").length || 0}
+            {blockedCases.length}
           </p>
         </div>
 
@@ -159,18 +396,15 @@ export function PortfolioScreen({
         <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Review Queue</p>
           <p className="text-2xl font-bold text-amber-400" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-            {cases?.filter((c) => portfolioDisposition(c) === "review").length || 0}
+            {reviewCases.length}
           </p>
         </div>
 
         {/* Watchlist */}
         <div className="rounded-lg border border-slate-700 bg-slate-950 p-4 card-interactive">
           <p className="text-xs font-medium text-slate-500 mb-2">Watchlist</p>
-          <p className="text-2xl font-bold text-amber-400" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
-            {cases?.filter((c) => {
-              const lane = workflowLaneForCase(c);
-              return lane !== "export" && lane !== "cyber";
-            }).length || 0}
+          <p className="text-2xl font-bold text-sky-300" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+            {qualifiedCases.length}
           </p>
         </div>
 
@@ -195,6 +429,7 @@ export function PortfolioScreen({
             %
           </p>
         </div>
+      </div>
       </div>
 
       {/* Clean Case Table */}
@@ -328,7 +563,42 @@ export function PortfolioScreen({
             </table>
           </div>
         ) : (
-          <p className="text-slate-400 text-sm py-4">No active cases</p>
+          <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-6 text-sm text-slate-400">
+            <div className="text-base font-semibold text-slate-100 mb-2">No active cases in this lane.</div>
+            <div className="leading-6 mb-4">Open a new intake to start the queue, or switch lanes if the work is sitting somewhere else.</div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => onNavigate?.("helios")}
+                className="btn-interactive"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: T.accent,
+                  color: "#04101f",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Open intake
+              </button>
+              <button
+                onClick={() => onNavigate?.("dashboard")}
+                className="btn-interactive"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: `1px solid ${T.border}`,
+                  background: T.surface,
+                  color: T.text,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Open overview
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
