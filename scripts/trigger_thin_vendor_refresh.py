@@ -32,6 +32,10 @@ _DEFAULT_EXCLUDED_NAME_TOKENS = (
     "CYBER_",
     "GAUNTLET",
     "CANARY",
+    "SMOKE",
+    "PROBE",
+    "GRAPH DIAG",
+    "DEBUG",
 )
 
 

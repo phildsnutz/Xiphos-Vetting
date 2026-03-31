@@ -50,7 +50,9 @@ def test_select_thin_vendor_rows_stops_after_limit(monkeypatch):
 def test_select_thin_vendor_rows_skips_synthetic_names(monkeypatch):
     vendors = [
         {"id": "v-1", "name": "DEPLOY_VERIFY"},
-        {"id": "v-2", "name": "Real Vendor"},
+        {"id": "v-2", "name": "Smoke Vendor 1774733565"},
+        {"id": "v-3", "name": "Yorktown graph diag 20260330"},
+        {"id": "v-4", "name": "Real Vendor"},
     ]
     calls: list[str] = []
     monkeypatch.setattr(module.db, "list_vendors", lambda limit=10000: vendors)
@@ -67,14 +69,14 @@ def test_select_thin_vendor_rows_skips_synthetic_names(monkeypatch):
         max_root_entities=1,
         max_relationships=2,
         require_zero_control=True,
-        exclude_name_token=["DEPLOY_VERIFY"],
+        exclude_name_token=["DEPLOY_VERIFY", "SMOKE", "GRAPH DIAG"],
         allow_duplicate_names=False,
     )
 
     rows = module._select_thin_vendor_rows(args)
 
-    assert [row["vendor_id"] for row in rows] == ["v-2"]
-    assert calls == ["v-2"]
+    assert [row["vendor_id"] for row in rows] == ["v-4"]
+    assert calls == ["v-4"]
 
 
 def test_select_thin_vendor_rows_dedupes_vendor_names(monkeypatch):
