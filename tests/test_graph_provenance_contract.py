@@ -366,7 +366,7 @@ def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
     assert summary["evidence_coverage_pct"] == 0.6667
     assert summary["strong_edge_count"] == 1
     assert summary["disputed_edge_count"] == 1
-    assert summary["avg_edge_intelligence_score"] > 0.45
+    assert summary["avg_edge_intelligence_score"] > 0.4
     assert summary["control_path_avg_intelligence_score"] > 0.45
     assert summary["edge_intelligence_tier_counts"]["strong"] == 1
     assert summary["edge_intelligence_tier_counts"]["disputed"] == 1

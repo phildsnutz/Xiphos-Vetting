@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from learned_weighting import predict_edge_truth_probability
 from ownership_control_intelligence import looks_like_descriptor_owner
 
 logger = logging.getLogger(__name__)
@@ -307,7 +308,7 @@ def score_graph_relationship_intelligence(
     evidence_strength = 1.0 if evidence_backed else (0.55 if claim_backed else 0.18)
     temporal_strength = _TEMPORAL_STATE_STRENGTH.get(temporal_state, _TEMPORAL_STATE_STRENGTH["unknown"])
 
-    score = (
+    heuristic_score = (
         confidence * 0.38
         + authority_strength * 0.22
         + corroboration_strength * 0.16
@@ -316,17 +317,32 @@ def score_graph_relationship_intelligence(
     )
 
     if bool(rel.get("legacy_unscoped")):
-        score -= 0.08
+        heuristic_score -= 0.08
     if authority_bucket == "third_party_public_only" and corroboration_count <= 1:
-        score -= 0.04
+        heuristic_score -= 0.04
     if temporal_state == "contradicted":
-        score *= 0.32
+        heuristic_score *= 0.32
     if primary_family == "ownership_control" and authority_bucket in {"official_or_modeled", "first_party"} and corroboration_count >= 2:
-        score += 0.05
+        heuristic_score += 0.05
     if primary_family in {"sanctions_and_legal", "official_and_regulatory"} and authority_bucket == "official_or_modeled":
-        score += 0.04
+        heuristic_score += 0.04
 
-    score = max(0.0, min(score, 1.0))
+    heuristic_score = max(0.0, min(heuristic_score, 1.0))
+    model_input = dict(rel)
+    model_input.update(
+        {
+            "authority_bucket": authority_bucket,
+            "temporal_state": temporal_state,
+            "primary_edge_family": primary_family,
+            "edge_families": list(families),
+            "claim_records": claim_records,
+            "corroboration_count": corroboration_count,
+            "descriptor_only": bool(rel.get("descriptor_only")),
+            "legacy_unscoped": bool(rel.get("legacy_unscoped")),
+        }
+    )
+    learned_truth = predict_edge_truth_probability(model_input)
+    score = max(0.0, min(float(learned_truth.get("probability") or heuristic_score), 1.0))
     strong_threshold = _EDGE_INTELLIGENCE_THRESHOLDS.get(primary_family, _EDGE_INTELLIGENCE_THRESHOLDS["other"])
     supported_threshold = max(strong_threshold - 0.14, 0.5)
     tentative_threshold = max(strong_threshold - 0.3, 0.35)
@@ -343,6 +359,10 @@ def score_graph_relationship_intelligence(
 
     return {
         "intelligence_score": round(score, 4),
+        "heuristic_intelligence_score": round(heuristic_score, 4),
+        "learned_truth_probability": round(score, 4),
+        "learned_truth_threshold": round(float(learned_truth.get("threshold") or 0.5), 4),
+        "intelligence_score_source": "learned_edge_truth_v1" if int(learned_truth.get("training_count") or 0) > 0 else "heuristic_edge_truth_fallback",
         "intelligence_tier": tier,
         "authority_bucket": authority_bucket,
         "temporal_state": temporal_state,

@@ -1,0 +1,348 @@
+{
+  "version": "decision_tribunal_training_cases_v1",
+  "description": "Fixture-first training anchors for the learned tribunal stance model. Cases balance approve, watch, and deny across defense counterparty, cyber, and export workflows.",
+  "cases": [
+    {
+      "case_id": "deny_hidden_control_pressure",
+      "target_view": "deny",
+      "heuristic_scores": {
+        "approve": 0.09,
+        "watch": 0.78,
+        "deny": 0.87
+      },
+      "signal_packet": {
+        "posture": "review",
+        "latest_decision": "escalate",
+        "connector_coverage": 6,
+        "identifier_count": 3,
+        "control_path_count": 5,
+        "ownership_path_count": 2,
+        "intermediary_path_count": 2,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "network_score": 2.8,
+        "network_level": "high",
+        "foreign_control_risk": true,
+        "export_review_required": true,
+        "cyber_gap": true,
+        "critical_cves": 2,
+        "kev_count": 1
+      }
+    },
+    {
+      "case_id": "deny_export_hard_stop",
+      "target_view": "deny",
+      "heuristic_scores": {
+        "approve": 0.0,
+        "watch": 0.44,
+        "deny": 1.0
+      },
+      "signal_packet": {
+        "posture": "blocked",
+        "latest_decision": "reject",
+        "workflow_lane": "export_authorization",
+        "hard_stop": true,
+        "export_prohibited": true,
+        "export_review_required": true,
+        "connector_coverage": 4,
+        "identifier_count": 2,
+        "control_path_count": 2,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 1,
+        "foreign_control_risk": true,
+        "cyber_gap": false,
+        "network_score": 1.4,
+        "network_level": "medium"
+      }
+    },
+    {
+      "case_id": "deny_rejected_hostile_supplier",
+      "target_view": "deny",
+      "heuristic_scores": {
+        "approve": 0.0,
+        "watch": 0.86,
+        "deny": 1.0
+      },
+      "signal_packet": {
+        "posture": "blocked",
+        "latest_decision": "reject",
+        "workflow_lane": "supplier_cyber_trust",
+        "hard_stop": true,
+        "connector_coverage": 5,
+        "identifier_count": 2,
+        "control_path_count": 3,
+        "ownership_path_count": 2,
+        "intermediary_path_count": 1,
+        "foreign_control_risk": true,
+        "export_review_required": true,
+        "cyber_gap": true,
+        "critical_cves": 2,
+        "kev_count": 1,
+        "network_score": 2.7,
+        "network_level": "critical",
+        "official_coverage_thin": true,
+        "ownership_evidence_thin": true,
+        "control_evidence_thin": true,
+        "graph_thin": true,
+        "graph_missing_required_edge_family_count": 2
+      }
+    },
+    {
+      "case_id": "approve_clean_allied_supplier",
+      "target_view": "approve",
+      "heuristic_scores": {
+        "approve": 1.0,
+        "watch": 0.3,
+        "deny": 0.0
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "approve",
+        "connector_coverage": 6,
+        "identifier_count": 4,
+        "control_path_count": 2,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 0,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "network_score": 0.0,
+        "network_level": "none",
+        "mitigated_foreign_interest": true,
+        "export_review_required": false,
+        "export_prohibited": false,
+        "cyber_gap": false
+      }
+    },
+    {
+      "case_id": "approve_domestic_clear",
+      "target_view": "approve",
+      "heuristic_scores": {
+        "approve": 1.0,
+        "watch": 0.12,
+        "deny": 0.0
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "approve",
+        "workflow_lane": "defense_counterparty_trust",
+        "connector_coverage": 5,
+        "identifier_count": 3,
+        "control_path_count": 2,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 0,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "corroborated_path_count": 2,
+        "official_coverage_thin": false,
+        "graph_thin": false,
+        "graph_missing_required_edge_family_count": 0,
+        "graph_claim_coverage_pct": 0.9,
+        "graph_official_edge_count": 3,
+        "graph_public_only_edge_count": 0,
+        "named_owner_known": true,
+        "controlling_parent_known": true,
+        "ownership_evidence_thin": false,
+        "control_evidence_thin": false,
+        "foreign_control_risk": false,
+        "mitigated_foreign_interest": false,
+        "cyber_gap": false,
+        "export_prohibited": false,
+        "export_review_required": false,
+        "network_score": 0.1,
+        "network_level": "low"
+      }
+    },
+    {
+      "case_id": "approve_regulated_low_risk",
+      "target_view": "approve",
+      "heuristic_scores": {
+        "approve": 1.0,
+        "watch": 0.12,
+        "deny": 0.0
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "approve",
+        "workflow_lane": "export_authorization",
+        "connector_coverage": 5,
+        "identifier_count": 3,
+        "control_path_count": 2,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 0,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "corroborated_path_count": 1,
+        "official_coverage_thin": false,
+        "graph_thin": false,
+        "graph_missing_required_edge_family_count": 0,
+        "graph_claim_coverage_pct": 0.75,
+        "named_owner_known": true,
+        "controlling_parent_known": true,
+        "ownership_evidence_thin": false,
+        "control_evidence_thin": false,
+        "foreign_control_risk": false,
+        "mitigated_foreign_interest": false,
+        "cyber_gap": false,
+        "export_prohibited": false,
+        "export_review_required": false,
+        "export_route_ambiguity": false,
+        "network_score": 0.15,
+        "network_level": "low"
+      }
+    },
+    {
+      "case_id": "watch_descriptor_only_defense",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.45,
+        "watch": 0.62,
+        "deny": 0.0
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "",
+        "connector_coverage": 3,
+        "identifier_count": 1,
+        "control_path_count": 0,
+        "ownership_path_count": 0,
+        "intermediary_path_count": 0,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "corroborated_path_count": 0,
+        "network_score": 0.2,
+        "network_level": "low",
+        "official_coverage_thin": true,
+        "ownership_resolution_pct": 0.55,
+        "control_resolution_pct": 0.35,
+        "named_owner_known": false,
+        "descriptor_only": true,
+        "ownership_evidence_thin": true,
+        "control_evidence_thin": true,
+        "shell_layers": 0,
+        "pep_connection": false
+      }
+    },
+    {
+      "case_id": "watch_shell_layered_counterparty",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.07,
+        "watch": 1.0,
+        "deny": 0.24
+      },
+      "signal_packet": {
+        "posture": "review",
+        "latest_decision": "",
+        "connector_coverage": 1,
+        "identifier_count": 1,
+        "control_path_count": 0,
+        "ownership_path_count": 0,
+        "intermediary_path_count": 0,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "corroborated_path_count": 0,
+        "network_score": 0.3,
+        "network_level": "low",
+        "official_coverage_thin": true,
+        "ownership_resolution_pct": 0.25,
+        "control_resolution_pct": 0.0,
+        "named_owner_known": false,
+        "descriptor_only": false,
+        "ownership_evidence_thin": true,
+        "control_evidence_thin": true,
+        "shell_layers": 3,
+        "pep_connection": true
+      }
+    },
+    {
+      "case_id": "watch_graph_thin_cyber",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.54,
+        "watch": 0.74,
+        "deny": 0.0
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "",
+        "workflow_lane": "supplier_cyber_trust",
+        "connector_coverage": 4,
+        "identifier_count": 2,
+        "control_path_count": 0,
+        "ownership_path_count": 0,
+        "intermediary_path_count": 0,
+        "contradicted_path_count": 0,
+        "stale_path_count": 0,
+        "corroborated_path_count": 0,
+        "network_score": 0.1,
+        "network_level": "low",
+        "official_coverage_thin": false,
+        "ownership_resolution_pct": 0.4,
+        "control_resolution_pct": 0.0,
+        "named_owner_known": false,
+        "descriptor_only": false,
+        "ownership_evidence_thin": true,
+        "control_evidence_thin": true,
+        "shell_layers": 1,
+        "pep_connection": false,
+        "graph_thin": true,
+        "graph_missing_required_edge_family_count": 1,
+        "graph_claim_coverage_pct": 0.0,
+        "graph_evidence_coverage_pct": 0.0
+      }
+    },
+    {
+      "case_id": "watch_export_ambiguity",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.28,
+        "watch": 1.0,
+        "deny": 0.09
+      },
+      "signal_packet": {
+        "posture": "pending",
+        "workflow_lane": "export_authorization",
+        "connector_coverage": 3,
+        "identifier_count": 2,
+        "control_path_count": 1,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 1,
+        "export_review_required": true,
+        "export_evidence_missing": true,
+        "export_route_ambiguity": true,
+        "foreign_control_risk": false,
+        "ownership_evidence_thin": false,
+        "control_evidence_thin": false,
+        "network_score": 0.5,
+        "network_level": "medium"
+      }
+    },
+    {
+      "case_id": "watch_cyber_gap",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.33,
+        "watch": 0.9,
+        "deny": 0.18
+      },
+      "signal_packet": {
+        "posture": "review",
+        "workflow_lane": "supplier_cyber_trust",
+        "connector_coverage": 4,
+        "identifier_count": 2,
+        "control_path_count": 1,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 0,
+        "official_coverage_thin": false,
+        "ownership_evidence_thin": false,
+        "control_evidence_thin": false,
+        "cyber_gap": true,
+        "critical_cves": 3,
+        "kev_count": 1,
+        "cyber_evidence_missing": true,
+        "network_score": 0.7,
+        "network_level": "medium"
+      }
+    }
+  ]
+}

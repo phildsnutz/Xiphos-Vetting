@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from learned_weighting import get_tribunal_model, predict_tribunal_probabilities
+
 
 _VIEW_ORDER = {"deny": 0, "watch": 1, "approve": 2}
 
@@ -564,6 +566,23 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
         _compose_view(stance="watch", label="Watch / Conditional", owner=signals["workflow_owner"], signals=signals),
         _compose_view(stance="approve", label="Approve / Proceed", owner="Program / procurement", signals=signals),
     ]
+    heuristic_scores = {str(view["stance"]): float(view["score"]) for view in views}
+    learned_probabilities = predict_tribunal_probabilities(signals, heuristic_scores)
+    tribunal_model = get_tribunal_model()
+    if learned_probabilities:
+        for view in views:
+            stance = str(view["stance"])
+            view["heuristic_score"] = round(float(view["score"]), 3)
+            view["score"] = round(float(learned_probabilities.get(stance) or 0.0), 3)
+            view["score_source"] = "learned_softmax_v1"
+        version = "decision-tribunal-v4"
+        score_training_count = int(tribunal_model.training_count) if tribunal_model else 0
+    else:
+        for view in views:
+            view["heuristic_score"] = round(float(view["score"]), 3)
+            view["score_source"] = "heuristic_v3"
+        version = "decision-tribunal-v3"
+        score_training_count = 0
     ordered = sorted(views, key=lambda item: (-float(item["score"]), _VIEW_ORDER[item["stance"]]))
     recommended = ordered[0]
     runner_up = ordered[1]
@@ -571,12 +590,13 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
     consensus = "strong" if gap >= 0.2 else "moderate" if gap >= 0.1 else "contested"
 
     return {
-        "version": "decision-tribunal-v3",
+        "version": version,
         "generated_at": _utc_now_iso(),
         "recommended_view": recommended["stance"],
         "recommended_label": recommended["label"],
         "consensus_level": consensus,
         "decision_gap": gap,
+        "score_training_count": score_training_count,
         "signal_snapshot": signals,
         "views": ordered,
     }
