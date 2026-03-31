@@ -821,17 +821,29 @@ function buildElements(
 
 function buildStyles(): cytoscape.StylesheetJson {
   const styles = [
+    // ── Base nodes ───────────────────────────────────────────────
     {
       selector: "node",
       style: {
         shape: "data(shape)",
-        width: (ele: NodeSingular) => (ele.data("isRoot") ? 62 : ele.data("type") === "company" ? 38 : 28),
-        height: (ele: NodeSingular) => (ele.data("isRoot") ? 62 : ele.data("type") === "company" ? 38 : 28),
+        width: (ele: NodeSingular) => {
+          const base = ele.data("isRoot") ? 64 : ele.data("type") === "company" ? 40 : 28;
+          return base + Math.min(ele.degree() * 0.8, 12);
+        },
+        height: (ele: NodeSingular) => {
+          const base = ele.data("isRoot") ? 64 : ele.data("type") === "company" ? 40 : 28;
+          return base + Math.min(ele.degree() * 0.8, 12);
+        },
         "background-color": "data(fillColor)",
+        "background-opacity": (ele: NodeSingular) => 0.75 + Number(ele.data("confidence") ?? 0.5) * 0.25,
         "border-color": "data(strokeColor)",
-        "border-width": (ele: NodeSingular) => (ele.data("isRoot") ? 3.5 : 1.5),
+        "border-width": (ele: NodeSingular) => (ele.data("isRoot") ? 3 : 1.5),
+        "border-opacity": 0.9,
+        "overlay-padding": 8,
+        "overlay-color": "data(strokeColor)",
+        "overlay-opacity": 0,
         label: "data(label)",
-        color: T.text,
+        color: "#e2e8f0",
         "font-size": (ele: NodeSingular) => (ele.data("isRoot") ? 13 : 11),
         "font-weight": (ele: NodeSingular) => (ele.data("isRoot") ? 700 : 600),
         "text-valign": "bottom",
@@ -839,73 +851,145 @@ function buildStyles(): cytoscape.StylesheetJson {
         "text-margin-y": 10,
         "text-wrap": "wrap",
         "text-max-width": 120,
-        "text-background-color": T.bg,
-        "text-background-opacity": 0.48,
-        "text-background-padding": 3,
+        "text-background-color": "#07101a",
+        "text-background-opacity": 0.65,
+        "text-background-padding": 4,
         "text-background-shape": "roundrectangle",
-        "overlay-padding": 6,
-        "transition-property": "background-color border-color border-width opacity width height",
-        "transition-duration": "180ms",
+        "text-outline-color": "#07101a",
+        "text-outline-width": 0.5,
+        "text-outline-opacity": 0.4,
+        "transition-property": "background-color border-color border-width opacity width height background-opacity",
+        "transition-duration": "220ms",
       },
     },
+    // ── Root node emphasis ────────────────────────────────────────
+    {
+      selector: "node[?isRoot]",
+      style: {
+        "border-width": 3,
+        "border-color": GOLD,
+        "background-color": "#1a1508",
+        "overlay-color": GOLD,
+        "overlay-opacity": 0.08,
+        "overlay-padding": 14,
+        "font-size": 14,
+        "font-weight": 800,
+        "text-background-opacity": 0.8,
+        "z-index": 10,
+      },
+    },
+    // ── Sanctions/risk node glow ─────────────────────────────────
+    {
+      selector: "node[type = 'sanctions_list'], node[type = 'sanctions_entry']",
+      style: {
+        "overlay-color": "#ef4444",
+        "overlay-opacity": 0.06,
+        "overlay-padding": 10,
+      },
+    },
+    // ── Base edges ───────────────────────────────────────────────
     {
       selector: "edge",
       style: {
-        width: (ele: EdgeSingular) => 1 + Number(ele.data("confidence") ?? 0.5) * 2.4,
+        width: (ele: EdgeSingular) => 0.8 + Number(ele.data("confidence") ?? 0.5) * 2.6,
         "line-color": "data(lineColor)",
         "line-style": "data(lineStyle)",
         "target-arrow-shape": "triangle",
         "target-arrow-color": "data(lineColor)",
-        "arrow-scale": 0.75,
-        opacity: 0.34,
+        "arrow-scale": (ele: EdgeSingular) => 0.6 + Number(ele.data("confidence") ?? 0.5) * 0.4,
+        opacity: (ele: EdgeSingular) => 0.15 + Number(ele.data("confidence") ?? 0.5) * 0.35,
         "curve-style": "bezier",
         "line-cap": "round",
-        "transition-property": "opacity line-color width line-style",
-        "transition-duration": "160ms",
+        "overlay-padding": 4,
+        "overlay-color": "data(lineColor)",
+        "overlay-opacity": 0,
+        "transition-property": "opacity line-color width line-style overlay-opacity",
+        "transition-duration": "200ms",
+      },
+    },
+    // ── High-corroboration edges ─────────────────────────────────
+    {
+      selector: "edge[corroborationCount > 1]",
+      style: {
+        opacity: (ele: EdgeSingular) => 0.3 + Number(ele.data("confidence") ?? 0.5) * 0.4,
+        width: (ele: EdgeSingular) => 1.2 + Number(ele.data("confidence") ?? 0.5) * 3,
+      },
+    },
+    // ── Sanctions edges: always prominent ────────────────────────
+    {
+      selector: "edge[relType = 'sanctioned_on'], edge[relType = 'sanctioned_person']",
+      style: { opacity: 0.7, width: 3.5, "line-color": "#ef4444", "target-arrow-color": "#ef4444" },
+    },
+    // ── Hover states ─────────────────────────────────────────────
+    {
+      selector: "node.hovered",
+      style: {
+        "overlay-opacity": 0.08,
+        "border-width": (ele: NodeSingular) => (ele.data("isRoot") ? 3.5 : 2.5),
+        "border-opacity": 1,
+        "z-index": 15,
       },
     },
     {
-      selector: "node.dimmed",
+      selector: "edge.hovered",
       style: {
-        opacity: 0.18,
-        "text-opacity": 0.1,
+        opacity: (ele: EdgeSingular) => Math.min(1, 0.4 + Number(ele.data("confidence") ?? 0.5) * 0.5),
+        "overlay-opacity": 0.05,
+        width: (ele: EdgeSingular) => 1.5 + Number(ele.data("confidence") ?? 0.5) * 3,
+        "z-index": 15,
       },
+    },
+    // ── Dimmed states ────────────────────────────────────────────
+    {
+      selector: "node.dimmed",
+      style: { opacity: 0.12, "text-opacity": 0.06, "overlay-opacity": 0 },
     },
     {
       selector: "edge.dimmed",
-      style: {
-        opacity: 0.05,
-      },
+      style: { opacity: 0.03, "overlay-opacity": 0 },
     },
+    // ── Selected node: bright halo ───────────────────────────────
     {
       selector: "node.selected-node",
       style: {
         "border-color": "#f8fafc",
-        "border-width": 4.5,
-        "text-background-opacity": 0.82,
+        "border-width": 4,
+        "border-opacity": 1,
+        "background-opacity": 1,
+        "overlay-color": "#f8fafc",
+        "overlay-opacity": 0.1,
+        "overlay-padding": 16,
+        "text-background-opacity": 0.9,
+        "text-outline-width": 1,
+        "z-index": 20,
       },
     },
+    // ── Neighbor nodes ───────────────────────────────────────────
     {
       selector: "node.neighbor-node",
-      style: {
-        opacity: 1,
-        "text-opacity": 1,
-      },
+      style: { opacity: 1, "text-opacity": 1, "background-opacity": 0.9, "overlay-opacity": 0.04 },
     },
+    // ── Active edges ─────────────────────────────────────────────
     {
       selector: "edge.active-edge",
-      style: {
-        opacity: 0.86,
-      },
+      style: { opacity: 0.85, "overlay-opacity": 0.04 },
     },
+    // ── Selected edge ────────────────────────────────────────────
     {
       selector: "edge.selected-edge",
       style: {
         opacity: 1,
-        width: (ele: EdgeSingular) => 2.6 + Number(ele.data("confidence") ?? 0.5) * 2.8,
+        width: (ele: EdgeSingular) => 3 + Number(ele.data("confidence") ?? 0.5) * 3,
         "line-color": "#f8fafc",
+        "target-arrow-color": "#f8fafc",
+        "arrow-scale": 1,
+        "overlay-color": "#f8fafc",
+        "overlay-opacity": 0.06,
+        "overlay-padding": 8,
+        "z-index": 20,
       },
     },
+    // ── Path highlight ───────────────────────────────────────────
     {
       selector: "node.path-highlight",
       style: {
@@ -914,7 +998,12 @@ function buildStyles(): cytoscape.StylesheetJson {
         opacity: 1,
         "text-opacity": 1,
         "background-color": "#0e7490",
+        "background-opacity": 1,
+        "overlay-color": "#22d3ee",
+        "overlay-opacity": 0.12,
+        "overlay-padding": 14,
         "text-background-opacity": 0.9,
+        "z-index": 15,
       },
     },
     {
@@ -925,22 +1014,32 @@ function buildStyles(): cytoscape.StylesheetJson {
         width: 4,
         opacity: 1,
         "line-style": "solid",
+        "overlay-color": "#22d3ee",
+        "overlay-opacity": 0.08,
+        "z-index": 15,
       },
     },
+    // ── Neo4j expanded ───────────────────────────────────────────
     {
       selector: "node.neo4j-expanded",
       style: {
         "border-color": "#a78bfa",
         "border-width": 2.5,
         "border-style": "dashed",
+        "overlay-color": "#a78bfa",
+        "overlay-opacity": 0.06,
       },
     },
+    // ── Path source ──────────────────────────────────────────────
     {
       selector: "node.path-source",
       style: {
         "border-color": "#f59e0b",
         "border-width": 5,
         opacity: 1,
+        "overlay-color": "#f59e0b",
+        "overlay-opacity": 0.12,
+        "overlay-padding": 14,
       },
     },
   ];
@@ -1547,6 +1646,11 @@ export function EntityGraph({
         resetView();
       }
     });
+
+    cy.on("mouseover", "node", (event) => { event.target.addClass("hovered"); if (containerRef.current) containerRef.current.style.cursor = "pointer"; });
+    cy.on("mouseout", "node", (event) => { event.target.removeClass("hovered"); if (containerRef.current) containerRef.current.style.cursor = "default"; });
+    cy.on("mouseover", "edge", (event) => { event.target.addClass("hovered"); if (containerRef.current) containerRef.current.style.cursor = "pointer"; });
+    cy.on("mouseout", "edge", (event) => { event.target.removeClass("hovered"); if (containerRef.current) containerRef.current.style.cursor = "default"; });
 
     requestAnimationFrame(() => {
       applyLayout(cy, initialLayoutModeRef.current, resolvedRootId, () => {

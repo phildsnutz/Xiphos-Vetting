@@ -783,6 +783,43 @@ def test_candidate_urls_include_blog_and_newsroom():
     assert "https://generic.example/en/the-company" in urls
 
 
+def test_public_html_stops_optional_fetches_after_strong_first_party_signal(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <p>CAGE Code: 0EA28</p>
+      </body>
+    </html>
+    """
+    about_html = """
+    <html>
+      <body>
+        <p>Acme Avionics is a subsidiary of Horizon Mission Systems.</p>
+      </body>
+    </html>
+    """
+    visited: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        visited.append(url)
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://acme.example":
+            return _FakeResponse(home_html)
+        if url == "https://acme.example/about":
+            return _FakeResponse(about_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Acme Avionics", country="US", website="https://acme.example")
+
+    assert visited == ["https://acme.example", "https://acme.example/about"]
+    assert result.identifiers["cage"] == "0EA28"
+    assert result.relationships[0]["target_entity"] == "Horizon Mission Systems"
+    assert result.structured_fields["visited_pages"] == visited
+
+
 def test_internal_candidate_links_accept_company_page_labels():
     markup = """
     <html>

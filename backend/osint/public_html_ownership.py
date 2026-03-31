@@ -30,6 +30,7 @@ TIMEOUT = 12
 MAX_PAGES = 16
 MAX_DISCOVERED_LINKS = 3
 MAX_DISCOVERY_SURFACE_LINKS = 6
+EARLY_STOP_RELATION_CONFIDENCE = 0.74
 DEFAULT_PATHS = (
     "",
     "/about",
@@ -709,6 +710,30 @@ def _is_truthy_flag(value: object) -> bool:
     return False
 
 
+def _has_identity_anchor(
+    identifiers: dict[str, str],
+    findings: list[Finding],
+) -> bool:
+    for key in ("cage", "uei", "duns", "ncage", "founded_year"):
+        if identifiers.get(key):
+            return True
+    return any(finding.category in {"identity", "profile"} for finding in findings)
+
+
+def _should_stop_optional_fetches(
+    relationships: list[dict],
+    identifiers: dict[str, str],
+    findings: list[Finding],
+) -> bool:
+    if not _has_identity_anchor(identifiers, findings):
+        return False
+    return any(
+        relationship.get("type") in {"owned_by", "backed_by"}
+        and float(relationship.get("confidence") or 0.0) >= EARLY_STOP_RELATION_CONFIDENCE
+        for relationship in relationships
+    )
+
+
 def _extract_text(markup: str) -> str:
     if not markup:
         return ""
@@ -1244,14 +1269,19 @@ def _discover_first_party_links(vendor_name: str, markup: str, page_url: str, we
                 return
 
     current_path = urlparse(page_url).path.lower().rstrip("/")
-    if current_path in {"", *DISCOVERY_HUB_PATHS}:
+    internal_candidates = _extract_internal_candidate_links(markup, page_url, website)
+    root_links_to_discovery_hub = current_path == "" and any(
+        urlparse(candidate).path.lower().rstrip("/") in DISCOVERY_HUB_PATHS
+        for candidate in internal_candidates
+    )
+    if current_path in DISCOVERY_HUB_PATHS or root_links_to_discovery_hub:
         add_links(_fetch_wordpress_post_links(website, vendor_name))
         if len(discovered) < MAX_DISCOVERED_LINKS:
             add_links(_fetch_rss_post_links(website, vendor_name, page_url=page_url))
         if len(discovered) < MAX_DISCOVERED_LINKS:
             add_links(_fetch_sitemap_post_links(website, vendor_name))
     if len(discovered) < MAX_DISCOVERED_LINKS:
-        add_links(_extract_internal_candidate_links(markup, page_url, website))
+        add_links(internal_candidates)
     return discovered[:MAX_DISCOVERED_LINKS]
 
 
@@ -1555,6 +1585,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     fixture_pages = _resolve_fixture_pages(ids)
     fixture_only = _is_truthy_flag(ids.get("public_html_fixture_only"))
     seeded_pages = fixture_pages + [candidate for candidate in _resolve_first_party_pages(ids, website) if candidate not in fixture_pages]
+    seeded_page_keys = {
+        (_page_visit_key(candidate) or candidate)
+        for candidate in seeded_pages
+        if candidate
+    }
     queue = list(seeded_pages)
     if not fixture_only:
         queue.extend(candidate for candidate in _candidate_urls(website) if candidate not in queue)
@@ -1572,12 +1607,17 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 continue
             visited_urls.add(page_url)
             visited_pages.append(page_url)
+            discover_more_links = (
+                not fixture_only
+                and urlparse(page_url).scheme != "file"
+                and not _should_stop_optional_fetches(relationships, result.identifiers, findings)
+            )
             page_result, discovered_links = extract_page(
                 vendor_name,
                 country,
                 website=website,
                 page_url=page_url,
-                discover_links=not fixture_only and urlparse(page_url).scheme != "file",
+                discover_links=discover_more_links,
             )
             if page_result.error:
                 continue
@@ -1625,6 +1665,14 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 relationship_finding = relationship_findings.get(dedupe_key)
                 if relationship_finding:
                     findings.append(relationship_finding)
+            if not fixture_only and _should_stop_optional_fetches(relationships, result.identifiers, findings):
+                queue = [
+                    candidate
+                    for candidate in queue
+                    if (_page_visit_key(candidate) or _normalize_website(candidate) or candidate) in seeded_page_keys
+                ]
+                if not queue:
+                    break
             for discovered in reversed(discovered_links):
                 normalized_discovered = _normalize_website(discovered)
                 if not normalized_discovered:
