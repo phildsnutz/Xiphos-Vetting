@@ -947,6 +947,61 @@ def test_analyze_vendor_without_ai_config_uses_local_fallback(monkeypatch):
     assert persisted["payload"]["provider"] == "local_fallback"
 
 
+def test_analyze_vendor_provider_failure_uses_local_fallback(monkeypatch):
+    import ai_analysis
+
+    persisted = {}
+
+    monkeypatch.setattr(
+        ai_analysis,
+        "get_ai_config",
+        lambda _user_id: {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "test-key"},
+    )
+
+    def fake_save_analysis(**kwargs):
+        persisted["payload"] = kwargs
+        return 88
+
+    monkeypatch.setattr(ai_analysis, "save_analysis", fake_save_analysis)
+    monkeypatch.setattr(
+        ai_analysis,
+        "PROVIDER_CALLERS",
+        {
+            **ai_analysis.PROVIDER_CALLERS,
+            "anthropic": lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("provider unstable")),
+        },
+    )
+
+    result = ai_analysis.analyze_vendor(
+        user_id="dev",
+        vendor_data={
+            "id": "case-provider-fallback",
+            "name": "Fallback Systems",
+            "country": "US",
+            "ownership": {"publicly_traded": False, "beneficial_owner_known": True},
+            "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 9},
+            "exec": {"adverse_media": 0},
+        },
+        score_data={
+            "composite_score": 18,
+            "calibrated": {
+                "calibrated_tier": "TIER_3_CONDITIONAL",
+                "calibrated_probability": 0.22,
+            },
+            "soft_flags": [
+                {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
+            ],
+        },
+        enrichment_data={"findings": []},
+    )
+
+    assert result["provider"] == "local_fallback"
+    assert result["analysis"]["_fallback"] is True
+    assert "external ai provider failed" in result["analysis"]["risk_narrative"].lower()
+    assert "provider unstable" in result["analysis"]["confidence_assessment"].lower()
+    assert persisted["payload"]["provider"] == "local_fallback"
+
+
 def test_analysis_prompt_distinguishes_unverified_identifiers_from_absence():
     import ai_analysis
 

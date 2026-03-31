@@ -1958,7 +1958,7 @@ def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, m
     assert captured == {
         "vendor_id": case_id,
         "user_id": "dev",
-        "hydrate_ai": False,
+        "hydrate_ai": True,
     }
     assert primed == {"case_id": case_id, "user_id": "dev"}
     assert "AI Narrative Brief" in resp.get_data(as_text=True)
@@ -2006,10 +2006,35 @@ def test_dossier_pdf_route_primes_ai_and_uses_cached_generation_by_default(clien
     assert captured == {
         "vendor_id": case_id,
         "user_id": "dev",
-        "hydrate_ai": False,
+        "hydrate_ai": True,
     }
     assert primed == {"case_id": case_id, "user_id": "dev"}
     assert resp.data.startswith(b"%PDF-1.4")
+
+
+def test_dossier_routes_allow_explicit_non_hydrated_ai_generation(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Explicit Cached Dossier Vendor")
+    captured = {"html": None, "pdf": None}
+
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *args, **kwargs: {"status": "queued"})
+    monkeypatch.setattr(
+        server,
+        "generate_dossier",
+        lambda vendor_id, user_id="", hydrate_ai=False: captured.__setitem__("html", hydrate_ai) or "<html><body>AI Narrative Brief</body></html>",
+    )
+    monkeypatch.setattr(
+        server,
+        "generate_pdf_dossier",
+        lambda vendor_id, user_id="", hydrate_ai=False: captured.__setitem__("pdf", hydrate_ai) or b"%PDF-1.4 mocked",
+    )
+
+    html_resp = client.post(f"/api/cases/{case_id}/dossier", json={"format": "html", "include_ai": True, "hydrate_ai": False})
+    pdf_resp = client.post(f"/api/cases/{case_id}/dossier-pdf", json={"include_ai": True, "hydrate_ai": False})
+
+    assert html_resp.status_code == 200
+    assert pdf_resp.status_code == 200
+    assert captured == {"html": False, "pdf": False}
 
 
 def test_monitor_run_route_queues_background_sweep(client, monkeypatch):

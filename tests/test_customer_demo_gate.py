@@ -933,7 +933,7 @@ def test_run_demo_gate_surface_mode_skips_assistant_execute(tmp_path):
     assert result.assistant_ok is True
 
 
-def test_run_demo_gate_surface_mode_requests_non_ai_dossier_while_warming(tmp_path):
+def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
     calls = {"html_include_ai": None, "pdf_include_ai": None}
 
     class FakeClient:
@@ -1016,7 +1016,7 @@ def test_run_demo_gate_surface_mode_requests_non_ai_dossier_while_warming(tmp_pa
     result = gate.run_demo_gate(args, client=FakeClient())
 
     assert result.verdict == "GO"
-    assert calls == {"html_include_ai": False, "pdf_include_ai": False}
+    assert calls == {"html_include_ai": True, "pdf_include_ai": True}
 
 
 def test_run_demo_gate_can_skip_dossier_surfaces_for_targeted_gate(tmp_path):

@@ -3148,10 +3148,13 @@ def api_generate_dossier(case_id):
 
     body = request.get_json(silent=True) or {}
     include_ai = body.get("include_ai", True)
+    hydrate_ai = body.get("hydrate_ai")
     user_id = _current_user_id()
     if include_ai:
         _prime_ai_analysis_for_case(case_id, user_id)
-    html = generate_dossier(case_id, user_id=user_id, hydrate_ai=False)
+    if hydrate_ai is None:
+        hydrate_ai = bool(include_ai)
+    html = generate_dossier(case_id, user_id=user_id, hydrate_ai=bool(hydrate_ai))
 
     # Save to static dir for download
     dossier_dir = os.path.join(os.path.dirname(__file__), "dossiers")
@@ -3189,10 +3192,13 @@ def api_generate_dossier_pdf(case_id):
     try:
         body = request.get_json(silent=True) or {}
         include_ai = body.get("include_ai", True)
+        hydrate_ai = body.get("hydrate_ai")
         user_id = _current_user_id()
         if include_ai:
             _prime_ai_analysis_for_case(case_id, user_id)
-        pdf_bytes = generate_pdf_dossier(case_id, user_id=user_id, hydrate_ai=False)
+        if hydrate_ai is None:
+            hydrate_ai = bool(include_ai)
+        pdf_bytes = generate_pdf_dossier(case_id, user_id=user_id, hydrate_ai=bool(hydrate_ai))
         return pdf_bytes, 200, {"Content-Type": "application/pdf",
                                "Content-Disposition": f"attachment; filename=dossier-{case_id}.pdf"}
     except Exception as e:

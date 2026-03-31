@@ -963,7 +963,6 @@ def run_demo_gate(args: argparse.Namespace, client: DemoGateClient | None = None
                 failures.append("ai analysis status reported failed")
             if args.ai_readiness_mode == "surface" and ai_status.get("status") != "ready":
                 ai_sections_required = False
-                include_ai_in_dossier = False
 
         if require_dossier_html:
             _write_progress(output_dir, "dossier_html", "Rendering HTML dossier", case_id=case_id)

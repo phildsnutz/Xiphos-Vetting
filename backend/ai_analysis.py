@@ -86,6 +86,8 @@ def _build_local_fallback_analysis(
     vendor_data: dict,
     score_data: dict,
     enrichment_data: Optional[dict] = None,
+    *,
+    fallback_reason: str = "",
 ) -> dict:
     """Build a deterministic narrative when no external AI provider is configured."""
     vendor_name = str(vendor_data.get("name") or "Unknown vendor")
@@ -190,10 +192,21 @@ def _build_local_fallback_analysis(
     else:
         summary_open += " No material critical concerns were surfaced beyond the deterministic model inputs."
 
+    confidence_tail = (
+        "Moderate. This is a deterministic local fallback narrative built from the current case, score, "
+        "and enrichment data because no external AI provider is configured."
+    )
+    if fallback_reason:
+        confidence_tail = (
+            "Moderate. This is a deterministic local fallback narrative built from the current case, score, "
+            f"and enrichment data because the external AI provider failed: {fallback_reason}."
+        )
+
     return {
         "executive_summary": summary_open,
         "risk_narrative": (
-            f"Local fallback narrative generated because no external AI provider is configured. "
+            f"Local fallback narrative generated because "
+            f"{'the external AI provider failed' if fallback_reason else 'no external AI provider is configured'}. "
             f"This case is assessed for {vendor_name} in {country} using the deterministic scoring engine and "
             f"the current evidence package, which places the matter in {tier} with verdict {verdict.replace('_', ' ').title()}."
         ),
@@ -201,12 +214,55 @@ def _build_local_fallback_analysis(
         "mitigating_factors": mitigating_factors,
         "recommended_actions": recommended_actions,
         "regulatory_exposure": "; ".join(regulatory_bits) + ".",
-        "confidence_assessment": (
-            "Moderate. This is a deterministic local fallback narrative built from the current case, score, "
-            "and enrichment data because no external AI provider is configured."
-        ),
+        "confidence_assessment": confidence_tail,
         "verdict": verdict,
         "_fallback": True,
+    }
+
+
+def _persist_local_fallback_result(
+    *,
+    user_id: str,
+    vendor_data: dict,
+    score_data: dict,
+    enrichment_data: Optional[dict],
+    input_hash: str,
+    fallback_reason: str = "",
+) -> dict:
+    analysis = _build_local_fallback_analysis(
+        vendor_data,
+        score_data,
+        enrichment_data,
+        fallback_reason=fallback_reason,
+    )
+    vendor_id = vendor_data.get("id", "unknown")
+    analysis_id = None
+    try:
+        analysis_id = save_analysis(
+            vendor_id=vendor_id,
+            provider="local_fallback",
+            model=_LOCAL_FALLBACK_MODEL,
+            analysis=analysis,
+            prompt_tokens=0,
+            completion_tokens=0,
+            elapsed_ms=0,
+            created_by=user_id,
+            input_hash=input_hash,
+            prompt_version=_ANALYSIS_PROMPT_VERSION,
+        )
+    except Exception as e:
+        print(f"Warning: Failed to persist local fallback AI analysis for {vendor_id}: {str(e)}")
+
+    return {
+        "analysis": analysis,
+        "provider": "local_fallback",
+        "model": _LOCAL_FALLBACK_MODEL,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "elapsed_ms": 0,
+        "analysis_id": analysis_id,
+        "input_hash": input_hash,
+        "prompt_version": _ANALYSIS_PROMPT_VERSION,
     }
 
 
@@ -993,36 +1049,13 @@ def analyze_vendor(
                 "No AI provider configured. Set up your API key in Settings > AI Provider."
             )
 
-        analysis = _build_local_fallback_analysis(vendor_data, score_data, enrichment_data)
-        vendor_id = vendor_data.get("id", "unknown")
-        analysis_id = None
-        try:
-            analysis_id = save_analysis(
-                vendor_id=vendor_id,
-                provider="local_fallback",
-                model=_LOCAL_FALLBACK_MODEL,
-                analysis=analysis,
-                prompt_tokens=0,
-                completion_tokens=0,
-                elapsed_ms=0,
-                created_by=user_id,
-                input_hash=input_hash,
-                prompt_version=_ANALYSIS_PROMPT_VERSION,
-            )
-        except Exception as e:
-            print(f"Warning: Failed to persist local fallback AI analysis for {vendor_id}: {str(e)}")
-
-        return {
-            "analysis": analysis,
-            "provider": "local_fallback",
-            "model": _LOCAL_FALLBACK_MODEL,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "elapsed_ms": 0,
-            "analysis_id": analysis_id,
-            "input_hash": input_hash,
-            "prompt_version": _ANALYSIS_PROMPT_VERSION,
-        }
+        return _persist_local_fallback_result(
+            user_id=user_id,
+            vendor_data=vendor_data,
+            score_data=score_data,
+            enrichment_data=enrichment_data,
+            input_hash=input_hash,
+        )
 
     provider = config["provider"]
     model = config["model"]
@@ -1040,23 +1073,34 @@ def analyze_vendor(
     caller = PROVIDER_CALLERS[provider]
     start_ms = time.time()
 
+    provider_error = ""
     try:
         result = caller(api_key, model, prompt)
+        elapsed_ms = int((time.time() - start_ms) * 1000)
+
+        # Parse response
+        try:
+            analysis = _parse_analysis_json(result["text"])
+        except Exception as e:
+            raise ValueError(f"Failed to parse AI response: {str(e)}")
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8", errors="replace")[:500]
-        raise ValueError(
-            f"{provider} API error (HTTP {e.code}): {error_body}"
+        provider_error = f"{provider} API error (HTTP {e.code}): {error_body}"
+    except Exception as e:
+        provider_error = f"{provider} API call failed: {str(e)}"
+
+    if provider_error:
+        if not _local_fallback_enabled():
+            raise ValueError(provider_error)
+        logger.warning("Falling back to local AI narrative for %s: %s", vendor_data.get("id", "unknown"), provider_error)
+        return _persist_local_fallback_result(
+            user_id=user_id,
+            vendor_data=vendor_data,
+            score_data=score_data,
+            enrichment_data=enrichment_data,
+            input_hash=input_hash,
+            fallback_reason=provider_error,
         )
-    except Exception as e:
-        raise ValueError(f"{provider} API call failed: {str(e)}")
-
-    elapsed_ms = int((time.time() - start_ms) * 1000)
-
-    # Parse response
-    try:
-        analysis = _parse_analysis_json(result["text"])
-    except Exception as e:
-        raise ValueError(f"Failed to parse AI response: {str(e)}")
 
     # Persist the analysis
     vendor_id = vendor_data.get("id", "unknown")
