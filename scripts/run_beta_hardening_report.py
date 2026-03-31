@@ -130,6 +130,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-readiness", action="store_true")
     parser.add_argument("--skip-prime-time", action="store_true")
     parser.add_argument("--skip-query-to-dossier", action="store_true")
+    parser.add_argument("--skip-thin-vendor-wave", action="store_true")
+    parser.add_argument("--thin-vendor-wave-limit", type=int, default=10)
+    parser.add_argument("--thin-vendor-wave-depth", type=int, default=3)
+    parser.add_argument("--thin-vendor-wave-scan-limit", type=int, default=10000)
+    parser.add_argument("--thin-vendor-wave-max-root-entities", type=int, default=1)
+    parser.add_argument("--thin-vendor-wave-max-relationships", type=int, default=2)
     parser.add_argument("--gauntlet-mode", choices=("fixture", "local-auth", "both"), default="fixture")
     parser.add_argument("--gauntlet-base-url", default="http://127.0.0.1:8080")
     parser.add_argument("--gauntlet-email", default="")
@@ -422,6 +428,8 @@ def _overall_verdict(summary: dict[str, Any]) -> str:
 
 def render_markdown(summary: dict[str, Any]) -> str:
     graph_95 = summary.get("graph_95") if isinstance(summary.get("graph_95"), dict) else {}
+    thin_vendor_wave = summary.get("thin_vendor_wave") if isinstance(summary.get("thin_vendor_wave"), dict) else {}
+    thin_vendor_kpi = thin_vendor_wave.get("kpi_gate") if isinstance(thin_vendor_wave.get("kpi_gate"), dict) else {}
     lines = [
         "# Helios Beta Hardening Report",
         "",
@@ -466,6 +474,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Graph benchmark verdict: **{graph_95.get('benchmark_overall_verdict') or 'UNKNOWN'}**",
         f"- Graph benchmark report: {graph_95.get('benchmark_report_json') or ''}",
         f"- Graph status memo: {graph_95.get('status_md') or ''}",
+        "",
+        "## Thin Vendor Wave",
+        "",
+        f"- Wave verdict: **{thin_vendor_kpi.get('status') or thin_vendor_wave.get('status') or 'SKIPPED'}**",
+        f"- Wave report: {thin_vendor_wave.get('report_md') or ''}",
+        f"- Wave report json: {thin_vendor_wave.get('report_json') or ''}",
+        f"- Zero-control drop: `{thin_vendor_kpi.get('zero_control_drop', 0)}`",
+        f"- New ownership edges: `{thin_vendor_kpi.get('new_ownership_edges', 0)}`",
+        f"- New financing edges: `{thin_vendor_kpi.get('new_financing_edges', 0)}`",
+        f"- New intermediary edges: `{thin_vendor_kpi.get('new_intermediary_edges', 0)}`",
         "",
         "## Tier Mix",
         "",
@@ -629,6 +647,45 @@ def run_prime_time(
     return payload
 
 
+def run_thin_vendor_wave(args: argparse.Namespace) -> dict[str, Any]:
+    if args.skip_thin_vendor_wave:
+        return {
+            "status": "SKIPPED",
+            "report_md": "",
+            "report_json": "",
+            "kpi_gate": {"status": "SKIPPED"},
+        }
+
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_thin_vendor_refresh_wave.py"),
+        "--report-dir",
+        str(Path(args.report_dir) / "thin_vendor_refresh_wave"),
+        "--limit",
+        str(args.thin_vendor_wave_limit),
+        "--depth",
+        str(args.thin_vendor_wave_depth),
+        "--scan-limit",
+        str(args.thin_vendor_wave_scan_limit),
+        "--max-root-entities",
+        str(args.thin_vendor_wave_max_root_entities),
+        "--max-relationships",
+        str(args.thin_vendor_wave_max_relationships),
+        "--print-json",
+    ]
+    proc = subprocess.run(command, text=True, capture_output=True, cwd=ROOT)
+    if proc.returncode != 0:
+        stderr = proc.stderr.strip() or "unknown thin-vendor wave error"
+        raise RuntimeError(f"thin-vendor wave failed: {stderr}")
+    payload = _decode_json_from_stdout(proc.stdout)
+    if not isinstance(payload, dict):
+        detail = proc.stderr.strip() or proc.stdout.strip() or "thin-vendor wave did not emit JSON"
+        raise RuntimeError(f"thin-vendor wave failed: {detail}")
+    payload["returncode"] = proc.returncode
+    payload["report_md"] = str(payload.get("report_markdown") or "")
+    return payload
+
+
 def main() -> int:
     args = parse_args()
     report_dir = Path(args.report_dir)
@@ -649,6 +706,7 @@ def main() -> int:
     summary["query_to_dossier"] = run_query_to_dossier(args)
     summary["readiness"] = run_readiness(args)
     summary["graph_95"] = _load_graph_95_status()
+    summary["thin_vendor_wave"] = run_thin_vendor_wave(args)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     summary["prime_time"] = run_prime_time(args, summary["readiness"], summary["query_to_dossier"], report_dir, stamp)

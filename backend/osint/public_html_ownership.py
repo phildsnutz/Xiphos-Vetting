@@ -740,6 +740,56 @@ NS_PROVIDER_HINTS: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
         "nameserver_signature",
     ),
 )
+HEADER_PROVIDER_HINTS: tuple[tuple[str | None, re.Pattern[str], str, str, float, str], ...] = (
+    (
+        "server",
+        re.compile(r"cloudflare", re.IGNORECASE),
+        "depends_on_network",
+        "Cloudflare",
+        0.78,
+        "response_header_signature",
+    ),
+    (
+        "cf-ray",
+        re.compile(r".+", re.IGNORECASE),
+        "depends_on_network",
+        "Cloudflare",
+        0.80,
+        "response_header_signature",
+    ),
+    (
+        "x-amz-cf-id",
+        re.compile(r".+", re.IGNORECASE),
+        "depends_on_network",
+        "Amazon CloudFront",
+        0.78,
+        "response_header_signature",
+    ),
+    (
+        "via",
+        re.compile(r"cloudfront", re.IGNORECASE),
+        "depends_on_network",
+        "Amazon CloudFront",
+        0.76,
+        "response_header_signature",
+    ),
+    (
+        "x-served-by",
+        re.compile(r"fastly", re.IGNORECASE),
+        "depends_on_network",
+        "Fastly",
+        0.74,
+        "response_header_signature",
+    ),
+    (
+        "server",
+        re.compile(r"akamaighost|akamai", re.IGNORECASE),
+        "depends_on_network",
+        "Akamai",
+        0.74,
+        "response_header_signature",
+    ),
+)
 IDENTIFIER_PATTERNS: tuple[tuple[str, str, re.Pattern[str], float], ...] = (
     (
         "cage",
@@ -2038,7 +2088,7 @@ def _fetch_rss_post_links(website: str, vendor_name: str, *, page_url: str) -> l
             feed_candidates.insert(0, f"{base}{page_path}/feed")
         for candidate_url in dict.fromkeys(feed_candidates):
             try:
-                xml_text, _content_type, _resolved_url = _coerce_fetch_page_result(_fetch_page(candidate_url), candidate_url)
+                xml_text, _content_type, _resolved_url, _response_headers = _coerce_fetch_page_result(_fetch_page(candidate_url), candidate_url)
             except Exception:
                 continue
             for match in RSS_ITEM_RE.finditer(xml_text or ""):
@@ -2066,7 +2116,7 @@ def _fetch_sitemap_post_links(website: str, vendor_name: str) -> list[str]:
     for base in _website_variants(website):
         sitemap_urls = [f"{base}/post-sitemap.xml"]
         try:
-            index_xml, _content_type, _resolved_url = _coerce_fetch_page_result(_fetch_page(f"{base}/sitemap_index.xml"), f"{base}/sitemap_index.xml")
+            index_xml, _content_type, _resolved_url, _response_headers = _coerce_fetch_page_result(_fetch_page(f"{base}/sitemap_index.xml"), f"{base}/sitemap_index.xml")
         except Exception:
             index_xml = ""
         for match in SITEMAP_LOC_RE.finditer(index_xml or ""):
@@ -2075,7 +2125,7 @@ def _fetch_sitemap_post_links(website: str, vendor_name: str) -> list[str]:
                 sitemap_urls.insert(0, link)
         for sitemap_url in dict.fromkeys(sitemap_urls):
             try:
-                sitemap_xml, _content_type, _resolved_url = _coerce_fetch_page_result(_fetch_page(sitemap_url), sitemap_url)
+                sitemap_xml, _content_type, _resolved_url, _response_headers = _coerce_fetch_page_result(_fetch_page(sitemap_url), sitemap_url)
             except Exception:
                 continue
             for match in SITEMAP_LOC_RE.finditer(sitemap_xml or ""):
@@ -2124,12 +2174,12 @@ def _discover_first_party_links(vendor_name: str, markup: str, page_url: str, we
     return discovered[:MAX_DISCOVERED_LINKS]
 
 
-def _fetch_page(url: str) -> tuple[str, str, str]:
+def _fetch_page(url: str) -> tuple[str, str, str, dict[str, str]]:
     parsed = urlparse(url)
     if parsed.scheme == "file":
         path = Path(unquote(parsed.path or "")).resolve()
         content_type = "text/html; charset=utf-8" if path.suffix.lower() in {".html", ".htm", ".xhtml"} else "text/plain; charset=utf-8"
-        return path.read_text(encoding="utf-8"), content_type, path.as_uri()
+        return path.read_text(encoding="utf-8"), content_type, path.as_uri(), {}
     response = requests.get(
         url,
         timeout=TIMEOUT,
@@ -2139,19 +2189,83 @@ def _fetch_page(url: str) -> tuple[str, str, str]:
     content_type = response.headers.get("Content-Type", "")
     resolved_url = _normalize_website(str(getattr(response, "url", "") or url))
     if "html" not in content_type and response.text.lstrip()[:1] != "<":
-        return "", content_type, resolved_url
-    return response.text, content_type, resolved_url
+        return "", content_type, resolved_url, {str(key): str(value) for key, value in response.headers.items()}
+    return response.text, content_type, resolved_url, {str(key): str(value) for key, value in response.headers.items()}
 
 
-def _coerce_fetch_page_result(payload, fallback_url: str) -> tuple[str, str, str]:
+def _coerce_fetch_page_result(payload, fallback_url: str) -> tuple[str, str, str, dict[str, str]]:
     if isinstance(payload, tuple):
+        if len(payload) == 4:
+            html_text, content_type, resolved_url, response_headers = payload
+            headers = {str(key): str(value) for key, value in dict(response_headers or {}).items()}
+            return str(html_text or ""), str(content_type or ""), _normalize_website(str(resolved_url or fallback_url)), headers
         if len(payload) == 3:
             html_text, content_type, resolved_url = payload
-            return str(html_text or ""), str(content_type or ""), _normalize_website(str(resolved_url or fallback_url))
+            return str(html_text or ""), str(content_type or ""), _normalize_website(str(resolved_url or fallback_url)), {}
         if len(payload) == 2:
             html_text, content_type = payload
-            return str(html_text or ""), str(content_type or ""), _normalize_website(fallback_url)
+            return str(html_text or ""), str(content_type or ""), _normalize_website(fallback_url), {}
     raise ValueError("unexpected fetch page result")
+
+
+def _extract_header_signature_hints(
+    response_headers: dict[str, str],
+    *,
+    vendor_name: str,
+    country: str,
+    website: str,
+    page_url: str,
+) -> dict[str, list]:
+    headers = {str(key).lower(): str(value or "") for key, value in dict(response_headers or {}).items()}
+    relationships: list[dict] = []
+    findings: list[Finding] = []
+    seen: set[tuple[str, str]] = set()
+    for header_name, pattern, rel_type, target_name, confidence, scope in HEADER_PROVIDER_HINTS:
+        header_value = headers.get(header_name.lower(), "") if header_name else " ".join(headers.values())
+        if not header_value or not pattern.search(header_value):
+            continue
+        dedupe_key = (rel_type, target_name)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        relationship_meta = _RELATIONSHIP_META.get(rel_type, _RELATIONSHIP_META["depends_on_service"])
+        snippet = f"{header_name or 'header'}: {header_value}".strip()
+        relationships.append(
+            _build_relationship(
+                vendor_name=vendor_name,
+                country=country,
+                website=website,
+                rel_type=rel_type,
+                parent_name=target_name,
+                page_url=page_url,
+                confidence=confidence,
+                scope=scope,
+                snippet=snippet[:240],
+            )
+        )
+        findings.append(
+            Finding(
+                source=SOURCE_NAME,
+                category=relationship_meta["finding_category"],
+                title=f"{relationship_meta['finding_title_prefix']}{target_name}",
+                detail=f"{snippet[:240]} | Source page: {page_url}",
+                severity="info",
+                confidence=confidence,
+                url=page_url,
+                artifact_ref=page_url,
+                structured_fields={
+                    "relationship_scope": relationship_meta["relationship_scope_default"],
+                    "relationship_type": rel_type,
+                    "target_entity": target_name,
+                    "source_header": header_name,
+                    "website": website,
+                },
+                source_class="public_connector",
+                authority_level="first_party_self_disclosed",
+                access_model="public_html",
+            )
+        )
+    return {"relationships": relationships, "findings": findings}
 
 
 def _build_relationship(
@@ -2250,7 +2364,7 @@ def extract_page(
 
     discovered_links: list[str] = []
     try:
-        html_text, _content_type, resolved_page_url = _coerce_fetch_page_result(_fetch_page(normalized_page_url), normalized_page_url)
+        html_text, _content_type, resolved_page_url, response_headers = _coerce_fetch_page_result(_fetch_page(normalized_page_url), normalized_page_url)
         effective_page_url = resolved_page_url or normalized_page_url
         canonical_website = _canonical_first_party_website(normalized_website, [effective_page_url])
         text = _extract_text(html_text)
@@ -2304,6 +2418,15 @@ def extract_page(
         )
         result.relationships.extend(list(tech_hints.get("relationships", [])))
         result.findings.extend(list(tech_hints.get("findings", [])))
+        header_hints = _extract_header_signature_hints(
+            response_headers,
+            vendor_name=vendor_name,
+            country=country,
+            website=canonical_website or normalized_website,
+            page_url=effective_page_url,
+        )
+        result.relationships.extend(list(header_hints.get("relationships", [])))
+        result.findings.extend(list(header_hints.get("findings", [])))
         for key, hint in _extract_profile_hints(text).items():
             value = str(hint["value"])
             result.identifiers.setdefault(key, value)

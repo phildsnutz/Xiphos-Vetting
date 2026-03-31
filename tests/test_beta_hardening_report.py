@@ -120,6 +120,18 @@ def test_render_markdown_includes_readiness_section():
             "benchmark_report_json": "/tmp/graph-benchmark.json",
             "status_md": "/tmp/GRAPH_95_STATUS.md",
         },
+        "thin_vendor_wave": {
+            "status": "PASS",
+            "report_md": "/tmp/thin-wave.md",
+            "report_json": "/tmp/thin-wave.json",
+            "kpi_gate": {
+                "status": "PASS",
+                "zero_control_drop": 4,
+                "new_ownership_edges": 6,
+                "new_financing_edges": 1,
+                "new_intermediary_edges": 2,
+            },
+        },
         "cases": [
             {
                 "vendor_name": "Demo Vendor",
@@ -151,6 +163,8 @@ def test_render_markdown_includes_readiness_section():
     assert "Prime-time verdict: **READY**" in markdown
     assert "## Graph 9.5" in markdown
     assert "Graph benchmark verdict: **PASS**" in markdown
+    assert "## Thin Vendor Wave" in markdown
+    assert "Wave verdict: **PASS**" in markdown
 
 
 def test_run_readiness_parses_subprocess_payload(monkeypatch):
@@ -231,6 +245,40 @@ def test_run_query_to_dossier_parses_subprocess_payload(monkeypatch):
     )
     payload = module.run_query_to_dossier(args)
     assert payload["overall_verdict"] == "PASS"
+    assert payload["returncode"] == 0
+
+
+def test_run_thin_vendor_wave_parses_subprocess_payload(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "kpi_gate": {
+                    "status": "PASS",
+                    "zero_control_drop": 2,
+                    "new_ownership_edges": 3,
+                    "new_financing_edges": 1,
+                    "new_intermediary_edges": 0,
+                },
+                "report_json": "/tmp/thin-wave.json",
+                "report_markdown": "/tmp/thin-wave.md",
+            }
+        )
+        stderr = ""
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: FakeProc())
+    args = module.argparse.Namespace(
+        skip_thin_vendor_wave=False,
+        thin_vendor_wave_limit=10,
+        thin_vendor_wave_depth=3,
+        thin_vendor_wave_scan_limit=10000,
+        thin_vendor_wave_max_root_entities=1,
+        thin_vendor_wave_max_relationships=2,
+        report_dir="/tmp/reports",
+    )
+    payload = module.run_thin_vendor_wave(args)
+    assert payload["kpi_gate"]["status"] == "PASS"
+    assert payload["report_md"] == "/tmp/thin-wave.md"
     assert payload["returncode"] == 0
 
 

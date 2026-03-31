@@ -9,9 +9,16 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "public_html_ow
 
 
 class _FakeResponse:
-    def __init__(self, text: str, content_type: str = "text/html; charset=utf-8", *, url: str | None = None):
+    def __init__(
+        self,
+        text: str,
+        content_type: str = "text/html; charset=utf-8",
+        *,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         self.text = text
-        self.headers = {"Content-Type": content_type}
+        self.headers = {"Content-Type": content_type, **(headers or {})}
         self.url = url or ""
 
     def raise_for_status(self) -> None:
@@ -133,6 +140,37 @@ def test_public_html_extracts_domain_dependency_hints_from_fixture(monkeypatch):
     assert ("depends_on_service", "SendGrid") in rel_types
     assert ("depends_on_network", "Cloudflare") in rel_types
     assert result.identifiers["domain_registrar"] == "MarkMonitor Inc."
+
+
+def test_public_html_extracts_network_dependency_from_response_headers(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <p>Secure operations platform.</p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        if url == "https://atlas.example":
+            return _FakeResponse(
+                home_html,
+                headers={
+                    "Server": "cloudflare",
+                    "CF-RAY": "8f8d7b6c5a4f1234-LAX",
+                },
+            )
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "_fetch_dns_answers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(public_html_ownership, "_fetch_rdap_record", lambda *_args, **_kwargs: {})
+
+    result = public_html_ownership.enrich("Atlas Mission Grid", country="US", website="https://atlas.example")
+
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert ("depends_on_network", "Cloudflare") in rel_types
 
 
 def test_public_html_extracts_cage_uei_duns_and_ncage_from_company_site(monkeypatch):
