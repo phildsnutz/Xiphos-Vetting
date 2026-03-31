@@ -279,6 +279,14 @@ DISCOVERY_KEYWORDS = (
     "about",
     "company",
     "corporate",
+    "support",
+    "help",
+    "status",
+    "trust",
+    "security",
+    "billing",
+    "checkout",
+    "portal",
 )
 RAW_CTA_NOISE_PHRASES = (
     "let's ",
@@ -478,6 +486,14 @@ DISCOVERY_SURFACE_KEYWORDS = (
     "hosting",
     "cloud",
     "managed service",
+    "support",
+    "help",
+    "status",
+    "trust",
+    "security",
+    "billing",
+    "checkout",
+    "portal",
     "veteran",
     "sdvosb",
     "wosb",
@@ -511,6 +527,33 @@ OWNERSHIP_DISCOVERY_QUERIES = (
     "cash management bank",
     "network provider",
     "managed services",
+    "support",
+    "help center",
+    "status",
+    "trust center",
+    "security",
+    "billing",
+    "checkout",
+)
+INTERMEDIARY_DISCOVERY_KEYWORDS = (
+    "support",
+    "help",
+    "status",
+    "trust",
+    "security",
+    "billing",
+    "checkout",
+    "portal",
+)
+DISCOVERY_PROVIDER_HOST_SUFFIXES = (
+    "statuspage.io",
+    "zendesk.com",
+    "freshdesk.com",
+    "freshservice.com",
+    "intercom.help",
+    "helpscoutdocs.com",
+    "helpscout.net",
+    "atlassian.net",
 )
 
 _RELATIONSHIP_META: dict[str, dict[str, str]] = {
@@ -648,6 +691,27 @@ TECH_SIGNATURES: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
         "Atlassian Statuspage",
         0.68,
         "status_platform_signature",
+    ),
+    (
+        re.compile(r"https?://(?:widget|js)\.intercom(?:cdn)?\.io/|https?://[^\"'\\s>]*intercom\.help/", re.IGNORECASE),
+        "depends_on_service",
+        "Intercom",
+        0.70,
+        "support_platform_signature",
+    ),
+    (
+        re.compile(r"https?://[^\"'\\s>]*freshdesk\.com/|https?://[^\"'\\s>]*freshservice\.com/", re.IGNORECASE),
+        "depends_on_service",
+        "Freshworks",
+        0.68,
+        "support_platform_signature",
+    ),
+    (
+        re.compile(r"https?://[^\"'\\s>]*helpscoutdocs\.com/|https?://secure\.helpscout\.net/", re.IGNORECASE),
+        "depends_on_service",
+        "Help Scout",
+        0.68,
+        "support_platform_signature",
     ),
 )
 MX_PROVIDER_HINTS: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
@@ -1931,21 +1995,35 @@ def _extract_profile_hints(text: str) -> dict[str, dict[str, str | float]]:
 def _extract_internal_candidate_links(markup: str, page_url: str, website: str) -> list[str]:
     base = _normalize_website(website)
     parsed_base = urlparse(base)
+    base_host = str(parsed_base.netloc or "").lower()
     normalized_page_url = f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}{urlparse(page_url).path}".rstrip("/")
     current_path = urlparse(page_url).path.lower().rstrip("/")
     on_discovery_hub = current_path in DISCOVERY_HUB_PATHS
     discovered: list[tuple[int, str]] = []
     seen: set[str] = set()
+
+    def host_is_same_or_subdomain(candidate_host: str) -> bool:
+        lowered = str(candidate_host or "").lower()
+        return bool(lowered and base_host and (lowered == base_host or lowered.endswith(f".{base_host}")))
+
+    def host_matches_provider_suffix(candidate_host: str) -> bool:
+        lowered = str(candidate_host or "").lower()
+        return any(lowered == suffix or lowered.endswith(f".{suffix}") for suffix in DISCOVERY_PROVIDER_HOST_SUFFIXES)
+
     for match in ANCHOR_TAG.finditer(markup or ""):
         href = match.group("href") or ""
         label = _extract_text(match.group("label") or "")
         candidate = urljoin(page_url, href)
         parsed_candidate = urlparse(candidate)
+        candidate_host = str(parsed_candidate.netloc or "").lower()
         if parsed_candidate.scheme not in {"http", "https"}:
             continue
-        if parsed_candidate.netloc != parsed_base.netloc:
-            continue
         lowered = f"{candidate} {label}".lower()
+        is_intermediary_surface = any(keyword in lowered for keyword in INTERMEDIARY_DISCOVERY_KEYWORDS)
+        same_or_subdomain = host_is_same_or_subdomain(candidate_host)
+        provider_surface = host_matches_provider_suffix(candidate_host) and is_intermediary_surface
+        if not same_or_subdomain and not provider_surface:
+            continue
         candidate_path = parsed_candidate.path.lower().rstrip("/")
         is_article_like = (
             on_discovery_hub
@@ -1963,12 +2041,22 @@ def _extract_internal_candidate_links(markup: str, page_url: str, website: str) 
             continue
         seen.add(normalized)
         score = 0
+        if is_intermediary_surface:
+            score += 65
+        if any(keyword in lowered for keyword in ("billing", "checkout", "payment", "merchant")):
+            score += 55
+        if any(keyword in lowered for keyword in ("support", "help", "status", "trust", "security", "portal")):
+            score += 48
         if any(keyword in lowered for keyword in ("fund", "invest", "back", "acquir")):
             score += 50
         if any(keyword in lowered for keyword in ("history", "leadership", "about")):
             score += 25
         if any(keyword in lowered for keyword in ("company", "corporate")):
             score += 22
+        if same_or_subdomain and candidate_host != base_host:
+            score += 30
+        if provider_surface:
+            score += 30
         if "growth" in lowered:
             score += 20
         if any(keyword in lowered for keyword in ("news", "press")):
@@ -2368,6 +2456,35 @@ def extract_page(
         effective_page_url = resolved_page_url or normalized_page_url
         canonical_website = _canonical_first_party_website(normalized_website, [effective_page_url])
         text = _extract_text(html_text)
+        json_ld_hints = _extract_json_ld_hints(
+            html_text,
+            vendor_name=vendor_name,
+            country=country,
+            website=canonical_website or normalized_website,
+            page_url=effective_page_url,
+        )
+        for key, value in json_ld_hints.get("identifiers", {}).items():
+            result.identifiers.setdefault(str(key), str(value))
+        result.relationships.extend(list(json_ld_hints.get("relationships", [])))
+        result.findings.extend(list(json_ld_hints.get("findings", [])))
+        tech_hints = _extract_technology_signature_hints(
+            html_text,
+            vendor_name=vendor_name,
+            country=country,
+            website=canonical_website or normalized_website,
+            page_url=effective_page_url,
+        )
+        result.relationships.extend(list(tech_hints.get("relationships", [])))
+        result.findings.extend(list(tech_hints.get("findings", [])))
+        header_hints = _extract_header_signature_hints(
+            response_headers,
+            vendor_name=vendor_name,
+            country=country,
+            website=canonical_website or normalized_website,
+            page_url=effective_page_url,
+        )
+        result.relationships.extend(list(header_hints.get("relationships", [])))
+        result.findings.extend(list(header_hints.get("findings", [])))
         if not text:
             result.identifiers["website"] = canonical_website or normalized_website
             result.structured_fields["resolved_page_url"] = effective_page_url
@@ -2398,35 +2515,6 @@ def extract_page(
                     access_model="public_html",
                 )
             )
-        json_ld_hints = _extract_json_ld_hints(
-            html_text,
-            vendor_name=vendor_name,
-            country=country,
-            website=canonical_website or normalized_website,
-            page_url=effective_page_url,
-        )
-        for key, value in json_ld_hints.get("identifiers", {}).items():
-            result.identifiers.setdefault(str(key), str(value))
-        result.relationships.extend(list(json_ld_hints.get("relationships", [])))
-        result.findings.extend(list(json_ld_hints.get("findings", [])))
-        tech_hints = _extract_technology_signature_hints(
-            html_text,
-            vendor_name=vendor_name,
-            country=country,
-            website=canonical_website or normalized_website,
-            page_url=effective_page_url,
-        )
-        result.relationships.extend(list(tech_hints.get("relationships", [])))
-        result.findings.extend(list(tech_hints.get("findings", [])))
-        header_hints = _extract_header_signature_hints(
-            response_headers,
-            vendor_name=vendor_name,
-            country=country,
-            website=canonical_website or normalized_website,
-            page_url=effective_page_url,
-        )
-        result.relationships.extend(list(header_hints.get("relationships", [])))
-        result.findings.extend(list(header_hints.get("findings", [])))
         for key, hint in _extract_profile_hints(text).items():
             value = str(hint["value"])
             result.identifiers.setdefault(key, value)

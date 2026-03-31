@@ -173,6 +173,86 @@ def test_public_html_extracts_network_dependency_from_response_headers(monkeypat
     assert ("depends_on_network", "Cloudflare") in rel_types
 
 
+def test_public_html_discovers_support_subdomain_and_extracts_intercom(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="https://support.atlas.example/help">Support Center</a>
+      </body>
+    </html>
+    """
+    support_html = """
+    <html>
+      <body>
+        <script src="https://widget.intercom.io/widget/abc123"></script>
+      </body>
+    </html>
+    """
+    fetched_urls: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        fetched_urls.append(url)
+        assert timeout == public_html_ownership.TIMEOUT
+        if url == "https://atlas.example":
+            return _FakeResponse(home_html)
+        if url == "https://support.atlas.example/help":
+            return _FakeResponse(support_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "_fetch_dns_answers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(public_html_ownership, "_fetch_rdap_record", lambda *_args, **_kwargs: {})
+
+    result = public_html_ownership.enrich("Atlas Mission Grid", country="US", website="https://atlas.example")
+
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert "https://support.atlas.example/help" in fetched_urls
+    assert ("depends_on_service", "Intercom") in rel_types
+
+
+def test_public_html_discovers_status_subdomain_and_extracts_cloudflare(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <a href="https://status.atlas.example/health">System Status</a>
+      </body>
+    </html>
+    """
+    status_html = """
+    <html>
+      <body>
+        <p>Operational status</p>
+      </body>
+    </html>
+    """
+    fetched_urls: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        fetched_urls.append(url)
+        assert timeout == public_html_ownership.TIMEOUT
+        if url == "https://atlas.example":
+            return _FakeResponse(home_html)
+        if url == "https://status.atlas.example/health":
+            return _FakeResponse(
+                status_html,
+                headers={
+                    "Server": "cloudflare",
+                    "CF-RAY": "8f8d7b6c5a4f1234-LAX",
+                },
+            )
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "_fetch_dns_answers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(public_html_ownership, "_fetch_rdap_record", lambda *_args, **_kwargs: {})
+
+    result = public_html_ownership.enrich("Atlas Mission Grid", country="US", website="https://atlas.example")
+
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert "https://status.atlas.example/health" in fetched_urls
+    assert ("depends_on_network", "Cloudflare") in rel_types
+
+
 def test_public_html_extracts_cage_uei_duns_and_ncage_from_company_site(monkeypatch):
     identifier_html = """
     <html>
