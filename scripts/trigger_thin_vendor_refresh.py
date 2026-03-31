@@ -67,8 +67,8 @@ def main() -> int:
         print(json.dumps(payload, indent=2))
         return 0
     scheduler = MonitorScheduler()
-    sweep_id = scheduler.trigger_sweep(vendor_ids=vendor_ids)
-    payload["sweep_id"] = sweep_id
+    summary = scheduler.run_sweep(vendor_ids=vendor_ids)
+    payload["run_summary"] = summary
     print(json.dumps(payload, indent=2))
     return 0
 
