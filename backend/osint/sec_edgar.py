@@ -43,6 +43,14 @@ _FINANCING_DOC_NAME_HINTS = (
     "revolver",
     "guarant",
     "security",
+    "cash",
+    "treasury",
+    "account",
+    "deposit",
+    "lockbox",
+    "escrow",
+    "custod",
+    "control",
 )
 _FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     (
@@ -65,7 +73,7 @@ _FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     ),
     (
         re.compile(
-            r"(?:with|and)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)\s*,\s+as (?:account bank|depositary bank|cash management bank|paying agent|disbursing agent)\b",
+            r"(?:with|and)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)\s*,\s+as (?:account bank|depositary bank|depository bank|cash management bank|paying agent|disbursing agent|collection bank|lockbox bank|lock-box bank|custodian|escrow agent|securities intermediary|control bank|treasury management provider)\b",
             re.IGNORECASE,
         ),
         "account_bank",
@@ -73,7 +81,10 @@ _FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
         "routes_payment_through",
     ),
     (
-        re.compile(r"(?:credit agreement|loan agreement|term loan facility|revolving credit facility|revolver).{0,80}?(?:with|among)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})", re.IGNORECASE),
+        re.compile(
+            r"(?:credit agreement|loan agreement|term loan facility|revolving credit facility|revolver).{0,80}?(?:with|among)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)(?=,?\s+as\b|,|\sand\b|$)",
+            re.IGNORECASE,
+        ),
         "credit_facility_counterparty",
         0.80,
         "backed_by",
@@ -86,11 +97,29 @@ _FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     ),
     (
         re.compile(
-            r"(?:collection account|deposit account|disbursement account|concentration account|lockbox)\s+(?:is|was)?\s*(?:maintained|held|opened)?\s*(?:through|with|at)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})",
+            r"(?:collection account|deposit account|disbursement account|concentration account|lockbox|lock-box|operating account|cash collateral account|blocked account|escrow account|reserve account)\s+(?:is|was|are|were)?\s*(?:maintained|held|opened)?\s*(?:through|with|at)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})",
             re.IGNORECASE,
         ),
         "deposit_account_bank",
         0.74,
+        "routes_payment_through",
+    ),
+    (
+        re.compile(
+            r"(?:letters? of credit|l/cs?)\s+(?:issued|provided|supported)\s+(?:by|through)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)(?=[.;]|\s+(?:support|supports|under|pursuant|for)\b|$)",
+            re.IGNORECASE,
+        ),
+        "issuing_bank",
+        0.78,
+        "backed_by",
+    ),
+    (
+        re.compile(
+            r"(?:cash management|treasury management|merchant processing|payment processing)\s+(?:services|arrangements?)\s+(?:are|were)?\s*(?:provided|handled|performed)?\s*(?:by|through)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)(?=[.;]|$)",
+            re.IGNORECASE,
+        ),
+        "treasury_provider",
+        0.76,
         "routes_payment_through",
     ),
 )
@@ -282,7 +311,6 @@ def _extract_financing_relationships(
                 relationship["filing_date"] = filing_date
                 relationship["form_type"] = form_type
             extracted_relationships.extend(parsed)
-            break
 
     if not extracted_relationships:
         return

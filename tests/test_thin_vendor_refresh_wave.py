@@ -66,6 +66,7 @@ def test_build_wave_report_flags_rel_only_when_control_families_do_not_move():
     assert report["kpi_gate"]["status"] == "REL_ONLY"
     assert report["kpi_gate"]["relationship_gain_total"] == 4
     assert report["kpi_gate"]["new_financing_edges"] == 0
+    assert report["kpi_gate"]["intermediary_graduated"] is False
 
 
 def test_build_wave_report_passes_when_financing_edges_increase():
@@ -120,3 +121,65 @@ def test_build_wave_report_passes_when_financing_edges_increase():
     assert report["kpi_gate"]["status"] == "PASS"
     assert report["kpi_gate"]["new_financing_edges"] == 2
     assert report["kpi_gate"]["zero_control_drop"] == 1
+    assert report["kpi_gate"]["require_intermediary_lift"] is False
+
+
+def test_build_wave_report_blocks_graduation_without_intermediary_lift():
+    selected_rows = [{"vendor_id": "v-1", "vendor_name": "Vendor 1"}]
+    before = {
+        "rows": [
+            {
+                "vendor_id": "v-1",
+                "vendor_name": "Vendor 1",
+                "relationship_count": 0,
+                "control_path_count": 0,
+                "ownership_edge_count": 0,
+                "financing_edge_count": 0,
+                "intermediary_edge_count": 0,
+            }
+        ],
+        "coverage_metrics": {
+            "zero_control_vendor_count": 1,
+            "zero_relationship_vendor_count": 1,
+        },
+        "family_edge_totals": {
+            "ownership_edge_total": 0,
+            "financing_edge_total": 0,
+            "intermediary_edge_total": 0,
+        },
+    }
+    after = {
+        "rows": [
+            {
+                "vendor_id": "v-1",
+                "vendor_name": "Vendor 1",
+                "relationship_count": 5,
+                "control_path_count": 1,
+                "ownership_edge_count": 1,
+                "financing_edge_count": 0,
+                "intermediary_edge_count": 0,
+            }
+        ],
+        "coverage_metrics": {
+            "zero_control_vendor_count": 0,
+            "zero_relationship_vendor_count": 0,
+        },
+        "family_edge_totals": {
+            "ownership_edge_total": 1,
+            "financing_edge_total": 0,
+            "intermediary_edge_total": 0,
+        },
+    }
+
+    report = module._build_wave_report(
+        selected_rows,
+        before,
+        after,
+        {"vendors_checked": 1},
+        dry_run=False,
+        require_intermediary_lift=True,
+    )
+
+    assert report["kpi_gate"]["status"] == "NO_INTERMEDIARY_LIFT"
+    assert report["kpi_gate"]["require_intermediary_lift"] is True
+    assert report["kpi_gate"]["intermediary_graduated"] is False

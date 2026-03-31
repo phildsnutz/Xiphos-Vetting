@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exclude-name-token", action="append", default=list(selector._DEFAULT_EXCLUDED_NAME_TOKENS))
     parser.add_argument("--allow-duplicate-names", action="store_true")
     parser.add_argument("--vendor-id", action="append", default=[])
+    parser.add_argument("--require-intermediary-lift", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--print-json", action="store_true")
     return parser.parse_args()
@@ -83,6 +84,7 @@ def _build_wave_report(
     run_summary: dict[str, Any] | None,
     *,
     dry_run: bool,
+    require_intermediary_lift: bool = False,
 ) -> dict[str, Any]:
     vendor_ids = [str(row.get("vendor_id") or "") for row in selected_rows if str(row.get("vendor_id") or "")]
     before_rows = _rows_by_vendor(before.get("rows", []))
@@ -125,8 +127,12 @@ def _build_wave_report(
     )
     family_gain = new_ownership_edges + new_financing_edges + new_intermediary_edges
     control_gain_vendors = sum(1 for row in improved_vendors if int(row.get("control_path_delta") or 0) > 0)
+    intermediary_graduated = new_intermediary_edges > 0
 
-    if zero_control_drop > 0 or family_gain > 0 or control_gain_vendors > 0:
+    if require_intermediary_lift and not intermediary_graduated:
+        gate_status = "NO_INTERMEDIARY_LIFT"
+        gate_reason = "Wave did not produce intermediary edge lift, so the intermediary tranche does not graduate."
+    elif zero_control_drop > 0 or family_gain > 0 or control_gain_vendors > 0:
         gate_status = "PASS"
         gate_reason = "Control-path lift detected."
     elif relationship_gain > 0:
@@ -147,6 +153,8 @@ def _build_wave_report(
         "kpi_gate": {
             "status": gate_status,
             "reason": gate_reason,
+            "require_intermediary_lift": bool(require_intermediary_lift),
+            "intermediary_graduated": intermediary_graduated,
             "zero_control_drop": zero_control_drop,
             "zero_relationship_drop": zero_relationship_drop,
             "new_ownership_edges": new_ownership_edges,
@@ -174,6 +182,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "## KPI Gate",
         "",
         f"- Reason: {gate['reason']}",
+        f"- Intermediary graduation required: `{gate['require_intermediary_lift']}`",
+        f"- Intermediary graduated: `{gate['intermediary_graduated']}`",
         f"- Zero-control drop: `{gate['zero_control_drop']}`",
         f"- Zero-relationship drop: `{gate['zero_relationship_drop']}`",
         f"- New ownership edges: `{gate['new_ownership_edges']}`",
@@ -207,7 +217,14 @@ def main() -> int:
     after_rows = audit.audit_vendor_rows(limit=max(len(vendor_ids), 1), depth=args.depth, vendor_ids=vendor_ids)
     after = audit.build_summary(after_rows, depth=args.depth, include_rows=True)
 
-    report = _build_wave_report(selected_rows, before, after, run_summary, dry_run=args.dry_run)
+    report = _build_wave_report(
+        selected_rows,
+        before,
+        after,
+        run_summary,
+        dry_run=args.dry_run,
+        require_intermediary_lift=args.require_intermediary_lift,
+    )
 
     slug = utc_slug()
     args.report_dir.mkdir(parents=True, exist_ok=True)
@@ -223,6 +240,8 @@ def main() -> int:
     else:
         print(str(report_json))
         print(str(report_md))
+    if args.require_intermediary_lift and not report["kpi_gate"].get("intermediary_graduated"):
+        return 1
     return 0
 
 

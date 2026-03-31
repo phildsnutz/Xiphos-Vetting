@@ -105,6 +105,21 @@ def test_sec_edgar_parse_financing_document_extracts_account_bank_and_deposit_ba
     assert ("routes_payment_through", "Bank of America, N.A.") in rel_types
 
 
+def test_sec_edgar_parse_financing_document_extracts_letters_of_credit_and_treasury_provider():
+    text = """
+    <DOCUMENT><TYPE>EX-10<TEXT>
+    Letters of credit issued by Deutsche Bank AG support the facility.
+    Treasury management services are provided by BNY Mellon.
+    </TEXT></DOCUMENT>
+    """
+
+    relationships = sec_edgar._parse_financing_document(text, "Example Defense Systems, Inc.")
+
+    rel_types = {(item["type"], item["target_entity"]) for item in relationships}
+    assert ("backed_by", "Deutsche Bank AG") in rel_types
+    assert ("routes_payment_through", "BNY Mellon") in rel_types
+
+
 def test_sec_edgar_deep_parse_extracts_ex10_financing_relationships(monkeypatch):
     def fake_get(url: str):
         if url.endswith("CIK0000936468.json"):
@@ -144,3 +159,53 @@ def test_sec_edgar_deep_parse_extracts_ex10_financing_relationships(monkeypatch)
 
     assert any(rel["type"] == "backed_by" and rel["target_entity"] == "PNC Bank, National Association" for rel in result.relationships)
     assert any("financing counterparties" in finding.title.lower() for finding in result.findings)
+
+
+def test_sec_edgar_deep_parse_scans_multiple_financing_documents(monkeypatch):
+    def fake_get(url: str):
+        if url.endswith("CIK0000936468.json"):
+            return {
+                "name": "Lockheed Martin Corp",
+                "filings": {
+                    "recent": {
+                        "form": ["8-K"],
+                        "filingDate": ["2026-02-14"],
+                        "accessionNumber": ["0000936468-26-000001"],
+                    }
+                },
+            }
+        if url.endswith("/index.json"):
+            return {
+                "directory": {
+                    "item": [
+                        {"name": "ex10-credit-agreement.htm"},
+                        {"name": "cash-management-agreement.htm"},
+                    ]
+                }
+            }
+        return None
+
+    def fake_fetch_text(url: str) -> str:
+        if url.endswith("ex10-credit-agreement.htm"):
+            return """
+            <DOCUMENT><TYPE>EX-10<TEXT>
+            This CREDIT AGREEMENT is entered into with PNC Bank, National Association, as administrative agent.
+            </TEXT></DOCUMENT>
+            """
+        return """
+        <DOCUMENT><TYPE>EX-10<TEXT>
+        Letters of credit issued by Deutsche Bank AG support the facility.
+        The concentration account is maintained at Bank of America, N.A.
+        </TEXT></DOCUMENT>
+        """
+
+    monkeypatch.setattr(sec_edgar, "_get", fake_get)
+    monkeypatch.setattr(sec_edgar, "_fetch_text", fake_fetch_text)
+
+    result = EnrichmentResult(source="sec_edgar", vendor_name="Lockheed Martin Corporation")
+    sec_edgar._deep_parse_company("936468", "Lockheed Martin Corporation", result)
+
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert ("backed_by", "PNC Bank, National Association") in rel_types
+    assert ("backed_by", "Deutsche Bank AG") in rel_types
+    assert ("routes_payment_through", "Bank of America, N.A.") in rel_types
