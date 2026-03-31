@@ -152,7 +152,7 @@ export default function App() {
   const [cases, setCases] = useState<VettingCase[]>([]);
   const [selected, setSelected] = useState<VettingCase | null>(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>("portfolio");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
   const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
@@ -165,6 +165,7 @@ export default function App() {
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
   const lastModeEventRef = useRef<string>("");
   const lastScreenEventRef = useRef<string>("");
+  const homeTabInitializedRef = useRef(false);
   // onboarding dismissed state removed in UI redesign
 
   const refreshCases = useCallback(async (limit = 200) => {
@@ -178,6 +179,12 @@ export default function App() {
 
   const loadCases = useCallback(() => {
     refreshCases(200)
+      .then((loaded) => {
+        if (!homeTabInitializedRef.current && !selected) {
+          setTab(loaded.length > 0 ? "portfolio" : "helios");
+          homeTabInitializedRef.current = true;
+        }
+      })
       .catch(() => {
         // Token might be expired
         if (authRequired) {
@@ -185,7 +192,7 @@ export default function App() {
           setUser(null);
         }
       });
-  }, [authRequired, refreshCases]);
+  }, [authRequired, refreshCases, selected]);
 
   // Handle 401 from any API call (auto-logout)
   useEffect(() => {
@@ -277,6 +284,7 @@ export default function App() {
   function handleLogin(u: AuthUser) {
     setUser(u);
     setApiAvailable(true);
+    homeTabInitializedRef.current = false;
     loadCases();
   }
 
@@ -286,6 +294,7 @@ export default function App() {
     setShowUserMenu(false);
     setCases([]);
     setSelected(null);
+    homeTabInitializedRef.current = false;
     setTab("helios");
   }
 
