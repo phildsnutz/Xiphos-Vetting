@@ -836,6 +836,52 @@ def _workflow_lane_for_vendor(vendor: dict) -> str:
     return "counterparty"
 
 
+ENRICHMENT_CONNECTOR_EXCLUDES_BY_LANE: dict[str, tuple[str, ...]] = {
+    "export": (
+        "cisa_kev",
+        "mitre_attack_fixture",
+        "cisa_advisory_fixture",
+        "cyclonedx_spdx_vex_fixture",
+        "public_assurance_evidence_fixture",
+        "osv_dev",
+        "deps_dev",
+        "openssf_scorecard",
+        "epa_echo",
+        "osha_safety",
+        "fdic_bankfind",
+    ),
+    "cyber": (
+        "fara",
+        "sec_xbrl",
+        "sam_subaward_reporting",
+        "usaspending",
+        "fpds_contracts",
+        "epa_echo",
+        "osha_safety",
+        "courtlistener",
+        "recap_courts",
+        "fdic_bankfind",
+    ),
+}
+
+
+def _default_enrichment_connectors(vendor: dict) -> list[str]:
+    try:
+        from osint.connector_registry import ACTIVE_CONNECTOR_ORDER
+    except Exception:
+        return []
+
+    lane = _workflow_lane_for_vendor(vendor)
+    excluded = set(ENRICHMENT_CONNECTOR_EXCLUDES_BY_LANE.get(lane, ()))
+    return [name for name in ACTIVE_CONNECTOR_ORDER if name not in excluded]
+
+
+def _resolve_enrichment_connectors(vendor: dict, requested_connectors) -> list[str] | None:
+    if requested_connectors:
+        return list(requested_connectors)
+    return _default_enrichment_connectors(vendor)
+
+
 def _intel_summary_job_row_to_dict(row) -> dict | None:
     if not row:
         return None
@@ -868,6 +914,51 @@ def _seed_payload_from_report(report: dict | None) -> dict[str, dict]:
         "identifiers": dict(identifiers) if isinstance(identifiers, dict) else {},
         "identifier_sources": dict(identifier_sources) if isinstance(identifier_sources, dict) else {},
         "connector_status": dict(connector_status) if isinstance(connector_status, dict) else {},
+    }
+
+
+def _explicit_case_seed_metadata(vendor: dict | None) -> dict[str, object]:
+    if not isinstance(vendor, dict):
+        return {}
+    seed_metadata: dict[str, object] = {}
+    if isinstance(vendor.get("seed_metadata"), dict):
+        seed_metadata.update(vendor["seed_metadata"])
+    vendor_input = vendor.get("vendor_input") if isinstance(vendor.get("vendor_input"), dict) else {}
+    nested_seed_metadata = vendor_input.get("seed_metadata") if isinstance(vendor_input.get("seed_metadata"), dict) else {}
+    seed_metadata.update(nested_seed_metadata)
+    return {
+        str(key): value
+        for key, value in seed_metadata.items()
+        if not str(key).startswith("__") and value not in (None, "", [])
+    }
+
+
+def _apply_explicit_seed_overrides(
+    seed_payload: dict[str, dict],
+    explicit_seed_metadata: dict[str, object],
+) -> dict[str, dict]:
+    if not explicit_seed_metadata:
+        return seed_payload
+
+    merged_identifiers = dict(seed_payload.get("identifiers") or {})
+    merged_sources = {
+        str(key): list(values)
+        for key, values in (seed_payload.get("identifier_sources") or {}).items()
+        if isinstance(values, list)
+    }
+
+    for key, value in explicit_seed_metadata.items():
+        existing = merged_identifiers.get(key)
+        if existing != value:
+            merged_identifiers[key] = value
+            merged_sources.pop(str(key), None)
+        elif key not in merged_identifiers:
+            merged_identifiers[key] = value
+
+    return {
+        "identifiers": merged_identifiers,
+        "identifier_sources": merged_sources,
+        "connector_status": dict(seed_payload.get("connector_status") or {}),
     }
 
 
@@ -907,22 +998,13 @@ def _enrichment_seed_identifiers(case_id: str) -> dict:
 
     vendor = db.get_vendor(case_id)
     if vendor:
+        explicit_seed_metadata = _explicit_case_seed_metadata(vendor)
         peer_report = db.get_latest_peer_enrichment(vendor.get("name", ""), exclude_vendor_id=case_id)
         if peer_report:
             seed_payload = _merge_seed_payload(seed_payload, _seed_payload_from_report(peer_report))
+        seed_payload = _apply_explicit_seed_overrides(seed_payload, explicit_seed_metadata)
 
     seed_ids = dict(seed_payload.get("identifiers") or {})
-    if vendor:
-        seed_metadata = {}
-        if isinstance(vendor.get("seed_metadata"), dict):
-            seed_metadata.update(vendor["seed_metadata"])
-        vendor_input = vendor.get("vendor_input") if isinstance(vendor.get("vendor_input"), dict) else {}
-        nested_seed_metadata = vendor_input.get("seed_metadata") if isinstance(vendor_input.get("seed_metadata"), dict) else {}
-        seed_metadata.update(nested_seed_metadata)
-        for key, value in seed_metadata.items():
-            if str(key).startswith("__") or value in (None, "", []):
-                continue
-            seed_ids.setdefault(str(key), value)
     latest_nvd_overlay = _latest_case_artifact(case_id, source_system="nvd_overlay")
     nvd_structured = (latest_nvd_overlay or {}).get("structured_fields") or {}
     product_terms = [
@@ -4483,7 +4565,7 @@ def api_enrich_case(case_id):
         return jsonify({"error": "Case not found"}), 404
 
     body = request.get_json(silent=True) or {}
-    connectors = body.get("connectors", None)  # Optional: run specific connectors only
+    connectors = _resolve_enrichment_connectors(v, body.get("connectors", None))
     parallel = body.get("parallel", True)
     force = bool(body.get("force", False))
 
@@ -4522,9 +4604,11 @@ def api_enrich_case_stream(case_id):
     def _generate():
         report = None
         try:
+            connectors = _default_enrichment_connectors(vendor)
             for event_name, payload in enrich_vendor_streaming(
                 vendor_name=vendor["name"],
                 country=vendor["country"],
+                connectors=connectors,
                 force=force,
                 **_enrichment_seed_identifiers(case_id),
             ):
@@ -5015,7 +5099,7 @@ def api_enrich_and_score(case_id):
         return jsonify({"error": "Case not found"}), 404
 
     body = request.get_json(silent=True) or {}
-    connectors = body.get("connectors", None)
+    connectors = _resolve_enrichment_connectors(v, body.get("connectors", None))
     force = bool(body.get("force", False))
 
     # Step 1: Run OSINT enrichment

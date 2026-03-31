@@ -16,7 +16,8 @@ import html
 import json
 import re
 from datetime import datetime
-from urllib.parse import quote_plus, urljoin, urlparse
+from pathlib import Path
+from urllib.parse import quote_plus, unquote, urljoin, urlparse
 
 import requests
 
@@ -24,6 +25,7 @@ from . import EnrichmentResult, Finding
 
 
 SOURCE_NAME = "public_html_ownership"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 TIMEOUT = 12
 MAX_PAGES = 16
 MAX_DISCOVERED_LINKS = 3
@@ -45,6 +47,7 @@ DEFAULT_PATHS = (
 )
 DISCOVERY_HUB_PATHS = ("/news", "/newsroom", "/blog", "/press", "/articles", "/updates")
 USER_AGENT = "Helios/5.2 (+https://xiphosllc.com)"
+FIXTURE_PAGE_KEYS = ("public_html_fixture_page", "public_html_fixture_pages")
 
 SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     (
@@ -509,6 +512,10 @@ def _normalize_website(raw: str) -> str:
     if "://" not in value:
         value = f"https://{value.lstrip('/')}"
     parsed = urlparse(value)
+    if parsed.scheme == "file":
+        if not parsed.path:
+            return ""
+        return Path(unquote(parsed.path)).resolve().as_uri()
     if not parsed.netloc:
         return ""
     path = parsed.path.rstrip("/")
@@ -521,13 +528,18 @@ def _root_website(raw: str) -> str:
     if not normalized:
         return ""
     parsed = urlparse(normalized)
+    if parsed.scheme == "file":
+        return normalized
     if not parsed.netloc:
         return ""
     return f"{parsed.scheme or 'https'}://{parsed.netloc}".rstrip("/")
 
 
 def _first_party_host_key(value: str) -> str:
-    host = urlparse(_normalize_website(value)).netloc.lower()
+    parsed = urlparse(_normalize_website(value))
+    if parsed.scheme == "file":
+        return f"file://{Path(unquote(parsed.path or '')).resolve().parent.as_posix()}"
+    host = parsed.netloc.lower()
     return host[4:] if host.startswith("www.") else host
 
 
@@ -643,6 +655,46 @@ def _resolve_first_party_pages(ids: dict, website: str) -> list[str]:
         seen.add(normalized)
         pages.append(normalized)
     return pages[:MAX_PAGES]
+
+
+def _resolve_fixture_pages(ids: dict) -> list[str]:
+    raw_values: list[str] = []
+    for key in FIXTURE_PAGE_KEYS:
+        raw = ids.get(key)
+        if isinstance(raw, str):
+            raw_values.append(raw)
+        elif isinstance(raw, (list, tuple, set)):
+            raw_values.extend(str(item or "") for item in raw)
+
+    pages: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        candidate = (raw or "").strip()
+        if not candidate:
+            continue
+        if "://" not in candidate:
+            resolved = (REPO_ROOT / candidate).resolve()
+            if not resolved.exists():
+                continue
+            candidate = resolved.as_uri()
+        normalized = _normalize_website(candidate)
+        if not normalized or normalized in seen:
+            continue
+        if urlparse(normalized).scheme != "file":
+            continue
+        seen.add(normalized)
+        pages.append(normalized)
+    return pages[:MAX_PAGES]
+
+
+def _is_truthy_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return False
 
 
 def _extract_text(markup: str) -> str:
@@ -1192,6 +1244,11 @@ def _discover_first_party_links(vendor_name: str, markup: str, page_url: str, we
 
 
 def _fetch_page(url: str) -> tuple[str, str, str]:
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        path = Path(unquote(parsed.path or "")).resolve()
+        content_type = "text/html; charset=utf-8" if path.suffix.lower() in {".html", ".htm", ".xhtml"} else "text/plain; charset=utf-8"
+        return path.read_text(encoding="utf-8"), content_type, path.as_uri()
     response = requests.get(
         url,
         timeout=TIMEOUT,
@@ -1273,6 +1330,8 @@ def _resolve_website(ids: dict) -> str:
     seen_page_roots: set[str] = set()
     for candidate in page_candidates:
         root = _root_website(str(candidate or ""))
+        if root.startswith("file://"):
+            continue
         if not root or root in seen_page_roots:
             continue
         seen_page_roots.add(root)
@@ -1481,8 +1540,12 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     identifier_artifact_refs: list[str] = []
     seen_page_findings: set[tuple[str, str, str]] = set()
     successful_pages: list[str] = []
-    seeded_pages = _resolve_first_party_pages(ids, website)
-    queue = seeded_pages + [candidate for candidate in _candidate_urls(website) if candidate not in seeded_pages]
+    fixture_pages = _resolve_fixture_pages(ids)
+    fixture_only = _is_truthy_flag(ids.get("public_html_fixture_only"))
+    seeded_pages = fixture_pages + [candidate for candidate in _resolve_first_party_pages(ids, website) if candidate not in fixture_pages]
+    queue = list(seeded_pages)
+    if not fixture_only:
+        queue.extend(candidate for candidate in _candidate_urls(website) if candidate not in queue)
     visited: set[str] = set()
 
     try:
@@ -1496,7 +1559,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 country,
                 website=website,
                 page_url=page_url,
-                discover_links=True,
+                discover_links=not fixture_only and urlparse(page_url).scheme != "file",
             )
             if page_result.error:
                 continue
@@ -1570,6 +1633,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     result.elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
     if canonical_seed_pages:
         result.structured_fields["seed_pages"] = canonical_seed_pages
+    if fixture_pages:
+        result.structured_fields["fixture_pages"] = fixture_pages
     result.structured_fields["visited_pages"] = list(visited)
     result.structured_fields["successful_pages"] = successful_pages
     if relationships:

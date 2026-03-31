@@ -15,9 +15,15 @@
     "country": "US",
     "bucket": "control_path",
     "connectors": [
-      "public_search_ownership",
       "public_html_ownership"
     ],
+    "seed_metadata": {
+      "website": "https://fauntrackway.com",
+      "public_html_fixture_only": true
+    },
+    "fixture_files": {
+      "public_html_fixture_page": "fixtures/public_html_ownership/faun_trackway_control.html"
+    },
     "expected_domain": "fauntrackway.com",
     "expected_min_control_paths": 1,
     "expected_control_target": "KIRCHHOFF"
@@ -27,8 +33,16 @@
     "country": "US",
     "bucket": "control_path",
     "connectors": [
-      "public_search_ownership"
+      "public_html_ownership"
     ],
+    "seed_metadata": {
+      "website": "https://greenseaiq.com",
+      "public_html_fixture_only": true
+    },
+    "fixture_files": {
+      "public_html_fixture_page": "fixtures/public_html_ownership/greensea_iq_backer.html"
+    },
+    "expected_domain": "greenseaiq.com",
     "expected_min_control_paths": 1,
     "expected_control_target": "FreshTracks Capital"
   },
@@ -37,8 +51,16 @@
     "country": "US",
     "bucket": "control_path",
     "connectors": [
-      "public_search_ownership"
+      "public_html_ownership"
     ],
+    "seed_metadata": {
+      "website": "https://hascall-denke.com",
+      "public_html_fixture_only": true
+    },
+    "fixture_files": {
+      "public_html_fixture_page": "fixtures/public_html_ownership/hascall_denke_owner.html"
+    },
+    "expected_domain": "hascall-denke.com",
     "expected_min_control_paths": 1,
     "expected_control_target": "Mike Hascall"
   },
@@ -49,6 +71,13 @@
     "connectors": [
       "public_html_ownership"
     ],
+    "seed_metadata": {
+      "website": "https://eas.gr",
+      "public_html_fixture_only": true
+    },
+    "fixture_files": {
+      "public_html_fixture_page": "fixtures/public_html_ownership/hellenic_defence_finance.html"
+    },
     "expected_domain": "eas.gr",
     "expected_min_control_paths": 1,
     "expected_control_target": "Hellenic Ministry of Finance"

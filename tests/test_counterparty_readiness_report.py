@@ -258,6 +258,10 @@ def test_default_counterparty_pack_manifest_contains_three_steps():
     assert loaded[0]["transient_retries_per_company"] == 1
     assert loaded[0]["minimum_official_corroboration"] == "strong"
     assert "sam_gov" in loaded[0]["connectors"]
+    assert "gleif_bods_ownership_fixture" in loaded[0]["connectors"]
+    assert "openownership_bods_fixture" in loaded[0]["connectors"]
+    assert "openownership_bods_public" in loaded[0]["connectors"]
+    assert "opencorporates" in loaded[0]["connectors"]
     assert loaded[1]["require_dossier_pdf"] is True
     assert loaded[1]["workers"] == 1
 

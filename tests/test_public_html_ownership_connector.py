@@ -963,6 +963,63 @@ def test_public_html_emits_backed_by_from_investors_include_phrase(monkeypatch):
     assert result.relationships[0]["target_entity"] == "FreshTracks Capital"
 
 
+def test_public_html_uses_file_fixture_pages_without_network(tmp_path, monkeypatch):
+    fixture_path = tmp_path / "faun_fixture.html"
+    fixture_path.write_text(
+        """
+        <html>
+          <body>
+            <p>FAUN Trackway is part of the KIRCHHOFF Group and serves expeditionary mobility programs.</p>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    def fail_get(*args, **kwargs):
+        raise AssertionError("network fetch should not run in fixture-only mode")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fail_get)
+
+    result = public_html_ownership.enrich(
+        "FAUN Trackway",
+        country="US",
+        website="https://fauntrackway.com",
+        public_html_fixture_page=fixture_path.as_uri(),
+        public_html_fixture_only=True,
+    )
+
+    assert result.identifiers["website"] == "https://fauntrackway.com"
+    assert result.relationships[0]["type"] == "owned_by"
+    assert result.relationships[0]["target_entity"] == "KIRCHHOFF"
+    assert result.structured_fields["fixture_pages"] == [fixture_path.as_uri()]
+    assert result.structured_fields["visited_pages"] == [fixture_path.as_uri()]
+
+
+def test_public_html_resolves_repo_relative_fixture_pages_without_network(monkeypatch):
+    fixture_path = Path("fixtures/public_html_ownership/faun_trackway_control.html")
+
+    def fail_get(*args, **kwargs):
+        raise AssertionError("network fetch should not run in fixture-only mode")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fail_get)
+
+    result = public_html_ownership.enrich(
+        "FAUN Trackway",
+        country="US",
+        website="https://fauntrackway.com",
+        public_html_fixture_page=str(fixture_path),
+        public_html_fixture_only=True,
+    )
+
+    resolved_fixture = (public_html_ownership.REPO_ROOT / fixture_path).resolve().as_uri()
+    assert result.identifiers["website"] == "https://fauntrackway.com"
+    assert result.relationships[0]["type"] == "owned_by"
+    assert result.relationships[0]["target_entity"] == "KIRCHHOFF"
+    assert result.structured_fields["fixture_pages"] == [resolved_fixture]
+    assert result.structured_fields["visited_pages"] == [resolved_fixture]
+
+
 def test_public_html_rejects_marketing_copy_as_backer(monkeypatch):
     marketing_html = """
     <html>

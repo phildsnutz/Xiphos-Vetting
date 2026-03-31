@@ -170,3 +170,71 @@ def test_enrichment_seed_identifiers_uses_case_seed_metadata_when_no_report_exis
 
     assert seed["uen"] == "201912345N"
     assert seed["singapore_acra_url"] == "file:///tmp/acra.json"
+
+
+def test_enrichment_seed_identifiers_explicit_seed_metadata_overrides_peer_fixture_poison(server_module):
+    _create_case(server_module, "c-peer", "FAUN Trackway")
+    _save_enrichment(
+        server_module,
+        "c-peer",
+        {"public_html_fixture_page": "file:///Users/tyegonzalez/Desktop/Helios-Package%20Merged/fixtures/public_html_ownership/faun_trackway_control.html"},
+        identifier_sources={"public_html_fixture_page": ["public_html_ownership"]},
+        connector_status={"public_html_ownership": "ok"},
+    )
+
+    server_module.db.upsert_vendor(
+        "c-current",
+        "FAUN Trackway",
+        "DE",
+        "dod_unclassified",
+        {
+            "ownership": {},
+            "data_quality": {},
+            "exec": {},
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "seed_metadata": {
+                "public_html_fixture_page": "fixtures/public_html_ownership/faun_trackway_control.html",
+                "public_html_fixture_only": True,
+            },
+        },
+        profile="defense_acquisition",
+    )
+
+    seed = server_module._enrichment_seed_identifiers("c-current")
+
+    assert seed["public_html_fixture_page"] == "fixtures/public_html_ownership/faun_trackway_control.html"
+    assert "public_html_fixture_page" not in seed.get("__seed_identifier_sources", {})
+
+
+def test_enrichment_seed_identifiers_explicit_seed_metadata_overrides_current_report_fixture_poison(server_module):
+    server_module.db.upsert_vendor(
+        "c-current",
+        "Greensea IQ",
+        "US",
+        "dod_unclassified",
+        {
+            "ownership": {},
+            "data_quality": {},
+            "exec": {},
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "seed_metadata": {
+                "public_html_fixture_page": "fixtures/public_html_ownership/greensea_iq_backer.html",
+                "public_html_fixture_only": True,
+            },
+        },
+        profile="defense_acquisition",
+    )
+    _save_enrichment(
+        server_module,
+        "c-current",
+        {"public_html_fixture_page": "file:///Users/tyegonzalez/Desktop/Helios-Package%20Merged/fixtures/public_html_ownership/greensea_iq_backer.html"},
+        identifier_sources={"public_html_fixture_page": ["public_html_ownership"]},
+        connector_status={"public_html_ownership": "ok"},
+    )
+
+    seed = server_module._enrichment_seed_identifiers("c-current")
+
+    assert seed["public_html_fixture_page"] == "fixtures/public_html_ownership/greensea_iq_backer.html"
+    assert "public_html_fixture_page" not in seed.get("__seed_identifier_sources", {})

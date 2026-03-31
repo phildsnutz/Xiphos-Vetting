@@ -2184,6 +2184,99 @@ def test_case_enrich_routes_pass_force_flag_to_enrichment(client, monkeypatch):
     assert enrich_calls[0]["connectors"] == ["sam_gov"]
 
 
+def test_case_enrich_and_score_defaults_to_cyber_connector_subset(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(
+        client,
+        name="Cyber Connector Vendor",
+        extra_payload={"profile": "supplier_cyber_trust"},
+    )
+    enrich_calls = []
+
+    def fake_enrich_vendor(vendor_name, country="", connectors=None, parallel=True, timeout=60, force=False, **ids):
+        enrich_calls.append({"vendor_name": vendor_name, "connectors": list(connectors or [])})
+        return {
+            "vendor_name": vendor_name,
+            "country": country,
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": len(connectors or []), "errors": 0},
+            "findings": [],
+            "identifiers": {},
+            "relationships": [],
+            "risk_signals": [],
+            "connector_status": {},
+            "total_elapsed_ms": 5,
+        }
+
+    monkeypatch.setattr(server, "enrich_vendor", fake_enrich_vendor)
+    monkeypatch.setattr(server, "_persist_enrichment_artifacts", lambda *_args, **_kwargs: {"events": [], "graph": {}})
+    monkeypatch.setattr(
+        server,
+        "_canonical_rescore_from_enrichment",
+        lambda *_args, **_kwargs: {
+            "augmentation": SimpleNamespace(changes={}, extra_risk_signals={}, verified_identifiers={}, provenance={}),
+            "score_dict": {
+                "composite_score": 10,
+                "is_hard_stop": False,
+                "calibrated": {"calibrated_tier": "TIER_4_CLEAR", "calibrated_probability": 0.1},
+            },
+        },
+    )
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", lambda *_args, **_kwargs: {"status": "pending"})
+
+    resp = client.post(f"/api/cases/{case_id}/enrich-and-score", json={})
+
+    assert resp.status_code == 200
+    assert enrich_calls
+    connectors = enrich_calls[0]["connectors"]
+    assert "cisa_kev" in connectors
+    assert "deps_dev" in connectors
+    assert "public_html_ownership" in connectors
+    assert "courtlistener" not in connectors
+    assert "usaspending" not in connectors
+    assert "fpds_contracts" not in connectors
+
+
+def test_case_enrich_defaults_to_export_connector_subset(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(
+        client,
+        name="Export Connector Vendor",
+        extra_payload={"profile": "trade_compliance"},
+    )
+    enrich_calls = []
+
+    def fake_enrich_vendor(vendor_name, country="", connectors=None, parallel=True, timeout=60, force=False, **ids):
+        enrich_calls.append({"vendor_name": vendor_name, "connectors": list(connectors or [])})
+        return {
+            "vendor_name": vendor_name,
+            "country": country,
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": len(connectors or []), "errors": 0},
+            "findings": [],
+            "identifiers": {},
+            "relationships": [],
+            "risk_signals": [],
+            "connector_status": {},
+            "total_elapsed_ms": 5,
+        }
+
+    monkeypatch.setattr(server, "enrich_vendor", fake_enrich_vendor)
+    monkeypatch.setattr(server, "_persist_enrichment_artifacts", lambda *_args, **_kwargs: {"events": [], "graph": {}})
+
+    resp = client.post(f"/api/cases/{case_id}/enrich", json={})
+
+    assert resp.status_code == 200
+    assert enrich_calls
+    connectors = enrich_calls[0]["connectors"]
+    assert "trade_csl" in connectors
+    assert "public_search_ownership" in connectors
+    assert "public_html_ownership" in connectors
+    assert "cisa_kev" not in connectors
+    assert "deps_dev" not in connectors
+    assert "openssf_scorecard" not in connectors
+
+
 def test_case_enrich_reuses_latest_enrichment_identifiers(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(client, name="Identifier Seed Vendor")

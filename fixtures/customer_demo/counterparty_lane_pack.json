@@ -6,6 +6,10 @@
       "sam_gov",
       "usaspending",
       "gleif_lei",
+      "gleif_bods_ownership_fixture",
+      "openownership_bods_fixture",
+      "openownership_bods_public",
+      "opencorporates",
       "sec_edgar",
       "public_search_ownership",
       "public_html_ownership"

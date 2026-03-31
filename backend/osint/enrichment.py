@@ -175,14 +175,28 @@ COMMON_MULTI_PART_TLDS = {
 }
 
 CONNECTOR_REPLAY_DEPENDENCIES: dict[str, tuple[str, ...]] = {
-    "public_html_ownership": ("website", "first_party_pages"),
+    "public_html_ownership": (
+        "website",
+        "first_party_pages",
+        "public_html_fixture_page",
+        "public_html_fixture_pages",
+        "public_html_fixture_only",
+    ),
     "osv_dev": ("package_inventory",),
     "deps_dev": ("package_inventory",),
     "openssf_scorecard": ("repository_urls",),
 }
 
 CONNECTOR_CACHE_VARIANT_KEYS: dict[str, tuple[str, ...]] = {
-    "public_html_ownership": ("website", "official_website", "domain", "first_party_pages"),
+    "public_html_ownership": (
+        "website",
+        "official_website",
+        "domain",
+        "first_party_pages",
+        "public_html_fixture_page",
+        "public_html_fixture_pages",
+        "public_html_fixture_only",
+    ),
     "openownership_bods_public": ("openownership_bods_url", "uk_company_number", "lei"),
     "corporations_canada": ("corporations_canada_url", "ca_corporation_number", "business_number"),
     "australia_abn_asic": ("australia_abn_asic_url", "abn", "acn"),

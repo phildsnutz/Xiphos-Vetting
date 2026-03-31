@@ -110,12 +110,16 @@ def _build_gate_namespace(
     output_dir: Path,
     wait_for_ready_seconds: int,
 ) -> argparse.Namespace:
+    repo_relative_fixture_keys = {"public_html_fixture_page", "public_html_fixture_pages"}
     seed_metadata = {
         str(key): os.path.expandvars(str(value)) if isinstance(value, str) else value
         for key, value in dict(entry.get("seed_metadata") or {}).items()
     }
     for key, raw_path in (entry.get("fixture_files") or {}).items():
         fixture_path = Path(str(raw_path))
+        if str(key) in repo_relative_fixture_keys and not fixture_path.is_absolute():
+            seed_metadata[str(key)] = str(raw_path)
+            continue
         if not fixture_path.is_absolute():
             fixture_path = (ROOT / fixture_path).resolve()
         seed_metadata[str(key)] = fixture_path.as_uri()

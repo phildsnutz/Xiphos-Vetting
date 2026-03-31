@@ -27,7 +27,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -219,6 +219,7 @@ READINESS_PRIMARY_CONNECTORS: tuple[str, ...] = (
 )
 
 NAME_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+REPO_RELATIVE_FIXTURE_KEYS = {"public_html_fixture_page", "public_html_fixture_pages"}
 
 
 @dataclass
@@ -813,6 +814,46 @@ def _write_progress(output_dir: Path, stage: str, message: str, **extra: Any) ->
     print(f"[{stage}] {message}", file=sys.stderr, flush=True)
 
 
+def _normalize_fixture_seed_value(value: Any) -> Any:
+    raw = str(value or "").strip()
+    if not raw:
+        return value
+    if "://" in raw:
+        parsed = urlparse(raw)
+        if parsed.scheme != "file":
+            return raw
+        candidate = Path(unquote(parsed.path)).resolve()
+    else:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            return candidate.as_posix()
+        candidate = candidate.resolve()
+    try:
+        return candidate.relative_to(ROOT).as_posix()
+    except ValueError:
+        return raw
+
+
+def _normalize_seed_metadata_for_remote_case(seed_metadata: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, value in seed_metadata.items():
+        if key not in REPO_RELATIVE_FIXTURE_KEYS:
+            normalized[key] = value
+            continue
+        if isinstance(value, str):
+            normalized[key] = _normalize_fixture_seed_value(value)
+            continue
+        if isinstance(value, (list, tuple, set)):
+            normalized[key] = [
+                _normalize_fixture_seed_value(item)
+                for item in value
+                if str(item or "").strip()
+            ]
+            continue
+        normalized[key] = value
+    return normalized
+
+
 def run_demo_gate(args: argparse.Namespace, client: DemoGateClient | None = None) -> DemoGateResult:
     own_client = client is None
     resolved_client = client or DemoGateClient(
@@ -840,6 +881,7 @@ def run_demo_gate(args: argparse.Namespace, client: DemoGateClient | None = None
                 if str(key).startswith("__") or value in (None, "", []):
                     continue
                 seed_metadata[str(key)] = value
+        seed_metadata = _normalize_seed_metadata_for_remote_case(seed_metadata)
         created = resolved_client.request_json(
             "POST",
             "/api/cases",

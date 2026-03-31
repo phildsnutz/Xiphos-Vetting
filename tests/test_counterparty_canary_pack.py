@@ -203,6 +203,45 @@ def test_fixture_files_resolve_into_seed_metadata(tmp_path):
     assert ns.seed_metadata["singapore_acra_url"].startswith("file://")
 
 
+def test_public_html_fixture_files_stay_repo_relative_in_seed_metadata(tmp_path):
+    entry = {
+        "company": "FAUN Trackway",
+        "fixture_files": {"public_html_fixture_page": "fixtures/public_html_ownership/faun_trackway_control.html"},
+    }
+    args = pack.argparse.Namespace(
+        base_url="http://127.0.0.1:8080",
+        email="",
+        password="",
+        token="abc123",
+        program="dod_unclassified",
+        profile="defense_acquisition",
+        connector=[],
+        include_ai=False,
+        ai_readiness_mode="surface",
+        check_assistant=False,
+        require_dossier_html=False,
+        require_dossier_pdf=False,
+        max_enrich_seconds=90,
+        max_dossier_seconds=60,
+        max_pdf_seconds=60,
+        max_ai_seconds=90,
+        max_warnings=2,
+        wait_for_ready_seconds=0,
+        auto_stabilize=True,
+        workers=1,
+        start_stagger_seconds=0.0,
+        transient_retries_per_company=0,
+        max_blocked_official_connectors=-1,
+        minimum_official_corroboration="missing",
+        report_dir=str(tmp_path),
+        print_json=False,
+    )
+
+    ns = pack._build_gate_namespace(args, entry, output_dir=tmp_path / "out", wait_for_ready_seconds=0)
+
+    assert ns.seed_metadata["public_html_fixture_page"] == "fixtures/public_html_ownership/faun_trackway_control.html"
+
+
 def test_seed_metadata_expands_environment_variables(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_NORWAY_BRREG_URL", "https://example.test/brreg-live.json")
     entry = {
@@ -245,3 +284,20 @@ def test_seed_metadata_expands_environment_variables(tmp_path, monkeypatch):
     ns = pack._build_gate_namespace(args, entry, output_dir=tmp_path / "out", wait_for_ready_seconds=0)
 
     assert ns.seed_metadata["norway_brreg_url"] == "https://example.test/brreg-live.json"
+
+
+def test_control_path_pack_uses_fixture_backed_public_html_cases():
+    entries = pack.load_pack(str(pack.ROOT / "fixtures" / "customer_demo" / "counterparty_control_path_pack.json"))
+    by_company = {entry["company"]: entry for entry in entries}
+
+    for company, expected_domain in (
+        ("FAUN Trackway", "fauntrackway.com"),
+        ("Greensea IQ", "greenseaiq.com"),
+        ("Hascall-Denke", "hascall-denke.com"),
+        ("HELLENIC DEFENCE SYSTEMS SA", "eas.gr"),
+    ):
+        entry = by_company[company]
+        assert entry["connectors"] == ["public_html_ownership"]
+        assert entry["seed_metadata"]["public_html_fixture_only"] is True
+        assert entry["seed_metadata"]["website"].endswith(expected_domain)
+        assert "public_html_fixture_page" in entry["fixture_files"]

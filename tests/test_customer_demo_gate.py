@@ -478,6 +478,97 @@ def test_run_demo_gate_uses_expected_domain_and_company_name(tmp_path):
     assert fake.passport_modes == ["control"]
 
 
+def test_run_demo_gate_normalizes_local_fixture_seed_paths_before_case_create(tmp_path):
+    fixture_uri = (gate.ROOT / "fixtures" / "public_html_ownership" / "faun_trackway_control.html").resolve().as_uri()
+    captured = {}
+
+    class FakeClient:
+        def request_json(self, method, path, **kwargs):
+            if path == "/api/cases":
+                captured["payload"] = kwargs.get("json") or {}
+                return {"case_id": "c-demo-fixture"}
+            if path.endswith("/enrich-and-score"):
+                return {"status": "ok"}
+            if path.endswith("/supplier-passport"):
+                return {
+                    "identity": {
+                        "identifiers": {"website": "https://fauntrackway.com"},
+                        "identifier_status": {"website": {"value": "https://fauntrackway.com"}},
+                    },
+                    "graph": {"entity_count": 1, "relationship_count": 1, "network_entity_count": 1, "network_relationship_count": 1},
+                    "monitoring": {"check_count": 1},
+                    "ownership": {"profile": {"ownership_pct_resolved": 0.2}},
+                }
+            if path.endswith("/analysis-status"):
+                return {"status": "ready"}
+            if path.endswith("/assistant-plan"):
+                return {"analyst_prompt": "prompt", "plan": [{"tool_id": "supplier_passport", "required": True}]}
+            if path.endswith("/assistant-execute"):
+                return {"executed_steps": [{"tool_id": "supplier_passport"}]}
+            raise AssertionError(path)
+
+        def request_text(self, method, path, **kwargs):
+            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+
+        def request_bytes(self, method, path, **kwargs):
+            from io import BytesIO
+
+            from reportlab.pdfgen import canvas
+
+            buff = BytesIO()
+            pdf = canvas.Canvas(buff)
+            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 700, "RECENT CHANGE")
+            pdf.drawString(72, 680, "RISK STORYLINE")
+            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
+            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.save()
+            return buff.getvalue()
+
+    args = argparse.Namespace(
+        base_url="http://example.test",
+        email="",
+        password="",
+        token="token",
+        company="FAUN Trackway",
+        country="US",
+        case_id="",
+        program="dod_unclassified",
+        profile="defense_acquisition",
+        include_ai=True,
+        ai_readiness_mode="full",
+        check_assistant=True,
+        max_enrich_seconds=90,
+        max_dossier_seconds=60,
+        max_pdf_seconds=60,
+        max_ai_seconds=90,
+        max_warnings=2,
+        wait_for_ready_seconds=0,
+        auto_stabilize=True,
+        expected_domain="fauntrackway.com",
+        expected_cage="",
+        expected_uei="",
+        expected_duns="",
+        expected_cik="",
+        expected_min_control_paths=0,
+        expected_control_target="",
+        warn_on_empty_control_paths=False,
+        require_monitoring_history=False,
+        report_dir=str(tmp_path),
+        print_json=False,
+        seed_metadata={
+            "website": "https://fauntrackway.com",
+            "public_html_fixture_only": True,
+            "public_html_fixture_page": fixture_uri,
+        },
+    )
+
+    result = gate.run_demo_gate(args, client=FakeClient())
+
+    assert result.case_id == "c-demo-fixture"
+    assert captured["payload"]["seed_metadata"]["public_html_fixture_page"] == "fixtures/public_html_ownership/faun_trackway_control.html"
+
+
 def test_run_demo_gate_auto_stabilizes_before_final_verdict(tmp_path):
     class FakeClient:
         def __init__(self):
