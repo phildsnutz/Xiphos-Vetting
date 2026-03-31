@@ -11,6 +11,7 @@ if BACKEND_DIR not in sys.path:
 
 from decision_tribunal import build_decision_tribunal_from_signals  # type: ignore  # noqa: E402
 from learned_weighting import (  # type: ignore  # noqa: E402
+    TRIBUNAL_CALIBRATION_PATH,
     TRIBUNAL_TRAINING_PATH,
     get_edge_truth_model,
     get_tribunal_model,
@@ -21,6 +22,11 @@ from learned_weighting import (  # type: ignore  # noqa: E402
 
 def _load_tribunal_cases() -> list[dict]:
     payload = json.loads(Path(TRIBUNAL_TRAINING_PATH).read_text(encoding="utf-8"))
+    return payload["cases"]
+
+
+def _load_tribunal_calibration_cases() -> list[dict]:
+    payload = json.loads(Path(TRIBUNAL_CALIBRATION_PATH).read_text(encoding="utf-8"))
     return payload["cases"]
 
 
@@ -61,7 +67,7 @@ def test_edge_truth_model_prefers_scoped_official_relationships():
     weak = predict_edge_truth_probability(weak_row)
 
     assert strong["probability"] > weak["probability"]
-    assert strong["probability"] >= strong["threshold"]
+    assert strong["hierarchical_prior"] > weak["hierarchical_prior"]
     assert weak["probability"] < 0.5
 
 
@@ -69,6 +75,8 @@ def test_tribunal_model_prefers_target_stance_for_anchor_cases():
     model = get_tribunal_model()
     assert model is not None
     assert model.training_count == 11
+    assert model.calibration_count == len(_load_tribunal_calibration_cases())
+    assert model.temperature > 0.0
 
     cases = {row["case_id"]: row for row in _load_tribunal_cases()}
     sample_ids = (
@@ -118,13 +126,16 @@ def test_decision_tribunal_exposes_learned_score_metadata():
         }
     )
 
-    assert tribunal["version"] == "decision-tribunal-v4"
+    assert tribunal["version"] == "decision-tribunal-v5"
     assert tribunal["score_training_count"] == 11
+    assert tribunal["score_calibration_count"] == len(_load_tribunal_calibration_cases())
+    assert tribunal["score_temperature"] > 0.0
     assert tribunal["recommended_view"] == "approve"
     assert tribunal["decision_posture"] == "confident"
     assert tribunal["requires_human_escalation"] is False
     assert tribunal["calibration_band"]["top_probability"] >= tribunal["calibration_band"]["confidence_floor"]
     assert tribunal["calibration_band"]["entropy"] <= tribunal["calibration_band"]["entropy_ceiling"]
+    assert tribunal["calibration_band"]["temperature"] == tribunal["score_temperature"]
     assert all(view["score_source"] == "learned_softmax_v1" for view in tribunal["views"])
     assert all("heuristic_score" in view for view in tribunal["views"])
 

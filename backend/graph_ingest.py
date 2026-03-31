@@ -125,22 +125,6 @@ CONFIDENCE = {
     "news_mention":     0.40,  # Co-mentioned in news articles
 }
 
-_AUTHORITY_BUCKET_STRENGTH = {
-    "official_or_modeled": 1.0,
-    "first_party": 0.82,
-    "third_party_public_only": 0.58,
-    "unspecified": 0.42,
-}
-
-_TEMPORAL_STATE_STRENGTH = {
-    "active": 1.0,
-    "watch": 0.72,
-    "stale": 0.42,
-    "historical": 0.22,
-    "contradicted": 0.0,
-    "unknown": 0.55,
-}
-
 _EDGE_INTELLIGENCE_THRESHOLDS = {
     "ownership_control": 0.76,
     "contracts_and_programs": 0.68,
@@ -286,8 +270,6 @@ def score_graph_relationship_intelligence(
         len(claim_records),
         1,
     )
-    confidence = max(0.0, min(float(rel.get("confidence") or 0.0), 1.0))
-
     edge_timestamp = _parse_graph_timestamp(rel.get("last_seen_at") or rel.get("created_at"))
     if edge_timestamp is None:
         for claim_record in claim_records:
@@ -303,31 +285,6 @@ def score_graph_relationship_intelligence(
         age_days = max((current_time - edge_timestamp).total_seconds() / 86400.0, 0.0)
     temporal_state = _relationship_temporal_state(rel, now=current_time, age_days=age_days)
 
-    authority_strength = _AUTHORITY_BUCKET_STRENGTH.get(authority_bucket, _AUTHORITY_BUCKET_STRENGTH["unspecified"])
-    corroboration_strength = min(corroboration_count, 4) / 4.0
-    evidence_strength = 1.0 if evidence_backed else (0.55 if claim_backed else 0.18)
-    temporal_strength = _TEMPORAL_STATE_STRENGTH.get(temporal_state, _TEMPORAL_STATE_STRENGTH["unknown"])
-
-    heuristic_score = (
-        confidence * 0.38
-        + authority_strength * 0.22
-        + corroboration_strength * 0.16
-        + evidence_strength * 0.14
-        + temporal_strength * 0.10
-    )
-
-    if bool(rel.get("legacy_unscoped")):
-        heuristic_score -= 0.08
-    if authority_bucket == "third_party_public_only" and corroboration_count <= 1:
-        heuristic_score -= 0.04
-    if temporal_state == "contradicted":
-        heuristic_score *= 0.32
-    if primary_family == "ownership_control" and authority_bucket in {"official_or_modeled", "first_party"} and corroboration_count >= 2:
-        heuristic_score += 0.05
-    if primary_family in {"sanctions_and_legal", "official_and_regulatory"} and authority_bucket == "official_or_modeled":
-        heuristic_score += 0.04
-
-    heuristic_score = max(0.0, min(heuristic_score, 1.0))
     model_input = dict(rel)
     model_input.update(
         {
@@ -342,7 +299,8 @@ def score_graph_relationship_intelligence(
         }
     )
     learned_truth = predict_edge_truth_probability(model_input)
-    score = max(0.0, min(float(learned_truth.get("probability") or heuristic_score), 1.0))
+    baseline_score = max(0.0, min(float(learned_truth.get("hierarchical_prior") or 0.5), 1.0))
+    score = max(0.0, min(float(learned_truth.get("probability") or baseline_score), 1.0))
     strong_threshold = _EDGE_INTELLIGENCE_THRESHOLDS.get(primary_family, _EDGE_INTELLIGENCE_THRESHOLDS["other"])
     supported_threshold = max(strong_threshold - 0.14, 0.5)
     tentative_threshold = max(strong_threshold - 0.3, 0.35)
@@ -359,10 +317,11 @@ def score_graph_relationship_intelligence(
 
     return {
         "intelligence_score": round(score, 4),
-        "heuristic_intelligence_score": round(heuristic_score, 4),
+        "hierarchical_prior_score": round(baseline_score, 4),
+        "heuristic_intelligence_score": round(baseline_score, 4),
         "learned_truth_probability": round(score, 4),
         "learned_truth_threshold": round(float(learned_truth.get("threshold") or 0.5), 4),
-        "intelligence_score_source": "learned_edge_truth_v1" if int(learned_truth.get("training_count") or 0) > 0 else "heuristic_edge_truth_fallback",
+        "intelligence_score_source": "learned_edge_truth_v2" if int(learned_truth.get("training_count") or 0) > 0 else "hierarchical_edge_truth_fallback",
         "intelligence_tier": tier,
         "authority_bucket": authority_bucket,
         "temporal_state": temporal_state,

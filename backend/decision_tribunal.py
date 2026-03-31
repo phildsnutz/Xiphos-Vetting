@@ -580,14 +580,18 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
             view["heuristic_score"] = round(float(view["score"]), 3)
             view["score"] = round(float(learned_probabilities.get(stance) or 0.0), 3)
             view["score_source"] = "learned_softmax_v1"
-        version = "decision-tribunal-v4"
+        version = "decision-tribunal-v5"
         score_training_count = int(tribunal_model.training_count) if tribunal_model else 0
+        score_calibration_count = int(tribunal_model.calibration_count) if tribunal_model else 0
+        score_temperature = float(tribunal_model.temperature) if tribunal_model else 1.0
     else:
         for view in views:
             view["heuristic_score"] = round(float(view["score"]), 3)
             view["score_source"] = "heuristic_v3"
         version = "decision-tribunal-v3"
         score_training_count = 0
+        score_calibration_count = 0
+        score_temperature = 1.0
     ordered = sorted(views, key=lambda item: (-float(item["score"]), _VIEW_ORDER[item["stance"]]))
     recommended = ordered[0]
     runner_up = ordered[1]
@@ -602,6 +606,8 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
         "consensus_level": consensus,
         "decision_gap": gap,
         "score_training_count": score_training_count,
+        "score_calibration_count": score_calibration_count,
+        "score_temperature": round(score_temperature, 4),
         "decision_posture": str((calibration or {}).get("decision_posture") or "confident"),
         "requires_human_escalation": bool((calibration or {}).get("requires_human_escalation")),
         "calibration_band": calibration or {},

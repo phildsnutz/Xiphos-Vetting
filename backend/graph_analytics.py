@@ -336,9 +336,12 @@ class GraphAnalytics:
 
     def compute_all_centrality(self) -> dict:
         """
-        Compute all centrality metrics and return a composite score per entity.
-        The composite uses a geometric mean over normalized structural metrics
-        plus local edge intelligence, which avoids another arbitrary weight table.
+        Compute all centrality metrics and return both structural and decision
+        importance per entity.
+
+        Structural importance answers: "how central is this node in the graph?"
+        Decision importance answers: "how central is it once edge trust is
+        considered?"
         """
         self._ensure_loaded()
 
@@ -354,9 +357,11 @@ class GraphAnalytics:
             c = closeness.get(nid, {}).get("closeness", 0)
             p = pagerank.get(nid, {}).get("normalized", 0)
             local_edge_intelligence = self._node_local_edge_strength(nid)
-            components = [d, b, c, p, local_edge_intelligence]
-            safe_components = [max(float(value), 1e-6) for value in components]
-            composite = math.prod(safe_components) ** (1.0 / len(safe_components))
+            structural_components = [d, b, c, p]
+            safe_structural = [max(float(value), 1e-6) for value in structural_components]
+            structural_importance = math.prod(safe_structural) ** (1.0 / len(safe_structural))
+            decision_components = [structural_importance, max(float(local_edge_intelligence), 1e-6)]
+            decision_importance = math.prod(decision_components) ** (1.0 / len(decision_components))
 
             result[nid] = {
                 "entity_id": nid,
@@ -367,7 +372,9 @@ class GraphAnalytics:
                 "closeness": closeness.get(nid, {}),
                 "pagerank": pagerank.get(nid, {}),
                 "local_edge_intelligence": round(local_edge_intelligence, 4),
-                "composite_importance": round(composite, 4),
+                "structural_importance": round(structural_importance, 4),
+                "decision_importance": round(decision_importance, 4),
+                "composite_importance": round(decision_importance, 4),
             }
 
         return result
@@ -1064,10 +1071,15 @@ class GraphAnalytics:
         temporal = self.compute_temporal_profile()
         sanctions = self.compute_sanctions_exposure()
 
-        # Top 10 most important entities
-        top_entities = sorted(
+        # Top 10 most important entities for operator decision-making
+        top_decision_entities = sorted(
             centrality.values(),
-            key=lambda x: x.get("composite_importance", 0),
+            key=lambda x: x.get("decision_importance", x.get("composite_importance", 0)),
+            reverse=True,
+        )[:10]
+        top_structural_entities = sorted(
+            centrality.values(),
+            key=lambda x: x.get("structural_importance", 0),
             reverse=True,
         )[:10]
 
@@ -1088,7 +1100,9 @@ class GraphAnalytics:
                 "nodes": len(self.nodes),
                 "edges": len(self.edges),
             },
-            "top_entities_by_importance": top_entities,
+            "top_entities_by_importance": top_decision_entities,
+            "top_entities_by_decision_importance": top_decision_entities,
+            "top_entities_by_structural_importance": top_structural_entities,
             "top_entities_by_risk": [
                 {
                     "entity_id": nid,

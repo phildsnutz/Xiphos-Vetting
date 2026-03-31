@@ -1,0 +1,174 @@
+{
+  "cases": [
+    {
+      "case_id": "deny_foreign_control_export_holdout",
+      "target_view": "deny",
+      "heuristic_scores": {
+        "approve": 0.02,
+        "watch": 0.41,
+        "deny": 0.98
+      },
+      "signal_packet": {
+        "posture": "blocked",
+        "latest_decision": "reject",
+        "workflow_lane": "export_authorization",
+        "hard_stop": true,
+        "export_prohibited": true,
+        "export_review_required": true,
+        "connector_coverage": 5,
+        "identifier_count": 2,
+        "control_path_count": 3,
+        "ownership_path_count": 2,
+        "intermediary_path_count": 1,
+        "foreign_control_risk": true,
+        "network_score": 2.2,
+        "network_level": "high",
+        "graph_claim_coverage_pct": 0.82,
+        "graph_evidence_coverage_pct": 0.8
+      }
+    },
+    {
+      "case_id": "deny_hostile_cyber_gap_holdout",
+      "target_view": "deny",
+      "heuristic_scores": {
+        "approve": 0.01,
+        "watch": 0.72,
+        "deny": 0.96
+      },
+      "signal_packet": {
+        "posture": "blocked",
+        "latest_decision": "reject",
+        "workflow_lane": "supplier_cyber_trust",
+        "hard_stop": true,
+        "connector_coverage": 4,
+        "identifier_count": 2,
+        "control_path_count": 3,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 1,
+        "foreign_control_risk": true,
+        "cyber_gap": true,
+        "critical_cves": 3,
+        "kev_count": 2,
+        "network_score": 2.4,
+        "network_level": "critical",
+        "graph_thin": false
+      }
+    },
+    {
+      "case_id": "approve_documented_allied_holdout",
+      "target_view": "approve",
+      "heuristic_scores": {
+        "approve": 0.97,
+        "watch": 0.18,
+        "deny": 0.01
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "approve",
+        "workflow_lane": "defense_counterparty_trust",
+        "connector_coverage": 6,
+        "identifier_count": 4,
+        "control_path_count": 2,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 0,
+        "corroborated_path_count": 2,
+        "official_coverage_thin": false,
+        "named_owner_known": true,
+        "controlling_parent_known": true,
+        "ownership_evidence_thin": false,
+        "control_evidence_thin": false,
+        "foreign_control_risk": false,
+        "cyber_gap": false,
+        "export_prohibited": false,
+        "export_review_required": false,
+        "network_score": 0.05,
+        "network_level": "none",
+        "graph_claim_coverage_pct": 0.92,
+        "graph_evidence_coverage_pct": 0.9
+      }
+    },
+    {
+      "case_id": "approve_regulated_domestic_holdout",
+      "target_view": "approve",
+      "heuristic_scores": {
+        "approve": 0.94,
+        "watch": 0.24,
+        "deny": 0.02
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "",
+        "workflow_lane": "defense_counterparty_trust",
+        "connector_coverage": 5,
+        "identifier_count": 3,
+        "control_path_count": 1,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 0,
+        "official_coverage_thin": false,
+        "named_owner_known": true,
+        "ownership_evidence_thin": false,
+        "control_evidence_thin": false,
+        "foreign_control_risk": false,
+        "cyber_gap": false,
+        "export_prohibited": false,
+        "export_review_required": false,
+        "network_score": 0.12,
+        "network_level": "low"
+      }
+    },
+    {
+      "case_id": "watch_sparse_control_graph_holdout",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.44,
+        "watch": 0.76,
+        "deny": 0.07
+      },
+      "signal_packet": {
+        "posture": "approved",
+        "latest_decision": "",
+        "workflow_lane": "supplier_cyber_trust",
+        "connector_coverage": 3,
+        "identifier_count": 2,
+        "control_path_count": 0,
+        "ownership_path_count": 0,
+        "intermediary_path_count": 0,
+        "graph_thin": true,
+        "graph_missing_required_edge_family_count": 1,
+        "graph_claim_coverage_pct": 0.08,
+        "graph_evidence_coverage_pct": 0.05,
+        "ownership_resolution_pct": 0.35,
+        "control_resolution_pct": 0.0,
+        "ownership_evidence_thin": true,
+        "control_evidence_thin": true,
+        "network_score": 0.18,
+        "network_level": "low"
+      }
+    },
+    {
+      "case_id": "watch_ambiguous_export_route_holdout",
+      "target_view": "watch",
+      "heuristic_scores": {
+        "approve": 0.23,
+        "watch": 0.88,
+        "deny": 0.14
+      },
+      "signal_packet": {
+        "posture": "review",
+        "latest_decision": "",
+        "workflow_lane": "export_authorization",
+        "connector_coverage": 4,
+        "identifier_count": 2,
+        "control_path_count": 1,
+        "ownership_path_count": 1,
+        "intermediary_path_count": 1,
+        "export_review_required": true,
+        "export_route_ambiguity": true,
+        "export_evidence_missing": false,
+        "foreign_control_risk": false,
+        "network_score": 0.8,
+        "network_level": "medium"
+      }
+    }
+  ]
+}

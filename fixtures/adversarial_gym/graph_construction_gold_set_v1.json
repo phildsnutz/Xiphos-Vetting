@@ -1,5 +1,35 @@
 [
   {
+    "label_id": "gold_harbor_alias_of_harbor_beacon_holdings_llc",
+    "lane": "counterparty",
+    "source_authority": "secondary_public",
+    "source_url": "fixture://graph_construction_gold/harbor_alias",
+    "evidence_text": "Registry records list Harbor Beacon Holdings LLC as the legal name for Harbor Beacon Holdings.",
+    "source_entity": "Harbor Beacon Holdings",
+    "target_entity": "Harbor Beacon Holdings LLC",
+    "relationship_type": "ALIAS_OF",
+    "edge_family": "identity_and_alias",
+    "descriptor_only": false,
+    "contradiction_state": "corroborated",
+    "freshness_class": "current",
+    "should_create_edge": true
+  },
+  {
+    "label_id": "gold_yorktown_former_name_offset_systems_group",
+    "lane": "counterparty",
+    "source_authority": "analyst_modeled",
+    "source_url": "fixture://graph_construction_gold/yorktown_former_name",
+    "evidence_text": "Historical filing references connect Yorktown Systems Group to the former name Offset Systems Group.",
+    "source_entity": "Yorktown Systems Group",
+    "target_entity": "Offset Systems Group",
+    "relationship_type": "FORMER_NAME",
+    "edge_family": "identity_and_alias",
+    "descriptor_only": false,
+    "contradiction_state": "corroborated",
+    "freshness_class": "historical",
+    "should_create_edge": true
+  },
+  {
     "label_id": "gold_yorktown_contracts_with_army",
     "lane": "counterparty",
     "source_authority": "first_party",

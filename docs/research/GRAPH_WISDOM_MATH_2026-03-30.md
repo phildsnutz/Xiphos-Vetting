@@ -64,9 +64,10 @@ Why it matters here:
 ## Helios Math Direction
 
 1. Use learned edge-truth probabilities as the base edge weight.
-2. Gate propagation on learned trust thresholds, not hard-coded confidence floors.
-3. Use empirical confidence, margin, and entropy bands for tribunal abstention.
-4. Use weighted path distance for closeness, betweenness, and critical pathing.
+2. Build the edge prior from hierarchical fixture evidence, not a hand-tuned score blend.
+3. Gate propagation on semantic edge families plus empirical trust floors, not hard-coded confidence floors.
+4. Use held-out confidence, margin, and entropy bands for tribunal abstention.
+5. Use weighted path distance for closeness, betweenness, and critical pathing.
 5. Move remaining fixed exposure or utility surfaces toward replay-trained calibration or empirical Bayes priors.
 
 ## What This Replaces

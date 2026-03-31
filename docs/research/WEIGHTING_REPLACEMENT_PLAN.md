@@ -32,9 +32,9 @@ Previous state:
 Current replacement:
 
 - `/Users/tyegonzalez/Desktop/Helios-Package Merged/backend/learned_weighting.py`
-- fixture-trained binary logistic model
+- support-aware hierarchical prior plus fixture-trained binary logistic model
 - features include:
-  - heuristic prior
+  - hierarchical prior
   - authority bucket
   - temporal state
   - edge family
@@ -46,8 +46,9 @@ Current replacement:
 Why this is better:
 
 - coefficients are estimated, not guessed
+- the baseline prior is now learned from family, authority, temporal, corroboration, and evidence support instead of a hand-tuned blend
 - family thresholds come from training data
-- the model still exposes the heuristic prior for explainability and fallback
+- the model still exposes the learned baseline prior for explainability and fallback
 
 Next upgrade:
 
@@ -70,6 +71,8 @@ Current replacement:
 - fixture-trained softmax stance model
 - training anchors live in:
   - `/Users/tyegonzalez/Desktop/Helios-Package Merged/fixtures/adversarial_gym/decision_tribunal_training_cases_v1.json`
+- held-out temperature scaling anchors live in:
+  - `/Users/tyegonzalez/Desktop/Helios-Package Merged/fixtures/adversarial_gym/decision_tribunal_calibration_cases_v1.json`
 
 Features include:
 
@@ -86,10 +89,12 @@ Why this is better:
 - the tribunal now learns class boundaries instead of relying only on additive constants
 - explanations stay explicit because the heuristic rationale layer is still preserved in each view
 - ranking and recommendation now depend on probabilistic stance scores
+- confidence, margin, and entropy bands now come from a held-out replay pack
+- thin-graph and evidence-gap cases still force escalation even when the classifier is overconfident
 
 Current wisdom upgrade:
 
-- abstain / escalate bands now come from the empirical distribution of training confidence, margin, and entropy rather than a hand-picked score cutoff
+- abstain / escalate bands now come from held-out confidence, margin, and entropy rather than a hand-picked score cutoff
 
 Next upgrade:
 
@@ -143,12 +148,16 @@ Current replacement:
 - `/Users/tyegonzalez/Desktop/Helios-Package Merged/backend/graph_analytics.py`
 - degree, PageRank, sanctions exposure, and composite importance now use `intelligence_score`
 - weighted closeness and weighted betweenness now compute shortest paths using inverse edge trust instead of assuming every edge has equal cost
+- centrality now separates:
+  - `structural_importance`
+  - `decision_importance`
 
 Why this is better:
 
 - broker nodes supported by strong control paths rise above nodes connected mostly by noise
 - weak co-mention edges stop warping exposure and path-based influence metrics
 - graph structure is now closer to trust-aware network analysis than raw topology counting
+- operators no longer have to treat graph shape and decision relevance as the same thing
 
 Next upgrade:
 

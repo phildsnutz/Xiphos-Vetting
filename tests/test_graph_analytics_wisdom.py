@@ -69,7 +69,9 @@ def test_graph_analytics_uses_edge_intelligence_for_weighted_degree_and_importan
     assert closeness["a"]["closeness"] > closeness["c"]["closeness"]
     assert closeness["b"]["closeness"] > closeness["c"]["closeness"]
     assert centrality["a"]["local_edge_intelligence"] > centrality["b"]["local_edge_intelligence"] > centrality["c"]["local_edge_intelligence"]
-    assert centrality["a"]["composite_importance"] > centrality["b"]["composite_importance"] > centrality["c"]["composite_importance"]
+    assert centrality["a"]["structural_importance"] > centrality["c"]["structural_importance"]
+    assert centrality["a"]["decision_importance"] > centrality["b"]["decision_importance"] > centrality["c"]["decision_importance"]
+    assert centrality["a"]["composite_importance"] == centrality["a"]["decision_importance"]
 
 
 def test_graph_analytics_sanctions_exposure_ignores_weak_noise_paths():

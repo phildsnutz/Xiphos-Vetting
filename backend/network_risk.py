@@ -365,8 +365,6 @@ def _edge_strength(relationship: dict) -> float:
 def _edge_is_propagation_eligible(relationship: dict) -> bool:
     edge_strength = _edge_strength(relationship)
     profile = get_edge_family_reliability_profile()
-    if profile is None:
-        return edge_strength >= 0.5
     family = str(
         relationship.get("primary_edge_family")
         or (
@@ -376,6 +374,10 @@ def _edge_is_propagation_eligible(relationship: dict) -> bool:
         )
         or "other"
     )
+    if family in {"identity_and_alias", "other"}:
+        return False
+    if profile is None:
+        return edge_strength >= 0.5
     family_floor = float(profile.posterior_mean_by_family.get(family, profile.global_posterior_mean))
     return edge_strength >= family_floor
 

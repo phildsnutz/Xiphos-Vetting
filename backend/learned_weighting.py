@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GRAPH_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_gold_set_v1.json"
 GRAPH_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_hard_negatives_v1.json"
 TRIBUNAL_TRAINING_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "decision_tribunal_training_cases_v1.json"
+TRIBUNAL_CALIBRATION_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "decision_tribunal_calibration_cases_v1.json"
 
 EDGE_AUTHORITY_BUCKETS = (
     "official_or_modeled",
@@ -80,6 +82,8 @@ class SoftmaxModel:
     biases: tuple[float, ...]
     classes: tuple[str, ...]
     training_count: int
+    calibration_count: int
+    temperature: float
     confidence_floor: float
     margin_floor: float
     entropy_ceiling: float
@@ -90,6 +94,28 @@ class SoftmaxModel:
 class FamilyReliabilityProfile:
     posterior_mean_by_family: dict[str, float]
     global_posterior_mean: float
+    training_count: int
+
+
+@dataclass(frozen=True)
+class HierarchicalEdgePriorModel:
+    global_posterior_mean: float
+    posterior_by_family: dict[str, float]
+    support_by_family: dict[str, int]
+    posterior_by_authority: dict[str, float]
+    support_by_authority: dict[str, int]
+    posterior_by_temporal: dict[str, float]
+    support_by_temporal: dict[str, int]
+    posterior_by_corroboration: dict[str, float]
+    support_by_corroboration: dict[str, int]
+    posterior_by_claim_backed: dict[str, float]
+    support_by_claim_backed: dict[str, int]
+    posterior_by_evidence_backed: dict[str, float]
+    support_by_evidence_backed: dict[str, int]
+    posterior_by_descriptor_only: dict[str, float]
+    support_by_descriptor_only: dict[str, int]
+    posterior_by_legacy_unscoped: dict[str, float]
+    support_by_legacy_unscoped: dict[str, int]
     training_count: int
 
 
@@ -191,6 +217,15 @@ def _normalized_entropy(probabilities: np.ndarray) -> np.ndarray:
     return entropy / max(max_entropy, 1e-12)
 
 
+def _logit_scalar(value: float) -> float:
+    clipped = min(max(float(value), 1e-6), 1.0 - 1e-6)
+    return float(np.log(clipped / (1.0 - clipped)))
+
+
+def _sigmoid_scalar(value: float) -> float:
+    return float(_sigmoid(np.array([value], dtype=float))[0])
+
+
 def _map_source_authority_to_bucket(source_authority: str) -> str:
     normalized = str(source_authority or "").strip().lower()
     if normalized in {"analyst_modeled", "official_registry", "official_program_system", "official_regulatory", "official_judicial_record", "analyst_curated_fixture", "standards_modeled_fixture"}:
@@ -227,56 +262,99 @@ def _clip_corroboration(value: Any) -> float:
     return count / 4.0
 
 
-def _edge_heuristic_prior(payload: dict[str, Any]) -> float:
-    authority_bucket = str(payload.get("authority_bucket") or "unspecified")
-    temporal_state = str(payload.get("temporal_state") or "unknown")
-    family = str(payload.get("edge_family") or "other")
-    corroboration = float(payload.get("corroboration_norm") or 0.25)
-    claim_backed = 1.0 if bool(payload.get("claim_backed")) else 0.0
-    evidence_backed = 1.0 if bool(payload.get("evidence_backed")) else 0.0
-    legacy_unscoped = 1.0 if bool(payload.get("legacy_unscoped")) else 0.0
-    descriptor_only = 1.0 if bool(payload.get("descriptor_only")) else 0.0
+def _bucket_key(value: Any) -> str:
+    return str(value).strip().lower()
 
-    authority_strength = {
-        "official_or_modeled": 0.94,
-        "first_party": 0.82,
-        "third_party_public_only": 0.58,
-        "unspecified": 0.45,
-    }.get(authority_bucket, 0.45)
-    temporal_strength = {
-        "active": 0.94,
-        "watch": 0.72,
-        "stale": 0.42,
-        "historical": 0.25,
-        "contradicted": 0.02,
-        "unknown": 0.55,
-    }.get(temporal_state, 0.55)
-    family_prior = {
-        "ownership_control": 0.74,
-        "contracts_and_programs": 0.68,
-        "trade_and_logistics": 0.66,
-        "cyber_supply_chain": 0.66,
-        "official_and_regulatory": 0.71,
-        "sanctions_and_legal": 0.73,
-        "identity_and_alias": 0.58,
-        "intermediaries_and_services": 0.64,
-        "component_dependency": 0.64,
-        "finance_intermediary": 0.67,
-        "other": 0.63,
-    }.get(family, 0.63)
-    score = (
-        family_prior * 0.28
-        + authority_strength * 0.24
-        + temporal_strength * 0.2
-        + corroboration * 0.12
-        + claim_backed * 0.08
-        + evidence_backed * 0.08
+
+def _posterior_and_support(labels: list[int]) -> tuple[float, int]:
+    support = len(labels)
+    positive_count = sum(int(label) for label in labels)
+    posterior_mean = (1.0 + positive_count) / (2.0 + support)
+    return posterior_mean, support
+
+
+def _feature_bucket_tables(rows: list[dict[str, Any]], key_name: str) -> tuple[dict[str, float], dict[str, int]]:
+    grouped: dict[str, list[int]] = {}
+    for row in rows:
+        features = row.get("features") if isinstance(row.get("features"), dict) else {}
+        bucket = _bucket_key(features.get(key_name))
+        grouped.setdefault(bucket, []).append(int(row.get("label") or 0))
+    posterior: dict[str, float] = {}
+    support: dict[str, int] = {}
+    for bucket, labels in grouped.items():
+        posterior[bucket], support[bucket] = _posterior_and_support(labels)
+    return posterior, support
+
+
+@lru_cache(maxsize=1)
+def get_hierarchical_edge_prior_model() -> HierarchicalEdgePriorModel | None:
+    rows = _build_raw_edge_truth_training_rows()
+    if not rows:
+        return None
+
+    global_posterior, _ = _posterior_and_support([int(row.get("label") or 0) for row in rows])
+    posterior_by_family, support_by_family = _feature_bucket_tables(rows, "edge_family")
+    posterior_by_authority, support_by_authority = _feature_bucket_tables(rows, "authority_bucket")
+    posterior_by_temporal, support_by_temporal = _feature_bucket_tables(rows, "temporal_state")
+    posterior_by_corroboration, support_by_corroboration = _feature_bucket_tables(rows, "corroboration_bucket")
+    posterior_by_claim_backed, support_by_claim_backed = _feature_bucket_tables(rows, "claim_backed")
+    posterior_by_evidence_backed, support_by_evidence_backed = _feature_bucket_tables(rows, "evidence_backed")
+    posterior_by_descriptor_only, support_by_descriptor_only = _feature_bucket_tables(rows, "descriptor_only")
+    posterior_by_legacy_unscoped, support_by_legacy_unscoped = _feature_bucket_tables(rows, "legacy_unscoped")
+
+    return HierarchicalEdgePriorModel(
+        global_posterior_mean=round(global_posterior, 4),
+        posterior_by_family={key: round(value, 4) for key, value in posterior_by_family.items()},
+        support_by_family=support_by_family,
+        posterior_by_authority={key: round(value, 4) for key, value in posterior_by_authority.items()},
+        support_by_authority=support_by_authority,
+        posterior_by_temporal={key: round(value, 4) for key, value in posterior_by_temporal.items()},
+        support_by_temporal=support_by_temporal,
+        posterior_by_corroboration={key: round(value, 4) for key, value in posterior_by_corroboration.items()},
+        support_by_corroboration=support_by_corroboration,
+        posterior_by_claim_backed={key: round(value, 4) for key, value in posterior_by_claim_backed.items()},
+        support_by_claim_backed=support_by_claim_backed,
+        posterior_by_evidence_backed={key: round(value, 4) for key, value in posterior_by_evidence_backed.items()},
+        support_by_evidence_backed=support_by_evidence_backed,
+        posterior_by_descriptor_only={key: round(value, 4) for key, value in posterior_by_descriptor_only.items()},
+        support_by_descriptor_only=support_by_descriptor_only,
+        posterior_by_legacy_unscoped={key: round(value, 4) for key, value in posterior_by_legacy_unscoped.items()},
+        support_by_legacy_unscoped=support_by_legacy_unscoped,
+        training_count=len(rows),
     )
-    score -= 0.16 * legacy_unscoped
-    score -= 0.24 * descriptor_only
-    if temporal_state == "contradicted":
-        score *= 0.35
-    return round(max(0.0, min(score, 1.0)), 4)
+
+
+def _edge_hierarchical_prior(payload: dict[str, Any]) -> float:
+    model = get_hierarchical_edge_prior_model()
+    if model is None:
+        return 0.5
+
+    priors: list[tuple[float, int]] = [(float(model.global_posterior_mean), max(model.training_count, 1))]
+
+    def add_group(value: Any, posterior_table: dict[str, float], support_table: dict[str, int]) -> None:
+        key = _bucket_key(value)
+        posterior = float(posterior_table.get(key, model.global_posterior_mean))
+        support = int(support_table.get(key, 0))
+        priors.append((posterior, max(support, 1)))
+
+    add_group(payload.get("edge_family") or "other", model.posterior_by_family, model.support_by_family)
+    add_group(payload.get("authority_bucket") or "unspecified", model.posterior_by_authority, model.support_by_authority)
+    add_group(payload.get("temporal_state") or "unknown", model.posterior_by_temporal, model.support_by_temporal)
+    add_group(payload.get("corroboration_bucket") or "0.25", model.posterior_by_corroboration, model.support_by_corroboration)
+    add_group(bool(payload.get("claim_backed")), model.posterior_by_claim_backed, model.support_by_claim_backed)
+    add_group(bool(payload.get("evidence_backed")), model.posterior_by_evidence_backed, model.support_by_evidence_backed)
+    add_group(bool(payload.get("descriptor_only")), model.posterior_by_descriptor_only, model.support_by_descriptor_only)
+    add_group(bool(payload.get("legacy_unscoped")), model.posterior_by_legacy_unscoped, model.support_by_legacy_unscoped)
+
+    weighted_logit_sum = 0.0
+    total_weight = 0.0
+    for posterior, support in priors:
+        weight = math.log1p(max(support, 1))
+        weighted_logit_sum += _logit_scalar(posterior) * weight
+        total_weight += weight
+    if total_weight <= 0.0:
+        return float(model.global_posterior_mean)
+    return round(_sigmoid_scalar(weighted_logit_sum / total_weight), 4)
 
 
 def _edge_feature_payload_from_training_row(row: dict[str, Any], *, positive: bool) -> dict[str, Any]:
@@ -297,8 +375,8 @@ def _edge_feature_payload_from_training_row(row: dict[str, Any], *, positive: bo
         "evidence_backed": evidence_backed,
         "legacy_unscoped": False,
         "corroboration_norm": corroboration_norm,
+        "corroboration_bucket": f"{corroboration_norm:.2f}",
     }
-    payload["heuristic_prior"] = _edge_heuristic_prior(payload)
     return payload
 
 
@@ -337,8 +415,14 @@ def _edge_feature_payload_from_relationship(row: dict[str, Any]) -> dict[str, An
     }
     if payload["edge_family"] not in EDGE_FAMILIES:
         payload["edge_family"] = "other"
-    payload["heuristic_prior"] = _edge_heuristic_prior(payload)
+    payload["corroboration_bucket"] = f"{float(payload['corroboration_norm']):.2f}"
     return payload
+
+
+def _attach_edge_hierarchical_prior(payload: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(payload)
+    enriched["hierarchical_prior"] = _edge_hierarchical_prior(enriched)
+    return enriched
 
 
 def _edge_feature_vector(payload: dict[str, Any]) -> tuple[list[float], list[str]]:
@@ -349,7 +433,7 @@ def _edge_feature_vector(payload: dict[str, Any]) -> tuple[list[float], list[str
         names.append(name)
         features.append(float(value))
 
-    add("heuristic_prior", payload.get("heuristic_prior", 0.0))
+    add("hierarchical_prior", payload.get("hierarchical_prior", 0.5))
     add("descriptor_only", 1.0 if bool(payload.get("descriptor_only")) else 0.0)
     add("claim_backed", 1.0 if bool(payload.get("claim_backed")) else 0.0)
     add("evidence_backed", 1.0 if bool(payload.get("evidence_backed")) else 0.0)
@@ -377,7 +461,7 @@ def _load_json_rows(path: Path) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
-def _build_edge_truth_training_rows() -> list[dict[str, Any]]:
+def _build_raw_edge_truth_training_rows() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for row in _load_json_rows(GRAPH_GOLD_PATH):
         if bool(row.get("should_create_edge")):
@@ -388,6 +472,15 @@ def _build_edge_truth_training_rows() -> list[dict[str, Any]]:
             payload = _edge_feature_payload_from_training_row(row, positive=False)
             rows.append({"label": 0, "edge_family": payload["edge_family"], "features": payload})
     return rows
+
+
+def _build_edge_truth_training_rows() -> list[dict[str, Any]]:
+    rows = _build_raw_edge_truth_training_rows()
+    enriched_rows: list[dict[str, Any]] = []
+    for row in rows:
+        features = row.get("features") if isinstance(row.get("features"), dict) else {}
+        enriched_rows.append({**row, "features": _attach_edge_hierarchical_prior(features)})
+    return enriched_rows
 
 
 @lru_cache(maxsize=1)
@@ -442,9 +535,14 @@ def get_edge_truth_model() -> BinaryLogisticModel | None:
 
 def predict_edge_truth_probability(row: dict[str, Any]) -> dict[str, Any]:
     model = get_edge_truth_model()
+    payload = _attach_edge_hierarchical_prior(_edge_feature_payload_from_relationship(row))
     if model is None or np is None:  # pragma: no cover
-        return {"probability": float(_edge_heuristic_prior(_edge_feature_payload_from_relationship(row))), "threshold": 0.5, "training_count": 0}
-    payload = _edge_feature_payload_from_relationship(row)
+        return {
+            "probability": float(payload["hierarchical_prior"]),
+            "threshold": 0.5,
+            "hierarchical_prior": float(payload["hierarchical_prior"]),
+            "training_count": 0,
+        }
     vector, names = _edge_feature_vector(payload)
     matrix = np.array([vector], dtype=float)
     standardized = _standardize_apply(matrix, np.array(model.means), np.array(model.scales))
@@ -455,7 +553,7 @@ def predict_edge_truth_probability(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "probability": round(probability, 4),
         "threshold": round(threshold, 4),
-        "heuristic_prior": round(float(payload["heuristic_prior"]), 4),
+        "hierarchical_prior": round(float(payload["hierarchical_prior"]), 4),
         "training_count": model.training_count,
         "feature_names": tuple(names),
         "feature_values": tuple(float(value) for value in vector),
@@ -551,6 +649,32 @@ def _load_tribunal_training_rows() -> list[dict[str, Any]]:
     return [row for row in cases if isinstance(row, dict)] if isinstance(cases, list) else []
 
 
+def _load_tribunal_calibration_rows() -> list[dict[str, Any]]:
+    payload = json.loads(TRIBUNAL_CALIBRATION_PATH.read_text(encoding="utf-8")) if TRIBUNAL_CALIBRATION_PATH.exists() else {}
+    cases = payload.get("cases") if isinstance(payload, dict) else None
+    return [row for row in cases if isinstance(row, dict)] if isinstance(cases, list) else []
+
+
+def _multiclass_log_loss(probabilities: np.ndarray, labels: np.ndarray) -> float:
+    clipped = np.clip(probabilities[np.arange(len(labels)), labels], 1e-12, 1.0)
+    return float(-np.mean(np.log(clipped)))
+
+
+def _fit_temperature(logits: np.ndarray, labels: np.ndarray) -> float:
+    if len(labels) == 0:
+        return 1.0
+    candidate_temperatures = np.exp(np.linspace(np.log(0.5), np.log(5.0), 160))
+    best_temperature = 1.0
+    best_loss = float("inf")
+    for temperature in candidate_temperatures:
+        probabilities = _softmax(logits / float(temperature))
+        loss = _multiclass_log_loss(probabilities, labels)
+        if loss < best_loss:
+            best_loss = loss
+            best_temperature = float(temperature)
+    return best_temperature
+
+
 @lru_cache(maxsize=1)
 def get_tribunal_model() -> SoftmaxModel | None:
     if np is None:  # pragma: no cover
@@ -576,17 +700,42 @@ def get_tribunal_model() -> SoftmaxModel | None:
     label_array = np.array(labels, dtype=int)
     means, scales, standardized = _standardize_fit(matrix)
     weights, biases = _fit_softmax(standardized, label_array)
-    probabilities = _softmax(standardized @ weights + biases)
-    true_probs = probabilities[np.arange(len(label_array)), label_array]
-    sorted_probs = np.sort(probabilities, axis=1)
+    training_logits = standardized @ weights + biases
+
+    calibration_rows = _load_tribunal_calibration_rows()
+    calibration_vectors: list[list[float]] = []
+    calibration_labels: list[int] = []
+    for row in calibration_rows:
+        signal_packet = row.get("signal_packet") if isinstance(row.get("signal_packet"), dict) else {}
+        heuristic_scores = row.get("heuristic_scores") if isinstance(row.get("heuristic_scores"), dict) else {}
+        vector, _ = _tribunal_feature_vector(signal_packet, heuristic_scores)
+        calibration_vectors.append(vector)
+        calibration_labels.append(TRIBUNAL_CLASSES.index(str(row.get("target_view") or "watch")))
+
+    calibration_count = len(calibration_vectors)
+    if calibration_vectors:
+        calibration_matrix = np.array(calibration_vectors, dtype=float)
+        calibration_standardized = _standardize_apply(calibration_matrix, means, scales)
+        calibration_logits = calibration_standardized @ weights + biases
+        calibration_label_array = np.array(calibration_labels, dtype=int)
+        temperature = _fit_temperature(calibration_logits, calibration_label_array)
+        evaluation_probs = _softmax(calibration_logits / temperature)
+        evaluation_labels = calibration_label_array
+    else:
+        temperature = 1.0
+        evaluation_probs = _softmax(training_logits)
+        evaluation_labels = label_array
+
+    true_probs = evaluation_probs[np.arange(len(evaluation_labels)), evaluation_labels]
+    sorted_probs = np.sort(evaluation_probs, axis=1)
     top_probs = sorted_probs[:, -1]
-    runner_up_probs = sorted_probs[:, -2] if probabilities.shape[1] > 1 else np.zeros(len(label_array), dtype=float)
+    runner_up_probs = sorted_probs[:, -2] if evaluation_probs.shape[1] > 1 else np.zeros(len(evaluation_labels), dtype=float)
     margins = top_probs - runner_up_probs
-    entropies = _normalized_entropy(probabilities)
+    entropies = _normalized_entropy(evaluation_probs)
     confidence_floor = float(np.quantile(true_probs, 0.2))
     margin_floor = float(np.quantile(margins, 0.2))
     entropy_ceiling = float(np.quantile(entropies, 0.8))
-    mean_brier = _mean_brier_multiclass(probabilities, label_array)
+    mean_brier = _mean_brier_multiclass(evaluation_probs, evaluation_labels)
 
     return SoftmaxModel(
         feature_names=tuple(feature_names or []),
@@ -596,6 +745,8 @@ def get_tribunal_model() -> SoftmaxModel | None:
         biases=tuple(float(value) for value in biases.tolist()),
         classes=TRIBUNAL_CLASSES,
         training_count=len(rows),
+        calibration_count=calibration_count,
+        temperature=round(float(temperature), 4),
         confidence_floor=round(confidence_floor, 4),
         margin_floor=round(margin_floor, 4),
         entropy_ceiling=round(entropy_ceiling, 4),
@@ -612,7 +763,7 @@ def predict_tribunal_probabilities(signal_packet: dict[str, Any], heuristic_scor
     standardized = _standardize_apply(matrix, np.array(model.means), np.array(model.scales))
     weights = np.array(model.weights)
     biases = np.array(model.biases)
-    probabilities = _softmax(standardized @ weights + biases)[0]
+    probabilities = _softmax((standardized @ weights + biases) / max(float(model.temperature), 1e-6))[0]
     return {
         stance: round(float(probability), 4)
         for stance, probability in zip(model.classes, probabilities.tolist())
@@ -640,6 +791,24 @@ def assess_tribunal_prediction(signal_packet: dict[str, Any], heuristic_scores: 
         decision_posture = "escalate"
     else:
         decision_posture = "confident"
+
+    material_evidence_gap = any(
+        (
+            bool(signal_packet.get("graph_thin")),
+            int(signal_packet.get("graph_missing_required_edge_family_count") or 0) > 0,
+            bool(signal_packet.get("ownership_evidence_thin")),
+            bool(signal_packet.get("control_evidence_thin")),
+            bool(signal_packet.get("official_coverage_thin")),
+            bool(signal_packet.get("export_evidence_missing")),
+            bool(signal_packet.get("cyber_evidence_missing")),
+        )
+    )
+    if material_evidence_gap and top_view in {"approve", "watch"}:
+        if decision_posture == "confident":
+            decision_posture = "escalate"
+        elif decision_posture == "escalate":
+            decision_posture = "abstain"
+
     return {
         "top_view": top_view,
         "top_probability": round(float(top_prob), 4),
@@ -649,7 +818,9 @@ def assess_tribunal_prediction(signal_packet: dict[str, Any], heuristic_scores: 
         "margin_floor": float(model.margin_floor),
         "entropy": round(entropy, 4),
         "entropy_ceiling": float(model.entropy_ceiling),
+        "temperature": float(model.temperature),
         "mean_brier": float(model.mean_brier),
+        "material_evidence_gap": material_evidence_gap,
         "decision_posture": decision_posture,
         "requires_human_escalation": decision_posture in {"abstain", "escalate"},
     }
