@@ -90,6 +90,21 @@ def test_sec_edgar_parse_financing_document_extracts_credit_counterparties():
     assert ("routes_payment_through", "Wells Fargo Bank, National Association") in rel_types
 
 
+def test_sec_edgar_parse_financing_document_extracts_account_bank_and_deposit_bank():
+    text = """
+    <DOCUMENT><TYPE>EX-10<TEXT>
+    This CREDIT AGREEMENT is entered into with Citibank, N.A., as account bank and paying agent.
+    The concentration account is maintained at Bank of America, N.A.
+    </TEXT></DOCUMENT>
+    """
+
+    relationships = sec_edgar._parse_financing_document(text, "Example Defense Systems, Inc.")
+
+    rel_types = {(item["type"], item["target_entity"]) for item in relationships}
+    assert ("routes_payment_through", "Citibank, N.A.") in rel_types
+    assert ("routes_payment_through", "Bank of America, N.A.") in rel_types
+
+
 def test_sec_edgar_deep_parse_extracts_ex10_financing_relationships(monkeypatch):
     def fake_get(url: str):
         if url.endswith("CIK0000936468.json"):

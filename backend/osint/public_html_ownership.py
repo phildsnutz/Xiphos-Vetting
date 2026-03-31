@@ -177,6 +177,24 @@ SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     ),
     (
         re.compile(
+            r"\b(?:payment processor|merchant of record|settlement bank|acquiring bank|account bank|cash management bank)\s+(?:is\s+|:?\s*)([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "routes_payment_through",
+        0.60,
+        "first_party_payment_intermediary",
+    ),
+    (
+        re.compile(
+            r"\b(?:wire transfers?|payments?|receipts?)\s+(?:should be|are|were)?\s*(?:sent|routed|settled|processed)?\s*(?:through|via|to|with)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
+            re.IGNORECASE,
+        ),
+        "routes_payment_through",
+        0.57,
+        "first_party_payment_intermediary",
+    ),
+    (
+        re.compile(
             r"\b(?:managed services?|cloud hosting|hosting|patch signing|identity platform|monitoring platform)\s+(?:partner|provider|service)\s+(?:is\s+|:?\s*)([A-Z][A-Za-z0-9&.,'()/ -]{2,90})",
             re.IGNORECASE,
         ),
@@ -486,6 +504,11 @@ OWNERSHIP_DISCOVERY_QUERIES = (
     "parent company",
     "banking partner",
     "payment provider",
+    "payment processor",
+    "merchant of record",
+    "settlement bank",
+    "acquiring bank",
+    "cash management bank",
     "network provider",
     "managed services",
 )
@@ -554,6 +577,41 @@ TECH_SIGNATURES: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
         "routes_payment_through",
         "Braintree",
         0.80,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://(?:checkoutshopper|live|test)\.adyen\.com/|https?://.*?adyen\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "Adyen",
+        0.80,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://.*?checkout\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "Checkout.com",
+        0.78,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://.*?authorize\.net/", re.IGNORECASE),
+        "routes_payment_through",
+        "Authorize.net",
+        0.76,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://.*?cybersource\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "Cybersource",
+        0.76,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://.*?worldpay\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "Worldpay",
+        0.76,
         "payment_sdk_signature",
     ),
     (

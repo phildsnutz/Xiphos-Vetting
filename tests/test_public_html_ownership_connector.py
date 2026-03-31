@@ -756,6 +756,33 @@ def test_public_html_emits_routes_payment_through_from_bank_partner_phrase(monke
     assert result.findings[0].category == "intermediary"
 
 
+def test_public_html_emits_routes_payment_through_from_payment_processor_phrase(monkeypatch):
+    processor_html = """
+    <html>
+      <body>
+        <p>
+          Example Defense's merchant of record is Adyen and the payment processor is
+          Adyen for international card settlement.
+        </p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        assert headers["User-Agent"].startswith("Helios/")
+        if url == "https://example.example":
+            return _FakeResponse(processor_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich("Example Defense", country="US", website="https://example.example")
+
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert ("routes_payment_through", "Adyen") in rel_types
+
+
 def test_public_html_emits_depends_on_service_from_managed_service_phrase(monkeypatch):
     service_html = """
     <html>

@@ -20,6 +20,9 @@ from graph_ingest import get_vendor_graph_summary  # type: ignore  # noqa: E402
 
 
 DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "graph_vendor_coverage_audit"
+OWNERSHIP_RELATION_TYPES = {"owned_by", "beneficially_owned_by"}
+FINANCING_RELATION_TYPES = {"backed_by", "routes_payment_through"}
+INTERMEDIARY_RELATION_TYPES = {"depends_on_service", "depends_on_network"}
 
 
 def utc_slug() -> str:
@@ -95,6 +98,7 @@ def audit_vendor_rows(limit: int, depth: int, vendor_ids: list[str] | None = Non
         vendor_id = str(vendor.get("id") or "")
         summary = get_vendor_graph_summary(vendor_id, depth=depth, include_provenance=False)
         intelligence = summary.get("intelligence") or {}
+        relationship_type_distribution = summary.get("relationship_type_distribution") or {}
         rows.append(
             {
                 "vendor_id": vendor_id,
@@ -103,6 +107,11 @@ def audit_vendor_rows(limit: int, depth: int, vendor_ids: list[str] | None = Non
                 "entity_count": int(summary.get("entity_count") or 0),
                 "relationship_count": int(summary.get("relationship_count") or 0),
                 "control_path_count": int(intelligence.get("control_path_count") or 0),
+                "ownership_edge_count": sum(int(relationship_type_distribution.get(rel_type) or 0) for rel_type in OWNERSHIP_RELATION_TYPES),
+                "financing_edge_count": sum(int(relationship_type_distribution.get(rel_type) or 0) for rel_type in FINANCING_RELATION_TYPES),
+                "intermediary_edge_count": sum(
+                    int(relationship_type_distribution.get(rel_type) or 0) for rel_type in INTERMEDIARY_RELATION_TYPES
+                ),
                 "thin_graph": bool(intelligence.get("thin_graph")),
                 "thin_control_paths": bool(intelligence.get("thin_control_paths")),
             }
@@ -118,6 +127,9 @@ def build_summary(rows: list[dict[str, Any]], *, depth: int, include_rows: bool)
     zero_relationship = relationship_buckets.get("0", 0)
     zero_control = control_path_buckets.get("0", 0)
     single_mapped = mapped_entity_buckets.get("1", 0)
+    ownership_total = sum(int(row.get("ownership_edge_count") or 0) for row in rows)
+    financing_total = sum(int(row.get("financing_edge_count") or 0) for row in rows)
+    intermediary_total = sum(int(row.get("intermediary_edge_count") or 0) for row in rows)
 
     top_dense = sorted(rows, key=lambda row: (int(row.get("relationship_count") or 0), row.get("vendor_id") or ""), reverse=True)[:10]
     zero_control_rows = [row for row in rows if int(row.get("control_path_count") or 0) == 0][:10]
@@ -140,6 +152,14 @@ def build_summary(rows: list[dict[str, Any]], *, depth: int, include_rows: bool)
             "zero_control_vendor_count": zero_control,
             "zero_control_vendor_pct": _pct(zero_control, vendor_count),
             "vendors_with_any_control_path": vendor_count - zero_control,
+            "vendors_with_any_ownership_edge": sum(1 for row in rows if int(row.get("ownership_edge_count") or 0) > 0),
+            "vendors_with_any_financing_edge": sum(1 for row in rows if int(row.get("financing_edge_count") or 0) > 0),
+            "vendors_with_any_intermediary_edge": sum(1 for row in rows if int(row.get("intermediary_edge_count") or 0) > 0),
+        },
+        "family_edge_totals": {
+            "ownership_edge_total": ownership_total,
+            "financing_edge_total": financing_total,
+            "intermediary_edge_total": intermediary_total,
         },
         "samples": {
             "sample_dense_vendor_ids": [str(row.get("vendor_id") or "") for row in top_dense],
@@ -176,6 +196,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Zero-relationship vendors: `{coverage['zero_relationship_vendor_count']}` (`{coverage['zero_relationship_vendor_pct'] * 100:.1f}%`)",
         f"- Zero-control vendors: `{coverage['zero_control_vendor_count']}` (`{coverage['zero_control_vendor_pct'] * 100:.1f}%`)",
         f"- Vendors with any control path: `{coverage['vendors_with_any_control_path']}`",
+        f"- Vendors with ownership edges: `{coverage['vendors_with_any_ownership_edge']}`",
+        f"- Vendors with financing edges: `{coverage['vendors_with_any_financing_edge']}`",
+        f"- Vendors with intermediary edges: `{coverage['vendors_with_any_intermediary_edge']}`",
+        "",
+        "## Family Totals",
+        "",
+        f"- Ownership edges: `{summary['family_edge_totals']['ownership_edge_total']}`",
+        f"- Financing edges: `{summary['family_edge_totals']['financing_edge_total']}`",
+        f"- Intermediary edges: `{summary['family_edge_totals']['intermediary_edge_total']}`",
         "",
     ]
     return "\n".join(lines)

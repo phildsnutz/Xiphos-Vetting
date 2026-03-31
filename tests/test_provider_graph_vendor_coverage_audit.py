@@ -17,15 +17,42 @@ SPEC.loader.exec_module(module)
 
 def test_build_summary_counts_zero_control_and_relationship_buckets():
     rows = [
-        {"vendor_id": "v-1", "mapped_root_entities": 1, "relationship_count": 0, "control_path_count": 0},
-        {"vendor_id": "v-2", "mapped_root_entities": 1, "relationship_count": 2, "control_path_count": 0},
-        {"vendor_id": "v-3", "mapped_root_entities": 3, "relationship_count": 4, "control_path_count": 2},
+        {
+            "vendor_id": "v-1",
+            "mapped_root_entities": 1,
+            "relationship_count": 0,
+            "control_path_count": 0,
+            "ownership_edge_count": 0,
+            "financing_edge_count": 0,
+            "intermediary_edge_count": 0,
+        },
+        {
+            "vendor_id": "v-2",
+            "mapped_root_entities": 1,
+            "relationship_count": 2,
+            "control_path_count": 0,
+            "ownership_edge_count": 0,
+            "financing_edge_count": 1,
+            "intermediary_edge_count": 1,
+        },
+        {
+            "vendor_id": "v-3",
+            "mapped_root_entities": 3,
+            "relationship_count": 4,
+            "control_path_count": 2,
+            "ownership_edge_count": 1,
+            "financing_edge_count": 1,
+            "intermediary_edge_count": 0,
+        },
     ]
 
     summary = module.build_summary(rows, depth=3, include_rows=True)
 
     assert summary["coverage_metrics"]["zero_control_vendor_count"] == 2
     assert summary["coverage_metrics"]["zero_relationship_vendor_count"] == 1
+    assert summary["coverage_metrics"]["vendors_with_any_ownership_edge"] == 1
+    assert summary["coverage_metrics"]["vendors_with_any_financing_edge"] == 2
+    assert summary["family_edge_totals"]["financing_edge_total"] == 2
     assert summary["mapped_entity_buckets"]["1"] == 2
     assert summary["control_path_buckets"]["0"] == 2
     assert len(summary["rows"]) == 3
@@ -44,11 +71,20 @@ def test_render_markdown_mentions_provider_neutral_surface():
             "zero_control_vendor_count": 3,
             "zero_control_vendor_pct": 0.6,
             "vendors_with_any_control_path": 2,
+            "vendors_with_any_ownership_edge": 1,
+            "vendors_with_any_financing_edge": 1,
+            "vendors_with_any_intermediary_edge": 2,
+        },
+        "family_edge_totals": {
+            "ownership_edge_total": 1,
+            "financing_edge_total": 2,
+            "intermediary_edge_total": 3,
         },
     }
     markdown = module.render_markdown(summary)
     assert "product-visible graph surface" in markdown
     assert "Zero-control vendors" in markdown
+    assert "Ownership edges" in markdown
 
 
 def test_audit_vendor_rows_supports_explicit_vendor_ids(monkeypatch):
@@ -60,6 +96,7 @@ def test_audit_vendor_rows_supports_explicit_vendor_ids(monkeypatch):
             "root_entity_ids": [f"root:{vendor_id}"],
             "entity_count": 1,
             "relationship_count": 0,
+            "relationship_type_distribution": {"backed_by": 1},
             "intelligence": {"control_path_count": 0, "thin_graph": True, "thin_control_paths": True},
         },
     )
@@ -67,3 +104,4 @@ def test_audit_vendor_rows_supports_explicit_vendor_ids(monkeypatch):
     rows = module.audit_vendor_rows(limit=100, depth=3, vendor_ids=["v-1", "v-2"])
 
     assert [row["vendor_id"] for row in rows] == ["v-1", "v-2"]
+    assert all(row["financing_edge_count"] == 1 for row in rows)

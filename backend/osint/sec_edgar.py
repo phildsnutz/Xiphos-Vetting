@@ -64,6 +64,15 @@ _FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
         "backed_by",
     ),
     (
+        re.compile(
+            r"(?:with|and)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)\s*,\s+as (?:account bank|depositary bank|cash management bank|paying agent|disbursing agent)\b",
+            re.IGNORECASE,
+        ),
+        "account_bank",
+        0.80,
+        "routes_payment_through",
+    ),
+    (
         re.compile(r"(?:credit agreement|loan agreement|term loan facility|revolving credit facility|revolver).{0,80}?(?:with|among)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})", re.IGNORECASE),
         "credit_facility_counterparty",
         0.80,
@@ -73,6 +82,15 @@ _FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
         re.compile(r"(?:receivables?|payments?|collections?)\s+(?:are|were)\s+(?:processed|settled|swept|routed)\s+(?:through|via)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})", re.IGNORECASE),
         "payment_bank",
         0.76,
+        "routes_payment_through",
+    ),
+    (
+        re.compile(
+            r"(?:collection account|deposit account|disbursement account|concentration account|lockbox)\s+(?:is|was)?\s*(?:maintained|held|opened)?\s*(?:through|with|at)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})",
+            re.IGNORECASE,
+        ),
+        "deposit_account_bank",
+        0.74,
         "routes_payment_through",
     ),
 )
