@@ -13,22 +13,37 @@ API: https://api.gleif.org/api/v1
 
 import difflib
 import json
+import os
 import re
 import time
 import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+from pathlib import Path
+
 from . import EnrichmentResult, Finding
 
 BASE = "https://api.gleif.org/api/v1"
 USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
+SOURCE_NAME = "gleif_lei"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CACHE_PATHS = (
+    REPO_ROOT / "var" / "gleif_lei_cache.jsonl",
+    REPO_ROOT / "var" / "gleif_lei_cache.json",
+    REPO_ROOT / "var" / "gleif" / "lei_cache.jsonl",
+    REPO_ROOT / "var" / "gleif" / "lei_cache.json",
+)
 ENTITY_SUFFIXES = {
     "llc", "llp", "lp", "ltd", "inc", "co", "corp", "corporation",
     "incorporated", "limited", "company", "plc", "sa", "ag", "gmbh",
     "bv", "nv", "pty", "srl", "spa", "ab", "oy", "as", "se",
     "group", "holdings", "partners", "associates", "the",
 }
+
+
+def _normalize_name(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
 
 
 def _strip_entity_suffixes(name: str) -> list[str]:
@@ -110,6 +125,150 @@ def _pick_best_lei_record(records: list[dict], vendor_name: str, country: str = 
     return best_record
 
 
+def _cache_disabled(ids: dict) -> bool:
+    return str(
+        ids.get("force_live")
+        or ids.get("gleif_force_live")
+        or ids.get("disable_local_cache")
+        or ids.get("gleif_disable_cache")
+        or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_cache_path(ids: dict) -> str:
+    if _cache_disabled(ids):
+        return ""
+    for key in ("gleif_cache_path", "gleif_lei_cache_path"):
+        value = str(ids.get(key) or "").strip()
+        if value:
+            return value
+    env_path = str(os.environ.get("XIPHOS_GLEIF_CACHE_PATH") or os.environ.get("XIPHOS_GLEIF_LEI_CACHE_PATH") or "").strip()
+    if env_path:
+        return env_path
+    for candidate in DEFAULT_CACHE_PATHS:
+        if candidate.exists():
+            return str(candidate)
+    return ""
+
+
+def _load_cache_rows(path: str) -> list[dict]:
+    dataset_path = Path(path).expanduser()
+    if not dataset_path.exists():
+        return []
+    try:
+        raw_text = dataset_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+
+    stripped = raw_text.lstrip()
+    if not stripped:
+        return []
+
+    if dataset_path.suffix == ".jsonl" or dataset_path.name.endswith(".jsonl"):
+        rows: list[dict] = []
+        for line in raw_text.splitlines():
+            normalized = line.strip()
+            if not normalized:
+                continue
+            try:
+                payload = json.loads(normalized)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(payload, dict):
+                rows.append(payload)
+        return rows
+
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        records = payload.get("records")
+        if isinstance(records, list):
+            return [row for row in records if isinstance(row, dict)]
+        return [payload]
+    return []
+
+
+def _match_cached_entry(entry: dict, vendor_name: str, country: str, ids: dict) -> bool:
+    known_lei = str(ids.get("lei") or "").strip().upper()
+    entry_lei = str((entry.get("identifiers") or {}).get("lei") or entry.get("lei") or "").strip().upper()
+    if known_lei and entry_lei == known_lei:
+        return True
+
+    if _normalize_name(entry.get("vendor_name", "")) != _normalize_name(vendor_name):
+        return False
+
+    country_code = str(country or "").strip().upper()
+    entry_country = str(entry.get("country") or "").strip().upper()
+    if country_code and entry_country and country_code != entry_country:
+        return False
+    return True
+
+
+def _cached_finding(payload: dict) -> Finding:
+    return Finding(
+        source=str(payload.get("source") or SOURCE_NAME),
+        category=str(payload.get("category") or ""),
+        title=str(payload.get("title") or ""),
+        detail=str(payload.get("detail") or ""),
+        severity=str(payload.get("severity") or "info"),
+        confidence=float(payload.get("confidence") or 0.0),
+        url=str(payload.get("url") or ""),
+        raw_data=payload.get("raw_data", {}) or {},
+        timestamp=str(payload.get("timestamp") or ""),
+        source_class=str(payload.get("source_class") or "public_connector"),
+        authority_level=str(payload.get("authority_level") or "official_registry"),
+        access_model=str(payload.get("access_model") or "public_api"),
+        artifact_ref=str(payload.get("artifact_ref") or ""),
+        structured_fields=payload.get("structured_fields", {}) or {},
+    )
+
+
+def _hydrate_cached_result(entry: dict, vendor_name: str) -> EnrichmentResult:
+    result = EnrichmentResult(
+        source=SOURCE_NAME,
+        vendor_name=vendor_name,
+        source_class=str(entry.get("source_class") or "public_connector"),
+        authority_level=str(entry.get("authority_level") or "official_registry"),
+        access_model=str(entry.get("access_model") or "public_api"),
+    )
+    result.identifiers.update(entry.get("identifiers", {}) or {})
+    result.relationships.extend(entry.get("relationships", []) or [])
+    result.risk_signals.extend(entry.get("risk_signals", []) or [])
+    result.structured_fields.update(entry.get("structured_fields", {}) or {})
+    result.artifact_refs.extend(entry.get("artifact_refs", []) or [])
+    result.findings.extend(
+        _cached_finding(payload)
+        for payload in (entry.get("findings") or [])
+        if isinstance(payload, dict)
+    )
+    result.elapsed_ms = 0
+    return result
+
+
+def _load_cached_result(vendor_name: str, country: str, ids: dict) -> EnrichmentResult | None:
+    cache_path = _get_cache_path(ids)
+    if not cache_path:
+        return None
+    for entry in _load_cache_rows(cache_path):
+        if _match_cached_entry(entry, vendor_name, country, ids):
+            if "identifiers" not in entry:
+                continue
+            cached = _hydrate_cached_result(entry, vendor_name)
+            cached.identifiers.setdefault("gleif_cache_path", str(Path(cache_path).expanduser().resolve()))
+            if cached.artifact_refs:
+                resolved = str(Path(cache_path).expanduser().resolve())
+                if resolved not in cached.artifact_refs:
+                    cached.artifact_refs.append(resolved)
+            else:
+                cached.artifact_refs = [str(Path(cache_path).expanduser().resolve())]
+            return cached
+    return None
+
+
 def _get(url: str) -> dict | None:
     """GET request to GLEIF API with proper headers."""
     req = urllib.request.Request(url, headers={
@@ -178,7 +337,17 @@ def _build_ownership_relationship(
 def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     """Query GLEIF API for LEI data and ownership chains."""
     t0 = time.time()
-    result = EnrichmentResult(source="gleif_lei", vendor_name=vendor_name)
+    cached = _load_cached_result(vendor_name, country, ids)
+    if cached is not None:
+        return cached
+
+    result = EnrichmentResult(
+        source=SOURCE_NAME,
+        vendor_name=vendor_name,
+        source_class="public_connector",
+        authority_level="official_registry",
+        access_model="public_api",
+    )
 
     try:
         lei = ids.get("lei")

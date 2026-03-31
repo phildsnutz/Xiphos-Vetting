@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from backend.osint import gleif_lei
 
 
@@ -113,3 +115,59 @@ def test_gleif_emits_graph_native_parent_relationships(monkeypatch):
     assert ultimate_rel["target_entity"] == "Strategic Capital Group"
     assert ultimate_rel["target_identifiers"]["lei"] == "ultimate-lei"
     assert ultimate_rel["structured_fields"]["relationship_scope"] == "ultimate_parent"
+
+
+def test_gleif_supports_local_cache_path(tmp_path, monkeypatch):
+    cache_path = tmp_path / "gleif_lei_cache.jsonl"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "vendor_name": "B.E. Meyers & Co., Inc.",
+                "country": "US",
+                "source": "gleif_lei",
+                "source_class": "public_connector",
+                "authority_level": "official_registry",
+                "access_model": "public_api",
+                "identifiers": {
+                    "lei": "right",
+                    "legal_name": "B.E. Meyers & Co., Inc.",
+                    "legal_jurisdiction": "US-CA",
+                },
+                "findings": [
+                    {
+                        "source": "gleif_lei",
+                        "category": "identity",
+                        "title": "LEI verified: B.E. Meyers & Co., Inc.",
+                        "detail": "cached",
+                        "severity": "info",
+                        "confidence": 0.95,
+                    }
+                ],
+                "relationships": [
+                    {
+                        "type": "owned_by",
+                        "target_entity": "Mission Holdings LLC",
+                        "target_identifiers": {"lei": "parent-lei"},
+                    }
+                ],
+                "risk_signals": [],
+                "artifact_refs": [],
+                "structured_fields": {"cache_mode": "local"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(gleif_lei, "_get", lambda _url: (_ for _ in ()).throw(AssertionError("live lookup should not run")))
+
+    result = gleif_lei.enrich(
+        "B.E. Meyers & Co., Inc.",
+        country="US",
+        gleif_cache_path=str(cache_path),
+    )
+
+    assert result.identifiers["lei"] == "right"
+    assert result.identifiers["gleif_cache_path"] == str(cache_path.resolve())
+    assert result.relationships[0]["target_entity"] == "Mission Holdings LLC"
+    assert result.artifact_refs == [str(cache_path.resolve())]
