@@ -8,13 +8,13 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowRight, CheckCircle, Loader2, XCircle, Building2, Truck, GitBranch, Zap, Sparkles, ChevronDown, Globe2 } from "lucide-react";
-import { T, FS, FX, tierBand, parseTier, displayName } from "@/lib/tokens";
+import { T, FS, FX, displayName } from "@/lib/tokens";
 import { createCase, resolveEntity, searchContractVehicle, batchAssessVehicle, submitResolveFeedback, fetchHealth } from "@/lib/api";
 import type { EntityCandidate, VehicleVendor, VehicleSearchResult, EntityResolution, ExportAuthorizationCaseInput } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { SupplyChainGraph } from "./supply-chain-graph";
 import { EnrichmentStream } from "./enrichment-stream";
-import { WORKFLOW_LANE_META, workflowLaneForCase } from "./portfolio-utils";
+import { WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "./portfolio-utils";
 
 const GOLD = T.gold;
 const GOLD_DIM = T.goldDim;
@@ -85,6 +85,86 @@ const LANE_BRIEFS: Record<DecisionLane, { title: string; question: string; outpu
   },
 };
 
+const LANE_ICONS = {
+  counterparty: Building2,
+  cyber: Zap,
+  export: Globe2,
+} as const;
+
+function caseTimestamp(value?: string): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value.includes("T") ? value : value.replace(" ", "T"));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function caseRelativeTime(c: VettingCase, nowTs: number): string {
+  const ts = caseTimestamp(c.created_at || c.date);
+  if (!ts) return c.date || "";
+
+  const diffMs = nowTs - ts;
+  const diffH = Math.floor(diffMs / 3_600_000);
+  const diffD = Math.floor(diffMs / 86_400_000);
+  if (diffH < 1) return "Now";
+  if (diffH < 24) return `${diffH}h`;
+  if (diffD === 1) return "Yesterday";
+  if (diffD < 7) return `${diffD}d`;
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function caseDispositionLabel(disposition: ReturnType<typeof portfolioDisposition>, lane: DecisionLane): string {
+  if (disposition === "blocked") return "Blocked";
+  if (disposition === "review") return "Review";
+  if (disposition === "qualified") return "Qualified";
+  if (lane === "cyber") return "Ready";
+  if (lane === "counterparty") return "Approved";
+  return "Clear";
+}
+
+function caseDispositionStyles(disposition: ReturnType<typeof portfolioDisposition>) {
+  if (disposition === "blocked") {
+    return { color: "#ef4444", background: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.28)" };
+  }
+  if (disposition === "review") {
+    return { color: "#f97316", background: "rgba(249,115,22,0.12)", border: "rgba(249,115,22,0.28)" };
+  }
+  if (disposition === "qualified") {
+    return { color: T.gold, background: `${T.gold}12`, border: `${T.gold}33` };
+  }
+  return { color: "#10b981", background: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.26)" };
+}
+
+function casePriorityScore(c: VettingCase, nowTs: number): number {
+  const disposition = portfolioDisposition(c);
+  const base =
+    disposition === "blocked"
+      ? 400
+      : disposition === "review"
+        ? 260
+        : disposition === "qualified"
+          ? 160
+          : 80;
+  const stopWeight = (c.cal?.stops?.length ?? 0) * 20;
+  const flagWeight = (c.cal?.flags?.length ?? 0) * 12;
+  const recentBoost = Math.max(0, 72 - Math.floor((nowTs - caseTimestamp(c.created_at || c.date)) / 3_600_000));
+  return base + stopWeight + flagWeight + recentBoost;
+}
+
+function caseOperatorSummary(c: VettingCase): string {
+  const stopText = c.cal?.stops?.[0]?.x?.trim();
+  if (stopText) return stopText;
+  const flagText = c.cal?.flags?.[0]?.x?.trim();
+  if (flagText) return flagText;
+  const recText = c.cal?.recommendation?.trim();
+  if (recText) return recText;
+  const sensitivity = c.cal?.sensitivityContext?.trim();
+  if (sensitivity) return sensitivity;
+  const regulatory = c.cal?.regulatoryStatus?.trim();
+  if (regulatory) return regulatory;
+  const find = c.cal?.finds?.[0]?.trim();
+  if (find) return find;
+  return c.program || c.profile || "Ready to continue analyst review.";
+}
+
 function createEmptyExportForm(): ExportAuthorizationCaseInput {
   return {
     request_type: "technical_data_release",
@@ -136,6 +216,7 @@ export function HeliosLanding({
   onCasesRefresh,
   cases = [],
   preferredLane = "counterparty",
+  onPreferredLaneChange,
 }: HeliosLandingProps) {
   const [input, setInput] = useState("");
   const [searchMode, setSearchMode] = useState<"entity" | "vehicle" | "export">("entity");
@@ -154,6 +235,7 @@ export function HeliosLanding({
   const [batchResults, setBatchResults] = useState<{total: number; created: number} | null>(null);
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [connectorCount, setConnectorCount] = useState(29);
+  const [clockTs, setClockTs] = useState(() => Date.now());
   const [exportForm, setExportForm] = useState<ExportAuthorizationCaseInput>(() => createEmptyExportForm());
   const inputRef = useRef<HTMLInputElement>(null);
   const exportRecipientRef = useRef<HTMLInputElement>(null);
@@ -172,10 +254,40 @@ export function HeliosLanding({
   const activeLane: DecisionLane = searchMode === "export" ? "export" : entityWorkflow === "cyber" ? "cyber" : "counterparty";
   const activeLaneBrief = LANE_BRIEFS[activeLane];
   const activeLaneMeta = WORKFLOW_LANE_META[activeLane];
-  const recentLaneCases = cases
+  const laneCases = cases
     .filter((c) => workflowLaneForCase(c) === activeLane)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 6);
+    .sort((a, b) => caseTimestamp(b.created_at || b.date) - caseTimestamp(a.created_at || a.date));
+  const recentLaneCases = laneCases.slice(0, 6);
+  const priorityLaneCases = [...laneCases]
+    .sort((a, b) => casePriorityScore(b, clockTs) - casePriorityScore(a, clockTs))
+    .slice(0, 4);
+  const laneCounts = (["counterparty", "cyber", "export"] as DecisionLane[]).reduce<Record<DecisionLane, { total: number; blocked: number; review: number }>>((acc, lane) => {
+    const laneItems = cases.filter((c) => workflowLaneForCase(c) === lane);
+    const dispositions = laneItems.map((c) => portfolioDisposition(c));
+    acc[lane] = {
+      total: laneItems.length,
+      blocked: dispositions.filter((disposition) => disposition === "blocked").length,
+      review: dispositions.filter((disposition) => disposition === "review").length,
+    };
+    return acc;
+  }, {
+    counterparty: { total: 0, blocked: 0, review: 0 },
+    cyber: { total: 0, blocked: 0, review: 0 },
+    export: { total: 0, blocked: 0, review: 0 },
+  });
+  const blockedCount = laneCases.filter((c) => portfolioDisposition(c) === "blocked").length;
+  const reviewCount = laneCases.filter((c) => portfolioDisposition(c) === "review").length;
+  const movingCount = laneCases.filter((c) => {
+    const disposition = portfolioDisposition(c);
+    return disposition === "clear" || disposition === "qualified";
+  }).length;
+  const freshCount = laneCases.filter((c) => clockTs - caseTimestamp(c.created_at || c.date) <= 86_400_000).length;
+  const primaryPlaceholder =
+    activeLane === "cyber"
+      ? "Enter supplier, product vendor, or software provider"
+      : activeLane === "counterparty"
+        ? "Enter supplier, subcontractor, or prime contractor"
+        : "Enter recipient, foreign person, or item destination";
 
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => {
@@ -201,6 +313,12 @@ export function HeliosLanding({
     return () => window.clearTimeout(syncTimer);
   }, [phase, preferredLane]);
 
+  useEffect(() => {
+    if (phase !== "idle") return;
+    const timer = window.setInterval(() => setClockTs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+
   const focusEntityInput = useCallback(() => {
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, []);
@@ -212,6 +330,21 @@ export function HeliosLanding({
     setErrorText("");
     focusEntityInput();
   }, [focusEntityInput]);
+
+  const handleLaneSelect = useCallback((lane: DecisionLane) => {
+    onPreferredLaneChange?.(lane);
+    setErrorText("");
+    setInput("");
+    setPhase("idle");
+    setStatusText("");
+    if (lane === "export") {
+      setSearchMode("export");
+      return;
+    }
+    setSearchMode("entity");
+    setEntityWorkflow(lane === "cyber" ? "cyber" : "counterparty");
+    focusEntityInput();
+  }, [focusEntityInput, onPreferredLaneChange]);
 
   // Step 1: User submits a name -> resolve entity
   const handleSubmit = async () => {
@@ -495,283 +628,689 @@ export function HeliosLanding({
 
       {/* ── IDLE ── */}
       {phase === "idle" && (
-        <>
-          <div style={{ width: "100%", maxWidth: 680 }}>
-          {/* Operating lane status bar (single line, minimal) */}
-          <div style={{ fontSize: FS.sm, color: T.textSecondary, marginBottom: 24, textAlign: "center", letterSpacing: "0.01em" }}>
-            {activeLaneBrief.title} · {cases.length} active · {cases.filter(c => (c.cal?.stops?.length ?? 0) > 0).length} blocked
-          </div>
-
-          {/* Hero section: heading + subtitle */}
-          <div style={{ marginBottom: 32, textAlign: "center" }}>
-            <div style={{ fontSize: FS.lg, fontWeight: 600, color: T.text, marginBottom: 8, letterSpacing: "-0.02em" }}>
-              Start a review
-            </div>
-            <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.6 }}>
-              Resolve the entity, create the case, and build the first decision package without dropping into a separate workflow.
-            </div>
-          </div>
-
-          {/* Primary action: search input (large, centered) */}
-          {searchMode !== "export" ? (
-            <div style={{ position: "relative", width: "100%", marginBottom: 28 }}>
-              <input ref={inputRef} value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                placeholder={searchMode === "entity" ? "Enter company name to assess" : searchMode === "vehicle" ? "Enter contract vehicle (OASIS, CIO-SP3, SEWP, ITES...)" : "Enter recipient or item under review"}
-                className="helios-focus-ring"
-                style={{ width: "100%", padding: "16px 56px 16px 20px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.base, outline: "none", transition: "all 0.3s", fontFamily: "inherit" }}
-                onFocus={e => { e.target.style.borderColor = activeLaneMeta.softBorder; e.target.style.boxShadow = `0 0 0 3px ${activeLaneMeta.softBackground}`; }} 
-                onBlur={e => { e.target.style.borderColor = T.border; e.target.style.boxShadow = "none"; }} />
-              <button onClick={handleSubmit} className="helios-focus-ring" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 40, height: 40, borderRadius: 10, border: "none", background: input.trim() ? activeLaneMeta.accent : T.border, color: input.trim() ? "#04101f" : T.textTertiary, cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
-                <ArrowRight size={16} />
-              </button>
-            </div>
-          ) : null}
-
-          {/* Secondary action: contract vehicle search button */}
-          {searchMode !== "vehicle" && searchMode !== "export" && (
-            <button
-              onClick={openVehicleUtility}
-              className="helios-focus-ring"
-              style={{
-                marginBottom: 28,
-                padding: "10px 16px",
-                borderRadius: 10,
-                border: `1px solid ${T.border}`,
-                background: T.surface,
-                color: T.textSecondary,
-                cursor: "pointer",
-                fontSize: FS.sm,
-                fontWeight: 500,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = activeLaneMeta.softBorder; e.currentTarget.style.color = T.text; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSecondary; }}
-            >
-              <GitBranch size={14} />
-              Search contract vehicle
-            </button>
-          )}
-
-          {searchMode === "export" && (
-            <div
-              className="helios-glass"
-              style={{
-                width: "100%",
-                maxWidth: 760,
-                marginBottom: 24,
-                padding: 20,
-                borderRadius: 24,
-                background: FX.panelStrong,
-                border: `1px solid ${T.borderStrong}`,
-                boxShadow: FX.cardGlow,
-              }}
-            >
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    Authorization request
-                  </div>
-                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Request type</label>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                    {EXPORT_REQUEST_TYPE_OPTIONS.map((option) => {
-                      const active = exportForm.request_type === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          onClick={() => handleExportField("request_type", option.value)}
+        <div style={{ width: "100%", maxWidth: 1400 }} className="animate-slide-up">
+          <div className="stagger-children" style={{ display: "flex", flexDirection: "column", gap: 18, width: "100%" }}>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {(["counterparty", "cyber", "export"] as DecisionLane[]).map((lane) => {
+                const meta = WORKFLOW_LANE_META[lane];
+                const brief = LANE_BRIEFS[lane];
+                const counts = laneCounts[lane];
+                const active = lane === activeLane;
+                const LaneIcon = LANE_ICONS[lane];
+                return (
+                  <button
+                    key={lane}
+                    onClick={() => handleLaneSelect(lane)}
+                    className="glass-card card-interactive helios-focus-ring"
+                    style={{
+                      padding: 18,
+                      borderRadius: 22,
+                      border: `1px solid ${active ? meta.softBorder : T.borderStrong}`,
+                      background: active
+                        ? `linear-gradient(145deg, ${meta.softBackground}, rgba(10, 18, 30, 0.88))`
+                        : FX.panelStrong,
+                      boxShadow: active ? FX.cardGlow : FX.softShadow,
+                      textAlign: "left",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div
                           style={{
-                            textAlign: "left",
-                            padding: "11px 12px",
+                            width: 36,
+                            height: 36,
                             borderRadius: 12,
-                            border: `1px solid ${active ? `${GOLD}44` : T.border}`,
-                            background: active ? `${GOLD}10` : T.surface,
-                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: active ? `${meta.accent}22` : T.surfaceElevated,
+                            border: `1px solid ${active ? `${meta.accent}44` : T.border}`,
+                            color: meta.accent,
                           }}
                         >
-                          <div style={{ fontSize: FS.sm, color: active ? T.text : T.dim, fontWeight: 700 }}>{option.label}</div>
-                          <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 4, lineHeight: 1.45 }}>{option.description}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Recipient or access subject</label>
-                  <input
-                    ref={exportRecipientRef}
-                    value={exportForm.recipient_name ?? ""}
-                    onChange={(e) => handleExportField("recipient_name", e.target.value)}
-                    placeholder="Company, affiliate, foreign national, or subcontractor"
-                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", marginBottom: 12 }}
-                  />
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Destination or access country</label>
-                      <input
-                        value={exportForm.destination_country ?? ""}
-                        onChange={(e) => handleExportField("destination_country", e.target.value.toUpperCase())}
-                        placeholder="DE, JP, SG"
-                        maxLength={3}
-                        style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
-                      />
+                          <LaneIcon size={18} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
+                            {meta.shortLabel}
+                          </div>
+                          <div style={{ fontSize: FS.base, color: T.text, fontWeight: 700 }}>{brief.title}</div>
+                        </div>
+                      </div>
+                      {active && (
+                        <span style={{ fontSize: 11, color: meta.accent, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                          Active
+                        </span>
+                      )}
                     </div>
-                    <div>
-                      <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Jurisdiction guess</label>
-                      <select
-                        value={exportForm.jurisdiction_guess ?? "unknown"}
-                        onChange={(e) => handleExportField("jurisdiction_guess", e.target.value as ExportAuthorizationCaseInput["jurisdiction_guess"])}
-                        style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
-                      >
-                        {EXPORT_JURISDICTION_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.5 }}>{meta.description}</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: FS.caption, color: T.text, padding: "5px 8px", borderRadius: 999, background: T.surfaceElevated, border: `1px solid ${T.border}` }}>
+                        {counts.total} active
+                      </span>
+                      <span style={{ fontSize: FS.caption, color: T.textSecondary, padding: "5px 8px", borderRadius: 999, background: "rgba(249,115,22,0.10)", border: "1px solid rgba(249,115,22,0.2)" }}>
+                        {counts.review} review
+                      </span>
+                      <span style={{ fontSize: FS.caption, color: T.textSecondary, padding: "5px 8px", borderRadius: 999, background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                        {counts.blocked} blocked
+                      </span>
                     </div>
-                  </div>
-                </div>
+                  </button>
+                );
+              })}
+            </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Classification guess</label>
-                  <input
-                    value={exportForm.classification_guess ?? ""}
-                    onChange={(e) => handleExportField("classification_guess", e.target.value)}
-                    placeholder="USML Cat XI, ECCN 3A001, EAR99..."
-                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", marginBottom: 12 }}
-                  />
-
-                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Item, software, or data summary</label>
-                  <textarea
-                    value={exportForm.item_or_data_summary ?? ""}
-                    onChange={(e) => handleExportField("item_or_data_summary", e.target.value)}
-                    placeholder="Briefly describe the item, technical data, source code, or controlled environment under review."
-                    rows={4}
-                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", resize: "vertical", marginBottom: 12, fontFamily: "inherit" }}
-                  />
-
-                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>End use or access context</label>
-                  <textarea
-                    value={exportForm.end_use_summary ?? ""}
-                    onChange={(e) => handleExportField("end_use_summary", e.target.value)}
-                    placeholder="Program, end use, destination, collaboration, or review context."
-                    rows={3}
-                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", resize: "vertical", marginBottom: 12, fontFamily: "inherit" }}
-                  />
-
-                  <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Foreign-person nationalities (optional)</label>
-                  <input
-                    value={(exportForm.foreign_person_nationalities ?? []).join(", ")}
-                    onChange={(e) => handleExportField("foreign_person_nationalities", e.target.value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean))}
-                    placeholder="CN, IN, AE"
-                    style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginTop: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.muted, fontSize: FS.sm }}>
-                  <Globe2 size={14} color={GOLD} />
-                  Helios will open a case, run the live screening stack, and structure the decision around likely prohibited / license required / escalation paths.
-                </div>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!exportForm.recipient_name?.trim() || !exportForm.destination_country?.trim()}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+              <div className="xl:col-span-2 flex flex-col gap-5">
+                <section
+                  className="glass-panel"
                   style={{
-                    padding: "11px 16px",
-                    borderRadius: 12,
-                    border: "none",
-                    background: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? GOLD : T.border,
-                    color: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "#000" : T.muted,
-                    cursor: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "pointer" : "default",
-                    fontSize: FS.sm,
-                    fontWeight: 700,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
+                    padding: 28,
+                    borderRadius: 28,
+                    border: `1px solid ${activeLaneMeta.softBorder}`,
+                    background: `linear-gradient(145deg, ${activeLaneMeta.softBackground}, rgba(10, 18, 30, 0.9))`,
+                    boxShadow: FX.cardGlow,
                   }}
                 >
-                  Open export authorization case
-                  <ArrowRight size={14} />
-                </button>
-              </div>
-            </div>
-          )}
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-5 items-start">
+                    <div>
+                      <div style={{ fontSize: 11, color: activeLaneMeta.accent, marginBottom: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                        Helios command desk
+                      </div>
+                      <h1 style={{ margin: 0, fontSize: "clamp(30px, 4vw, 46px)", lineHeight: 1.04, letterSpacing: "-0.04em", color: T.text, fontWeight: 800 }}>
+                        Start the next {activeLaneMeta.shortLabel.toLowerCase()} decision.
+                      </h1>
+                      <p style={{ marginTop: 14, marginBottom: 0, fontSize: FS.base, color: T.textSecondary, lineHeight: 1.65, maxWidth: 760 }}>
+                        {activeLaneBrief.question} Land here to open a new case, resume the queue, or pivot lanes without leaving the dashboard.
+                      </p>
+                    </div>
+                    <div
+                      className="glass-card"
+                      style={{
+                        padding: 18,
+                        borderRadius: 20,
+                        border: `1px solid ${activeLaneMeta.softBorder}`,
+                        background: "rgba(7, 12, 22, 0.62)",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        Decision frame
+                      </div>
+                      <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginBottom: 12 }}>
+                        {activeLaneBrief.outputs}
+                      </div>
+                      <div style={{ fontSize: FS.caption, color: T.muted, lineHeight: 1.55 }}>
+                        {activeLaneBrief.evidence}
+                      </div>
+                    </div>
+                  </div>
 
-          {/* Recent cases: clean minimal table */}
-          {cases && cases.length > 0 && recentLaneCases.length > 0 && (
-            <div style={{ width: "100%", marginBottom: 24 }}>
-              <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.textSecondary, marginBottom: 12, letterSpacing: "0.02em", textTransform: "uppercase" }}>
-                Recent cases
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                {recentLaneCases.map((c, idx) => {
-                  const band = c.cal?.tier ? tierBand(parseTier(c.cal.tier)) : "clear";
-                  const bandColors: Record<string, string> = { critical: "#ef4444", elevated: "#f97316", conditional: "#f59e0b", clear: "#10b981" };
-                  const bandLabels: Record<string, string> = { critical: "BLOCKED", elevated: "REVIEW", conditional: "WATCH", clear: "APPROVED" };
-                  const dotColor = bandColors[band] || "#10b981";
-                  const label = bandLabels[band] || "APPROVED";
-                  const dateStr = c.date || "";
-                  let displayDate = dateStr;
-                  try {
-                    const d = new Date(dateStr.replace(" ", "T"));
-                    const now = new Date();
-                    const diffMs = now.getTime() - d.getTime();
-                    const diffH = Math.floor(diffMs / 3600000);
-                    const diffD = Math.floor(diffMs / 86400000);
-                    if (diffH < 1) displayDate = "Now";
-                    else if (diffH < 24) displayDate = `${diffH}h`;
-                    else if (diffD === 1) displayDate = "Yesterday";
-                    else if (diffD < 7) displayDate = `${diffD}d`;
-                    else displayDate = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  } catch { /* keep raw */ }
-                  const dn = displayName(c.name);
+                  {searchMode !== "export" ? (
+                    <>
+                      <div style={{ position: "relative", width: "100%", marginTop: 24 }}>
+                        <input
+                          ref={inputRef}
+                          value={input}
+                          onChange={e => setInput(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && handleSubmit()}
+                          placeholder={primaryPlaceholder}
+                          className="helios-focus-ring"
+                          style={{
+                            width: "100%",
+                            padding: "18px 64px 18px 20px",
+                            borderRadius: 18,
+                            border: `1px solid ${T.border}`,
+                            background: "rgba(7, 12, 22, 0.7)",
+                            color: T.text,
+                            fontSize: FS.base,
+                            outline: "none",
+                            transition: "all 0.3s",
+                            fontFamily: "inherit",
+                          }}
+                          onFocus={e => {
+                            e.target.style.borderColor = activeLaneMeta.softBorder;
+                            e.target.style.boxShadow = `0 0 0 3px ${activeLaneMeta.softBackground}`;
+                          }}
+                          onBlur={e => {
+                            e.target.style.borderColor = T.border;
+                            e.target.style.boxShadow = "none";
+                          }}
+                        />
+                        <button
+                          onClick={handleSubmit}
+                          className="helios-focus-ring"
+                          style={{
+                            position: "absolute",
+                            right: 8,
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            width: 44,
+                            height: 44,
+                            borderRadius: 14,
+                            border: "none",
+                            background: input.trim() ? activeLaneMeta.accent : T.border,
+                            color: input.trim() ? "#04101f" : T.textTertiary,
+                            cursor: input.trim() ? "pointer" : "default",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <ArrowRight size={18} />
+                        </button>
+                      </div>
 
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => onCaseCreated(c.id)}
+                      <div className="flex flex-wrap items-center gap-3" style={{ marginTop: 16 }}>
+                        <button
+                          onClick={handleSubmit}
+                          disabled={!input.trim()}
+                          className="btn-interactive helios-focus-ring"
+                          style={{
+                            padding: "12px 16px",
+                            borderRadius: 14,
+                            border: "none",
+                            background: input.trim() ? activeLaneMeta.accent : T.border,
+                            color: input.trim() ? "#04101f" : T.textTertiary,
+                            cursor: input.trim() ? "pointer" : "default",
+                            fontSize: FS.sm,
+                            fontWeight: 800,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          {activeLane === "cyber" ? "Start cyber review" : "Start counterparty review"}
+                          <ArrowRight size={14} />
+                        </button>
+
+                        {activeLane === "counterparty" && (
+                          <button
+                            onClick={openVehicleUtility}
+                            className="btn-interactive helios-focus-ring"
+                            style={{
+                              padding: "12px 16px",
+                              borderRadius: 14,
+                              border: `1px solid ${T.border}`,
+                              background: "rgba(7, 12, 22, 0.6)",
+                              color: T.textSecondary,
+                              cursor: "pointer",
+                              fontSize: FS.sm,
+                              fontWeight: 700,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <GitBranch size={14} />
+                            Search contract vehicle
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => { void handleViewDraftCases(); }}
+                          className="btn-interactive helios-focus-ring"
+                          style={{
+                            padding: "12px 16px",
+                            borderRadius: 14,
+                            border: `1px solid ${T.border}`,
+                            background: "rgba(7, 12, 22, 0.6)",
+                            color: T.textSecondary,
+                            cursor: "pointer",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                          }}
+                        >
+                          Open lane portfolio
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div
+                      className="glass-card"
                       style={{
                         width: "100%",
-                        padding: "12px 14px",
-                        borderTop: idx > 0 ? `1px solid ${T.border}` : "none",
-                        background: idx % 2 === 0 ? "transparent" : T.surface,
-                        color: T.text,
-                        fontSize: FS.sm,
-                        textAlign: "left",
-                        cursor: "pointer",
-                        transition: "background 0.15s ease",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        justifyContent: "space-between",
+                        marginTop: 24,
+                        padding: 20,
+                        borderRadius: 24,
+                        background: "rgba(7, 12, 22, 0.62)",
+                        border: `1px solid ${T.borderStrong}`,
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = T.surfaceElevated; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? "transparent" : T.surface; }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
-                        <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{dn}</div>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                          <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                            Authorization request
+                          </div>
+                          <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Request type</label>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                            {EXPORT_REQUEST_TYPE_OPTIONS.map((option) => {
+                              const active = exportForm.request_type === option.value;
+                              return (
+                                <button
+                                  key={option.value}
+                                  onClick={() => handleExportField("request_type", option.value)}
+                                  style={{
+                                    textAlign: "left",
+                                    padding: "11px 12px",
+                                    borderRadius: 12,
+                                    border: `1px solid ${active ? `${GOLD}44` : T.border}`,
+                                    background: active ? `${GOLD}10` : T.surface,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <div style={{ fontSize: FS.sm, color: active ? T.text : T.dim, fontWeight: 700 }}>{option.label}</div>
+                                  <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 4, lineHeight: 1.45 }}>{option.description}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Recipient or access subject</label>
+                          <input
+                            ref={exportRecipientRef}
+                            value={exportForm.recipient_name ?? ""}
+                            onChange={(e) => handleExportField("recipient_name", e.target.value)}
+                            placeholder="Company, affiliate, foreign national, or subcontractor"
+                            style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", marginBottom: 12 }}
+                          />
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Destination or access country</label>
+                              <input
+                                value={exportForm.destination_country ?? ""}
+                                onChange={(e) => handleExportField("destination_country", e.target.value.toUpperCase())}
+                                placeholder="DE, JP, SG"
+                                maxLength={3}
+                                style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Jurisdiction guess</label>
+                              <select
+                                value={exportForm.jurisdiction_guess ?? "unknown"}
+                                onChange={(e) => handleExportField("jurisdiction_guess", e.target.value as ExportAuthorizationCaseInput["jurisdiction_guess"])}
+                                style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
+                              >
+                                {EXPORT_JURISDICTION_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Classification guess</label>
+                          <input
+                            value={exportForm.classification_guess ?? ""}
+                            onChange={(e) => handleExportField("classification_guess", e.target.value)}
+                            placeholder="USML Cat XI, ECCN 3A001, EAR99..."
+                            style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", marginBottom: 12 }}
+                          />
+
+                          <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Item, software, or data summary</label>
+                          <textarea
+                            value={exportForm.item_or_data_summary ?? ""}
+                            onChange={(e) => handleExportField("item_or_data_summary", e.target.value)}
+                            placeholder="Briefly describe the item, technical data, source code, or controlled environment under review."
+                            rows={4}
+                            style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", resize: "vertical", marginBottom: 12, fontFamily: "inherit" }}
+                          />
+
+                          <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>End use or access context</label>
+                          <textarea
+                            value={exportForm.end_use_summary ?? ""}
+                            onChange={(e) => handleExportField("end_use_summary", e.target.value)}
+                            placeholder="Program, end use, destination, collaboration, or review context."
+                            rows={3}
+                            style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none", resize: "vertical", marginBottom: 12, fontFamily: "inherit" }}
+                          />
+
+                          <label style={{ display: "block", fontSize: FS.sm, color: T.dim, marginBottom: 6 }}>Foreign-person nationalities (optional)</label>
+                          <input
+                            value={(exportForm.foreign_person_nationalities ?? []).join(", ")}
+                            onChange={(e) => handleExportField("foreign_person_nationalities", e.target.value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean))}
+                            placeholder="CN, IN, AE"
+                            style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: FS.sm, outline: "none" }}
+                          />
+                        </div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                        <span style={{ fontSize: FS.caption, color: T.textSecondary, fontVariantNumeric: "tabular-nums", minWidth: "40px", textAlign: "right" }}>{displayDate}</span>
-                        <span style={{ fontSize: FS.caption, fontWeight: 700, letterSpacing: "0.04em", padding: "3px 6px", borderRadius: 4, color: dotColor, background: `${dotColor}15`, border: `1px solid ${dotColor}30`, minWidth: "max-content" }}>
-                          {label}
-                        </span>
+
+                      <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginTop: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.muted, fontSize: FS.sm }}>
+                          <Globe2 size={14} color={GOLD} />
+                          Helios will open a case, run the live screening stack, and structure the decision around likely prohibited, license required, or escalation paths.
+                        </div>
+                        <button
+                          onClick={handleSubmit}
+                          disabled={!exportForm.recipient_name?.trim() || !exportForm.destination_country?.trim()}
+                          className="btn-interactive helios-focus-ring"
+                          style={{
+                            padding: "11px 16px",
+                            borderRadius: 12,
+                            border: "none",
+                            background: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? GOLD : T.border,
+                            color: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "#000" : T.muted,
+                            cursor: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "pointer" : "default",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          Open export authorization case
+                          <ArrowRight size={14} />
+                        </button>
                       </div>
+                    </div>
+                  )}
+                </section>
+
+                <section
+                  className="glass-card"
+                  style={{
+                    padding: 22,
+                    borderRadius: 24,
+                    border: `1px solid ${T.borderStrong}`,
+                    background: FX.panelStrong,
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: T.muted, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        Priority queue
+                      </div>
+                      <div style={{ fontSize: FS.base, color: T.text, fontWeight: 700, marginTop: 4 }}>
+                        What needs operator attention now
+                      </div>
+                    </div>
+                    {laneCases.length > 0 && (
+                      <button
+                        onClick={() => { void handleViewDraftCases(); }}
+                        className="btn-interactive helios-focus-ring"
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: 12,
+                          border: `1px solid ${T.border}`,
+                          background: T.surface,
+                          color: T.textSecondary,
+                          cursor: "pointer",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                        }}
+                      >
+                        See all {laneCases.length} lane cases
+                      </button>
+                    )}
+                  </div>
+
+                  {priorityLaneCases.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {priorityLaneCases.map((c) => {
+                        const disposition = portfolioDisposition(c);
+                        const styles = caseDispositionStyles(disposition);
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => onCaseCreated(c.id)}
+                            className="card-interactive helios-focus-ring"
+                            style={{
+                              width: "100%",
+                              padding: 16,
+                              borderRadius: 18,
+                              border: `1px solid ${T.border}`,
+                              background: "rgba(7, 12, 22, 0.56)",
+                              textAlign: "left",
+                              display: "flex",
+                              alignItems: "flex-start",
+                              justifyContent: "space-between",
+                              gap: 14,
+                            }}
+                          >
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                                <span style={{ width: 8, height: 8, borderRadius: 999, background: styles.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: FS.base, color: T.text, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {displayName(c.name)}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+                                {caseOperatorSummary(c)}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flexShrink: 0 }}>
+                              <span style={{ fontSize: FS.caption, color: T.muted, fontVariantNumeric: "tabular-nums" }}>
+                                {caseRelativeTime(c, clockTs)}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: FS.caption,
+                                  fontWeight: 800,
+                                  letterSpacing: "0.06em",
+                                  padding: "5px 8px",
+                                  borderRadius: 999,
+                                  color: styles.color,
+                                  background: styles.background,
+                                  border: `1px solid ${styles.border}`,
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                {caseDispositionLabel(disposition, activeLane)}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div
+                      className="glass-card"
+                      style={{
+                        padding: 18,
+                        borderRadius: 18,
+                        border: `1px dashed ${T.borderStrong}`,
+                        background: "rgba(7, 12, 22, 0.42)",
+                      }}
+                    >
+                      <div style={{ fontSize: FS.base, color: T.text, fontWeight: 700, marginBottom: 6 }}>
+                        No active {activeLaneMeta.shortLabel.toLowerCase()} queue yet.
+                      </div>
+                      <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+                        Use this page to start the first case in this lane, then Helios will route the decision package into the portfolio and graph surfaces automatically.
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              <div className="flex flex-col gap-5">
+                <section
+                  className="glass-card"
+                  style={{
+                    padding: 22,
+                    borderRadius: 24,
+                    border: `1px solid ${T.borderStrong}`,
+                    background: FX.panelStrong,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Lane status
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: "Active", value: laneCases.length, tone: T.text },
+                      { label: "Needs decision", value: blockedCount + reviewCount, tone: "#f97316" },
+                      { label: "Moving", value: movingCount, tone: "#10b981" },
+                      { label: "Live connectors", value: connectorCount, tone: activeLaneMeta.accent },
+                    ].map((metric) => (
+                      <div
+                        key={metric.label}
+                        className="glass-card"
+                        style={{
+                          padding: 14,
+                          borderRadius: 18,
+                          border: `1px solid ${T.border}`,
+                          background: "rgba(7, 12, 22, 0.52)",
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>
+                          {metric.label}
+                        </div>
+                        <div style={{ fontSize: "clamp(24px, 3vw, 34px)", fontWeight: 800, lineHeight: 1, color: metric.tone }}>
+                          {metric.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, marginTop: 14 }}>
+                    {freshCount} case{freshCount === 1 ? "" : "s"} moved in the last 24 hours. {blockedCount > 0 ? "Blocked work is still sitting in this lane." : "No hard-stop backlog is waiting here."}
+                  </div>
+                </section>
+
+                <section
+                  className="glass-card"
+                  style={{
+                    padding: 22,
+                    borderRadius: 24,
+                    border: `1px solid ${T.borderStrong}`,
+                    background: FX.panelStrong,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Quick actions
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <button
+                      onClick={() => { void handleViewDraftCases(); }}
+                      className="btn-interactive helios-focus-ring"
+                      style={{
+                        padding: "13px 14px",
+                        borderRadius: 16,
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        color: T.text,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Open portfolio workbench
                     </button>
-                  );
-                })}
+                    <button
+                      onClick={() => onNavigate("graph")}
+                      className="btn-interactive helios-focus-ring"
+                      style={{
+                        padding: "13px 14px",
+                        borderRadius: 16,
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        color: T.text,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Open graph intelligence
+                    </button>
+                    <button
+                      onClick={() => onNavigate("dashboard")}
+                      className="btn-interactive helios-focus-ring"
+                      style={{
+                        padding: "13px 14px",
+                        borderRadius: 16,
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        color: T.text,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Open compliance dashboard
+                    </button>
+                    {activeLane === "counterparty" && (
+                      <button
+                        onClick={openVehicleUtility}
+                        className="btn-interactive helios-focus-ring"
+                        style={{
+                          padding: "13px 14px",
+                          borderRadius: 16,
+                          border: `1px solid ${T.border}`,
+                          background: T.surface,
+                          color: T.text,
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontWeight: 700,
+                        }}
+                      >
+                        Search contract vehicle
+                      </button>
+                    )}
+                  </div>
+                </section>
+
+                <section
+                  className="glass-card"
+                  style={{
+                    padding: 22,
+                    borderRadius: 24,
+                    border: `1px solid ${T.borderStrong}`,
+                    background: FX.panelStrong,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Recent activity
+                  </div>
+                  {recentLaneCases.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {recentLaneCases.slice(0, 3).map((c) => {
+                        const disposition = portfolioDisposition(c);
+                        const styles = caseDispositionStyles(disposition);
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => onCaseCreated(c.id)}
+                            className="card-interactive helios-focus-ring"
+                            style={{
+                              width: "100%",
+                              padding: 14,
+                              borderRadius: 16,
+                              border: `1px solid ${T.border}`,
+                              background: "rgba(7, 12, 22, 0.48)",
+                              textAlign: "left",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+                              <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {displayName(c.name)}
+                              </div>
+                              <div style={{ fontSize: FS.caption, color: T.muted }}>{caseRelativeTime(c, clockTs)}</div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: 999, background: styles.color, flexShrink: 0 }} />
+                              <span style={{ fontSize: FS.caption, color: T.textSecondary }}>
+                                {caseDispositionLabel(disposition, activeLane)}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+                      No recent case movement in this lane yet.
+                    </div>
+                  )}
+                </section>
               </div>
             </div>
-          )}
-
-
           </div>
-        </>
+        </div>
       )}
 
       {/* ── RESOLVING ── */}

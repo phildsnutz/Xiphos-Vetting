@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { RefreshCw, TrendingUp, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { RefreshCw, TrendingUp, AlertTriangle, CheckCircle, Clock, Building2, Globe2, Network, ShieldAlert } from "lucide-react";
 import { PieChart, Pie, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { fetchComplianceDashboard as fetchComplianceDashboardApi } from "@/lib/api";
 
@@ -134,6 +134,24 @@ async function fetchComplianceDashboard(): Promise<DashboardData> {
   return fetchComplianceDashboardApi() as Promise<DashboardData>;
 }
 
+function formatTimestampLabel(value?: string): string {
+  if (!value) return "No timestamp";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function totalCrossLaneIssues(insights: CrossLaneInsights): number {
+  return (insights.vendors_with_export_issues?.length ?? 0)
+    + (insights.graph_connected_high_risk?.length ?? 0)
+    + (insights.compliance_gaps?.length ?? 0);
+}
+
 // KPI Card Component
 function KPICard({
   label,
@@ -147,10 +165,10 @@ function KPICard({
   trend?: string;
 }) {
   return (
-    <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-4">
+    <div className="glass-card" style={{ borderColor: T.border, padding: 18, borderRadius: 20, backgroundColor: T.surface }}>
       <div className="flex items-start justify-between">
         <div>
-          <p style={{ color: T.muted }} className="text-sm font-medium">
+          <p style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold">
             {label}
           </p>
           <p style={{ color: T.text }} className="text-2xl font-bold mt-2">
@@ -188,8 +206,8 @@ function ComplianceScoreGauge({ score }: { score: number }) {
   const offset = circumference - (score / 100) * circumference;
 
   return (
-    <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-6">
-      <p style={{ color: T.muted }} className="text-sm font-medium mb-4">
+    <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 24, borderRadius: 24 }}>
+      <p style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-4">
         Compliance Score
       </p>
       <div className="flex items-center justify-center">
@@ -229,20 +247,28 @@ function ComplianceScoreGauge({ score }: { score: number }) {
 // Lane Summary Card Component
 function LaneSummaryCard({
   title,
+  subtitle,
   metrics,
   chart,
   recentItems,
 }: {
   title: string;
+  subtitle: string;
   metrics: Array<{ label: string; value: string | number }>;
   chart?: React.ReactNode;
   recentItems?: Array<{ id: string; label: string; status?: string }>;
 }) {
   return (
-    <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-4">
-      <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
+    <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
+      <div style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-2">
+        Operator lane
+      </div>
+      <h3 style={{ color: T.text }} className="text-lg font-semibold mb-1">
         {title}
       </h3>
+      <p style={{ color: T.muted }} className="text-sm mb-4">
+        {subtitle}
+      </p>
       
       <div className="grid grid-cols-2 gap-3 mb-4">
         {metrics.map((m, i) => (
@@ -412,7 +438,7 @@ function InsightsPanel({ insights }: { insights: CrossLaneInsights }) {
     (insights.compliance_gaps?.length || 0) > 0;
 
   return (
-    <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-4">
+    <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
       <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
         Cross-Lane Insights
       </h3>
@@ -500,7 +526,7 @@ function ActivityFeed({ items }: { items: ActivityItem[] }) {
   };
 
   return (
-    <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-4">
+    <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
       <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
         Activity Feed
       </h3>
@@ -542,6 +568,59 @@ function ActivityFeed({ items }: { items: ActivityItem[] }) {
   );
 }
 
+function OperatorAttentionPanel({
+  items,
+}: {
+  items: Array<{ title: string; detail: string; metric: string; tone: string }>;
+}) {
+  return (
+    <div className="glass-panel" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 22, borderRadius: 24 }}>
+      <div style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-2">
+        Operator priorities
+      </div>
+      <h2 style={{ color: T.text }} className="text-2xl font-bold mb-2">
+        What needs attention now
+      </h2>
+      <p style={{ color: T.muted }} className="text-sm mb-5">
+        This is the work most likely to change today’s posture if it gets ignored.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {items.map((item) => (
+          <div
+            key={item.title}
+            className="glass-card"
+            style={{
+              padding: 16,
+              borderRadius: 18,
+              border: `1px solid ${item.tone}33`,
+              backgroundColor: `${item.tone}12`,
+            }}
+          >
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <div style={{ color: T.text }} className="text-sm font-semibold">
+                {item.title}
+              </div>
+              <div
+                style={{
+                  color: item.tone,
+                  border: `1px solid ${item.tone}33`,
+                  backgroundColor: `${item.tone}14`,
+                }}
+                className="text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap"
+              >
+                {item.metric}
+              </div>
+            </div>
+            <div style={{ color: T.muted }} className="text-sm leading-6">
+              {item.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Loading Skeleton
 function DashboardSkeleton() {
   return (
@@ -578,18 +657,20 @@ export default function ComplianceDashboard() {
     try {
       const result = await fetchComplianceDashboard();
       setData(result);
+      setLoading({ isLoading: false, error: null });
     } catch (err) {
       setLoading({
         isLoading: false,
         error: err instanceof Error ? err.message : "Failed to load dashboard",
       });
-    } finally {
-      setLoading({ isLoading: false, error: null });
     }
   };
 
   useEffect(() => {
-    fetchData();
+    const timer = window.setTimeout(() => {
+      void fetchData();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   if (loading.isLoading) {
@@ -622,128 +703,213 @@ export default function ComplianceDashboard() {
     return <DashboardSkeleton />;
   }
 
+  const operatorPriorityItems = [
+    {
+      title: "Counterparty decisions waiting",
+      detail: `${data.counterparty_lane.pending_reviews} supplier reviews are still unresolved in the counterparty lane.`,
+      metric: `${data.counterparty_lane.pending_reviews} pending`,
+      tone: data.counterparty_lane.pending_reviews > 0 ? T.amber : T.green,
+    },
+    {
+      title: "Export license pressure",
+      detail: `${data.export_lane.pending_license_applications} export cases are sitting in license-required posture.`,
+      metric: `${data.export_lane.pending_license_applications} queued`,
+      tone: data.export_lane.pending_license_applications > 0 ? T.red : T.green,
+    },
+    {
+      title: "Cross-lane conflicts",
+      detail: `${totalCrossLaneIssues(data.cross_lane_insights)} issues are crossing lanes through export flags, graph-connected risk, or policy gaps.`,
+      metric: `${totalCrossLaneIssues(data.cross_lane_insights)} signals`,
+      tone: totalCrossLaneIssues(data.cross_lane_insights) > 0 ? T.accent : T.green,
+    },
+    {
+      title: "Cyber graph watchlist",
+      detail: `${data.cyber_lane.high_centrality_entities?.length ?? 0} entities are surfacing as high-centrality nodes in the assurance graph.`,
+      metric: `${data.cyber_lane.high_centrality_entities?.length ?? 0} nodes`,
+      tone: (data.cyber_lane.high_centrality_entities?.length ?? 0) > 0 ? T.amber : T.green,
+    },
+  ];
+
   return (
     <div style={{ backgroundColor: T.bg, color: T.text }} className="min-h-screen p-6">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 style={{ color: T.text }} className="text-3xl font-bold">
-          Compliance Dashboard
-        </h1>
-        <button
-          onClick={fetchData}
-          disabled={loading.isLoading}
+      <div className="max-w-[1500px] mx-auto flex flex-col gap-6">
+        <section
+          className="glass-panel"
           style={{
-            backgroundColor: T.primary,
-            color: T.text,
-            opacity: loading.isLoading ? 0.5 : 1,
+            padding: 24,
+            borderRadius: 28,
+            background: "linear-gradient(145deg, rgba(14,165,233,0.08), rgba(15,23,42,0.94))",
+            border: `1px solid ${T.border}`,
           }}
-          className="p-2 rounded hover:opacity-90 transition disabled:cursor-not-allowed flex items-center gap-2"
         >
-          <RefreshCw size={18} className={loading.isLoading ? "animate-spin" : ""} />
-          Refresh
-        </button>
-      </div>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <div style={{ color: T.accent, letterSpacing: "0.08em", textTransform: "uppercase" }} className="text-xs font-bold mb-2">
+                Helios operations overview
+              </div>
+              <h1 style={{ color: T.text, letterSpacing: "-0.04em" }} className="text-4xl font-bold mb-3">
+                Land on what needs action, not on passive charts.
+              </h1>
+              <p style={{ color: T.text }} className="text-base leading-7 max-w-2xl">
+                The dashboard now answers the operator question first: where the queue is backing up, where posture is drifting, and which lane needs a decision next.
+              </p>
+            </div>
+            <div className="flex flex-col items-start lg:items-end gap-3">
+              <div
+                className="glass-card"
+                style={{ padding: 14, borderRadius: 18, border: `1px solid ${T.border}`, backgroundColor: "rgba(15,23,42,0.75)" }}
+              >
+                <div style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-1">
+                  Last refresh
+                </div>
+                <div style={{ color: T.text }} className="text-sm font-semibold">
+                  {formatTimestampLabel(data.summary.timestamp)}
+                </div>
+              </div>
+              <button
+                onClick={fetchData}
+                disabled={loading.isLoading}
+                className="btn-interactive"
+                style={{
+                  backgroundColor: T.primary,
+                  color: T.text,
+                  opacity: loading.isLoading ? 0.5 : 1,
+                  padding: "12px 16px",
+                  borderRadius: 14,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontWeight: 700,
+                }}
+              >
+                <RefreshCw size={18} className={loading.isLoading ? "animate-spin" : ""} />
+                Refresh dashboard
+              </button>
+            </div>
+          </div>
+        </section>
 
-      {/* Top Row: KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <KPICard
-          label="Total Cases"
-          value={data.summary.total_cases}
-          icon={CheckCircle}
-        />
-        <KPICard
-          label="Active Alerts"
-          value={data.summary.total_alerts}
-          icon={AlertTriangle}
-        />
-        <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-6">
+          <OperatorAttentionPanel items={operatorPriorityItems} />
           <ComplianceScoreGauge score={data.summary.compliance_score} />
         </div>
-      </div>
 
-      {/* Second Row: Lane Summaries */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Counterparty Lane */}
-        <LaneSummaryCard
-          title="Counterparty Lane"
-          metrics={[
-            { label: "Cases Screened", value: data.counterparty_lane.cases_screened },
-            { label: "High Risk", value: data.counterparty_lane.high_risk_vendors },
-            { label: "Pending", value: data.counterparty_lane.pending_reviews },
-          ]}
-          chart={
-            data.summary.risk_distribution && Object.keys(data.summary.risk_distribution).length > 0 ? (
-              <RiskDistributionChart data={data.summary.risk_distribution} />
-            ) : undefined
-          }
-          recentItems={
-            data.counterparty_lane.recent_screenings?.map((s) => ({
-              id: s.case_id,
-              label: s.vendor_name,
-              status: s.status,
-            })) || []
-          }
-        />
-
-        {/* Export Lane */}
-        <LaneSummaryCard
-          title="Export Lane"
-          metrics={[
-            { label: "Authorizations", value: data.export_lane.total_authorizations },
-            { label: "NLR Path", value: data.export_lane.posture_distribution.likely_nlr || 0 },
-            { label: "License Req'd", value: data.export_lane.pending_license_applications },
-          ]}
-          chart={
-            data.export_lane.posture_distribution && Object.keys(data.export_lane.posture_distribution).length > 0 ? (
-              <PostureDistributionChart data={data.export_lane.posture_distribution} />
-            ) : undefined
-          }
-          recentItems={
-            data.export_lane.recent_authorizations?.map((a) => ({
-              id: a.case_id,
-              label: a.vendor_name,
-              status: a.recommendation,
-            })) || []
-          }
-        />
-
-        {/* Cyber Lane */}
-        <LaneSummaryCard
-          title="Supply Chain Assurance"
-          metrics={[
-            { label: "Entities", value: data.cyber_lane.entities_in_graph },
-            { label: "Relationships", value: data.cyber_lane.relationships },
-            { label: "Communities", value: data.cyber_lane.communities },
-          ]}
-          recentItems={
-            data.cyber_lane.high_centrality_entities?.map((e) => ({
-              id: e.entity_id,
-              label: e.name,
-              status: `${e.relationship_count} rels`,
-            })) || []
-          }
-        />
-      </div>
-
-      {/* Risk Trend Chart */}
-      {data.counterparty_lane.risk_trend && data.counterparty_lane.risk_trend.length > 0 && (
-        <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-4 mb-6">
-          <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
-            Risk Trend (Last 30 Days)
-          </h3>
-          <RiskTrendChart data={data.counterparty_lane.risk_trend} />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <KPICard label="Total Cases" value={data.summary.total_cases} icon={CheckCircle} />
+          <KPICard label="Active Alerts" value={data.summary.total_alerts} icon={ShieldAlert} />
+          <KPICard label="Pending Counterparty" value={data.counterparty_lane.pending_reviews} icon={Building2} />
+          <KPICard label="Pending Export" value={data.export_lane.pending_license_applications} icon={Globe2} />
         </div>
-      )}
 
-      {/* Bottom Row: Insights & Activity Feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <InsightsPanel insights={data.cross_lane_insights} />
-        <ActivityFeed items={data.activity_feed} />
-      </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <LaneSummaryCard
+            title="Counterparty lane"
+            subtitle="Supplier adjudication, ownership pressure, and trust decisions"
+            metrics={[
+              { label: "Cases Screened", value: data.counterparty_lane.cases_screened },
+              { label: "High Risk", value: data.counterparty_lane.high_risk_vendors },
+              { label: "Pending", value: data.counterparty_lane.pending_reviews },
+            ]}
+            chart={
+              data.summary.risk_distribution && Object.keys(data.summary.risk_distribution).length > 0 ? (
+                <RiskDistributionChart data={data.summary.risk_distribution} />
+              ) : undefined
+            }
+            recentItems={
+              data.counterparty_lane.recent_screenings?.map((s) => ({
+                id: s.case_id,
+                label: `${s.vendor_name} · ${formatTimestampLabel(s.created_at)}`,
+                status: s.status,
+              })) || []
+            }
+          />
 
-      {/* Footer */}
-      <div style={{ color: T.muted }} className="text-xs mt-6 text-center">
-        Last updated: {data.summary.timestamp ? new Date(data.summary.timestamp).toLocaleString() : "—"}
+          <LaneSummaryCard
+            title="Export lane"
+            subtitle="Authorizations, NLR paths, and license-required pressure"
+            metrics={[
+              { label: "Authorizations", value: data.export_lane.total_authorizations },
+              { label: "NLR Path", value: data.export_lane.posture_distribution.likely_nlr || 0 },
+              { label: "License Req'd", value: data.export_lane.pending_license_applications },
+            ]}
+            chart={
+              data.export_lane.posture_distribution && Object.keys(data.export_lane.posture_distribution).length > 0 ? (
+                <PostureDistributionChart data={data.export_lane.posture_distribution} />
+              ) : undefined
+            }
+            recentItems={
+              data.export_lane.recent_authorizations?.map((a) => ({
+                id: a.case_id,
+                label: `${a.vendor_name} · ${formatTimestampLabel(a.created_at)}`,
+                status: a.recommendation,
+              })) || []
+            }
+          />
+
+          <LaneSummaryCard
+            title="Cyber lane"
+            subtitle="Graph density, dependency watch, and centrality pressure"
+            metrics={[
+              { label: "Entities", value: data.cyber_lane.entities_in_graph },
+              { label: "Relationships", value: data.cyber_lane.relationships },
+              { label: "Communities", value: data.cyber_lane.communities },
+            ]}
+            recentItems={
+              data.cyber_lane.high_centrality_entities?.map((e) => ({
+                id: e.entity_id,
+                label: e.name,
+                status: `${e.relationship_count} rels`,
+              })) || []
+            }
+          />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)] gap-4">
+          {data.counterparty_lane.risk_trend && data.counterparty_lane.risk_trend.length > 0 ? (
+            <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
+              <div style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-2">
+                Queue drift
+              </div>
+              <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
+                Counterparty risk trend, last 30 days
+              </h3>
+              <RiskTrendChart data={data.counterparty_lane.risk_trend} />
+            </div>
+          ) : (
+            <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
+              <h3 style={{ color: T.text }} className="text-lg font-semibold mb-2">
+                Counterparty risk trend
+              </h3>
+              <p style={{ color: T.muted }} className="text-sm">
+                No trend data is available yet.
+              </p>
+            </div>
+          )}
+          <InsightsPanel insights={data.cross_lane_insights} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)] gap-4">
+          <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
+            <div style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-2">
+              Network health
+            </div>
+            <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
+              Graph coverage snapshot
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <KPICard label="Entities" value={data.cyber_lane.entities_in_graph} icon={Network} />
+              <KPICard label="Relationships" value={data.cyber_lane.relationships} icon={Network} />
+            </div>
+            <div style={{ color: T.muted }} className="text-sm mt-4 leading-6">
+              {data.cyber_lane.recent_risk_propagations?.length ?? 0} recent propagations are available for analyst review.
+            </div>
+          </div>
+          <ActivityFeed items={data.activity_feed} />
+        </div>
+
+        <div style={{ color: T.muted }} className="text-xs text-center">
+          Last updated: {formatTimestampLabel(data.summary.timestamp)}
+        </div>
       </div>
     </div>
   );
