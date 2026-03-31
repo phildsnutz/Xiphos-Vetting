@@ -20,6 +20,15 @@ from graph_ingest import get_vendor_graph_summary  # type: ignore  # noqa: E402
 from monitor_scheduler import MonitorScheduler  # type: ignore  # noqa: E402
 
 
+_DEFAULT_EXCLUDED_NAME_TOKENS = (
+    "DEPLOY_VERIFY",
+    "READINESS",
+    "TEST",
+    "CI ",
+    "SEEDED",
+)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Queue a monitoring sweep for thin vendors.")
     parser.add_argument("--limit", type=int, default=100)
@@ -29,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-relationships", type=int, default=2)
     parser.add_argument("--require-zero-control", action="store_true", default=True)
     parser.add_argument("--allow-nonzero-control", dest="require_zero_control", action="store_false")
+    parser.add_argument("--exclude-name-token", action="append", default=list(_DEFAULT_EXCLUDED_NAME_TOKENS))
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -43,12 +53,20 @@ def _row_matches(row: dict[str, object], args: argparse.Namespace) -> bool:
     return True
 
 
+def _vendor_is_excluded(vendor: dict[str, object], args: argparse.Namespace) -> bool:
+    name = str(vendor.get("name") or "").upper()
+    tokens = [str(item).upper() for item in (args.exclude_name_token or []) if str(item).strip()]
+    return any(token in name for token in tokens)
+
+
 def _select_thin_vendor_rows(args: argparse.Namespace) -> list[dict[str, object]]:
     vendors = db.list_vendors(limit=max(int(args.scan_limit or 0), 1))
     rows: list[dict[str, object]] = []
     for vendor in vendors:
         vendor_id = str(vendor.get("id") or "")
         if not vendor_id:
+            continue
+        if _vendor_is_excluded(vendor, args):
             continue
         summary = get_vendor_graph_summary(vendor_id, depth=args.depth, include_provenance=False)
         intelligence = summary.get("intelligence") or {}
@@ -82,6 +100,7 @@ def main() -> int:
             "max_relationships": int(args.max_relationships),
             "require_zero_control": bool(args.require_zero_control),
             "depth": int(args.depth),
+            "exclude_name_tokens": [str(item) for item in (args.exclude_name_token or []) if str(item).strip()],
         },
     }
     if args.dry_run:

@@ -37,9 +37,39 @@ def test_select_thin_vendor_rows_stops_after_limit(monkeypatch):
         max_root_entities=1,
         max_relationships=2,
         require_zero_control=True,
+        exclude_name_token=[],
     )
 
     rows = module._select_thin_vendor_rows(args)
 
     assert [row["vendor_id"] for row in rows] == ["v-1", "v-2"]
     assert calls == ["v-1", "v-2"]
+
+
+def test_select_thin_vendor_rows_skips_synthetic_names(monkeypatch):
+    vendors = [
+        {"id": "v-1", "name": "DEPLOY_VERIFY"},
+        {"id": "v-2", "name": "Real Vendor"},
+    ]
+    calls: list[str] = []
+    monkeypatch.setattr(module.db, "list_vendors", lambda limit=10000: vendors)
+
+    def fake_summary(vendor_id, depth=3, include_provenance=False):
+        calls.append(vendor_id)
+        return {"root_entity_ids": [f"root:{vendor_id}"], "relationship_count": 0, "intelligence": {"control_path_count": 0}}
+
+    monkeypatch.setattr(module, "get_vendor_graph_summary", fake_summary)
+    args = module.argparse.Namespace(
+        limit=1,
+        depth=3,
+        scan_limit=10000,
+        max_root_entities=1,
+        max_relationships=2,
+        require_zero_control=True,
+        exclude_name_token=["DEPLOY_VERIFY"],
+    )
+
+    rows = module._select_thin_vendor_rows(args)
+
+    assert [row["vendor_id"] for row in rows] == ["v-2"]
+    assert calls == ["v-2"]
