@@ -288,6 +288,46 @@ def _relationship_authority_bucket(rel: dict[str, Any]) -> str:
     return "unspecified"
 
 
+def _relationship_authority_levels(rel: dict[str, Any]) -> set[str]:
+    authority_levels: set[str] = set()
+    for claim_record in rel.get("claim_records") or []:
+        if not isinstance(claim_record, dict):
+            continue
+        structured = claim_record.get("structured_fields") if isinstance(claim_record.get("structured_fields"), dict) else {}
+        claim_authority = str(structured.get("authority_level") or "").strip().lower()
+        if claim_authority:
+            authority_levels.add(claim_authority)
+        for evidence_record in claim_record.get("evidence_records") or []:
+            if not isinstance(evidence_record, dict):
+                continue
+            authority = str(evidence_record.get("authority_level") or "").strip().lower()
+            if authority:
+                authority_levels.add(authority)
+    return authority_levels
+
+
+def _public_ownership_restraint_applies(
+    rel: dict[str, Any],
+    *,
+    primary_family: str,
+    authority_bucket: str,
+    corroboration_count: int,
+) -> bool:
+    if primary_family != "ownership_control":
+        return False
+    rel_type = str(rel.get("rel_type") or "").strip().lower()
+    if rel_type not in {REL_OWNED_BY, REL_BENEFICIALLY_OWNED_BY}:
+        return False
+    if authority_bucket != "third_party_public_only":
+        return False
+    authority_levels = _relationship_authority_levels(rel)
+    if "public_registry_aggregator" in authority_levels:
+        return False
+    if corroboration_count > 1:
+        return False
+    return True
+
+
 def _edge_intelligence_primary_family(families: tuple[str, ...]) -> str:
     if not families:
         return "other"
@@ -362,6 +402,14 @@ def score_graph_relationship_intelligence(
     strong_threshold = _EDGE_INTELLIGENCE_THRESHOLDS.get(primary_family, _EDGE_INTELLIGENCE_THRESHOLDS["other"])
     supported_threshold = max(strong_threshold - 0.14, 0.5)
     tentative_threshold = max(strong_threshold - 0.3, 0.35)
+    promotion_restrained = _public_ownership_restraint_applies(
+        rel,
+        primary_family=primary_family,
+        authority_bucket=authority_bucket,
+        corroboration_count=corroboration_count,
+    )
+    if promotion_restrained:
+        score = min(score, max(tentative_threshold + 0.02, 0.42))
     if temporal_state == "contradicted":
         tier = "disputed"
     elif score >= strong_threshold:
@@ -386,6 +434,7 @@ def score_graph_relationship_intelligence(
         "claim_backed": claim_backed,
         "evidence_backed": evidence_backed,
         "corroboration_count": corroboration_count,
+        "promotion_restrained": promotion_restrained,
         "primary_edge_family": primary_family,
         "edge_families": list(families),
     }

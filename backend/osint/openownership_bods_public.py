@@ -8,6 +8,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -70,6 +71,166 @@ def _fetch_json(url: str) -> dict | None:
         return None
 
 
+def _is_datasette_url(url: str) -> bool:
+    return "bods-data-datasette.openownership.org" in str(url or "")
+
+
+def _normalize_datasette_base(url: str) -> str:
+    candidate = str(url or "").strip().rstrip("/")
+    if candidate.endswith(".json"):
+        candidate = candidate[:-5]
+    return candidate
+
+
+def _fetch_datasette_table(base_url: str, table: str, **params) -> tuple[dict | None, str]:
+    query = {"_shape": "objects", **params}
+    encoded = urllib.parse.urlencode(query, doseq=True)
+    url = f"{_normalize_datasette_base(base_url)}/{table}.json?{encoded}"
+    return _fetch_json(url), url
+
+
+def _subject_key(ids: dict) -> str:
+    company_number = str(ids.get("uk_company_number") or ids.get("company_number") or "").strip().upper()
+    if not company_number:
+        return ""
+    return company_number if company_number.startswith("GB-COH-") else f"GB-COH-{company_number}"
+
+
+def _exact_entity_match(row: dict, vendor_name: str, country: str, ids: dict) -> bool:
+    subject_key = _subject_key(ids)
+    declarationsubject = str(row.get("declarationsubject") or "").strip().upper()
+    recordid = str(row.get("recordid") or "").strip().upper()
+    if subject_key and (declarationsubject == subject_key or subject_key in recordid):
+        return True
+    if _normalize_name(row.get("recorddetails_name", "")) != _normalize_name(vendor_name):
+        return False
+    country_code = str(country or "").strip().upper()
+    if country_code and str(row.get("recorddetails_jurisdiction_code") or "").strip().upper() not in {"", country_code}:
+        return False
+    return True
+
+
+def _pick_datasette_entity_row(base_url: str, vendor_name: str, country: str, ids: dict) -> tuple[dict | None, str]:
+    search_terms: list[str] = []
+    subject_key = _subject_key(ids)
+    if subject_key:
+        search_terms.append(subject_key)
+    if vendor_name:
+        search_terms.append(vendor_name)
+    seen_terms: set[str] = set()
+    for term in search_terms:
+        normalized = str(term or "").strip()
+        if not normalized or normalized in seen_terms:
+            continue
+        seen_terms.add(normalized)
+        payload, request_url = _fetch_datasette_table(base_url, "entity_statement", _search=normalized, _size=12)
+        rows = payload.get("rows") if isinstance(payload, dict) else []
+        for row in rows or []:
+            if isinstance(row, dict) and _exact_entity_match(row, vendor_name, country, ids):
+                return row, request_url
+    return None, ""
+
+
+def _resolve_datasette_party(base_url: str, record_key: str) -> dict:
+    candidate = str(record_key or "").strip()
+    if not candidate:
+        return {"name": "", "entity_type": "holding_company", "country": "", "identifiers": {}}
+    for table, entity_type in (("entity_statement", "holding_company"), ("person_statement", "person")):
+        payload, _request_url = _fetch_datasette_table(base_url, table, _search=candidate, _size=8)
+        rows = payload.get("rows") if isinstance(payload, dict) else []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            exact = {
+                str(row.get("_link") or "").strip(),
+                str(row.get("statementid") or "").strip(),
+                str(row.get("recordid") or "").strip(),
+                str(row.get("declarationsubject") or "").strip(),
+            }
+            if candidate not in exact:
+                continue
+            identifiers: dict[str, str] = {}
+            declarationsubject = str(row.get("declarationsubject") or "").strip()
+            if declarationsubject.startswith("GB-COH-"):
+                identifiers["uk_company_number"] = declarationsubject.removeprefix("GB-COH-")
+            return {
+                "name": str(row.get("recorddetails_name") or candidate),
+                "entity_type": entity_type,
+                "country": str(row.get("recorddetails_jurisdiction_code") or "").strip(),
+                "identifiers": identifiers,
+            }
+    return {"name": candidate, "entity_type": "holding_company", "country": "", "identifiers": {}}
+
+
+def _relationship_directness(interests: list[dict]) -> str:
+    values = {str(item.get("directorindirect") or "").strip().lower() for item in interests if isinstance(item, dict)}
+    if "direct" in values:
+        return "direct"
+    if "indirect" in values:
+        return "indirect"
+    return "indirect"
+
+
+def _record_from_datasette(base_url: str, vendor_name: str, country: str, ids: dict) -> tuple[dict | None, str]:
+    entity_row, request_url = _pick_datasette_entity_row(base_url, vendor_name, country, ids)
+    if not isinstance(entity_row, dict):
+        return None, ""
+
+    subject_key = str(entity_row.get("declarationsubject") or "").strip()
+    payload, rel_request_url = _fetch_datasette_table(base_url, "relationship_statement", _search=subject_key, _size=50)
+    relationship_rows = payload.get("rows") if isinstance(payload, dict) else []
+    statements: list[dict] = []
+    for relationship_row in relationship_rows or []:
+        if not isinstance(relationship_row, dict):
+            continue
+        if str(relationship_row.get("recorddetails_subject") or "").strip() != subject_key:
+            continue
+        rel_link = str(relationship_row.get("_link") or "").strip()
+        interests_payload, _interest_request_url = _fetch_datasette_table(
+            base_url,
+            "relationship_recordDetails_interests",
+            _search=rel_link,
+            _size=12,
+        )
+        interests = [
+            item
+            for item in ((interests_payload or {}).get("rows") or [])
+            if isinstance(item, dict) and str(item.get("_link_relationship_statement") or "").strip() == rel_link
+        ]
+        interested_party = _resolve_datasette_party(base_url, str(relationship_row.get("recorddetails_interestedparty") or ""))
+        statements.append(
+            {
+                "statement_id": str(relationship_row.get("statementid") or relationship_row.get("recordid") or rel_link),
+                "statement_type": "ownershipOrControlStatement",
+                "direct_or_indirect": _relationship_directness(interests),
+                "interests": [str(item.get("type") or "").strip() for item in interests if str(item.get("type") or "").strip()],
+                "interested_party": interested_party,
+                "evidence": str(relationship_row.get("source_url") or rel_request_url),
+            }
+        )
+
+    if not statements:
+        return None, ""
+
+    subject_identifiers: dict[str, str] = {}
+    if subject_key.startswith("GB-COH-"):
+        subject_identifiers["uk_company_number"] = subject_key.removeprefix("GB-COH-")
+    return (
+        {
+            "record_id": str(entity_row.get("recordid") or subject_key),
+            "name": str(entity_row.get("recorddetails_name") or vendor_name),
+            "country": str(entity_row.get("recorddetails_jurisdiction_code") or country or "").strip().upper(),
+            "subject": {
+                "name": str(entity_row.get("recorddetails_name") or vendor_name),
+                "entity_type": "company",
+                "identifiers": subject_identifiers,
+            },
+            "statements": statements,
+        },
+        request_url,
+    )
+
+
 def _load_json_path(path: str) -> dict | None:
     dataset_path = Path(path).expanduser()
     if not dataset_path.exists():
@@ -117,6 +278,8 @@ def _load_payload(ids: dict) -> tuple[dict | None, str]:
         if payload is not None:
             return payload, str(Path(dataset_path).expanduser().resolve())
     dataset_url = _get_dataset_url(ids)
+    if dataset_url and _is_datasette_url(dataset_url):
+        return {"datasette_url": _normalize_datasette_base(dataset_url)}, _normalize_datasette_base(dataset_url)
     if dataset_url:
         return _fetch_json(dataset_url), dataset_url
     return None, ""
@@ -158,6 +321,14 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         result.error = "Unable to fetch public Open Ownership dataset"
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
         return result
+
+    if payload.get("datasette_url"):
+        record, record_ref = _record_from_datasette(str(payload.get("datasette_url") or dataset_ref), vendor_name, country, ids)
+        if not isinstance(record, dict):
+            result.elapsed_ms = int((time.perf_counter() - started) * 1000)
+            return result
+        payload = {"records": [record]}
+        dataset_ref = record_ref or dataset_ref
 
     records = payload.get("records")
     if not isinstance(records, list):
@@ -229,7 +400,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     "dataset_ref": dataset_ref,
                 },
                 "source_class": "public_connector",
-                "authority_level": "third_party_public",
+                "authority_level": "public_registry_aggregator" if _is_datasette_url(dataset_ref) else "third_party_public",
                 "access_model": "public_json",
             }
         )
@@ -267,7 +438,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 }
             },
             source_class="public_connector",
-            authority_level="third_party_public",
+            authority_level="public_registry_aggregator" if _is_datasette_url(dataset_ref) else "third_party_public",
             access_model="public_json",
         )
     )

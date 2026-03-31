@@ -128,3 +128,73 @@ def test_openownership_public_connector_supports_local_cached_dataset(tmp_path):
     assert result.relationships[0]["type"] == "owned_by"
     assert result.relationships[0]["target_entity"] == "North Atlantic Defense Holdings LLP"
     assert result.artifact_refs == [str(cache_path.resolve())]
+
+
+def test_openownership_public_connector_supports_datasette_lookup(monkeypatch):
+    from osint import openownership_bods_public
+
+    def fake_fetch(url: str):
+        if "entity_statement" in url and "_search=GB-COH-09876543" in url:
+            return {
+                "rows": [
+                    {
+                        "_link": "ent-1",
+                        "statementid": "stmt-ent-1",
+                        "declarationsubject": "GB-COH-09876543",
+                        "recordid": "GB-COH-ENT-09876543-abc",
+                        "recorddetails_name": "North Sea Mission Analytics Ltd",
+                        "recorddetails_jurisdiction_code": "GB",
+                    }
+                ]
+            }
+        if "relationship_statement" in url and "_search=GB-COH-09876543" in url:
+            return {
+                "rows": [
+                    {
+                        "_link": "rel-1",
+                        "statementid": "stmt-rel-1",
+                        "declarationsubject": "GB-COH-09876543",
+                        "recorddetails_subject": "GB-COH-09876543",
+                        "recorddetails_interestedparty": "GB-COH-PER-09876543-owner",
+                        "source_url": "https://download.companieshouse.gov.uk/en_output.html",
+                    }
+                ]
+            }
+        if "relationship_recordDetails_interests" in url and "_search=rel-1" in url:
+            return {
+                "rows": [
+                    {
+                        "_link_relationship_statement": "rel-1",
+                        "directorindirect": "indirect",
+                        "type": "shareholding",
+                    }
+                ]
+            }
+        if "person_statement" in url and "_search=GB-COH-PER-09876543-owner" in url:
+            return {
+                "rows": [
+                    {
+                        "_link": "per-1",
+                        "statementid": "stmt-per-1",
+                        "recordid": "GB-COH-PER-09876543-owner",
+                        "recorddetails_name": "Caledonia Family Trust",
+                    }
+                ]
+            }
+        return {"rows": []}
+
+    monkeypatch.setattr(openownership_bods_public, "_fetch_json", fake_fetch)
+
+    result = openownership_bods_public.enrich(
+        "North Sea Mission Analytics Ltd",
+        country="GB",
+        openownership_bods_url="https://bods-data-datasette.openownership.org/uk_version_0_4",
+        uk_company_number="09876543",
+    )
+
+    assert result.has_data
+    assert result.identifiers["uk_company_number"] == "09876543"
+    assert result.identifiers["openownership_bods_url"] == "https://bods-data-datasette.openownership.org/uk_version_0_4/entity_statement.json?_shape=objects&_search=GB-COH-09876543&_size=12"
+    assert result.relationships[0]["type"] == "beneficially_owned_by"
+    assert result.relationships[0]["target_entity"] == "Caledonia Family Trust"
+    assert result.relationships[0]["authority_level"] == "public_registry_aggregator"

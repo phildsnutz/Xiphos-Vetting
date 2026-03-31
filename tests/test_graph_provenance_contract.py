@@ -400,6 +400,34 @@ def test_graph_intelligence_summary_accepts_external_ownership_coverage():
     assert summary["missing_required_edge_families"] == []
 
 
+def test_public_only_single_source_ownership_edge_is_restrained():
+    graph_ingest = _reload_graph_ingest()
+
+    scored = graph_ingest.score_graph_relationship_intelligence(
+        {
+            "source_entity_id": "entity:vendor",
+            "target_entity_id": "entity:owner",
+            "rel_type": "owned_by",
+            "confidence": 0.78,
+            "corroboration_count": 1,
+            "claim_records": [
+                {
+                    "structured_fields": {"authority_level": "third_party_public"},
+                    "evidence_records": [
+                        {
+                            "authority_level": "third_party_public",
+                            "url": "https://news.example.test/owner",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert scored["promotion_restrained"] is True
+    assert scored["intelligence_tier"] in {"tentative", "fragile"}
+
+
 def test_ingest_enrichment_to_graph_models_case_input_relationships(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
     monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos.db"))
