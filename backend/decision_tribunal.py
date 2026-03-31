@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from learned_weighting import get_tribunal_model, predict_tribunal_probabilities
+from learned_weighting import (
+    assess_tribunal_prediction,
+    get_tribunal_model,
+    predict_tribunal_probabilities,
+)
 
 
 _VIEW_ORDER = {"deny": 0, "watch": 1, "approve": 2}
@@ -568,6 +572,7 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
     ]
     heuristic_scores = {str(view["stance"]): float(view["score"]) for view in views}
     learned_probabilities = predict_tribunal_probabilities(signals, heuristic_scores)
+    calibration = assess_tribunal_prediction(signals, heuristic_scores)
     tribunal_model = get_tribunal_model()
     if learned_probabilities:
         for view in views:
@@ -597,6 +602,9 @@ def build_decision_tribunal_from_signals(signal_packet: dict[str, Any]) -> dict[
         "consensus_level": consensus,
         "decision_gap": gap,
         "score_training_count": score_training_count,
+        "decision_posture": str((calibration or {}).get("decision_posture") or "confident"),
+        "requires_human_escalation": bool((calibration or {}).get("requires_human_escalation")),
+        "calibration_band": calibration or {},
         "signal_snapshot": signals,
         "views": ordered,
     }

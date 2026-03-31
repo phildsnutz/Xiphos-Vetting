@@ -87,10 +87,14 @@ Why this is better:
 - explanations stay explicit because the heuristic rationale layer is still preserved in each view
 - ranking and recommendation now depend on probabilistic stance scores
 
+Current wisdom upgrade:
+
+- abstain / escalate bands now come from the empirical distribution of training confidence, margin, and entropy rather than a hand-picked score cutoff
+
 Next upgrade:
 
 - train from real analyst decision history in addition to fixtures
-- learn an abstain / escalate band
+- apply temperature scaling or isotonic calibration on a held-out replay set
 - apply utility-aware decision thresholds by lane
 
 ### 3. Network Propagation
@@ -99,20 +103,30 @@ Current heuristic surface:
 
 - `/Users/tyegonzalez/Desktop/Helios-Package Merged/backend/network_risk.py`
 
-Current issue:
+Previous state:
 
-- propagation strengths are still encoded as fixed relation-family weights
+- propagation strengths were encoded as fixed relation-family weights and a fixed confidence cutoff
 
-Recommended replacement:
+Current replacement:
 
-- learn relation-family propagation coefficients from known downstream outcomes
-- express path aggregation in log-probability space
-- calibrate by lane and mission type
+- `/Users/tyegonzalez/Desktop/Helios-Package Merged/backend/network_risk.py`
+- edge eligibility now depends on whether the relationship clears its empirical family trust floor
+- propagation strength now combines:
+  - learned edge truth or intelligence score
+  - empirical Bayes family reliability
+  - harmonic hop decay
 
-Near-term approach:
+Why this is better:
 
-- bootstrap from current weights as priors
-- fit regularized coefficients from replay packs and reviewed cases
+- weak public-noise edges stop carrying the same downstream risk as supported ownership or legal edges
+- the graph no longer hides a hard-coded confidence floor inside propagation
+- path strength is now anchored to the same evidence-aware edge model used elsewhere
+
+Next upgrade:
+
+- learn relation-family propagation coefficients from reviewed downstream outcomes
+- move path aggregation fully into log-probability space for multi-hop risk
+- calibrate by workflow lane and mission class
 
 ### 4. Graph Analytics
 
@@ -120,15 +134,26 @@ Current heuristic surface:
 
 - `/Users/tyegonzalez/Desktop/Helios-Package Merged/backend/graph_analytics.py`
 
-Current issue:
+Previous state:
 
-- centrality and exposure metrics still treat weak and strong edges too similarly
+- centrality and exposure metrics treated weak and strong edges too similarly, especially in shortest-path-style metrics
 
-Recommended replacement:
+Current replacement:
 
-- use `intelligence_score` as the default edge strength
-- allow task-conditioned weights depending on the workflow lane
-- separate structural centrality from decision centrality
+- `/Users/tyegonzalez/Desktop/Helios-Package Merged/backend/graph_analytics.py`
+- degree, PageRank, sanctions exposure, and composite importance now use `intelligence_score`
+- weighted closeness and weighted betweenness now compute shortest paths using inverse edge trust instead of assuming every edge has equal cost
+
+Why this is better:
+
+- broker nodes supported by strong control paths rise above nodes connected mostly by noise
+- weak co-mention edges stop warping exposure and path-based influence metrics
+- graph structure is now closer to trust-aware network analysis than raw topology counting
+
+Next upgrade:
+
+- expose both structural centrality and decision centrality to the frontend
+- learn lane-conditioned centrality blends instead of using one composite everywhere
 
 ### 5. Analyst Queue Ranking
 

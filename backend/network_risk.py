@@ -2,76 +2,35 @@
 Network Risk Propagation Engine
 
 Computes a "Network Risk Score" for each vendor based on the aggregate risk
-of its graph neighbors, weighted by relationship confidence and hop distance.
+of its graph neighbors, weighted by learned edge intelligence and hop distance.
 
 Design principles:
   - Informational overlay (Stage 1): does NOT modify the FGAMLogit score
   - Bidirectional: risk flows subsidiary -> parent AND parent -> subsidiary
   - Capped at +/- 5 points to prevent runaway cascading
-  - Minimum confidence threshold: 0.70 (filters out noisy inferences)
+  - Propagation only crosses edges that clear their empirical family trust floor
   - Maximum 2 hops (direct neighbors + one hop further)
   - Explainable: every score modifier includes an evidence trail
 
-Relationship weight matrix (how much risk propagates by relationship type):
-  subsidiary_of:     0.80 (parent-subsidiary liability is well-established)
-  subcontractor_of:  0.50 (supply chain risk)
-  contracts_with:    0.30 (shared-agency exposure, weaker link)
-  litigant_in:       0.20 (co-litigation doesn't imply shared risk strongly)
-  mentioned_with:    0.10 (news co-mentions are weakest signal)
+Propagation posture:
+  - relation strength comes from fixture-backed family reliability
+  - edge truth comes from the learned intelligence score
+  - longer paths decay harmonically rather than by another hand-tuned table
 """
 
 import logging
 import os
 from typing import Optional
 
+from graph_ingest import annotate_graph_relationship_intelligence
+from learned_weighting import get_edge_family_reliability_profile
+
 logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────
 
 MAX_MODIFIER_POINTS = 5.0      # Cap on absolute score adjustment
-MIN_CONFIDENCE = 0.70          # Minimum relationship confidence for propagation
 MAX_HOPS = 2                   # Maximum traversal depth
-HOP_DECAY = 0.5               # Risk halves per additional hop
-
-# How much of a neighbor's risk propagates through each relationship type
-# Higher = stronger risk transmission pathway
-RELATIONSHIP_WEIGHTS = {
-    "subsidiary_of":           0.80,
-    "subcontractor_of":        0.50,
-    "prime_contractor_of":     0.50,
-    "contracts_with":          0.30,
-    "litigant_in":             0.20,
-    "filed_with":              0.15,
-    "mentioned_with":          0.10,
-    "regulated_by":            0.10,
-    "related_entity":          0.10,
-    "alias_of":                0.05,
-    "former_name":             0.00,  # Name changes don't propagate risk
-    "officer_of":              0.40,
-    "led_by":                  0.55,  # Executive leadership creates a weaker but meaningful control path
-    "sanctioned_on":           0.60,  # Co-listed on same sanctions list = strong signal
-    "has_vulnerability":       0.65,  # Cyber weaknesses on linked products materially matter
-    "uses_product":            0.35,  # Product adjacency is weaker than direct ownership
-    "supplies_component":      0.55,  # Direct component supply into a vendor's stack
-    "supplies_component_to":   0.70,  # Supplying a critical subsystem is a strong pathway
-    "integrated_into":         0.60,  # Component-to-subsystem placement is meaningful
-    "owned_by":                0.85,  # Ownership/control propagates strongly
-    "beneficially_owned_by":   0.95,  # Hidden control is one of the strongest signals
-    "backed_by":               0.45,  # Financial backers create weaker but real influence paths
-    "depends_on_network":      0.55,  # Telecom and network dependencies create control-path risk
-    "routes_payment_through":  0.45,  # Banking and trade-finance intermediaries matter materially
-    "distributed_by":          0.40,  # Distributors are a weaker but real insertion path
-    "operates_facility":       0.35,  # Facilities matter, but less than control/ownership
-    "ships_via":               0.35,  # Logistics routes affect diversion and interdiction risk
-    "depends_on_service":      0.45,  # Service dependence creates cyber/control-path risk
-    # Person screening relationship types
-    "employed_by":             0.55,  # Employer risk propagates to employee and vice versa
-    "sanctioned_person":       0.90,  # Person-level sanctions hit = very strong propagation
-    "deemed_export_subject":   0.70,  # Deemed export concern propagates
-    "co_national":             0.05,  # Shared nationality = very weak signal alone
-    "national_of":             0.00,  # Country membership doesn't propagate risk
-    "screened_for":            0.00,  # Case association doesn't propagate risk
-}
 
 # Risk thresholds for classifying neighbor risk level
 RISK_THRESHOLDS = {
@@ -135,9 +94,15 @@ def compute_network_risk(vendor_id: str) -> dict:
 
         # Get 2-hop network
         primary_id = getattr(primary, "id", getattr(primary, "entity_id", ""))
-        network = kg.get_entity_network(primary_id, depth=MAX_HOPS, include_provenance=False)
+        network = kg.get_entity_network(
+            primary_id,
+            depth=MAX_HOPS,
+            include_provenance=True,
+            max_claim_records=2,
+            max_evidence_records=2,
+        )
         all_entities = network.get("entities", {})
-        all_relationships = network.get("relationships", [])
+        all_relationships = annotate_graph_relationship_intelligence(network.get("relationships", []))
 
         if not all_relationships:
             return _empty_result(vendor_id, "No relationships in graph")
@@ -160,20 +125,25 @@ def compute_network_risk(vendor_id: str) -> dict:
                 continue
 
             # Find all relationships involving this entity (bidirectional)
-            neighbors = _get_neighbors(current_id, all_relationships)
+            neighbors = _get_neighbor_records(current_id, all_relationships)
 
-            for neighbor_id, rel_type, confidence, direction in neighbors:
+            for neighbor in neighbors:
+                neighbor_id = neighbor["neighbor_id"]
+                rel_type = neighbor["rel_type"]
+                confidence = float(neighbor["confidence"])
+                direction = neighbor["direction"]
+                relationship = neighbor["relationship"]
                 if neighbor_id in visited:
                     continue
-                if confidence < MIN_CONFIDENCE:
+                if not _edge_is_propagation_eligible(relationship):
                     continue
 
                 visited.add(neighbor_id)
 
-                # Compute propagation weight
-                rel_weight = RELATIONSHIP_WEIGHTS.get(rel_type, 0.10)
-                hop_factor = HOP_DECAY ** hop
-                prop_weight = weight * rel_weight * confidence * hop_factor
+                edge_strength = _edge_strength(relationship)
+                propagation_prior = _propagation_prior(relationship)
+                hop_factor = _hop_decay_factor(hop)
+                prop_weight = weight * edge_strength * propagation_prior * hop_factor
 
                 # Get the neighbor's risk score
                 neighbor_entity = all_entities.get(neighbor_id, {})
@@ -211,6 +181,8 @@ def compute_network_risk(vendor_id: str) -> dict:
                         "vendor_id": neighbor_vendor_id,
                         "risk_score_pct": neighbor_risk,
                         "propagation_weight": round(prop_weight, 4),
+                        "edge_strength": round(edge_strength, 4),
+                        "propagation_prior": round(propagation_prior, 4),
                         "contribution": round(contribution, 4),
                         "rel_type": rel_type,
                         "confidence": confidence,
@@ -262,6 +234,7 @@ def compute_network_risk(vendor_id: str) -> dict:
             "high_risk_neighbors": high_risk_count,
             "graph_density": round(graph_density, 2),
             "confidence": round(avg_confidence, 2),
+            "propagation_model": "empirical_bayes_edge_intelligence_v1",
             "total_entities_analyzed": len(all_entities),
             "total_relationships_analyzed": len(all_relationships),
             "uncapped_modifier": round(total_modifier, 2),
@@ -345,6 +318,82 @@ def _get_neighbors(entity_id: str, relationships: list) -> list:
             neighbors.append((src, rel_type, confidence, "incoming"))
 
     return neighbors
+
+
+def _get_neighbor_records(entity_id: str, relationships: list[dict]) -> list[dict]:
+    neighbors: list[dict] = []
+    for relationship in relationships:
+        src = relationship.get("source_entity_id", "")
+        tgt = relationship.get("target_entity_id", "")
+        if src == entity_id:
+            neighbors.append(
+                {
+                    "neighbor_id": tgt,
+                    "rel_type": str(relationship.get("rel_type") or ""),
+                    "confidence": float(relationship.get("confidence") or 0.5),
+                    "direction": "outgoing",
+                    "relationship": relationship,
+                }
+            )
+        elif tgt == entity_id:
+            neighbors.append(
+                {
+                    "neighbor_id": src,
+                    "rel_type": str(relationship.get("rel_type") or ""),
+                    "confidence": float(relationship.get("confidence") or 0.5),
+                    "direction": "incoming",
+                    "relationship": relationship,
+                }
+            )
+    return neighbors
+
+
+def _hop_decay_factor(hop: int) -> float:
+    return 1.0 / float(hop + 1)
+
+
+def _edge_strength(relationship: dict) -> float:
+    strength = float(
+        relationship.get("learned_truth_probability")
+        or relationship.get("intelligence_score")
+        or relationship.get("confidence")
+        or 0.0
+    )
+    return max(0.0, min(strength, 1.0))
+
+
+def _edge_is_propagation_eligible(relationship: dict) -> bool:
+    edge_strength = _edge_strength(relationship)
+    profile = get_edge_family_reliability_profile()
+    if profile is None:
+        return edge_strength >= 0.5
+    family = str(
+        relationship.get("primary_edge_family")
+        or (
+            (relationship.get("edge_families") or ["other"])[0]
+            if isinstance(relationship.get("edge_families"), list)
+            else "other"
+        )
+        or "other"
+    )
+    family_floor = float(profile.posterior_mean_by_family.get(family, profile.global_posterior_mean))
+    return edge_strength >= family_floor
+
+
+def _propagation_prior(relationship: dict) -> float:
+    profile = get_edge_family_reliability_profile()
+    if profile is None:
+        return 0.5
+    family = str(
+        relationship.get("primary_edge_family")
+        or (
+            (relationship.get("edge_families") or ["other"])[0]
+            if isinstance(relationship.get("edge_families"), list)
+            else "other"
+        )
+        or "other"
+    )
+    return float(profile.posterior_mean_by_family.get(family, profile.global_posterior_mean))
 
 
 def _get_all_vendor_scores(db_mod) -> dict:

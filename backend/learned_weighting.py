@@ -80,6 +80,17 @@ class SoftmaxModel:
     biases: tuple[float, ...]
     classes: tuple[str, ...]
     training_count: int
+    confidence_floor: float
+    margin_floor: float
+    entropy_ceiling: float
+    mean_brier: float
+
+
+@dataclass(frozen=True)
+class FamilyReliabilityProfile:
+    posterior_mean_by_family: dict[str, float]
+    global_posterior_mean: float
+    training_count: int
 
 
 def _sigmoid(values):
@@ -165,6 +176,19 @@ def _best_threshold(probabilities: np.ndarray, labels: np.ndarray) -> float:
             best_f1 = f1
             best_threshold = threshold
     return round(float(best_threshold), 4)
+
+
+def _mean_brier_multiclass(probabilities: np.ndarray, labels: np.ndarray) -> float:
+    one_hot = np.eye(probabilities.shape[1])[labels]
+    squared = np.sum((probabilities - one_hot) ** 2, axis=1)
+    return float(np.mean(squared))
+
+
+def _normalized_entropy(probabilities: np.ndarray) -> np.ndarray:
+    clipped = np.clip(probabilities, 1e-12, 1.0)
+    entropy = -np.sum(clipped * np.log(clipped), axis=1)
+    max_entropy = np.log(probabilities.shape[1]) if probabilities.shape[1] > 1 else 1.0
+    return entropy / max(max_entropy, 1e-12)
 
 
 def _map_source_authority_to_bucket(source_authority: str) -> str:
@@ -552,6 +576,17 @@ def get_tribunal_model() -> SoftmaxModel | None:
     label_array = np.array(labels, dtype=int)
     means, scales, standardized = _standardize_fit(matrix)
     weights, biases = _fit_softmax(standardized, label_array)
+    probabilities = _softmax(standardized @ weights + biases)
+    true_probs = probabilities[np.arange(len(label_array)), label_array]
+    sorted_probs = np.sort(probabilities, axis=1)
+    top_probs = sorted_probs[:, -1]
+    runner_up_probs = sorted_probs[:, -2] if probabilities.shape[1] > 1 else np.zeros(len(label_array), dtype=float)
+    margins = top_probs - runner_up_probs
+    entropies = _normalized_entropy(probabilities)
+    confidence_floor = float(np.quantile(true_probs, 0.2))
+    margin_floor = float(np.quantile(margins, 0.2))
+    entropy_ceiling = float(np.quantile(entropies, 0.8))
+    mean_brier = _mean_brier_multiclass(probabilities, label_array)
 
     return SoftmaxModel(
         feature_names=tuple(feature_names or []),
@@ -561,6 +596,10 @@ def get_tribunal_model() -> SoftmaxModel | None:
         biases=tuple(float(value) for value in biases.tolist()),
         classes=TRIBUNAL_CLASSES,
         training_count=len(rows),
+        confidence_floor=round(confidence_floor, 4),
+        margin_floor=round(margin_floor, 4),
+        entropy_ceiling=round(entropy_ceiling, 4),
+        mean_brier=round(mean_brier, 4),
     )
 
 
@@ -578,3 +617,79 @@ def predict_tribunal_probabilities(signal_packet: dict[str, Any], heuristic_scor
         stance: round(float(probability), 4)
         for stance, probability in zip(model.classes, probabilities.tolist())
     }
+
+
+def assess_tribunal_prediction(signal_packet: dict[str, Any], heuristic_scores: dict[str, float] | None = None) -> dict[str, Any] | None:
+    model = get_tribunal_model()
+    probabilities = predict_tribunal_probabilities(signal_packet, heuristic_scores)
+    if model is None or probabilities is None:
+        return None
+    ranked = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
+    top_view, top_prob = ranked[0]
+    runner_up_prob = float(ranked[1][1]) if len(ranked) > 1 else 0.0
+    margin = float(top_prob) - runner_up_prob
+    probability_vector = np.array([[float(probabilities[stance]) for stance in model.classes]], dtype=float)
+    entropy = float(_normalized_entropy(probability_vector)[0])
+    below_confidence_floor = float(top_prob) < float(model.confidence_floor)
+    below_margin_floor = margin < float(model.margin_floor)
+    above_entropy_ceiling = entropy > float(model.entropy_ceiling)
+    failed_signals = sum((below_confidence_floor, below_margin_floor, above_entropy_ceiling))
+    if failed_signals >= 2:
+        decision_posture = "abstain"
+    elif failed_signals == 1:
+        decision_posture = "escalate"
+    else:
+        decision_posture = "confident"
+    return {
+        "top_view": top_view,
+        "top_probability": round(float(top_prob), 4),
+        "runner_up_probability": round(runner_up_prob, 4),
+        "margin": round(margin, 4),
+        "confidence_floor": float(model.confidence_floor),
+        "margin_floor": float(model.margin_floor),
+        "entropy": round(entropy, 4),
+        "entropy_ceiling": float(model.entropy_ceiling),
+        "mean_brier": float(model.mean_brier),
+        "decision_posture": decision_posture,
+        "requires_human_escalation": decision_posture in {"abstain", "escalate"},
+    }
+
+
+@lru_cache(maxsize=1)
+def get_edge_family_reliability_profile() -> FamilyReliabilityProfile | None:
+    if np is None:  # pragma: no cover
+        return None
+    rows = _build_edge_truth_training_rows()
+    if not rows:
+        return None
+
+    positive_counts: dict[str, int] = {}
+    negative_counts: dict[str, int] = {}
+    total_positive = 0
+    total_negative = 0
+
+    for row in rows:
+        family = str(row.get("edge_family") or "other")
+        label = int(row.get("label") or 0)
+        if label:
+            positive_counts[family] = positive_counts.get(family, 0) + 1
+            total_positive += 1
+        else:
+            negative_counts[family] = negative_counts.get(family, 0) + 1
+            total_negative += 1
+
+    family_scores: dict[str, float] = {}
+    alpha = 1.0
+    beta = 1.0
+    for family in sorted(set(positive_counts) | set(negative_counts) | {"other"}):
+        positives = float(positive_counts.get(family, 0))
+        negatives = float(negative_counts.get(family, 0))
+        posterior_mean = (alpha + positives) / (alpha + beta + positives + negatives)
+        family_scores[family] = round(float(posterior_mean), 4)
+
+    global_posterior = (alpha + total_positive) / (alpha + beta + total_positive + total_negative)
+    return FamilyReliabilityProfile(
+        posterior_mean_by_family=family_scores,
+        global_posterior_mean=round(float(global_posterior), 4),
+        training_count=len(rows),
+    )

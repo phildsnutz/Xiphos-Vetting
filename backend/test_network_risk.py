@@ -344,8 +344,24 @@ class TestComputeNetworkRiskIntegration(unittest.TestCase):
                     "e-neighbor": {"canonical_name": "Bad Neighbor Inc"},
                 },
                 "relationships": [
-                    {"source_entity_id": "e-primary", "target_entity_id": "e-neighbor",
-                     "rel_type": "subsidiary_of", "confidence": 0.90},
+                    {
+                        "source_entity_id": "e-primary",
+                        "target_entity_id": "e-neighbor",
+                        "rel_type": "subsidiary_of",
+                        "confidence": 0.90,
+                        "corroboration_count": 2,
+                        "last_seen_at": "2026-03-28T12:00:00Z",
+                        "claim_records": [
+                            {
+                                "evidence_records": [
+                                    {
+                                        "authority_level": "official_registry",
+                                        "url": "https://example.test/subsidiary",
+                                    }
+                                ]
+                            }
+                        ],
+                    },
                 ],
             },
             vendor_entities=[primary],
@@ -365,6 +381,123 @@ class TestComputeNetworkRiskIntegration(unittest.TestCase):
         self.assertGreater(result["network_risk_score"], 0,
                            "Vendor with high-risk subsidiary neighbor should have positive network risk")
         self.assertIn(result["network_risk_level"], ["medium", "high", "critical"])
+        self.assertEqual(result["propagation_model"], "empirical_bayes_edge_intelligence_v1")
+
+    @patch.object(nr, "_safe_import_kg")
+    @patch.object(nr, "_safe_import_db")
+    @patch.object(nr, "_get_all_vendor_scores")
+    @patch.object(nr, "_map_entities_to_vendors")
+    def test_intelligence_weighted_propagation_penalizes_weak_edges(self, mock_map, mock_scores, mock_db, mock_kg):
+        primary = ResolvedEntity("e-primary", "Primary Corp", "company",
+                                 [], {}, "US", [], 0.95)
+
+        def compute_for_relationship(relationship):
+            mock_kg.return_value = self._build_mock_kg(
+                entities={},
+                network={
+                    "entities": {
+                        "e-primary": {"canonical_name": "Primary Corp"},
+                        "e-neighbor": {"canonical_name": "Neighbor Entity"},
+                    },
+                    "relationships": [relationship],
+                },
+                vendor_entities=[primary],
+            )
+            mock_db.return_value = MagicMock()
+            mock_scores.return_value = {
+                "v-neighbor": {
+                    "calibrated_probability": 0.80,
+                    "calibrated_tier": "TIER_1_DISQUALIFIED",
+                    "composite_score": 90,
+                    "is_hard_stop": True,
+                }
+            }
+            mock_map.return_value = {"e-neighbor": ["v-neighbor"]}
+            return nr.compute_network_risk("v-primary")
+
+        strong_result = compute_for_relationship(
+            {
+                "source_entity_id": "e-primary",
+                "target_entity_id": "e-neighbor",
+                "rel_type": "beneficially_owned_by",
+                "confidence": 0.90,
+                "corroboration_count": 2,
+                "last_seen_at": "2026-03-28T12:00:00Z",
+                "claim_records": [
+                    {
+                        "evidence_records": [
+                            {
+                                "authority_level": "official_registry",
+                                "url": "https://example.test/owner",
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+        weak_result = compute_for_relationship(
+            {
+                "source_entity_id": "e-primary",
+                "target_entity_id": "e-neighbor",
+                "rel_type": "mentioned_with",
+                "confidence": 0.90,
+                "descriptor_only": True,
+                "legacy_unscoped": True,
+                "corroboration_count": 1,
+                "last_seen_at": "2026-03-28T12:00:00Z",
+                "claim_records": [],
+            }
+        )
+
+        self.assertGreater(strong_result["network_risk_score"], weak_result["network_risk_score"])
+        self.assertEqual(weak_result["risk_contributors"], [])
+        self.assertGreater(strong_result["risk_contributors"][0]["edge_strength"], 0.8)
+
+    @patch.object(nr, "_safe_import_kg")
+    @patch.object(nr, "_safe_import_db")
+    @patch.object(nr, "_get_all_vendor_scores")
+    @patch.object(nr, "_map_entities_to_vendors")
+    def test_propagation_requires_edge_to_clear_learned_truth_threshold(self, mock_map, mock_scores, mock_db, mock_kg):
+        primary = ResolvedEntity("e-primary", "Primary Corp", "company",
+                                 [], {}, "US", [], 0.95)
+        mock_kg.return_value = self._build_mock_kg(
+            entities={},
+            network={
+                "entities": {
+                    "e-primary": {"canonical_name": "Primary Corp"},
+                    "e-neighbor": {"canonical_name": "Low Trust Neighbor"},
+                },
+                "relationships": [
+                    {
+                        "source_entity_id": "e-primary",
+                        "target_entity_id": "e-neighbor",
+                        "rel_type": "mentioned_with",
+                        "confidence": 0.95,
+                        "descriptor_only": True,
+                        "legacy_unscoped": True,
+                        "corroboration_count": 1,
+                        "last_seen_at": "2026-03-28T12:00:00Z",
+                        "claim_records": [],
+                    }
+                ],
+            },
+            vendor_entities=[primary],
+        )
+        mock_db.return_value = MagicMock()
+        mock_scores.return_value = {
+            "v-neighbor": {
+                "calibrated_probability": 0.95,
+                "calibrated_tier": "TIER_1_DISQUALIFIED",
+                "composite_score": 99,
+                "is_hard_stop": True,
+            }
+        }
+        mock_map.return_value = {"e-neighbor": ["v-neighbor"]}
+
+        result = nr.compute_network_risk("v-primary")
+
+        self.assertEqual(result["network_risk_score"], 0.0)
+        self.assertEqual(result["risk_contributors"], [])
 
     @patch.object(nr, "_safe_import_kg")
     @patch.object(nr, "_safe_import_db")

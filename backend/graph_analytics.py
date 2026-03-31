@@ -41,11 +41,14 @@ Usage:
     path = analytics.shortest_path(entity_a, entity_b)
 """
 
+import heapq
 import logging
 import math
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Optional
+
+from graph_ingest import annotate_graph_relationship_intelligence
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +111,8 @@ class GraphAnalytics:
                 self.adj[src].append((tgt, idx))
                 self.adj[tgt].append((src, idx))  # Undirected for analytics
 
+        self.edges = annotate_graph_relationship_intelligence(self.edges)
+
         self.loaded = True
         logger.info(f"Graph loaded: {len(self.nodes)} nodes, {len(self.edges)} edges")
         return True
@@ -115,6 +120,58 @@ class GraphAnalytics:
     def _ensure_loaded(self):
         if not self.loaded:
             self.load_graph()
+
+    def _edge_strength(self, edge: dict) -> float:
+        return max(
+            0.0,
+            min(
+                float(
+                    edge.get("learned_truth_probability")
+                    or edge.get("intelligence_score")
+                    or edge.get("confidence")
+                    or 0.0
+                ),
+                1.0,
+            ),
+        )
+
+    def _node_local_edge_strength(self, entity_id: str) -> float:
+        neighbors = self.adj.get(entity_id, [])
+        if not neighbors:
+            return 0.0
+        total = sum(self._edge_strength(self.edges[eidx]) for _, eidx in neighbors)
+        return total / len(neighbors)
+
+    def _edge_distance(self, edge: dict) -> float:
+        return 1.0 / max(self._edge_strength(edge), 1e-6)
+
+    def _weighted_shortest_path_tree(self, source_id: str) -> tuple[list[str], dict[str, list[str]], dict[str, float], dict[str, float]]:
+        stack: list[str] = []
+        predecessors: dict[str, list[str]] = defaultdict(list)
+        path_counts: dict[str, float] = defaultdict(float)
+        path_counts[source_id] = 1.0
+        distances: dict[str, float] = {source_id: 0.0}
+        heap: list[tuple[float, str]] = [(0.0, source_id)]
+
+        while heap:
+            current_distance, current = heapq.heappop(heap)
+            if current_distance > distances.get(current, float("inf")) + 1e-12:
+                continue
+            stack.append(current)
+            for neighbor, eidx in self.adj.get(current, []):
+                edge_distance = self._edge_distance(self.edges[eidx])
+                candidate = current_distance + edge_distance
+                neighbor_distance = distances.get(neighbor, float("inf"))
+                if candidate + 1e-12 < neighbor_distance:
+                    distances[neighbor] = candidate
+                    heapq.heappush(heap, (candidate, neighbor))
+                    path_counts[neighbor] = path_counts[current]
+                    predecessors[neighbor] = [current]
+                elif abs(candidate - neighbor_distance) <= 1e-12:
+                    path_counts[neighbor] += path_counts[current]
+                    predecessors[neighbor].append(current)
+
+        return stack, predecessors, path_counts, distances
 
     # -------------------------------------------------------------------
     # 1. CENTRALITY ANALYSIS
@@ -133,15 +190,21 @@ class GraphAnalytics:
             return {}
 
         result = {}
+        max_weighted = 0.0
         for nid in self.nodes:
             neighbors = self.adj.get(nid, [])
             degree = len(neighbors)
-            weighted = sum(self.edges[eidx]["confidence"] for _, eidx in neighbors)
+            weighted = sum(self._edge_strength(self.edges[eidx]) for _, eidx in neighbors)
+            max_weighted = max(max_weighted, weighted)
             result[nid] = {
                 "degree": degree,
                 "weighted_degree": round(weighted, 4),
                 "normalized": round(degree / max(n - 1, 1), 4),
             }
+
+        for nid in result:
+            weighted_degree = float(result[nid]["weighted_degree"])
+            result[nid]["weighted_normalized"] = round(weighted_degree / max(max_weighted, 1e-10), 4)
 
         return result
 
@@ -165,30 +228,13 @@ class GraphAnalytics:
         sources = node_list[:min(sample_size, n)]
 
         for s in sources:
-            # BFS from s
-            stack = []
-            pred = defaultdict(list)
-            sigma = defaultdict(float)
-            sigma[s] = 1.0
-            dist = {s: 0}
-            queue = deque([s])
-
-            while queue:
-                v = queue.popleft()
-                stack.append(v)
-                for w, _ in self.adj.get(v, []):
-                    if w not in dist:
-                        dist[w] = dist[v] + 1
-                        queue.append(w)
-                    if dist[w] == dist[v] + 1:
-                        sigma[w] += sigma[v]
-                        pred[w].append(v)
-
+            stack, pred, sigma, _ = self._weighted_shortest_path_tree(s)
             delta = defaultdict(float)
             while stack:
                 w = stack.pop()
                 for v in pred[w]:
-                    delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w])
+                    if sigma[w] > 0:
+                        delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w])
                 if w != s:
                     betweenness[w] += delta[w]
 
@@ -220,16 +266,7 @@ class GraphAnalytics:
 
         result = {}
         for nid in self.nodes:
-            # BFS for shortest paths
-            dist = {nid: 0}
-            queue = deque([nid])
-            while queue:
-                v = queue.popleft()
-                for w, _ in self.adj.get(v, []):
-                    if w not in dist:
-                        dist[w] = dist[v] + 1
-                        queue.append(w)
-
+            _, _, _, dist = self._weighted_shortest_path_tree(nid)
             reachable = len(dist) - 1
             if reachable == 0:
                 result[nid] = {"closeness": 0.0, "avg_distance": 0.0, "reachable": 0}
@@ -257,7 +294,7 @@ class GraphAnalytics:
         Adapted for compliance: high PageRank = entity whose risk status
         disproportionately affects many others through the network.
 
-        Uses confidence-weighted edges for propagation strength.
+        Uses intelligence-weighted edges for propagation strength.
         """
         self._ensure_loaded()
         n = len(self.nodes)
@@ -272,10 +309,11 @@ class GraphAnalytics:
             for nid in node_list:
                 incoming_sum = 0.0
                 for neighbor, eidx in self.adj.get(nid, []):
-                    out_degree = len(self.adj.get(neighbor, []))
-                    if out_degree > 0:
-                        weight = self.edges[eidx]["confidence"]
-                        incoming_sum += (rank[neighbor] * weight) / out_degree
+                    outgoing_edges = self.adj.get(neighbor, [])
+                    outgoing_weight = sum(self._edge_strength(self.edges[out_idx]) for _, out_idx in outgoing_edges)
+                    if outgoing_weight > 0:
+                        weight = self._edge_strength(self.edges[eidx])
+                        incoming_sum += (rank[neighbor] * weight) / outgoing_weight
 
                 new_rank[nid] = (1.0 - damping) / n + damping * incoming_sum
 
@@ -299,8 +337,8 @@ class GraphAnalytics:
     def compute_all_centrality(self) -> dict:
         """
         Compute all centrality metrics and return a composite score per entity.
-        The composite blends degree (25%), betweenness (30%), closeness (20%),
-        and PageRank (25%) into a single 0-1 importance score.
+        The composite uses a geometric mean over normalized structural metrics
+        plus local edge intelligence, which avoids another arbitrary weight table.
         """
         self._ensure_loaded()
 
@@ -311,12 +349,14 @@ class GraphAnalytics:
 
         result = {}
         for nid in self.nodes:
-            d = degree.get(nid, {}).get("normalized", 0)
+            d = degree.get(nid, {}).get("weighted_normalized", 0)
             b = betweenness.get(nid, {}).get("normalized", 0)
             c = closeness.get(nid, {}).get("closeness", 0)
             p = pagerank.get(nid, {}).get("normalized", 0)
-
-            composite = 0.25 * d + 0.30 * b + 0.20 * c + 0.25 * p
+            local_edge_intelligence = self._node_local_edge_strength(nid)
+            components = [d, b, c, p, local_edge_intelligence]
+            safe_components = [max(float(value), 1e-6) for value in components]
+            composite = math.prod(safe_components) ** (1.0 / len(safe_components))
 
             result[nid] = {
                 "entity_id": nid,
@@ -326,6 +366,7 @@ class GraphAnalytics:
                 "betweenness": betweenness.get(nid, {}),
                 "closeness": closeness.get(nid, {}),
                 "pagerank": pagerank.get(nid, {}),
+                "local_edge_intelligence": round(local_edge_intelligence, 4),
                 "composite_importance": round(composite, 4),
             }
 
@@ -373,7 +414,7 @@ class GraphAnalytics:
                 label_weights = defaultdict(float)
                 for neighbor, eidx in neighbors:
                     label = labels[neighbor]
-                    weight = self.edges[eidx]["confidence"]
+                    weight = self._edge_strength(self.edges[eidx])
                     label_weights[label] += weight
 
                 if label_weights:
@@ -473,10 +514,10 @@ class GraphAnalytics:
         path_nodes.reverse()
         path_edges.reverse()
 
-        # Compute path confidence (product of edge confidences)
+        # Compute path confidence from intelligence-weighted edges.
         path_confidence = 1.0
         for edge in path_edges:
-            path_confidence *= edge["confidence"]
+            path_confidence *= self._edge_strength(edge)
 
         return {
             "source": source_id,
@@ -497,8 +538,8 @@ class GraphAnalytics:
     def critical_path(self, source_id: str, target_id: str) -> Optional[dict]:
         """
         Find the highest-confidence path between two entities.
-        Uses Dijkstra with -log(confidence) as weight (minimizing negative log
-        maximizes the product of confidences along the path).
+        Uses Dijkstra with -log(edge_strength) as weight, so stronger and
+        better-supported paths beat merely short ones.
         """
         self._ensure_loaded()
         if source_id not in self.nodes or target_id not in self.nodes:
@@ -520,7 +561,7 @@ class GraphAnalytics:
                 continue
 
             for neighbor, eidx in self.adj.get(current, []):
-                conf = max(self.edges[eidx]["confidence"], 0.001)
+                conf = max(self._edge_strength(self.edges[eidx]), 0.001)
                 edge_weight = -math.log(conf)
                 new_dist = d + edge_weight
 
@@ -582,7 +623,7 @@ class GraphAnalytics:
             if current == target and path_edges:
                 conf = 1.0
                 for e in path_edges:
-                    conf *= e["confidence"]
+                    conf *= self._edge_strength(e)
                 results.append({
                     "hops": len(path_edges),
                     "path_confidence": round(conf, 4),
@@ -683,12 +724,15 @@ class GraphAnalytics:
         """
         self._ensure_loaded()
 
-        # Import relationship weights
+        # Import learned propagation posture
         try:
-            from network_risk import RELATIONSHIP_WEIGHTS, HOP_DECAY
+            from network_risk import _hop_decay_factor, _propagation_prior
         except ImportError:
-            RELATIONSHIP_WEIGHTS = {"sanctioned_on": 0.6, "sanctioned_person": 0.9}
-            HOP_DECAY = 0.5
+            def _hop_decay_factor(hops):
+                return 1.0 / float(hops + 1)
+
+            def _propagation_prior(_relationship):
+                return 0.5
 
         # Find all sanctions-related entities
         sanctions_nodes = set()
@@ -720,10 +764,10 @@ class GraphAnalytics:
 
                 for neighbor, eidx in self.adj.get(current, []):
                     if neighbor not in visited:
-                        rel_type = self.edges[eidx]["rel_type"]
-                        rel_weight = RELATIONSHIP_WEIGHTS.get(rel_type, 0.1)
-                        edge_conf = self.edges[eidx]["confidence"]
-                        propagated = current_exposure * rel_weight * edge_conf * HOP_DECAY
+                        relationship = self.edges[eidx]
+                        rel_weight = _propagation_prior(relationship)
+                        edge_conf = self._edge_strength(relationship)
+                        propagated = current_exposure * rel_weight * edge_conf * _hop_decay_factor(hops)
                         if propagated > 0.01:  # Threshold to avoid noise
                             queue.append((neighbor, propagated, hops + 1))
 
@@ -978,13 +1022,11 @@ class GraphAnalytics:
             network_risk = min(sanc_entry.get("exposure_score", 0.0), 1.0)
             risk_factors.append(f"Network sanctions exposure: {sanc_entry.get('risk_level')}")
 
-        # Combined score: weighted average
-        combined_risk = (
-            sanctions_risk * 0.40 +
-            centrality_risk * 0.25 +
-            cluster_risk * 0.15 +
-            network_risk * 0.20
-        )
+        # Combined score: union of risk channels, avoiding another arbitrary weight table.
+        combined_risk = 1.0
+        for component in (sanctions_risk, centrality_risk, cluster_risk, network_risk):
+            combined_risk *= (1.0 - max(0.0, min(float(component), 1.0)))
+        combined_risk = 1.0 - combined_risk
 
         # Classify risk level
         if combined_risk >= 0.8:
