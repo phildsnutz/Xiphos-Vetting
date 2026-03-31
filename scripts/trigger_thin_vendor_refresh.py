@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,11 @@ _DEFAULT_EXCLUDED_NAME_TOKENS = (
     "TEST",
     "CI ",
     "SEEDED",
+    "COUNTERPARTY_",
+    "EXPORT_",
+    "CYBER_",
+    "GAUNTLET",
+    "CANARY",
 )
 
 
@@ -39,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--require-zero-control", action="store_true", default=True)
     parser.add_argument("--allow-nonzero-control", dest="require_zero_control", action="store_false")
     parser.add_argument("--exclude-name-token", action="append", default=list(_DEFAULT_EXCLUDED_NAME_TOKENS))
+    parser.add_argument("--allow-duplicate-names", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -59,15 +66,29 @@ def _vendor_is_excluded(vendor: dict[str, object], args: argparse.Namespace) -> 
     return any(token in name for token in tokens)
 
 
+def _normalized_vendor_name(vendor: dict[str, object]) -> str:
+    name = str(vendor.get("name") or "").strip().lower()
+    if not name:
+        return ""
+    cleaned = re.sub(r"[^a-z0-9]+", " ", name)
+    return " ".join(part for part in cleaned.split() if part)
+
+
 def _select_thin_vendor_rows(args: argparse.Namespace) -> list[dict[str, object]]:
     vendors = db.list_vendors(limit=max(int(args.scan_limit or 0), 1))
     rows: list[dict[str, object]] = []
+    seen_names: set[str] = set()
     for vendor in vendors:
         vendor_id = str(vendor.get("id") or "")
         if not vendor_id:
             continue
         if _vendor_is_excluded(vendor, args):
             continue
+        normalized_name = _normalized_vendor_name(vendor)
+        if normalized_name and not args.allow_duplicate_names:
+            if normalized_name in seen_names:
+                continue
+            seen_names.add(normalized_name)
         summary = get_vendor_graph_summary(vendor_id, depth=args.depth, include_provenance=False)
         intelligence = summary.get("intelligence") or {}
         row = {
@@ -100,6 +121,7 @@ def main() -> int:
             "max_relationships": int(args.max_relationships),
             "require_zero_control": bool(args.require_zero_control),
             "depth": int(args.depth),
+            "allow_duplicate_names": bool(args.allow_duplicate_names),
             "exclude_name_tokens": [str(item) for item in (args.exclude_name_token or []) if str(item).strip()],
         },
     }

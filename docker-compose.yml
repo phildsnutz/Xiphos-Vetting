@@ -17,6 +17,8 @@ services:
       - XIPHOS_TOKEN_EXPIRY_HOURS=8
       - XIPHOS_ML_MODEL_DIR=${XIPHOS_ML_MODEL_DIR:-/data/ml/model}
       - XIPHOS_SAM_API_KEY=${XIPHOS_SAM_API_KEY:-}
+      - XIPHOS_OPENOWNERSHIP_BODS_URL=${XIPHOS_OPENOWNERSHIP_BODS_URL:-}
+      - XIPHOS_OPENOWNERSHIP_BODS_PATH=${XIPHOS_OPENOWNERSHIP_BODS_PATH:-}
       # PostgreSQL backend
       - HELIOS_DB_ENGINE=postgres
       - XIPHOS_PG_URL=postgresql://helios:${HELIOS_PG_PASSWORD:-helios_secure_2026}@postgres:5432/helios
