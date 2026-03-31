@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { RefreshCw, TrendingUp, AlertTriangle, CheckCircle, Clock } from "lucide-react";
-import { PieChart, Pie, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
+import { PieChart, Pie, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { fetchComplianceDashboard as fetchComplianceDashboardApi } from "@/lib/api";
 
 const T = {
@@ -135,7 +135,17 @@ async function fetchComplianceDashboard(): Promise<DashboardData> {
 }
 
 // KPI Card Component
-function KPICard({ label, value, icon: Icon, trend }: { label: string; value: string | number; icon?: React.ComponentType<any>; trend?: string }) {
+function KPICard({
+  label,
+  value,
+  icon: Icon,
+  trend,
+}: {
+  label: string;
+  value: string | number;
+  icon?: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  trend?: string;
+}) {
   return (
     <div style={{ backgroundColor: T.surface, borderColor: T.border }} className="border rounded-lg p-4">
       <div className="flex items-start justify-between">
@@ -313,7 +323,7 @@ function RiskDistributionChart({ data }: { data: Record<string, number> }) {
         </Pie>
         <Tooltip
           contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, color: T.text }}
-          formatter={(value: any) => [value, "Count"]}
+          formatter={(value: number | string) => [value, "Count"]}
         />
       </PieChart>
     </ResponsiveContainer>
@@ -350,7 +360,7 @@ function PostureDistributionChart({ data }: { data: Record<string, number> }) {
         <YAxis tick={{ fill: T.muted, fontSize: 12 }} />
         <Tooltip
           contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, color: T.text }}
-          formatter={(value: any) => [value, "Count"]}
+          formatter={(value: number | string) => [value, "Count"]}
         />
         <Bar dataKey="value" fill={T.accent} radius={[8, 8, 0, 0]}>
           {chartData.map((entry, index) => (

@@ -9,12 +9,12 @@
  * combined with centrality scaling and community detection visualization.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import cytoscape, { type Core, type NodeSingular, type EdgeSingular } from "cytoscape";
-import { Search, Grid3X3, Zap, Info, ChevronDown, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, Plus, Route, Waves, FileText } from "lucide-react";
-import { T, FS, FX } from "@/lib/tokens";
-import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, updateWorkspace, deleteWorkspace, fetchWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
-import type { GraphWorkspace } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import cytoscape, { type Core, type ElementDefinition, type EventObject, type NodeSingular } from "cytoscape";
+import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText } from "lucide-react";
+import { T, FS } from "@/lib/tokens";
+import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
+import type { GraphEdge as ApiGraphEdge, GraphWorkspace } from "@/lib/api";
 
 // ============================================================================
 // Type Definitions
@@ -80,6 +80,18 @@ interface FilterState {
 }
 
 type LayoutMode = "cose" | "breadthfirst" | "concentric" | "geo";
+type ShortestPathResult = Awaited<ReturnType<typeof findShortestPath>>;
+type ShortestPathStep = NonNullable<ShortestPathResult["path"]>[number];
+type PropagationResult = Awaited<ReturnType<typeof simulateRiskPropagation>>;
+type PropagationEntity = PropagationResult["waves"][number]["entities"][number];
+type SidebarTab = "importance" | "risk" | "detail" | "analytics";
+
+interface WorkspaceFilterState {
+  entityTypes?: string[];
+  riskLevels?: string[];
+  confidenceThreshold?: number;
+  edgeConfidenceThreshold?: number;
+}
 
 // ============================================================================
 // Constants
@@ -133,6 +145,13 @@ const COMMUNITY_PALETTE = [
   "#06b6d4", "#84cc16", "#f43f5e", "#eab308", "#22d3ee",
 ];
 
+const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
+  { id: "importance", label: "Top by Importance" },
+  { id: "risk", label: "Top by Risk" },
+  { id: "detail", label: "Detail" },
+  { id: "analytics", label: "Analytics" },
+];
+
 const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   US: [-98.5, 39.8], GB: [-1.2, 52.2], CN: [104.2, 35.9], RU: [105.3, 61.5],
   DE: [10.5, 51.2], FR: [2.2, 46.2], JP: [138.3, 36.2], KR: [127.8, 35.9],
@@ -174,7 +193,6 @@ export function GraphIntelligenceDashboard() {
     edgeConfidenceThreshold: 0,
   });
   const [showLabels, setShowLabels] = useState(true);
-  const [zoomLevel, setZoomLevel] = useState(1);
   const [communityColorEnabled, setCommunityColorEnabled] = useState(false);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: EnrichedGraphNode } | null>(null);
   const [searchMatchCount, setSearchMatchCount] = useState(0);
@@ -192,12 +210,12 @@ export function GraphIntelligenceDashboard() {
   // Shortest Path
   const [pathSource, setPathSource] = useState<string | null>(null);
   const [pathTarget, setPathTarget] = useState<string | null>(null);
-  const [pathResult, setPathResult] = useState<any>(null);
+  const [pathResult, setPathResult] = useState<ShortestPathResult | null>(null);
   const [pathLoading, setPathLoading] = useState(false);
 
   // Influence Propagation
   const [propagationSource, setPropagationSource] = useState<string | null>(null);
-  const [propagationResult, setPropagationResult] = useState<any>(null);
+  const [propagationResult, setPropagationResult] = useState<PropagationResult | null>(null);
   const [propagationLoading, setPropagationLoading] = useState(false);
   const [propagationWaveIndex, setPropagationWaveIndex] = useState(0);
 
@@ -207,17 +225,16 @@ export function GraphIntelligenceDashboard() {
       try {
         setLoading(true);
         const raw = await fetchFullGraphIntelligence();
-        // Map backend edge field names to component's expected format
         const data: FullGraphIntelligence = {
           ...raw,
-          temporal: (raw.temporal as unknown as TemporalProfile) || null,
-          edges: (raw.edges || []).map((e: any) => ({
+          temporal: (raw.temporal as TemporalProfile | null) ?? null,
+          edges: (raw.edges || []).map((e: ApiGraphEdge) => ({
             source: e.source_entity_id,
             target: e.target_entity_id,
             rel_type: e.rel_type,
             confidence: e.confidence,
             data_source: e.data_source,
-            created_at: e.created_at,
+            created_at: undefined,
           })),
         };
         setGraphData(data);
@@ -376,10 +393,10 @@ export function GraphIntelligenceDashboard() {
 
     const elements = buildCytoscapeElements(filteredData.nodes, filteredData.edges);
 
-    const layoutConfig: any = layoutMode === "geo"
+    const layoutConfig = layoutMode === "geo"
       ? {
           name: "preset",
-          positions: (node: any) => {
+          positions: (node: NodeSingular) => {
             const nodeData = filteredData.nodes.find((n) => n.id === node.id());
             const country = nodeData?.country;
             const centroid = country ? COUNTRY_CENTROIDS[country] : null;
@@ -399,7 +416,7 @@ export function GraphIntelligenceDashboard() {
     const cy = cytoscape({
       container: cyContainerRef.current,
       elements,
-      style: buildCytoscapeStyle() as any,
+      style: buildCytoscapeStyle(),
       layout: layoutConfig,
       wheelSensitivity: 0.1,
       pixelRatio: "auto",
@@ -408,16 +425,14 @@ export function GraphIntelligenceDashboard() {
     cyRef.current = cy;
 
     // Event listeners
-    const onNodeSelect = (evt: any) => {
+    const onNodeSelect = (evt: EventObject) => {
       const node = evt.target;
-      if (node.isNode()) {
-        const nodeData = filteredData.nodes.find((n) => n.id === node.id());
-        if (nodeData) setSelectedNode(nodeData);
-      }
+      if (!("isNode" in node) || !node.isNode()) return;
+      const nodeData = filteredData.nodes.find((n) => n.id === node.id());
+      if (nodeData) setSelectedNode(nodeData);
     };
 
     const onZoom = () => {
-      setZoomLevel(cy.zoom());
       // Auto-hide labels when zoomed out
       if (cy.zoom() < 1.5) {
         cy.elements("node").style("label", "");
@@ -427,9 +442,9 @@ export function GraphIntelligenceDashboard() {
     };
 
     // Tooltip handlers
-    const onMouseover = (evt: any) => {
+    const onMouseover = (evt: EventObject) => {
       const cyNode = evt.target;
-      if (!cyNode.isNode()) return;
+      if (!("isNode" in cyNode) || !cyNode.isNode()) return;
       const nodeData = filteredData.nodes.find((n) => n.id === cyNode.id());
       if (!nodeData) return;
       const pos = cyNode.renderedPosition();
@@ -607,7 +622,7 @@ export function GraphIntelligenceDashboard() {
     const viewport = cy ? { x: cy.pan().x, y: cy.pan().y, zoom: cy.zoom() } : {};
     const nodePositions: Record<string, { x: number; y: number }> = {};
     if (cy) {
-      cy.nodes().forEach((n: any) => {
+      cy.nodes().forEach((n) => {
         const pos = n.position();
         nodePositions[n.id()] = { x: pos.x, y: pos.y };
       });
@@ -641,14 +656,14 @@ export function GraphIntelligenceDashboard() {
     setAnnotations(ws.annotations || {});
 
     // Restore filters
-    const fs = ws.filter_state as any;
-    if (fs) {
+    const workspaceFilters = ws.filter_state as Partial<WorkspaceFilterState>;
+    if (workspaceFilters) {
       setFilters({
-        entityTypes: new Set(fs.entityTypes || []),
-        riskLevels: new Set(fs.riskLevels || []),
-        confidenceThreshold: fs.confidenceThreshold ?? 0.5,
+        entityTypes: new Set(workspaceFilters.entityTypes || []),
+        riskLevels: new Set(workspaceFilters.riskLevels || []),
+        confidenceThreshold: workspaceFilters.confidenceThreshold ?? 0.5,
         relationshipTypes: new Set(),
-        edgeConfidenceThreshold: fs.edgeConfidenceThreshold ?? 0,
+        edgeConfidenceThreshold: workspaceFilters.edgeConfidenceThreshold ?? 0,
       });
     }
 
@@ -660,7 +675,7 @@ export function GraphIntelligenceDashboard() {
       const cy = cyRef.current;
       if (!cy || !ws.node_positions) return;
       const positions = ws.node_positions;
-      cy.nodes().forEach((n: any) => {
+      cy.nodes().forEach((n) => {
         const p = positions[n.id()];
         if (p) n.position(p);
       });
@@ -696,7 +711,7 @@ export function GraphIntelligenceDashboard() {
         const cy = cyRef.current;
         cy.elements().removeClass("path-node path-edge");
         const nodeIds = new Set<string>();
-        result.path.forEach((step: any) => {
+        result.path.forEach((step: ShortestPathStep) => {
           nodeIds.add(step.from_id);
           nodeIds.add(step.to_id);
         });
@@ -705,7 +720,7 @@ export function GraphIntelligenceDashboard() {
           if (n.length) n.addClass("path-node");
         });
         // Highlight edges along the path
-        result.path.forEach((step: any) => {
+        result.path.forEach((step: ShortestPathStep) => {
           const edgeId = `${step.from_id}-${step.to_id}`;
           const reverseId = `${step.to_id}-${step.from_id}`;
           const e = cy.getElementById(edgeId);
@@ -755,8 +770,8 @@ export function GraphIntelligenceDashboard() {
     for (let i = 0; i <= waveIdx; i++) {
       const wave = propagationResult.waves[i];
       if (!wave) continue;
-      wave.entities.forEach((e: any) => {
-        const n = cy.getElementById(e.id);
+      wave.entities.forEach((entity: PropagationEntity) => {
+        const n = cy.getElementById(entity.id);
         if (n.length) n.addClass("propagation-wave");
       });
     }
@@ -1621,10 +1636,10 @@ function RightSidebar(props: {
   onAnnotate: (id: string) => void;
   pathSource: string | null;
   pathTarget: string | null;
-  pathResult: any;
+  pathResult: ShortestPathResult | null;
   pathLoading: boolean;
   propagationSource: string | null;
-  propagationResult: any;
+  propagationResult: PropagationResult | null;
   propagationLoading: boolean;
   propagationWaveIndex: number;
   onSetPathSource: (id: string | null) => void;
@@ -1635,7 +1650,7 @@ function RightSidebar(props: {
   onShowWave: (idx: number) => void;
   onClearAnalytics: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"importance" | "risk" | "detail" | "analytics">("importance");
+  const [activeTab, setActiveTab] = useState<SidebarTab>("importance");
 
   return (
     <div
@@ -1652,15 +1667,10 @@ function RightSidebar(props: {
     >
       {/* Tabs */}
       <div style={{ display: "flex", gap: "4px", borderBottom: `1px solid ${T.border}`, paddingBottom: "8px" }}>
-        {[
-          { id: "importance", label: "Top by Importance" },
-          { id: "risk", label: "Top by Risk" },
-          { id: "detail", label: "Detail" },
-          { id: "analytics", label: "Analytics" },
-        ].map((tab) => (
+        {SIDEBAR_TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             style={{
               flex: 1,
               padding: "6px",
@@ -1693,10 +1703,10 @@ function RightSidebar(props: {
                 transition: "background 0.2s",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as any).style.background = T.surfaceElevated;
+                e.currentTarget.style.background = T.surfaceElevated;
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as any).style.background = T.bg;
+                e.currentTarget.style.background = T.bg;
               }}
             >
               <div style={{ fontWeight: 600, marginBottom: "4px" }}>{node.canonical_name}</div>
@@ -1896,7 +1906,7 @@ function RightSidebar(props: {
                     <div style={{ fontSize: `${FS.caption}px`, color: "#0ea5e9", fontWeight: 600 }}>
                       {props.pathResult.hops} hop{props.pathResult.hops !== 1 ? "s" : ""} found
                     </div>
-                    {props.pathResult.path.map((step: any, i: number) => (
+                    {props.pathResult.path.map((step: ShortestPathStep, i: number) => (
                       <div key={i} style={{
                         padding: "6px", background: T.bg, borderRadius: "4px",
                         borderLeft: `3px solid #0ea5e9`, fontSize: `${FS.caption}px`,
@@ -1958,7 +1968,7 @@ function RightSidebar(props: {
                 </div>
                 {/* Wave selector */}
                 <div style={{ display: "flex", gap: "4px", marginBottom: "8px", flexWrap: "wrap" }}>
-                  {props.propagationResult.waves.map((wave: any, i: number) => (
+                  {props.propagationResult.waves.map((wave, i: number) => (
                     <button
                       key={i}
                       onClick={() => props.onShowWave(i)}
@@ -1977,16 +1987,16 @@ function RightSidebar(props: {
                 {/* Wave entities */}
                 {props.propagationResult.waves[props.propagationWaveIndex] && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "200px", overflow: "auto" }}>
-                    {props.propagationResult.waves[props.propagationWaveIndex].entities.slice(0, 10).map((e: any) => (
-                      <div key={e.id} style={{
+                    {props.propagationResult.waves[props.propagationWaveIndex].entities.slice(0, 10).map((entity: PropagationEntity) => (
+                      <div key={entity.id} style={{
                         padding: "6px", background: T.bg, borderRadius: "4px",
-                        borderLeft: `3px solid ${RISK_COLORS[e.existing_risk_level]?.bg || "#94a3b8"}`,
+                        borderLeft: `3px solid ${RISK_COLORS[entity.existing_risk_level]?.bg || "#94a3b8"}`,
                         fontSize: `${FS.caption}px`,
                       }}>
-                        <div style={{ color: T.text, fontWeight: 500 }}>{e.name}</div>
+                        <div style={{ color: T.text, fontWeight: 500 }}>{entity.name}</div>
                         <div style={{ display: "flex", justifyContent: "space-between", color: T.textSecondary, marginTop: "2px" }}>
-                          <span>{e.rel_type}</span>
-                          <span style={{ color: "#fb923c" }}>Risk: {(e.received_risk * 100).toFixed(1)}%</span>
+                          <span>{entity.rel_type}</span>
+                          <span style={{ color: "#fb923c" }}>Risk: {(entity.received_risk * 100).toFixed(1)}%</span>
                         </div>
                       </div>
                     ))}
@@ -2038,8 +2048,8 @@ function LayoutButton(props: { active: boolean; onClick: () => void; children: R
 // Cytoscape Helpers
 // ============================================================================
 
-function buildCytoscapeElements(nodes: EnrichedGraphNode[], edges: GraphEdge[]) {
-  const elements: any[] = nodes.map((node) => {
+function buildCytoscapeElements(nodes: EnrichedGraphNode[], edges: GraphEdge[]): ElementDefinition[] {
+  const elements: ElementDefinition[] = nodes.map((node) => {
     const riskColor = RISK_COLORS[node.risk_level];
     const size = Math.max(20, Math.min(60, 20 + node.centrality_composite * 40));
     const communityColor =
@@ -2078,7 +2088,7 @@ function buildCytoscapeElements(nodes: EnrichedGraphNode[], edges: GraphEdge[]) 
   return elements;
 }
 
-function buildCytoscapeStyle() {
+function buildCytoscapeStyle(): cytoscape.Stylesheet[] {
   return [
     {
       selector: "node",
