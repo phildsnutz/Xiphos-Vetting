@@ -2499,7 +2499,7 @@ def _get_dossier_analysis_data(
         return None
 
     try:
-        from ai_analysis import analyze_vendor, compute_analysis_fingerprint, get_latest_analysis
+        from ai_analysis import analyze_vendor, compute_analysis_fingerprint, get_ai_config, get_latest_analysis
     except ImportError:
         return None
 
@@ -2511,6 +2511,11 @@ def _get_dossier_analysis_data(
             return analysis_data
 
         if not user_id:
+            return None
+
+        if get_ai_config(user_id):
+            # Do not issue a second live provider call while async warm-up is already in flight.
+            # Keep the dossier honest and render the warming state until a real external analysis lands.
             return None
 
         generated = analyze_vendor(user_id, vendor, score, enrichment)
@@ -2540,6 +2545,32 @@ def clear_dossier_context_cache() -> None:
         _DOSSIER_CONTEXT_CACHE.clear()
 
 
+def _dossier_ai_cache_stamp(
+    vendor_id: str,
+    *,
+    user_id: str,
+    score: Optional[dict],
+    enrichment: Optional[dict],
+    hydrate_ai: bool,
+) -> str:
+    if not hydrate_ai or not user_id or not score:
+        return ""
+    try:
+        from ai_analysis import compute_analysis_fingerprint, get_latest_analysis
+
+        vendor = db.get_vendor(vendor_id)
+        if not vendor:
+            return ""
+        input_hash = compute_analysis_fingerprint(vendor, score, enrichment)
+        cached = get_latest_analysis(vendor_id, user_id=user_id, input_hash=input_hash)
+        if not cached:
+            return "pending"
+        analysis_id = cached.get("id") or cached.get("created_at") or cached.get("input_hash") or "ready"
+        return f"ready:{analysis_id}"
+    except Exception:
+        return ""
+
+
 def _dossier_context_cache_key(
     vendor_id: str,
     *,
@@ -2547,14 +2578,21 @@ def _dossier_context_cache_key(
     score: Optional[dict],
     enrichment: Optional[dict],
     hydrate_ai: bool,
-) -> tuple[str, str, str, str, str, bool]:
+) -> tuple[str, str, str, str, str, bool, str]:
     score_stamp = str((score or {}).get("scored_at") or "")
     enrichment_stamp = str((enrichment or {}).get("enriched_at") or "")
     report_hash = compute_report_hash(enrichment) if enrichment else ""
-    return (vendor_id, user_id, score_stamp, enrichment_stamp, report_hash, bool(hydrate_ai))
+    ai_stamp = _dossier_ai_cache_stamp(
+        vendor_id,
+        user_id=user_id,
+        score=score,
+        enrichment=enrichment,
+        hydrate_ai=hydrate_ai,
+    )
+    return (vendor_id, user_id, score_stamp, enrichment_stamp, report_hash, bool(hydrate_ai), ai_stamp)
 
 
-def _get_cached_dossier_context(cache_key: tuple[str, str, str, str, str, bool]) -> Optional[dict]:
+def _get_cached_dossier_context(cache_key: tuple[str, str, str, str, str, bool, str]) -> Optional[dict]:
     now = time.time()
     with _DOSSIER_CONTEXT_CACHE_LOCK:
         expired = [
@@ -2571,7 +2609,7 @@ def _get_cached_dossier_context(cache_key: tuple[str, str, str, str, str, bool])
 
 
 def _store_cached_dossier_context(
-    cache_key: tuple[str, str, str, str, str, bool],
+    cache_key: tuple[str, str, str, str, str, bool, str],
     context: dict,
 ) -> None:
     with _DOSSIER_CONTEXT_CACHE_LOCK:

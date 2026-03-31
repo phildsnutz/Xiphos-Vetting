@@ -1286,6 +1286,11 @@ def _current_analysis_input_hash(case_id: str) -> str:
 
 _AI_WARMUP_WAIT_SECONDS = float(os.environ.get("XIPHOS_AI_WARMUP_WAIT_SECONDS", "6"))
 _AI_STATUS_WAIT_SECONDS = float(os.environ.get("XIPHOS_AI_STATUS_WAIT_SECONDS", "8"))
+_AI_TRANSIENT_RETRY_DELAYS = tuple(
+    float(part.strip())
+    for part in os.environ.get("XIPHOS_AI_TRANSIENT_RETRY_DELAYS", "1,3,8").split(",")
+    if part.strip()
+)
 
 
 def enqueue_analysis_job(case_id: str, user_id: str, input_hash: str) -> dict:
@@ -1336,6 +1341,8 @@ def update_analysis_job(job_id: str, **kwargs) -> None:
 
 
 def _run_ai_analysis_job(job_id: str, case_id: str, user_id: str) -> None:
+    from ai_analysis import AIProviderTemporaryError
+
     update_analysis_job(job_id, status="running")
 
     vendor = db.get_vendor(case_id)
@@ -1349,11 +1356,27 @@ def _run_ai_analysis_job(job_id: str, case_id: str, user_id: str) -> None:
         update_analysis_job(job_id, status="failed", error="Case must be scored before AI analysis")
         return
 
-    try:
-        result = analyze_vendor(user_id, vendor, score, enrichment)
-    except Exception as err:
-        update_analysis_job(job_id, status="failed", error=str(err)[:500])
-        return
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            result = analyze_vendor(user_id, vendor, score, enrichment)
+            break
+        except AIProviderTemporaryError as err:
+            retry_index = attempt - 1
+            if retry_index >= len(_AI_TRANSIENT_RETRY_DELAYS):
+                update_analysis_job(job_id, status="failed", error=str(err)[:500])
+                return
+            delay = max(_AI_TRANSIENT_RETRY_DELAYS[retry_index], 0.0)
+            update_analysis_job(
+                job_id,
+                status="running",
+                error=f"Transient AI provider failure, retry {attempt}/{len(_AI_TRANSIENT_RETRY_DELAYS) + 1}: {str(err)[:420]}",
+            )
+            time.sleep(delay)
+        except Exception as err:
+            update_analysis_job(job_id, status="failed", error=str(err)[:500])
+            return
 
     update_analysis_job(job_id, status="completed", analysis_id=result.get("analysis_id"))
 
@@ -3385,7 +3408,8 @@ def api_run_ai_analysis(case_id):
     try:
         result = analyze_vendor(_current_user_id(), vendor, score, enrichment)
     except ValueError as err:
-        return jsonify({"error": str(err)}), 400
+        status_code = 503 if err.__class__.__name__ == "AIProviderTemporaryError" else 400
+        return jsonify({"error": str(err)}), status_code
 
     log_audit("ai_analysis_run", "case", case_id, detail=f"AI analysis for {vendor['name']}")
     return jsonify({

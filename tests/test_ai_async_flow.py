@@ -396,6 +396,76 @@ def test_dossier_can_hydrate_live_ai_when_requested(client, monkeypatch):
     assert "Critical concerns" in html
 
 
+def test_dossier_hydrate_keeps_warming_when_external_ai_is_configured(client, monkeypatch):
+    case_id = _create_case(client, name="External AI Warming Vendor")
+    import dossier
+    import ai_analysis
+
+    monkeypatch.setattr(ai_analysis, "compute_analysis_fingerprint", lambda *args, **kwargs: "hash-external-warming")
+    monkeypatch.setattr(ai_analysis, "get_latest_analysis", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        ai_analysis,
+        "get_ai_config",
+        lambda _user_id: {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "test-key"},
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("dossier hydration should not make a second external AI call")
+
+    monkeypatch.setattr(ai_analysis, "analyze_vendor", fail_if_called)
+
+    html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
+    assert "AI Narrative Brief" in html
+    assert "still warming for this case" in html
+
+
+def test_dossier_cache_refreshes_when_ai_analysis_becomes_ready(client, monkeypatch):
+    case_id = _create_case(client, name="Cache Refresh Vendor")
+    import dossier
+    import ai_analysis
+
+    state = {"ready": False}
+    monkeypatch.setattr(ai_analysis, "compute_analysis_fingerprint", lambda *args, **kwargs: "hash-cache-refresh")
+    monkeypatch.setattr(
+        ai_analysis,
+        "get_ai_config",
+        lambda _user_id: {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "test-key"},
+    )
+
+    def fake_get_latest_analysis(*_args, **_kwargs):
+        if not state["ready"]:
+            return None
+        return {
+            "id": "analysis-cache-refresh",
+            "analysis": {
+                "executive_summary": "Freshly ready AI summary.",
+                "risk_narrative": "Rendered after the warming pass.",
+                "critical_concerns": ["Fresh concern"],
+                "mitigating_factors": ["Fresh mitigant"],
+                "recommended_actions": ["Fresh action"],
+                "regulatory_exposure": "Fresh exposure.",
+                "confidence_assessment": "High",
+                "verdict": "CONDITIONAL_APPROVE",
+            },
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "created_at": "2026-03-31T21:40:00Z",
+            "input_hash": "hash-cache-refresh",
+            "prompt_version": "ai-analysis-2026-03-27",
+        }
+
+    monkeypatch.setattr(ai_analysis, "get_latest_analysis", fake_get_latest_analysis)
+    monkeypatch.setattr(ai_analysis, "analyze_vendor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not sync hydrate external AI")))
+
+    warming_html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
+    assert "still warming for this case" in warming_html
+
+    state["ready"] = True
+    ready_html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
+    assert "still warming for this case" not in ready_html
+    assert "Freshly ready AI summary." in ready_html
+
+
 def test_dossier_includes_risk_storyline_section(client):
     case_id = _create_case(client, name="Storyline Dossier Vendor")
     import dossier
@@ -947,22 +1017,14 @@ def test_analyze_vendor_without_ai_config_uses_local_fallback(monkeypatch):
     assert persisted["payload"]["provider"] == "local_fallback"
 
 
-def test_analyze_vendor_provider_failure_uses_local_fallback(monkeypatch):
+def test_analyze_vendor_provider_failure_raises_transient_error(monkeypatch):
     import ai_analysis
-
-    persisted = {}
 
     monkeypatch.setattr(
         ai_analysis,
         "get_ai_config",
         lambda _user_id: {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "test-key"},
     )
-
-    def fake_save_analysis(**kwargs):
-        persisted["payload"] = kwargs
-        return 88
-
-    monkeypatch.setattr(ai_analysis, "save_analysis", fake_save_analysis)
     monkeypatch.setattr(
         ai_analysis,
         "PROVIDER_CALLERS",
@@ -972,34 +1034,67 @@ def test_analyze_vendor_provider_failure_uses_local_fallback(monkeypatch):
         },
     )
 
-    result = ai_analysis.analyze_vendor(
-        user_id="dev",
-        vendor_data={
-            "id": "case-provider-fallback",
-            "name": "Fallback Systems",
-            "country": "US",
-            "ownership": {"publicly_traded": False, "beneficial_owner_known": True},
-            "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 9},
-            "exec": {"adverse_media": 0},
-        },
-        score_data={
-            "composite_score": 18,
-            "calibrated": {
-                "calibrated_tier": "TIER_3_CONDITIONAL",
-                "calibrated_probability": 0.22,
+    with pytest.raises(ai_analysis.AIProviderTemporaryError, match="provider unstable"):
+        ai_analysis.analyze_vendor(
+            user_id="dev",
+            vendor_data={
+                "id": "case-provider-fallback",
+                "name": "Fallback Systems",
+                "country": "US",
+                "ownership": {"publicly_traded": False, "beneficial_owner_known": True},
+                "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 9},
+                "exec": {"adverse_media": 0},
             },
-            "soft_flags": [
-                {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
-            ],
-        },
-        enrichment_data={"findings": []},
-    )
+            score_data={
+                "composite_score": 18,
+                "calibrated": {
+                    "calibrated_tier": "TIER_3_CONDITIONAL",
+                    "calibrated_probability": 0.22,
+                },
+                "soft_flags": [
+                    {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
+                ],
+            },
+            enrichment_data={"findings": []},
+        )
 
-    assert result["provider"] == "local_fallback"
-    assert result["analysis"]["_fallback"] is True
-    assert "external ai provider failed" in result["analysis"]["risk_narrative"].lower()
-    assert "provider unstable" in result["analysis"]["confidence_assessment"].lower()
-    assert persisted["payload"]["provider"] == "local_fallback"
+
+def test_run_ai_analysis_job_retries_transient_provider_errors(client, monkeypatch):
+    server = sys.modules["server"]
+    import ai_analysis
+    case_id = _create_case(client, name="Transient Retry Vendor")
+    attempts = {"count": 0}
+
+    monkeypatch.setattr(server, "_AI_TRANSIENT_RETRY_DELAYS", (0.0, 0.0))
+
+    def fake_analyze_vendor(_user_id, _vendor, _score, _enrichment):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise ai_analysis.AIProviderTemporaryError("anthropic API error (HTTP 529): overloaded")
+        return {"analysis_id": 321}
+
+    monkeypatch.setattr(server, "analyze_vendor", fake_analyze_vendor)
+    monkeypatch.setattr(server.time, "sleep", lambda *_args, **_kwargs: None)
+
+    server._ensure_ai_job_tables()
+    with server.db.get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO ai_analysis_jobs (id, case_id, created_by, input_hash, status)
+            VALUES (?, ?, ?, ?, 'pending')
+            """,
+            ("ai-job-transient", case_id, "dev", "hash-transient"),
+        )
+
+    server._run_ai_analysis_job("ai-job-transient", case_id, "dev")
+
+    with server.db.get_conn() as conn:
+        row = conn.execute("SELECT status, analysis_id, error FROM ai_analysis_jobs WHERE id = ?", ("ai-job-transient",)).fetchone()
+
+    assert attempts["count"] == 3
+    assert row[0] == "completed"
+    assert row[1] == 321
+    assert "Transient AI provider failure" in (row[2] or "")
 
 
 def test_analysis_prompt_distinguishes_unverified_identifiers_from_absence():

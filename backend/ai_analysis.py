@@ -46,6 +46,14 @@ _LOCAL_FALLBACK_MODEL = "heuristic-v1"
 logger = logging.getLogger(__name__)
 
 
+class AIProviderTemporaryError(ValueError):
+    """Transient upstream failure. Caller should retry or keep warming."""
+
+
+class AIProviderPermanentError(ValueError):
+    """Non-transient upstream or validation failure."""
+
+
 def _sanitize_prompt_fragment(value: object, max_len: int = 160) -> str:
     text = str(value or "")
     text = _URL_RE.sub("[redacted]", text)
@@ -69,6 +77,36 @@ def _load_json_field(value: object) -> object:
 
 def _local_fallback_enabled() -> bool:
     return os.environ.get("XIPHOS_LOCAL_AI_FALLBACK", "true").lower() != "false"
+
+
+def _classify_provider_http_error(provider: str, error: urllib.error.HTTPError) -> ValueError:
+    error_body = error.read().decode("utf-8", errors="replace")[:500]
+    message = f"{provider} API error (HTTP {error.code}): {error_body}"
+    if error.code in {408, 409, 425, 429, 500, 502, 503, 504, 529}:
+        return AIProviderTemporaryError(message)
+    return AIProviderPermanentError(message)
+
+
+def _classify_provider_exception(provider: str, error: Exception) -> ValueError:
+    message = f"{provider} API call failed: {str(error)}"
+    lowered = message.lower()
+    transient_markers = (
+        "timeout",
+        "temporar",
+        "temporarily unavailable",
+        "connection reset",
+        "connection aborted",
+        "connection refused",
+        "service unavailable",
+        "overloaded",
+        "unstable",
+        "rate limit",
+        "too many requests",
+        "remote end closed connection",
+    )
+    if isinstance(error, TimeoutError) or any(marker in lowered for marker in transient_markers):
+        return AIProviderTemporaryError(message)
+    return AIProviderPermanentError(message)
 
 
 def _analysis_verdict_for_tier(tier: str) -> str:
@@ -1073,7 +1111,6 @@ def analyze_vendor(
     caller = PROVIDER_CALLERS[provider]
     start_ms = time.time()
 
-    provider_error = ""
     try:
         result = caller(api_key, model, prompt)
         elapsed_ms = int((time.time() - start_ms) * 1000)
@@ -1082,25 +1119,13 @@ def analyze_vendor(
         try:
             analysis = _parse_analysis_json(result["text"])
         except Exception as e:
-            raise ValueError(f"Failed to parse AI response: {str(e)}")
+            raise AIProviderPermanentError(f"Failed to parse AI response: {str(e)}")
     except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8", errors="replace")[:500]
-        provider_error = f"{provider} API error (HTTP {e.code}): {error_body}"
+        raise _classify_provider_http_error(provider, e)
     except Exception as e:
-        provider_error = f"{provider} API call failed: {str(e)}"
-
-    if provider_error:
-        if not _local_fallback_enabled():
-            raise ValueError(provider_error)
-        logger.warning("Falling back to local AI narrative for %s: %s", vendor_data.get("id", "unknown"), provider_error)
-        return _persist_local_fallback_result(
-            user_id=user_id,
-            vendor_data=vendor_data,
-            score_data=score_data,
-            enrichment_data=enrichment_data,
-            input_hash=input_hash,
-            fallback_reason=provider_error,
-        )
+        if isinstance(e, (AIProviderTemporaryError, AIProviderPermanentError)):
+            raise
+        raise _classify_provider_exception(provider, e)
 
     # Persist the analysis
     vendor_id = vendor_data.get("id", "unknown")
