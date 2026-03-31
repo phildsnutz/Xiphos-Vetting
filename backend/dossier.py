@@ -979,6 +979,7 @@ def _generate_supplier_passport_section(passport: Optional[dict]) -> str:
     tribunal = passport.get("tribunal") if isinstance(passport.get("tribunal"), dict) else {}
     workflow_control = ownership.get("workflow_control") if isinstance(ownership.get("workflow_control"), dict) else {}
     control_paths = graph.get("control_paths") if isinstance(graph.get("control_paths"), list) else []
+    control_path_summary = graph.get("control_path_summary") if isinstance(graph.get("control_path_summary"), dict) else {}
     claim_health = graph.get("claim_health") if isinstance(graph.get("claim_health"), dict) else {}
 
     posture = str(passport.get("posture") or "pending").replace("_", " ").title()
@@ -999,6 +1000,34 @@ def _generate_supplier_passport_section(passport: Optional[dict]) -> str:
             _passport_field("Latest monitoring", latest_check_text),
         ]
     )
+    focus_lines: list[str] = []
+    financing_count = int(control_path_summary.get("financing_count") or 0)
+    intermediary_count = int(control_path_summary.get("intermediary_count") or 0)
+    top_financing_paths = control_path_summary.get("top_financing_paths") if isinstance(control_path_summary.get("top_financing_paths"), list) else []
+    top_intermediary_paths = control_path_summary.get("top_intermediary_paths") if isinstance(control_path_summary.get("top_intermediary_paths"), list) else []
+    if financing_count > 0:
+        focus_lines.append(f"{financing_count} financing or payment-route path{'s' if financing_count != 1 else ''} captured.")
+    if intermediary_count > 0:
+        focus_lines.append(f"{intermediary_count} service or network intermediary path{'s' if intermediary_count != 1 else ''} captured.")
+    for path in top_financing_paths[:2]:
+        label = str(path.get("label") or "Financing path")
+        source_name = str(path.get("source_name") or "Subject")
+        target_name = str(path.get("target_name") or "Target")
+        focus_lines.append(f"{label}: {source_name} -> {target_name}")
+    for path in top_intermediary_paths[:2]:
+        label = str(path.get("label") or "Intermediary path")
+        source_name = str(path.get("source_name") or "Subject")
+        target_name = str(path.get("target_name") or "Target")
+        focus_lines.append(f"{label}: {source_name} -> {target_name}")
+    focus_html = ""
+    if focus_lines:
+        focus_items = "".join(f"<li>{escape(line)}</li>" for line in focus_lines)
+        focus_html = f"""
+        <div style="margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e9ecef;">
+            <div style="font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.06em;">Control-path focus</div>
+            <ul style="margin: 8px 0 0; padding-left: 18px; color: #334155; font-size: 12px;">{focus_items}</ul>
+        </div>
+        """
 
     control_cards = ""
     for path in control_paths[:4]:
@@ -1100,6 +1129,7 @@ def _generate_supplier_passport_section(passport: Optional[dict]) -> str:
         <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:10px;">
             {metric_grid}
         </div>
+        {focus_html}
         {identifiers_html}
         {official_corroboration_html}
         {ownership_control_html}

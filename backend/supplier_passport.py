@@ -113,6 +113,25 @@ CONTROL_PATH_RELATIONSHIPS = {
     "owned_by",
     "beneficially_owned_by",
 }
+_FINANCING_RELATIONSHIPS = {"backed_by", "routes_payment_through"}
+_INTERMEDIARY_RELATIONSHIPS = {
+    "depends_on_network",
+    "depends_on_service",
+    "distributed_by",
+    "operates_facility",
+    "ships_via",
+}
+_CONTROL_PATH_LABELS = {
+    "owned_by": "Direct ownership",
+    "beneficially_owned_by": "Ultimate ownership",
+    "backed_by": "Financing or lender path",
+    "routes_payment_through": "Payment or bank route",
+    "depends_on_service": "Service intermediary",
+    "depends_on_network": "Network intermediary",
+    "distributed_by": "Distributor path",
+    "operates_facility": "Facility path",
+    "ships_via": "Logistics path",
+}
 
 _STALE_CONTROL_PATH_DAYS = 365
 _TRACKED_IDENTIFIER_SOURCES = {
@@ -517,6 +536,37 @@ def _relationship_evidence_refs(rel: dict[str, Any], limit: int = 3) -> list[dic
             if len(refs) >= limit:
                 return refs
     return refs
+
+
+def _control_path_summary(control_paths: list[dict[str, Any]] | None) -> dict[str, Any]:
+    rows = [row for row in (control_paths or []) if isinstance(row, dict)]
+    financing = [row for row in rows if str(row.get("rel_type") or "") in _FINANCING_RELATIONSHIPS]
+    intermediary = [row for row in rows if str(row.get("rel_type") or "") in _INTERMEDIARY_RELATIONSHIPS]
+    ownership = [row for row in rows if str(row.get("rel_type") or "") in {"owned_by", "beneficially_owned_by"}]
+
+    def _focus_rows(items: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+        focus: list[dict[str, Any]] = []
+        for row in items[:limit]:
+            rel_type = str(row.get("rel_type") or "")
+            focus.append(
+                {
+                    "rel_type": rel_type,
+                    "label": _CONTROL_PATH_LABELS.get(rel_type, rel_type.replace("_", " ").title()),
+                    "source_name": str(row.get("source_name") or row.get("source_entity_id") or "Unknown"),
+                    "target_name": str(row.get("target_name") or row.get("target_entity_id") or "Unknown"),
+                    "confidence": float(row.get("confidence") or 0.0),
+                    "intelligence_score": float(row.get("intelligence_score") or 0.0),
+                }
+            )
+        return focus
+
+    return {
+        "ownership_count": len(ownership),
+        "financing_count": len(financing),
+        "intermediary_count": len(intermediary),
+        "top_financing_paths": _focus_rows(financing),
+        "top_intermediary_paths": _focus_rows(intermediary),
+    }
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
@@ -1103,6 +1153,7 @@ def build_supplier_passport(
     calibrated = (score or {}).get("calibrated") or {}
     control_graph_summary = _control_relationship_graph(graph_summary)
     control_paths = _top_control_paths(control_graph_summary)
+    control_path_summary = _control_path_summary(control_paths)
     claim_health = _graph_claim_health(control_graph_summary)
     control_entities = control_graph_summary.get("entities") or []
     control_relationships = control_graph_summary.get("relationships") or []
@@ -1183,6 +1234,7 @@ def build_supplier_passport(
             "entity_type_distribution": (graph_summary or {}).get("entity_type_distribution", {}),
             "relationship_type_distribution": (graph_summary or {}).get("relationship_type_distribution", {}),
             "control_paths": control_paths,
+            "control_path_summary": control_path_summary,
             "claim_health": claim_health,
             "intelligence": graph_intelligence or {},
         },

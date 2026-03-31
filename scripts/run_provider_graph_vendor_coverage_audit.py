@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT_DIR)
     parser.add_argument("--limit", type=int, default=10000)
     parser.add_argument("--depth", type=int, default=3)
+    parser.add_argument("--vendor-id", action="append", default=[])
     parser.add_argument("--include-rows", action="store_true")
     parser.add_argument("--print-json", action="store_true")
     return parser.parse_args()
@@ -75,9 +76,21 @@ def _bucket_report(rows: list[dict[str, Any]], key: str, bucket_fn) -> dict[str,
     return ordered
 
 
-def audit_vendor_rows(limit: int, depth: int) -> list[dict[str, Any]]:
+def _selected_vendors(limit: int, vendor_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    wanted = [str(item).strip() for item in (vendor_ids or []) if str(item).strip()]
+    if wanted:
+        rows: list[dict[str, Any]] = []
+        for vendor_id in wanted:
+            vendor = db.get_vendor(vendor_id)
+            if vendor:
+                rows.append(vendor)
+        return rows
+    return db.list_vendors(limit=max(int(limit or 0), 1))
+
+
+def audit_vendor_rows(limit: int, depth: int, vendor_ids: list[str] | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    vendors = db.list_vendors(limit=max(int(limit or 0), 1))
+    vendors = _selected_vendors(limit, vendor_ids=vendor_ids)
     for vendor in vendors:
         vendor_id = str(vendor.get("id") or "")
         summary = get_vendor_graph_summary(vendor_id, depth=depth, include_provenance=False)
@@ -170,7 +183,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
 
 def main() -> int:
     args = parse_args()
-    rows = audit_vendor_rows(args.limit, args.depth)
+    rows = audit_vendor_rows(args.limit, args.depth, vendor_ids=args.vendor_id)
     summary = build_summary(rows, depth=args.depth, include_rows=args.include_rows)
     slug = utc_slug()
     args.report_dir.mkdir(parents=True, exist_ok=True)

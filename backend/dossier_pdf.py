@@ -934,6 +934,7 @@ def _append_supplier_passport_pdf_section(story, passport, styles_bundle) -> Non
     monitoring = passport.get("monitoring") if isinstance(passport.get("monitoring"), dict) else {}
     identifiers = identity.get("identifier_status") if isinstance(identity.get("identifier_status"), dict) else {}
     control_paths = graph.get("control_paths") if isinstance(graph.get("control_paths"), list) else []
+    control_path_summary = graph.get("control_path_summary") if isinstance(graph.get("control_path_summary"), dict) else {}
 
     story.append(Paragraph("SUPPLIER PASSPORT", heading_style))
 
@@ -946,6 +947,8 @@ def _append_supplier_passport_pdf_section(story, passport, styles_bundle) -> Non
         ["Risk estimate", probability_label],
         ["Connectors with data", str(identity.get("connectors_with_data", 0))],
         ["Control paths", str(len(control_paths))],
+        ["Financing or bank routes", str(int(control_path_summary.get("financing_count") or 0))],
+        ["Service or network intermediaries", str(int(control_path_summary.get("intermediary_count") or 0))],
         ["Artifacts", str(artifacts.get("count", 0))],
         ["Latest monitoring", _format_timestamp_value(latest_check.get("checked_at"), "%Y-%m-%d %H:%M") or "No monitoring yet"],
     ]
@@ -1015,6 +1018,26 @@ def _append_supplier_passport_pdf_section(story, passport, styles_bundle) -> Non
             "No analyst-grade control path is captured yet. This case still needs ownership and intermediary enrichment.",
             muted_style,
         ))
+    focus_notes: list[str] = []
+    for path in (control_path_summary.get("top_financing_paths") or [])[:2]:
+        if not isinstance(path, dict):
+            continue
+        focus_notes.append(
+            f"{str(path.get('label') or 'Financing path')}: "
+            f"{str(path.get('source_name') or 'Subject')} -> {str(path.get('target_name') or 'Target')}"
+        )
+    for path in (control_path_summary.get("top_intermediary_paths") or [])[:2]:
+        if not isinstance(path, dict):
+            continue
+        focus_notes.append(
+            f"{str(path.get('label') or 'Intermediary path')}: "
+            f"{str(path.get('source_name') or 'Subject')} -> {str(path.get('target_name') or 'Target')}"
+        )
+    if focus_notes:
+        story.append(Spacer(1, 0.06 * inch))
+        story.append(Paragraph("Control-path focus", heading_style))
+        for note in focus_notes:
+            story.append(Paragraph(note, muted_style))
     story.append(Spacer(1, 0.12 * inch))
 
 

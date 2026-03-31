@@ -49,3 +49,21 @@ def test_render_markdown_mentions_provider_neutral_surface():
     markdown = module.render_markdown(summary)
     assert "product-visible graph surface" in markdown
     assert "Zero-control vendors" in markdown
+
+
+def test_audit_vendor_rows_supports_explicit_vendor_ids(monkeypatch):
+    monkeypatch.setattr(module.db, "get_vendor", lambda vendor_id: {"id": vendor_id, "name": f"Vendor {vendor_id}"})
+    monkeypatch.setattr(
+        module,
+        "get_vendor_graph_summary",
+        lambda vendor_id, depth=3, include_provenance=False: {
+            "root_entity_ids": [f"root:{vendor_id}"],
+            "entity_count": 1,
+            "relationship_count": 0,
+            "intelligence": {"control_path_count": 0, "thin_graph": True, "thin_control_paths": True},
+        },
+    )
+
+    rows = module.audit_vendor_rows(limit=100, depth=3, vendor_ids=["v-1", "v-2"])
+
+    assert [row["vendor_id"] for row in rows] == ["v-1", "v-2"]

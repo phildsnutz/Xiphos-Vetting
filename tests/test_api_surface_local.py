@@ -519,6 +519,9 @@ def test_supplier_passport_builder_combines_case_graph_and_control_paths(client,
     assert passport["graph"]["control_paths"][0]["intelligence_tier"] == "strong"
     assert passport["graph"]["control_paths"][0]["intelligence_score"] >= 0.75
     assert len(passport["graph"]["control_paths"]) == 1
+    assert passport["graph"]["control_path_summary"]["ownership_count"] == 1
+    assert passport["graph"]["control_path_summary"]["financing_count"] == 0
+    assert passport["graph"]["control_path_summary"]["intermediary_count"] == 0
     assert passport["graph"]["claim_health"]["corroborated_paths"] == 1
     assert passport["graph"]["intelligence"]["workflow_lane"] == "export_authorization"
     assert passport["graph"]["intelligence"]["edge_family_counts"]["ownership_control"] == 2
