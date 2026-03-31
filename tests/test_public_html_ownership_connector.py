@@ -54,6 +54,87 @@ def test_public_html_emits_owned_by_from_company_site(monkeypatch):
     assert result.access_model == "public_html"
 
 
+def test_public_html_extracts_json_ld_parent_and_lei(monkeypatch):
+    home_html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "Acme Avionics",
+            "legalName": "Acme Avionics LLC",
+            "url": "https://acme.example",
+            "leiCode": "5493001KJTIIGC8Y1R12",
+            "parentOrganization": {
+              "@type": "Organization",
+              "name": "Horizon Mission Systems"
+            }
+          }
+        </script>
+      </head>
+      <body>
+        <p>Mission systems for defense operators.</p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        if url == "https://acme.example":
+            return _FakeResponse(home_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "_fetch_dns_answers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(public_html_ownership, "_fetch_rdap_record", lambda *_args, **_kwargs: {})
+
+    result = public_html_ownership.enrich("Acme Avionics", country="US", website="https://acme.example")
+
+    assert result.identifiers["lei"] == "5493001KJTIIGC8Y1R12"
+    assert result.identifiers["legal_name"] == "Acme Avionics LLC"
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert ("owned_by", "Horizon Mission Systems") in rel_types
+
+
+def test_public_html_extracts_domain_dependency_hints_from_fixture(monkeypatch):
+    home_html = """
+    <html>
+      <body>
+        <p>Secure operations platform.</p>
+      </body>
+    </html>
+    """
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        assert timeout == public_html_ownership.TIMEOUT
+        if url == "https://atlas.example":
+            return _FakeResponse(home_html)
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+
+    result = public_html_ownership.enrich(
+        "Atlas Mission Grid",
+        country="US",
+        website="https://atlas.example",
+        public_domain_osint_fixture={
+            "rdap": {"registrarName": "MarkMonitor Inc."},
+            "dns": {
+                "MX": ["atlas-example.mail.protection.outlook.com."],
+                "TXT": ['v=spf1 include:spf.protection.outlook.com include:sendgrid.net ~all'],
+                "NS": ["nina.ns.cloudflare.com.", "jake.ns.cloudflare.com."],
+            },
+        },
+    )
+
+    rel_types = {(rel["type"], rel["target_entity"]) for rel in result.relationships}
+    assert ("depends_on_service", "Microsoft 365") in rel_types
+    assert ("depends_on_service", "SendGrid") in rel_types
+    assert ("depends_on_network", "Cloudflare") in rel_types
+    assert result.identifiers["domain_registrar"] == "MarkMonitor Inc."
+
+
 def test_public_html_extracts_cage_uei_duns_and_ncage_from_company_site(monkeypatch):
     identifier_html = """
     <html>

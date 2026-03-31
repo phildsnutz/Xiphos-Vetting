@@ -2,18 +2,31 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import re
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from . import EnrichmentResult, Finding
 
 
 SOURCE_NAME = "openownership_bods_public"
 USER_AGENT = "Xiphos-Vetting/2.1"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CACHE_PATHS = (
+    REPO_ROOT / "var" / "openownership_bods_public.json",
+    REPO_ROOT / "var" / "openownership_bods_public.jsonl",
+    REPO_ROOT / "var" / "openownership_bods_public.json.gz",
+    REPO_ROOT / "var" / "openownership_bods_public.jsonl.gz",
+    REPO_ROOT / "var" / "openownership" / "bods_public.json",
+    REPO_ROOT / "var" / "openownership" / "bods_public.jsonl",
+    REPO_ROOT / "var" / "openownership" / "bods_public.json.gz",
+    REPO_ROOT / "var" / "openownership" / "bods_public.jsonl.gz",
+)
 
 
 def _normalize_name(name: str) -> str:
@@ -26,6 +39,20 @@ def _get_dataset_url(ids: dict) -> str:
         if value:
             return value
     return str(os.environ.get("XIPHOS_OPENOWNERSHIP_BODS_URL") or "").strip()
+
+
+def _get_dataset_path(ids: dict) -> str:
+    for key in ("openownership_bods_path", "bods_path"):
+        value = str(ids.get(key) or "").strip()
+        if value:
+            return value
+    env_path = str(os.environ.get("XIPHOS_OPENOWNERSHIP_BODS_PATH") or "").strip()
+    if env_path:
+        return env_path
+    for candidate in DEFAULT_CACHE_PATHS:
+        if candidate.exists():
+            return str(candidate)
+    return ""
 
 
 def _fetch_json(url: str) -> dict | None:
@@ -41,6 +68,58 @@ def _fetch_json(url: str) -> dict | None:
             return json.loads(resp.read())
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
         return None
+
+
+def _load_json_path(path: str) -> dict | None:
+    dataset_path = Path(path).expanduser()
+    if not dataset_path.exists():
+        return None
+    opener = gzip.open if dataset_path.suffix == ".gz" else open
+    try:
+        with opener(dataset_path, "rt", encoding="utf-8") as handle:
+            raw_text = handle.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    stripped = raw_text.lstrip()
+    if not stripped:
+        return None
+
+    if dataset_path.name.endswith((".jsonl", ".jsonl.gz", ".ndjson", ".ndjson.gz")):
+        records: list[dict] = []
+        for line in raw_text.splitlines():
+            normalized = line.strip()
+            if not normalized:
+                continue
+            try:
+                payload = json.loads(normalized)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(payload, dict):
+                records.append(payload)
+        return {"records": records}
+
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, list):
+        return {"records": [item for item in payload if isinstance(item, dict)]}
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _load_payload(ids: dict) -> tuple[dict | None, str]:
+    dataset_path = _get_dataset_path(ids)
+    if dataset_path:
+        payload = _load_json_path(dataset_path)
+        if payload is not None:
+            return payload, str(Path(dataset_path).expanduser().resolve())
+    dataset_url = _get_dataset_url(ids)
+    if dataset_url:
+        return _fetch_json(dataset_url), dataset_url
+    return None, ""
 
 
 def _match_record(record: dict, vendor_name: str, country: str, ids: dict) -> bool:
@@ -70,12 +149,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         access_model="public_json",
     )
 
-    dataset_url = _get_dataset_url(ids)
-    if not dataset_url:
+    payload, dataset_ref = _load_payload(ids)
+    if not payload or not dataset_ref:
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
         return result
 
-    payload = _fetch_json(dataset_url)
     if not isinstance(payload, dict):
         result.error = "Unable to fetch public Open Ownership dataset"
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -94,7 +172,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 ),
                 severity="info",
                 confidence=0.8,
-                url=dataset_url,
+                url=dataset_ref if "://" in dataset_ref else "",
                 raw_data={"top_level_keys": sorted(payload.keys())[:12]},
                 source_class="public_connector",
                 authority_level="third_party_public",
@@ -138,8 +216,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 "data_source": SOURCE_NAME,
                 "confidence": 0.9 if direct else 0.86,
                 "evidence": str(statement.get("evidence") or "Open Ownership BODS public dataset statement"),
-                "evidence_url": dataset_url,
-                "artifact_ref": dataset_url,
+                "evidence_url": dataset_ref if "://" in dataset_ref else "",
+                "artifact_ref": dataset_ref,
                 "structured_fields": {
                     "statement_id": str(statement.get("statement_id") or ""),
                     "statement_type": str(statement.get("statement_type") or "ownershipOrControlStatement"),
@@ -148,7 +226,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     "beneficial_ownership_pct": statement.get("beneficial_ownership_pct"),
                     "component_records": list(statement.get("component_records") or []),
                     "standards": ["Beneficial Ownership Data Standard (BODS)"],
-                    "dataset_url": dataset_url,
+                    "dataset_ref": dataset_ref,
                 },
                 "source_class": "public_connector",
                 "authority_level": "third_party_public",
@@ -158,7 +236,10 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
     subject_identifiers = subject.get("identifiers") if isinstance(subject.get("identifiers"), dict) else {}
     result.identifiers.update(subject_identifiers)
-    result.identifiers["openownership_bods_url"] = dataset_url
+    if "://" in dataset_ref:
+        result.identifiers["openownership_bods_url"] = dataset_ref
+    else:
+        result.identifiers["openownership_bods_path"] = dataset_ref
 
     result.findings.append(
         Finding(
@@ -171,12 +252,12 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             ),
             severity="medium" if indirect_count else "low",
             confidence=0.88,
-            url=dataset_url,
+            url=dataset_ref if "://" in dataset_ref else "",
             raw_data={
                 "record_id": record.get("record_id", ""),
                 "statement_count": len(statements),
             },
-            artifact_ref=dataset_url,
+            artifact_ref=dataset_ref,
             structured_fields={
                 "summary": {
                     "record_id": record.get("record_id", ""),
@@ -205,10 +286,9 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             "statement_count": len(statements),
             "direct_statement_count": direct_count,
             "indirect_statement_count": indirect_count,
-            "dataset_url": dataset_url,
+            "dataset_ref": dataset_ref,
         }
     }
-    result.artifact_refs = [dataset_url]
+    result.artifact_refs = [dataset_ref]
     result.elapsed_ms = int((time.perf_counter() - started) * 1000)
     return result
-

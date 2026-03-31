@@ -17,7 +17,10 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus, unquote, urljoin, urlparse
+import urllib.error
+import urllib.request
 
 import requests
 
@@ -49,6 +52,13 @@ DEFAULT_PATHS = (
 DISCOVERY_HUB_PATHS = ("/news", "/newsroom", "/blog", "/press", "/articles", "/updates")
 USER_AGENT = "Helios/5.2 (+https://xiphosllc.com)"
 FIXTURE_PAGE_KEYS = ("public_html_fixture_page", "public_html_fixture_pages")
+DOMAIN_OSINT_FIXTURE_KEYS = ("public_domain_osint_fixture", "public_domain_osint_fixture_path")
+JSON_LD_SCRIPT = re.compile(
+    r"<script\b[^>]*type=[\"']application/ld\+json[\"'][^>]*>(?P<body>.*?)</script>",
+    re.IGNORECASE | re.DOTALL,
+)
+GOOGLE_DNS_ENDPOINT = "https://dns.google/resolve"
+RDAP_ENDPOINT = "https://rdap.org/domain/{domain}"
 
 SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     (
@@ -516,7 +526,162 @@ _RELATIONSHIP_META: dict[str, dict[str, str]] = {
         "relationship_scope_default": "first_party_network_dependency",
         "evidence_title": "Public company website network dependency statement",
     },
+    "parent_of": {
+        "target_entity_type": "company",
+        "finding_category": "ownership",
+        "finding_title_prefix": "Public site subsidiary hint: ",
+        "relationship_scope_default": "json_ld_sub_organization",
+        "evidence_title": "Public company website subsidiary statement",
+    },
 }
+TECH_SIGNATURES: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
+    (
+        re.compile(r"https?://js\.stripe\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "Stripe",
+        0.82,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://(?:www\.)?paypal\.com/sdk/js|https?://www\.paypalobjects\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "PayPal",
+        0.82,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://js\.braintreegateway\.com/", re.IGNORECASE),
+        "routes_payment_through",
+        "Braintree",
+        0.80,
+        "payment_sdk_signature",
+    ),
+    (
+        re.compile(r"https?://(?:cdn|assets)\.shopify\.com|https?://checkout\.shopify\.com", re.IGNORECASE),
+        "depends_on_service",
+        "Shopify",
+        0.72,
+        "commerce_platform_signature",
+    ),
+    (
+        re.compile(r"cdn-cgi|cloudflareinsights\.com|cdnjs\.cloudflare\.com", re.IGNORECASE),
+        "depends_on_network",
+        "Cloudflare",
+        0.74,
+        "network_edge_signature",
+    ),
+    (
+        re.compile(r"https?://[^\"'\\s>]*okta\.com/", re.IGNORECASE),
+        "depends_on_service",
+        "Okta",
+        0.72,
+        "identity_platform_signature",
+    ),
+    (
+        re.compile(r"https?://static\.zdassets\.com|https?://[^\"'\\s>]*zendesk\.com/", re.IGNORECASE),
+        "depends_on_service",
+        "Zendesk",
+        0.70,
+        "support_platform_signature",
+    ),
+    (
+        re.compile(r"https?://[^\"'\\s>]*statuspage\.io/", re.IGNORECASE),
+        "depends_on_service",
+        "Atlassian Statuspage",
+        0.68,
+        "status_platform_signature",
+    ),
+)
+MX_PROVIDER_HINTS: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
+    (
+        re.compile(r"(?:^|\.)google\.com\.?$|aspmx\.l\.google\.com\.?", re.IGNORECASE),
+        "depends_on_service",
+        "Google Workspace",
+        0.66,
+        "mx_provider_signature",
+    ),
+    (
+        re.compile(r"protection\.outlook\.com\.?$", re.IGNORECASE),
+        "depends_on_service",
+        "Microsoft 365",
+        0.66,
+        "mx_provider_signature",
+    ),
+    (
+        re.compile(r"mimecast\.com\.?$", re.IGNORECASE),
+        "depends_on_service",
+        "Mimecast",
+        0.64,
+        "mx_provider_signature",
+    ),
+    (
+        re.compile(r"ppe-hosted\.com\.?$|proofpoint\.com\.?$", re.IGNORECASE),
+        "depends_on_service",
+        "Proofpoint",
+        0.64,
+        "mx_provider_signature",
+    ),
+)
+TXT_PROVIDER_HINTS: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
+    (
+        re.compile(r"include:_spf\.google\.com", re.IGNORECASE),
+        "depends_on_service",
+        "Google Workspace",
+        0.64,
+        "spf_provider_signature",
+    ),
+    (
+        re.compile(r"include:spf\.protection\.outlook\.com", re.IGNORECASE),
+        "depends_on_service",
+        "Microsoft 365",
+        0.64,
+        "spf_provider_signature",
+    ),
+    (
+        re.compile(r"include:mailgun\.org", re.IGNORECASE),
+        "depends_on_service",
+        "Mailgun",
+        0.62,
+        "spf_provider_signature",
+    ),
+    (
+        re.compile(r"include:sendgrid\.net", re.IGNORECASE),
+        "depends_on_service",
+        "SendGrid",
+        0.62,
+        "spf_provider_signature",
+    ),
+    (
+        re.compile(r"include:amazonses\.com", re.IGNORECASE),
+        "depends_on_service",
+        "Amazon SES",
+        0.60,
+        "spf_provider_signature",
+    ),
+)
+NS_PROVIDER_HINTS: tuple[tuple[re.Pattern[str], str, str, float, str], ...] = (
+    (
+        re.compile(r"cloudflare\.com\.?$", re.IGNORECASE),
+        "depends_on_network",
+        "Cloudflare",
+        0.70,
+        "nameserver_signature",
+    ),
+    (
+        re.compile(r"awsdns-[^.]+\.com\.?$|awsdns-[^.]+\.net\.?$|awsdns-[^.]+\.org\.?$|awsdns-[^.]+\.co\.uk\.?$", re.IGNORECASE),
+        "depends_on_network",
+        "Amazon Route 53",
+        0.66,
+        "nameserver_signature",
+    ),
+    (
+        re.compile(r"akam\.net\.?$|akamaiedge\.net\.?$", re.IGNORECASE),
+        "depends_on_network",
+        "Akamai",
+        0.64,
+        "nameserver_signature",
+    ),
+)
 IDENTIFIER_PATTERNS: tuple[tuple[str, str, re.Pattern[str], float], ...] = (
     (
         "cage",
@@ -854,6 +1019,510 @@ def _extract_text(markup: str) -> str:
     cleaned = html.unescape(cleaned)
     cleaned = WHITESPACE.sub(" ", cleaned)
     return cleaned.strip()
+
+
+def _normalize_entity_name(name: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", str(name or "").upper()).strip()
+
+
+def _entity_match_score(left: str, right: str) -> float:
+    normalized_left = _normalize_entity_name(left)
+    normalized_right = _normalize_entity_name(right)
+    if not normalized_left or not normalized_right:
+        return 0.0
+    if normalized_left == normalized_right:
+        return 1.0
+    if normalized_left in normalized_right or normalized_right in normalized_left:
+        return 0.94
+    left_tokens = set(normalized_left.split())
+    right_tokens = set(normalized_right.split())
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = len(left_tokens & right_tokens) / max(1, len(left_tokens))
+    return overlap
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _website_host(value: str) -> str:
+    parsed = urlparse(_normalize_website(value))
+    return str(parsed.netloc or "").lower()
+
+
+def _json_ld_nodes(payload: Any) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        for item in payload:
+            nodes.extend(_json_ld_nodes(item))
+        return nodes
+    if not isinstance(payload, dict):
+        return nodes
+    graph_nodes = payload.get("@graph")
+    if isinstance(graph_nodes, list):
+        for item in graph_nodes:
+            nodes.extend(_json_ld_nodes(item))
+    nodes.append(payload)
+    return nodes
+
+
+def _extract_json_ld_blocks(markup: str) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for match in JSON_LD_SCRIPT.finditer(markup or ""):
+        body = html.unescape(match.group("body") or "").strip()
+        if not body:
+            continue
+        body = re.sub(r"^\s*<!--", "", body)
+        body = re.sub(r"-->\s*$", "", body)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        blocks.extend(_json_ld_nodes(payload))
+    return blocks
+
+
+def _identifier_value_from_json_ld(value: Any) -> tuple[str, str] | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if re.fullmatch(r"[0-9A-Z]{18,20}", normalized):
+            return "lei", normalized
+        return None
+    if not isinstance(value, dict):
+        return None
+    property_id = str(value.get("propertyID") or value.get("propertyId") or value.get("name") or "").strip().lower()
+    identifier_value = str(value.get("value") or value.get("@value") or "").strip()
+    if not identifier_value:
+        return None
+    if property_id in {"lei", "lei code", "leicode"}:
+        return "lei", identifier_value.upper()
+    if property_id in {"uei", "uei code"}:
+        return "uei", identifier_value.upper()
+    if property_id in {"cage", "cage code"}:
+        return "cage", identifier_value.upper()
+    return None
+
+
+def _json_ld_matches_vendor(node: dict[str, Any], vendor_name: str, website: str) -> bool:
+    node_type_values = {str(item).lower() for item in _as_list(node.get("@type"))}
+    if node_type_values and not {"organization", "corporation", "localbusiness", "thing"} & node_type_values:
+        return False
+    website_host = _website_host(website)
+    for candidate in [node.get("url"), *(_as_list(node.get("sameAs")))]:
+        host = _website_host(str(candidate or ""))
+        if host and website_host and host == website_host:
+            return True
+    for name_candidate in (node.get("name"), node.get("legalName")):
+        if _entity_match_score(str(name_candidate or ""), vendor_name) >= 0.72:
+            return True
+    return False
+
+
+def _json_ld_target_name(value: Any) -> str:
+    if isinstance(value, str):
+        return _clean_parent_name(value)
+    if isinstance(value, dict):
+        return _clean_parent_name(str(value.get("name") or value.get("legalName") or value.get("@id") or ""))
+    return ""
+
+
+def _extract_json_ld_hints(
+    markup: str,
+    *,
+    vendor_name: str,
+    country: str,
+    website: str,
+    page_url: str,
+) -> dict[str, Any]:
+    identifiers: dict[str, str] = {}
+    relationships: list[dict[str, Any]] = []
+    findings: list[Finding] = []
+    matched_nodes = [node for node in _extract_json_ld_blocks(markup) if _json_ld_matches_vendor(node, vendor_name, website)]
+    if not matched_nodes:
+        return {"identifiers": identifiers, "relationships": relationships, "findings": findings}
+
+    seen_relationships: set[tuple[str, str]] = set()
+    for node in matched_nodes:
+        legal_name = str(node.get("legalName") or "").strip()
+        if legal_name and _entity_match_score(legal_name, vendor_name) >= 0.72:
+            identifiers.setdefault("legal_name", legal_name)
+        lei_code = str(node.get("leiCode") or node.get("lei") or "").strip().upper()
+        if lei_code:
+            identifiers.setdefault("lei", lei_code)
+        for identifier in _as_list(node.get("identifier")):
+            parsed_identifier = _identifier_value_from_json_ld(identifier)
+            if parsed_identifier:
+                identifiers.setdefault(parsed_identifier[0], parsed_identifier[1])
+
+        parent_targets = _as_list(node.get("parentOrganization"))
+        for parent in parent_targets:
+            target_name = _json_ld_target_name(parent)
+            if not target_name or _looks_like_vendor(target_name, vendor_name):
+                continue
+            dedupe_key = ("owned_by", target_name.upper())
+            if dedupe_key in seen_relationships:
+                continue
+            seen_relationships.add(dedupe_key)
+            snippet = f"JSON-LD parentOrganization: {target_name}"
+            relationships.append(
+                _build_relationship(
+                    vendor_name=vendor_name,
+                    country=country,
+                    website=website,
+                    rel_type="owned_by",
+                    parent_name=target_name,
+                    page_url=page_url,
+                    confidence=0.84,
+                    scope="json_ld_parent_organization",
+                    snippet=snippet,
+                )
+            )
+            findings.append(
+                Finding(
+                    source=SOURCE_NAME,
+                    category="ownership",
+                    title=f"Public site ownership hint: {target_name}",
+                    detail=f"{snippet} | Source page: {page_url}",
+                    severity="info",
+                    confidence=0.84,
+                    url=page_url,
+                    artifact_ref=page_url,
+                    structured_fields={
+                        "relationship_type": "owned_by",
+                        "relationship_scope": "json_ld_parent_organization",
+                        "target_entity": target_name,
+                        "website": website,
+                    },
+                    source_class="public_connector",
+                    authority_level="first_party_self_disclosed",
+                    access_model="public_html",
+                )
+            )
+
+        for child in _as_list(node.get("subOrganization")):
+            target_name = _json_ld_target_name(child)
+            if not target_name or _looks_like_vendor(target_name, vendor_name):
+                continue
+            dedupe_key = ("parent_of", target_name.upper())
+            if dedupe_key in seen_relationships:
+                continue
+            seen_relationships.add(dedupe_key)
+            snippet = f"JSON-LD subOrganization: {target_name}"
+            relationships.append(
+                _build_relationship(
+                    vendor_name=vendor_name,
+                    country=country,
+                    website=website,
+                    rel_type="parent_of",
+                    parent_name=target_name,
+                    page_url=page_url,
+                    confidence=0.76,
+                    scope="json_ld_sub_organization",
+                    snippet=snippet,
+                )
+            )
+            findings.append(
+                Finding(
+                    source=SOURCE_NAME,
+                    category="ownership",
+                    title=f"Public site subsidiary hint: {target_name}",
+                    detail=f"{snippet} | Source page: {page_url}",
+                    severity="info",
+                    confidence=0.76,
+                    url=page_url,
+                    artifact_ref=page_url,
+                    structured_fields={
+                        "relationship_type": "parent_of",
+                        "relationship_scope": "json_ld_sub_organization",
+                        "target_entity": target_name,
+                        "website": website,
+                    },
+                    source_class="public_connector",
+                    authority_level="first_party_self_disclosed",
+                    access_model="public_html",
+                )
+            )
+
+        accepted_payment_method = [str(item).strip() for item in _as_list(node.get("acceptedPaymentMethod")) if str(item or "").strip()]
+        if accepted_payment_method:
+            findings.append(
+                Finding(
+                    source=SOURCE_NAME,
+                    category="profile",
+                    title="Public site payment method disclosure via JSON-LD",
+                    detail=f"{', '.join(accepted_payment_method[:6])} | Source page: {page_url}",
+                    severity="info",
+                    confidence=0.62,
+                    url=page_url,
+                    artifact_ref=page_url,
+                    structured_fields={
+                        "accepted_payment_method": accepted_payment_method[:12],
+                        "website": website,
+                    },
+                    source_class="public_connector",
+                    authority_level="first_party_self_disclosed",
+                    access_model="public_html",
+                )
+            )
+
+    return {"identifiers": identifiers, "relationships": relationships, "findings": findings}
+
+
+def _extract_technology_signature_hints(
+    markup: str,
+    *,
+    vendor_name: str,
+    country: str,
+    website: str,
+    page_url: str,
+) -> dict[str, Any]:
+    relationships: list[dict[str, Any]] = []
+    findings: list[Finding] = []
+    lowered_markup = str(markup or "")
+    seen_relationships: set[tuple[str, str]] = set()
+    for pattern, rel_type, target_name, confidence, scope in TECH_SIGNATURES:
+        match = pattern.search(lowered_markup)
+        if not match:
+            continue
+        dedupe_key = (rel_type, target_name.upper())
+        if dedupe_key in seen_relationships:
+            continue
+        seen_relationships.add(dedupe_key)
+        snippet = match.group(0)
+        relationships.append(
+            _build_relationship(
+                vendor_name=vendor_name,
+                country=country,
+                website=website,
+                rel_type=rel_type,
+                parent_name=target_name,
+                page_url=page_url,
+                confidence=confidence,
+                scope=scope,
+                snippet=snippet,
+            )
+        )
+        relationship_meta = _RELATIONSHIP_META.get(rel_type, _RELATIONSHIP_META["depends_on_service"])
+        findings.append(
+            Finding(
+                source=SOURCE_NAME,
+                category=relationship_meta["finding_category"],
+                title=f"{relationship_meta['finding_title_prefix']}{target_name}",
+                detail=f"{snippet} | Source page: {page_url}",
+                severity="info",
+                confidence=confidence,
+                url=page_url,
+                artifact_ref=page_url,
+                structured_fields={
+                    "relationship_type": rel_type,
+                    "relationship_scope": scope,
+                    "target_entity": target_name,
+                    "website": website,
+                },
+                source_class="public_connector",
+                authority_level="first_party_self_disclosed",
+                access_model="public_html",
+            )
+        )
+    return {"relationships": relationships, "findings": findings}
+
+
+def _load_domain_osint_fixture(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    path = Path(str(value or "")).expanduser()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _fetch_dns_answers(domain: str, record_type: str) -> list[str]:
+    url = _dns_evidence_url(domain, record_type)
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/dns-json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=min(TIMEOUT, 8)) as resp:
+            payload = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        return []
+    answers = payload.get("Answer") if isinstance(payload, dict) else None
+    if not isinstance(answers, list):
+        return []
+    extracted: list[str] = []
+    for answer in answers:
+        data = str((answer or {}).get("data") or "").strip().strip('"')
+        if data:
+            extracted.append(data)
+    return extracted
+
+
+def _fetch_rdap_record(domain: str) -> dict[str, Any] | None:
+    url = RDAP_ENDPOINT.format(domain=domain)
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/rdap+json, application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=min(TIMEOUT, 8)) as resp:
+            payload = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _rdap_registrar_name(payload: dict[str, Any]) -> str:
+    registrar = str(payload.get("registrarName") or "").strip()
+    if registrar:
+        return registrar
+    for entity in _as_list(payload.get("entities")):
+        if not isinstance(entity, dict):
+            continue
+        roles = {str(item).lower() for item in _as_list(entity.get("roles"))}
+        if "registrar" not in roles:
+            continue
+        vcard_array = entity.get("vcardArray")
+        if isinstance(vcard_array, list) and len(vcard_array) == 2 and isinstance(vcard_array[1], list):
+            for item in vcard_array[1]:
+                if isinstance(item, list) and len(item) >= 4 and str(item[0]).lower() == "fn":
+                    return str(item[3] or "").strip()
+    return ""
+
+
+def _dns_evidence_url(domain: str, record_type: str) -> str:
+    return f"{GOOGLE_DNS_ENDPOINT}?name={quote_plus(domain)}&type={record_type}"
+
+
+def _extract_domain_dependency_hints(
+    vendor_name: str,
+    *,
+    country: str,
+    website: str,
+    ids: dict[str, Any],
+) -> dict[str, Any]:
+    domain = _website_host(website)
+    if not domain:
+        return {"identifiers": {}, "relationships": [], "findings": []}
+
+    fixture_payload: dict[str, Any] = {}
+    for key in DOMAIN_OSINT_FIXTURE_KEYS:
+        if key in ids:
+            fixture_payload = _load_domain_osint_fixture(ids.get(key))
+            if fixture_payload:
+                break
+
+    dns_payload = fixture_payload.get("dns") if isinstance(fixture_payload.get("dns"), dict) else {}
+    rdap_payload = fixture_payload.get("rdap") if isinstance(fixture_payload.get("rdap"), dict) else {}
+    mx_records = [str(item).strip() for item in _as_list(dns_payload.get("MX")) if str(item or "").strip()] or _fetch_dns_answers(domain, "MX")
+    txt_records = [str(item).strip() for item in _as_list(dns_payload.get("TXT")) if str(item or "").strip()] or _fetch_dns_answers(domain, "TXT")
+    ns_records = [str(item).strip() for item in _as_list(dns_payload.get("NS")) if str(item or "").strip()] or _fetch_dns_answers(domain, "NS")
+    rdap_record = rdap_payload or _fetch_rdap_record(domain) or {}
+
+    identifiers: dict[str, str] = {}
+    findings: list[Finding] = []
+    relationships: list[dict[str, Any]] = []
+    seen_relationships: set[tuple[str, str]] = set()
+
+    registrar_name = _rdap_registrar_name(rdap_record) if isinstance(rdap_record, dict) else ""
+    if registrar_name:
+        identifiers["domain_registrar"] = registrar_name
+        findings.append(
+            Finding(
+                source=SOURCE_NAME,
+                category="identity",
+                title=f"Domain registration hint: {registrar_name}",
+                detail=f"RDAP registrar for {domain}: {registrar_name}",
+                severity="info",
+                confidence=0.58,
+                url=RDAP_ENDPOINT.format(domain=domain),
+                artifact_ref=RDAP_ENDPOINT.format(domain=domain),
+                structured_fields={
+                    "website": website,
+                    "domain": domain,
+                    "registrar": registrar_name,
+                },
+                source_class="public_connector",
+                authority_level="third_party_public",
+                access_model="public_api",
+            )
+        )
+
+    def add_relationship(rel_type: str, target_name: str, confidence: float, scope: str, snippet: str, evidence_url: str) -> None:
+        dedupe_key = (rel_type, target_name.upper())
+        if dedupe_key in seen_relationships:
+            return
+        seen_relationships.add(dedupe_key)
+        relationship = _build_relationship(
+            vendor_name=vendor_name,
+            country=country,
+            website=website,
+            rel_type=rel_type,
+            parent_name=target_name,
+            page_url=evidence_url,
+            confidence=confidence,
+            scope=scope,
+            snippet=snippet,
+        )
+        relationship["authority_level"] = "third_party_public"
+        relationship["access_model"] = "public_api"
+        relationship["structured_fields"]["domain"] = domain
+        relationships.append(relationship)
+        relationship_meta = _RELATIONSHIP_META.get(rel_type, _RELATIONSHIP_META["depends_on_service"])
+        findings.append(
+            Finding(
+                source=SOURCE_NAME,
+                category=relationship_meta["finding_category"],
+                title=f"{relationship_meta['finding_title_prefix']}{target_name}",
+                detail=f"{snippet} | Domain: {domain}",
+                severity="info",
+                confidence=confidence,
+                url=evidence_url,
+                artifact_ref=evidence_url,
+                structured_fields={
+                    "relationship_type": rel_type,
+                    "relationship_scope": scope,
+                    "target_entity": target_name,
+                    "website": website,
+                    "domain": domain,
+                },
+                source_class="public_connector",
+                authority_level="third_party_public",
+                access_model="public_api",
+            )
+        )
+
+    for record in mx_records:
+        for pattern, rel_type, target_name, confidence, scope in MX_PROVIDER_HINTS:
+            if pattern.search(record):
+                add_relationship(rel_type, target_name, confidence, scope, f"MX record: {record}", _dns_evidence_url(domain, "MX"))
+
+    joined_txt = "\n".join(txt_records)
+    for pattern, rel_type, target_name, confidence, scope in TXT_PROVIDER_HINTS:
+        match = pattern.search(joined_txt)
+        if match:
+            add_relationship(rel_type, target_name, confidence, scope, f"TXT record: {match.group(0)}", _dns_evidence_url(domain, "TXT"))
+
+    for record in ns_records:
+        for pattern, rel_type, target_name, confidence, scope in NS_PROVIDER_HINTS:
+            if pattern.search(record):
+                add_relationship(rel_type, target_name, confidence, scope, f"NS record: {record}", _dns_evidence_url(domain, "NS"))
+
+    return {"identifiers": identifiers, "relationships": relationships, "findings": findings}
 
 
 def _clean_parent_name(raw_name: str) -> str:
@@ -1557,6 +2226,26 @@ def extract_page(
                     access_model="public_html",
                 )
             )
+        json_ld_hints = _extract_json_ld_hints(
+            html_text,
+            vendor_name=vendor_name,
+            country=country,
+            website=canonical_website or normalized_website,
+            page_url=effective_page_url,
+        )
+        for key, value in json_ld_hints.get("identifiers", {}).items():
+            result.identifiers.setdefault(str(key), str(value))
+        result.relationships.extend(list(json_ld_hints.get("relationships", [])))
+        result.findings.extend(list(json_ld_hints.get("findings", [])))
+        tech_hints = _extract_technology_signature_hints(
+            html_text,
+            vendor_name=vendor_name,
+            country=country,
+            website=canonical_website or normalized_website,
+            page_url=effective_page_url,
+        )
+        result.relationships.extend(list(tech_hints.get("relationships", [])))
+        result.findings.extend(list(tech_hints.get("findings", [])))
         for key, hint in _extract_profile_hints(text).items():
             value = str(hint["value"])
             result.identifiers.setdefault(key, value)
@@ -1810,6 +2499,30 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         website,
         [*seeded_pages, *successful_pages, *identifier_artifact_refs, *(rel.get("artifact_ref") for rel in relationships)],
     )
+    domain_hints = _extract_domain_dependency_hints(
+        vendor_name,
+        country=country,
+        website=canonical_website or website,
+        ids=ids,
+    )
+    for key, value in domain_hints.get("identifiers", {}).items():
+        result.identifiers.setdefault(str(key), str(value))
+    seen_finding_keys = {
+        (finding.category, finding.title, finding.artifact_ref or "")
+        for finding in findings
+    }
+    for relationship in domain_hints.get("relationships", []):
+        dedupe_key = (relationship["type"], relationship["target_entity"].upper())
+        if dedupe_key in seen_targets:
+            continue
+        seen_targets.add(dedupe_key)
+        relationships.append(relationship)
+    for finding in domain_hints.get("findings", []):
+        dedupe_key = (finding.category, finding.title, finding.artifact_ref or "")
+        if dedupe_key in seen_finding_keys:
+            continue
+        seen_finding_keys.add(dedupe_key)
+        findings.append(finding)
     result.identifiers["website"] = canonical_website or website
     canonical_seed_pages = _resolve_first_party_pages(
         {"first_party_pages": [*seeded_pages, *identifier_artifact_refs, *(rel.get("artifact_ref") for rel in relationships)]},

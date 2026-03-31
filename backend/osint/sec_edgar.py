@@ -15,9 +15,11 @@ import json
 import re
 import time
 import logging
+import html
 import urllib.request
 import urllib.error
 import urllib.parse
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
 from . import EnrichmentResult, Finding
@@ -31,6 +33,48 @@ USER_AGENT = "Xiphos/5.2 (compliance-tool@xiphos.dev)"
 _CORP_SUFFIXES = re.compile(
     r"\b(LLC|INC|CORP|CORPORATION|INCORPORATED|LIMITED|LTD|PLC|LP|LLP|CO|COMPANY|HOLDINGS|GROUP|ENTERPRISES)\b\.?",
     re.IGNORECASE,
+)
+_FINANCING_DOC_NAME_HINTS = (
+    "ex10",
+    "ex-10",
+    "credit",
+    "loan",
+    "facility",
+    "revolver",
+    "guarant",
+    "security",
+)
+_FINANCING_PATTERNS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
+    (
+        re.compile(r"(?:with|and)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)\s*,\s+as administrative agent\b", re.IGNORECASE),
+        "administrative_agent",
+        0.86,
+        "backed_by",
+    ),
+    (
+        re.compile(r"(?:with|and)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)\s*,\s+as collateral agent\b", re.IGNORECASE),
+        "collateral_agent",
+        0.84,
+        "backed_by",
+    ),
+    (
+        re.compile(r"(?:with|and)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120}?)\s*,\s+as (?:lender|swingline lender|issuing bank)\b", re.IGNORECASE),
+        "lender",
+        0.82,
+        "backed_by",
+    ),
+    (
+        re.compile(r"(?:credit agreement|loan agreement|term loan facility|revolving credit facility|revolver).{0,80}?(?:with|among)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})", re.IGNORECASE),
+        "credit_facility_counterparty",
+        0.80,
+        "backed_by",
+    ),
+    (
+        re.compile(r"(?:receivables?|payments?|collections?)\s+(?:are|were)\s+(?:processed|settled|swept|routed)\s+(?:through|via)\s+([A-Z][A-Za-z0-9&.,'()/ -]{2,120})", re.IGNORECASE),
+        "payment_bank",
+        0.76,
+        "routes_payment_through",
+    ),
 )
 
 
@@ -86,6 +130,201 @@ def _get(url: str) -> dict | list | None:
             return json.loads(raw)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
         return None
+
+
+def _fetch_text(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,text/plain"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _normalize_financing_entity(name: str) -> str:
+    cleaned = str(name or "").strip(" ,;:-")
+    cleaned = re.split(r"\s+(?:and|with|together with|including)\b", cleaned, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,;:-")
+    cleaned = re.sub(r"^(?:the|a|an)\s+", "", cleaned, flags=re.IGNORECASE)
+    if cleaned.endswith(".") and not re.search(r"\b[A-Z]\.[A-Z]\.$", cleaned):
+        cleaned = cleaned[:-1]
+    return cleaned
+
+
+def _looks_like_financing_entity(name: str, vendor_name: str) -> bool:
+    cleaned = _normalize_financing_entity(name)
+    if len(cleaned) < 3:
+        return False
+    if _name_match_score(cleaned, vendor_name) >= 0.78:
+        return False
+    if not re.search(r"[A-Za-z]", cleaned):
+        return False
+    if len(cleaned.split()) > 10:
+        return False
+    lowered = cleaned.lower()
+    if any(
+        token in lowered
+        for token in (
+            "credit agreement",
+            "term loan",
+            "revolving credit facility",
+            "guarantee",
+            "secured party",
+            "borrower",
+            "company",
+        )
+    ):
+        return False
+    return True
+
+
+def _strip_sec_document_markup(text: str) -> str:
+    payload = re.sub(r"</TEXT>\s*</DOCUMENT>\s*$", "", text or "", flags=re.IGNORECASE)
+    text_marker = re.search(r"<TEXT>\s*", payload, re.IGNORECASE)
+    if text_marker:
+        payload = payload[text_marker.end():]
+    payload = re.sub(r"<br\s*/?>", "\n", payload, flags=re.IGNORECASE)
+    payload = re.sub(r"</?(?:td|th|tr|p|div|span|li|ul|ol|table)[^>]*>", "\n", payload, flags=re.IGNORECASE)
+    payload = re.sub(r"<[^>]+>", " ", payload)
+    payload = html.unescape(payload)
+    payload = re.sub(r"\s+", " ", payload)
+    return payload.strip()
+
+
+def _parse_financing_document(text: str, vendor_name: str) -> list[dict]:
+    normalized_text = _strip_sec_document_markup(text)
+    if not normalized_text:
+        return []
+    relationships: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for pattern, role, confidence, rel_type in _FINANCING_PATTERNS:
+        for hit in pattern.finditer(normalized_text):
+            entity_name = _normalize_financing_entity(hit.group(1))
+            if not _looks_like_financing_entity(entity_name, vendor_name):
+                continue
+            dedupe_key = (rel_type, entity_name.upper())
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            snippet_start = max(hit.start() - 120, 0)
+            snippet_end = min(hit.end() + 120, len(normalized_text))
+            relationships.append(
+                {
+                    "type": rel_type,
+                    "target_entity": entity_name,
+                    "sec_role": role,
+                    "confidence": confidence,
+                    "snippet": normalized_text[snippet_start:snippet_end].strip(),
+                }
+            )
+    return relationships
+
+
+def _extract_financing_relationships(
+    cik: str,
+    padded_cik: str,
+    forms: list,
+    accessions: list,
+    dates: list,
+    vendor_name: str,
+    result: EnrichmentResult,
+) -> None:
+    financing_candidates = [
+        (form_type, filing_date, accession.replace("-", ""))
+        for form_type, filing_date, accession in zip(forms, dates, accessions)
+        if form_type in {"8-K", "10-Q", "10-K"}
+    ][:4]
+    if not financing_candidates:
+        return
+
+    extracted_relationships: list[dict] = []
+    for form_type, filing_date, accession_clean in financing_candidates:
+        index_url = f"https://www.sec.gov/Archives/edgar/data/{padded_cik}/{accession_clean}/index.json"
+        time.sleep(0.25)
+        index_data = _get(index_url)
+        if not isinstance(index_data, dict):
+            continue
+        items = ((index_data.get("directory") or {}).get("item") or [])
+        if not isinstance(items, list):
+            continue
+        document_candidates = [
+            str(item.get("name") or "")
+            for item in items
+            if isinstance(item, dict)
+            and any(hint in str(item.get("name") or "").lower() for hint in _FINANCING_DOC_NAME_HINTS)
+        ][:3]
+        for document_name in document_candidates:
+            document_url = f"https://www.sec.gov/Archives/edgar/data/{padded_cik}/{accession_clean}/{document_name}"
+            time.sleep(0.25)
+            document_text = _fetch_text(document_url)
+            parsed = _parse_financing_document(document_text, vendor_name)
+            if not parsed:
+                continue
+            for relationship in parsed:
+                relationship["document_url"] = document_url
+                relationship["filing_date"] = filing_date
+                relationship["form_type"] = form_type
+            extracted_relationships.extend(parsed)
+            break
+
+    if not extracted_relationships:
+        return
+
+    seen_targets: set[tuple[str, str]] = set()
+    for relationship in extracted_relationships:
+        dedupe_key = (relationship["type"], relationship["target_entity"].upper())
+        if dedupe_key in seen_targets:
+            continue
+        seen_targets.add(dedupe_key)
+        rel_type = relationship["type"]
+        target_entity_type = "bank" if rel_type in {"backed_by", "routes_payment_through"} else "company"
+        result.relationships.append(
+            {
+                "type": rel_type,
+                "source_entity": vendor_name,
+                "source_entity_type": "company",
+                "source_identifiers": {"cik": cik},
+                "target_entity": relationship["target_entity"],
+                "target_entity_type": target_entity_type,
+                "target_identifiers": {},
+                "country": "",
+                "data_source": "sec_edgar_ex10",
+                "confidence": relationship["confidence"],
+                "evidence": relationship["snippet"],
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "artifact_ref": relationship["document_url"],
+                "evidence_url": relationship["document_url"],
+                "evidence_title": "SEC financing filing",
+                "structured_fields": {
+                    "relationship_scope": "sec_credit_agreement",
+                    "sec_role": relationship["sec_role"],
+                    "filing_date": relationship["filing_date"],
+                    "form_type": relationship["form_type"],
+                },
+                "source_class": "official_regulatory",
+                "authority_level": "official_regulatory",
+                "access_model": "public_api",
+            }
+        )
+
+    summary_lines = [
+        f"  {relationship['target_entity']} ({relationship['sec_role']}, {relationship['form_type']} {relationship['filing_date']})"
+        for relationship in extracted_relationships[:12]
+    ]
+    result.findings.append(
+        Finding(
+            source="sec_edgar",
+            category="finance",
+            title=f"SEC financing counterparties: {len(seen_targets)} entities identified",
+            detail=(
+                "Credit and financing filings named the following counterparties:\n"
+                + "\n".join(summary_lines)
+                + (f"\n  ... and {len(extracted_relationships) - 12} more" if len(extracted_relationships) > 12 else "")
+            ),
+            severity="info",
+            confidence=0.82,
+            raw_data={"relationship_count": len(seen_targets)},
+        )
+    )
 
 
 def _deep_parse_company(cik: str, vendor_name: str, result: EnrichmentResult):
@@ -276,6 +515,11 @@ def _deep_parse_company(cik: str, vendor_name: str, result: EnrichmentResult):
                 _extract_subsidiaries(cik, padded_cik, forms, accessions, dates, vendor_name, result)
             except Exception as ex21_err:
                 logger.debug("Exhibit 21 extraction failed for CIK %s: %s", cik, ex21_err)
+
+            try:
+                _extract_financing_relationships(cik, padded_cik, forms, accessions, dates, vendor_name, result)
+            except Exception as financing_err:
+                logger.debug("SEC financing extraction failed for CIK %s: %s", cik, financing_err)
 
         # Company metadata finding
         meta_parts = [f"SIC: {sic} ({sic_desc})"] if sic else []
