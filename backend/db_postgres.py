@@ -802,6 +802,60 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_by ON graph_workspaces(created_by);
             CREATE INDEX IF NOT EXISTS idx_graph_workspaces_created_at ON graph_workspaces(created_at);
 
+            CREATE TABLE IF NOT EXISTS mission_threads (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                lane TEXT NOT NULL DEFAULT '',
+                program TEXT NOT NULL DEFAULT '',
+                theater TEXT NOT NULL DEFAULT '',
+                mission_type TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'draft',
+                created_by TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS mission_thread_members (
+                id SERIAL PRIMARY KEY,
+                mission_thread_id TEXT NOT NULL REFERENCES mission_threads(id) ON DELETE CASCADE,
+                vendor_id TEXT REFERENCES vendors(id) ON DELETE CASCADE,
+                entity_id TEXT,
+                role TEXT NOT NULL DEFAULT '',
+                criticality TEXT NOT NULL DEFAULT 'supporting',
+                subsystem TEXT NOT NULL DEFAULT '',
+                site TEXT NOT NULL DEFAULT '',
+                is_alternate BOOLEAN NOT NULL DEFAULT FALSE,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS mission_thread_roles (
+                id SERIAL PRIMARY KEY,
+                mission_thread_id TEXT NOT NULL REFERENCES mission_threads(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                UNIQUE (mission_thread_id, role)
+            );
+
+            CREATE TABLE IF NOT EXISTS mission_thread_notes (
+                id SERIAL PRIMARY KEY,
+                mission_thread_id TEXT NOT NULL REFERENCES mission_threads(id) ON DELETE CASCADE,
+                note_type TEXT NOT NULL DEFAULT 'general',
+                body TEXT NOT NULL,
+                created_by TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_mission_threads_created_by ON mission_threads(created_by);
+            CREATE INDEX IF NOT EXISTS idx_mission_threads_updated_at ON mission_threads(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_mission_thread_members_thread ON mission_thread_members(mission_thread_id);
+            CREATE INDEX IF NOT EXISTS idx_mission_thread_members_vendor ON mission_thread_members(vendor_id);
+            CREATE INDEX IF NOT EXISTS idx_mission_thread_members_entity ON mission_thread_members(entity_id);
+            CREATE INDEX IF NOT EXISTS idx_mission_thread_notes_thread ON mission_thread_notes(mission_thread_id);
+
             CREATE TABLE IF NOT EXISTS neo4j_sync_jobs (
                 job_id TEXT PRIMARY KEY,
                 sync_kind TEXT NOT NULL DEFAULT 'full',

@@ -78,7 +78,9 @@ from runtime_paths import get_data_dir
 from blueprint_registry import register_optional_blueprints
 from profile_api import profile_bp
 from server_graph_routes import register_graph_surface_routes
+from server_mission_thread_routes import register_mission_thread_routes
 from server_monitor_routes import register_monitor_routes
+import mission_threads as mission_threads_module
 
 # Optional: sanctions sync engine (may fail if dependencies missing)
 try:
@@ -2023,6 +2025,15 @@ register_monitor_routes(
     serialize_monitor_status=_serialize_monitor_status,
     serialize_monitor_run=_serialize_monitor_run,
     parse_since_hours=_parse_since_hours,
+)
+
+register_mission_thread_routes(
+    app=app,
+    require_auth=require_auth,
+    mission_threads_module=mission_threads_module,
+    log_audit=log_audit,
+    current_user_email_provider=_current_user_email,
+    current_user_id_provider=_current_user_id,
 )
 
 @app.route("/api/health")
