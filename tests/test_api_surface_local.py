@@ -421,6 +421,8 @@ def test_supplier_passport_builder_combines_case_graph_and_control_paths(client,
     assert passport["graph"]["network_relationship_count"] == 3
     assert passport["graph"]["control_paths"][0]["rel_type"] == "beneficially_owned_by"
     assert passport["graph"]["control_paths"][0]["evidence_refs"][0]["url"] == "https://example.test/ownership"
+    assert passport["graph"]["control_paths"][0]["intelligence_tier"] == "strong"
+    assert passport["graph"]["control_paths"][0]["intelligence_score"] >= 0.75
     assert len(passport["graph"]["control_paths"]) == 1
     assert passport["graph"]["claim_health"]["corroborated_paths"] == 1
     assert passport["graph"]["intelligence"]["workflow_lane"] == "export_authorization"
@@ -428,6 +430,8 @@ def test_supplier_passport_builder_combines_case_graph_and_control_paths(client,
     assert passport["graph"]["intelligence"]["edge_family_counts"]["contracts_and_programs"] == 1
     assert passport["graph"]["intelligence"]["missing_required_edge_families"] == ["trade_and_logistics"]
     assert passport["graph"]["intelligence"]["claim_coverage_pct"] == pytest.approx(1 / 3, rel=1e-3)
+    assert passport["graph"]["intelligence"]["strong_edge_count"] >= 1
+    assert passport["graph"]["intelligence"]["control_path_avg_intelligence_score"] >= 0.5
     assert passport["tribunal"]["recommended_view"] == "watch"
     assert passport["tribunal"]["signal_snapshot"]["graph_missing_required_edge_family_count"] == 1
     assert passport["tribunal"]["views"][0]["stance"] == "watch"
@@ -495,6 +499,68 @@ def test_supplier_passport_caches_expensive_graph_and_network_calls(client, monk
     assert second is not None
     assert graph_calls["count"] == 1
     assert network_calls["count"] == 1
+
+
+def test_supplier_passport_control_paths_prefer_intelligence_score_over_raw_confidence():
+    import supplier_passport
+
+    graph_summary = {
+        "entities": [
+            {"id": "vendor:1", "canonical_name": "Atlas Systems"},
+            {"id": "entity:official_parent", "canonical_name": "Atlas Holdings"},
+            {"id": "entity:speculative_bank", "canonical_name": "Borderless Clearing Bank"},
+        ],
+        "relationships": [
+            {
+                "source_entity_id": "vendor:1",
+                "target_entity_id": "entity:speculative_bank",
+                "rel_type": "routes_payment_through",
+                "confidence": 0.92,
+                "corroboration_count": 1,
+                "data_sources": ["public_search_ownership"],
+                "last_seen_at": "2024-01-05T00:00:00Z",
+                "claim_records": [
+                    {
+                        "contradiction_state": "unreviewed",
+                        "evidence_records": [
+                            {
+                                "authority_level": "third_party_public",
+                                "url": "https://example.test/speculative-route",
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "source_entity_id": "vendor:1",
+                "target_entity_id": "entity:official_parent",
+                "rel_type": "beneficially_owned_by",
+                "confidence": 0.84,
+                "corroboration_count": 2,
+                "data_sources": ["openownership", "gleif_lei"],
+                "last_seen_at": "2026-03-25T00:00:00Z",
+                "claim_records": [
+                    {
+                        "contradiction_state": "unreviewed",
+                        "structured_fields": {"authority_level": "official_registry"},
+                        "evidence_records": [
+                            {
+                                "authority_level": "official_registry",
+                                "url": "https://example.test/official-parent",
+                            }
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+
+    paths = supplier_passport._top_control_paths(graph_summary, limit=2)
+
+    assert paths[0]["target_name"] == "Atlas Holdings"
+    assert paths[0]["intelligence_tier"] == "strong"
+    assert paths[0]["intelligence_score"] > paths[1]["intelligence_score"]
+    assert paths[1]["authority_bucket"] == "third_party_public_only"
 
 
 def test_supplier_passport_marks_sam_identifiers_unverified_when_throttled(client):

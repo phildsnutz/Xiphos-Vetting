@@ -364,6 +364,14 @@ def test_graph_intelligence_summary_tracks_edge_families_and_uncertainty():
     assert summary["temporal_state_counts"]["contradicted"] == 1
     assert summary["claim_coverage_pct"] == 0.6667
     assert summary["evidence_coverage_pct"] == 0.6667
+    assert summary["strong_edge_count"] == 1
+    assert summary["disputed_edge_count"] == 1
+    assert summary["avg_edge_intelligence_score"] > 0.45
+    assert summary["control_path_avg_intelligence_score"] > 0.45
+    assert summary["edge_intelligence_tier_counts"]["strong"] == 1
+    assert summary["edge_intelligence_tier_counts"]["disputed"] == 1
+    assert summary["edge_family_quality"]["ownership_control"]["strong_edge_count"] == 1
+    assert summary["edge_family_quality"]["trade_and_logistics"]["disputed_edge_count"] == 1
 
 
 def test_graph_intelligence_summary_accepts_external_ownership_coverage():

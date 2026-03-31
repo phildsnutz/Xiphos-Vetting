@@ -124,6 +124,36 @@ CONFIDENCE = {
     "news_mention":     0.40,  # Co-mentioned in news articles
 }
 
+_AUTHORITY_BUCKET_STRENGTH = {
+    "official_or_modeled": 1.0,
+    "first_party": 0.82,
+    "third_party_public_only": 0.58,
+    "unspecified": 0.42,
+}
+
+_TEMPORAL_STATE_STRENGTH = {
+    "active": 1.0,
+    "watch": 0.72,
+    "stale": 0.42,
+    "historical": 0.22,
+    "contradicted": 0.0,
+    "unknown": 0.55,
+}
+
+_EDGE_INTELLIGENCE_THRESHOLDS = {
+    "ownership_control": 0.76,
+    "contracts_and_programs": 0.68,
+    "trade_and_logistics": 0.68,
+    "cyber_supply_chain": 0.66,
+    "official_and_regulatory": 0.72,
+    "sanctions_and_legal": 0.74,
+    "identity_and_alias": 0.6,
+    "intermediaries_and_services": 0.67,
+    "component_dependency": 0.66,
+    "finance_intermediary": 0.69,
+    "other": 0.68,
+}
+
 
 def _json_field(value: object, fallback):
     if value in (None, ""):
@@ -215,6 +245,130 @@ def _relationship_authority_bucket(rel: dict[str, Any]) -> str:
     return "unspecified"
 
 
+def _edge_intelligence_primary_family(families: tuple[str, ...]) -> str:
+    if not families:
+        return "other"
+    for family in (
+        "ownership_control",
+        "contracts_and_programs",
+        "trade_and_logistics",
+        "cyber_supply_chain",
+        "official_and_regulatory",
+        "sanctions_and_legal",
+        "identity_and_alias",
+        "intermediaries_and_services",
+        "component_dependency",
+        "finance_intermediary",
+    ):
+        if family in families:
+            return family
+    return families[0]
+
+
+def score_graph_relationship_intelligence(
+    rel: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Synthesize relationship quality from provenance, freshness, and corroboration."""
+    current_time = now or datetime.now(timezone.utc)
+    rel_type = str(rel.get("rel_type") or "").strip().lower()
+    families = _relationship_edge_families(rel_type)
+    primary_family = _edge_intelligence_primary_family(families)
+    claim_records = [row for row in (rel.get("claim_records") or []) if isinstance(row, dict)]
+    claim_backed = bool(claim_records)
+    evidence_backed = any((row.get("evidence_records") or []) for row in claim_records)
+    authority_bucket = _relationship_authority_bucket(rel)
+    corroboration_count = max(
+        int(rel.get("corroboration_count") or 0),
+        len(rel.get("data_sources") or []),
+        len(claim_records),
+        1,
+    )
+    confidence = max(0.0, min(float(rel.get("confidence") or 0.0), 1.0))
+
+    edge_timestamp = _parse_graph_timestamp(rel.get("last_seen_at") or rel.get("created_at"))
+    if edge_timestamp is None:
+        for claim_record in claim_records:
+            edge_timestamp = _parse_graph_timestamp(
+                claim_record.get("last_observed_at")
+                or claim_record.get("observed_at")
+                or claim_record.get("updated_at")
+            )
+            if edge_timestamp is not None:
+                break
+    age_days = None
+    if edge_timestamp is not None:
+        age_days = max((current_time - edge_timestamp).total_seconds() / 86400.0, 0.0)
+    temporal_state = _relationship_temporal_state(rel, now=current_time, age_days=age_days)
+
+    authority_strength = _AUTHORITY_BUCKET_STRENGTH.get(authority_bucket, _AUTHORITY_BUCKET_STRENGTH["unspecified"])
+    corroboration_strength = min(corroboration_count, 4) / 4.0
+    evidence_strength = 1.0 if evidence_backed else (0.55 if claim_backed else 0.18)
+    temporal_strength = _TEMPORAL_STATE_STRENGTH.get(temporal_state, _TEMPORAL_STATE_STRENGTH["unknown"])
+
+    score = (
+        confidence * 0.38
+        + authority_strength * 0.22
+        + corroboration_strength * 0.16
+        + evidence_strength * 0.14
+        + temporal_strength * 0.10
+    )
+
+    if bool(rel.get("legacy_unscoped")):
+        score -= 0.08
+    if authority_bucket == "third_party_public_only" and corroboration_count <= 1:
+        score -= 0.04
+    if temporal_state == "contradicted":
+        score *= 0.32
+    if primary_family == "ownership_control" and authority_bucket in {"official_or_modeled", "first_party"} and corroboration_count >= 2:
+        score += 0.05
+    if primary_family in {"sanctions_and_legal", "official_and_regulatory"} and authority_bucket == "official_or_modeled":
+        score += 0.04
+
+    score = max(0.0, min(score, 1.0))
+    strong_threshold = _EDGE_INTELLIGENCE_THRESHOLDS.get(primary_family, _EDGE_INTELLIGENCE_THRESHOLDS["other"])
+    supported_threshold = max(strong_threshold - 0.14, 0.5)
+    tentative_threshold = max(strong_threshold - 0.3, 0.35)
+    if temporal_state == "contradicted":
+        tier = "disputed"
+    elif score >= strong_threshold:
+        tier = "strong"
+    elif score >= supported_threshold:
+        tier = "supported"
+    elif score >= tentative_threshold:
+        tier = "tentative"
+    else:
+        tier = "fragile"
+
+    return {
+        "intelligence_score": round(score, 4),
+        "intelligence_tier": tier,
+        "authority_bucket": authority_bucket,
+        "temporal_state": temporal_state,
+        "claim_backed": claim_backed,
+        "evidence_backed": evidence_backed,
+        "corroboration_count": corroboration_count,
+        "primary_edge_family": primary_family,
+        "edge_families": list(families),
+    }
+
+
+def annotate_graph_relationship_intelligence(
+    relationships: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for relationship in relationships or []:
+        if not isinstance(relationship, dict):
+            continue
+        annotated_relationship = dict(relationship)
+        annotated_relationship.update(score_graph_relationship_intelligence(annotated_relationship, now=now))
+        annotated.append(annotated_relationship)
+    return annotated
+
+
 def build_graph_intelligence_summary(
     graph_summary: dict[str, Any] | None,
     *,
@@ -226,9 +380,12 @@ def build_graph_intelligence_summary(
         if isinstance(graph_summary, dict)
         else []
     )
+    now = datetime.now(timezone.utc)
+    relationships = annotate_graph_relationship_intelligence(relationships, now=now)
     entity_count = int((graph_summary or {}).get("entity_count") or 0) if isinstance(graph_summary, dict) else 0
     relationship_count = len(relationships)
     edge_family_counts: dict[str, int] = {}
+    edge_family_quality: dict[str, dict[str, float | int]] = {}
     official_edge_count = 0
     first_party_edge_count = 0
     public_only_edge_count = 0
@@ -245,20 +402,57 @@ def build_graph_intelligence_summary(
     watch_edges = 0
     historical_edges = 0
     temporal_state_counts: dict[str, int] = {}
+    edge_intelligence_tier_counts: dict[str, int] = {}
+    strong_edges = 0
+    fragile_edges = 0
+    disputed_edges = 0
+    cumulative_intelligence_score = 0.0
+    control_path_intelligence_score = 0.0
+    control_path_intelligence_count = 0
     freshest_observation: datetime | None = None
     stalest_observation: datetime | None = None
     cumulative_age_days = 0.0
     control_path_count = 0
     intermediary_edge_count = 0
-    now = datetime.now(timezone.utc)
 
     for rel in relationships:
         rel_type = str(rel.get("rel_type") or "").strip().lower()
-        families = _relationship_edge_families(rel_type)
+        families = tuple(rel.get("edge_families") or _relationship_edge_families(rel_type))
+        primary_family = str(rel.get("primary_edge_family") or _edge_intelligence_primary_family(families))
+        intelligence_score = float(rel.get("intelligence_score") or 0.0)
+        intelligence_tier = str(rel.get("intelligence_tier") or "fragile")
+        cumulative_intelligence_score += intelligence_score
+        edge_intelligence_tier_counts[intelligence_tier] = edge_intelligence_tier_counts.get(intelligence_tier, 0) + 1
+        if intelligence_tier == "strong":
+            strong_edges += 1
+        elif intelligence_tier == "fragile":
+            fragile_edges += 1
+        elif intelligence_tier == "disputed":
+            disputed_edges += 1
         for family in families:
             edge_family_counts[family] = edge_family_counts.get(family, 0) + 1
+            family_quality = edge_family_quality.setdefault(
+                family,
+                {
+                    "edge_count": 0,
+                    "avg_intelligence_score": 0.0,
+                    "strong_edge_count": 0,
+                    "fragile_edge_count": 0,
+                    "disputed_edge_count": 0,
+                },
+            )
+            family_quality["edge_count"] = int(family_quality["edge_count"]) + 1
+            family_quality["avg_intelligence_score"] = float(family_quality["avg_intelligence_score"]) + intelligence_score
+            if intelligence_tier == "strong":
+                family_quality["strong_edge_count"] = int(family_quality["strong_edge_count"]) + 1
+            elif intelligence_tier == "fragile":
+                family_quality["fragile_edge_count"] = int(family_quality["fragile_edge_count"]) + 1
+            elif intelligence_tier == "disputed":
+                family_quality["disputed_edge_count"] = int(family_quality["disputed_edge_count"]) + 1
         if "ownership_control" in families:
             control_path_count += 1
+            control_path_intelligence_score += intelligence_score
+            control_path_intelligence_count += 1
         if "intermediaries_and_services" in families or "trade_and_logistics" in families or "finance_intermediary" in families:
             intermediary_edge_count += 1
 
@@ -295,7 +489,7 @@ def build_graph_intelligence_summary(
                 if edge_timestamp is not None:
                     break
         if edge_timestamp is None:
-            temporal_state = _relationship_temporal_state(rel, now=now, age_days=None)
+            temporal_state = str(rel.get("temporal_state") or _relationship_temporal_state(rel, now=now, age_days=None))
             temporal_state_counts[temporal_state] = temporal_state_counts.get(temporal_state, 0) + 1
             if temporal_state == "historical":
                 historical_edges += 1
@@ -311,7 +505,7 @@ def build_graph_intelligence_summary(
             recent_edges += 1
         if age_days >= 365:
             stale_edges += 1
-        temporal_state = _relationship_temporal_state(rel, now=now, age_days=age_days)
+        temporal_state = str(rel.get("temporal_state") or _relationship_temporal_state(rel, now=now, age_days=age_days))
         temporal_state_counts[temporal_state] = temporal_state_counts.get(temporal_state, 0) + 1
         if temporal_state == "active":
             active_edges += 1
@@ -346,6 +540,16 @@ def build_graph_intelligence_summary(
     evidence_coverage_pct = round(evidence_backed_edges / relationship_count, 4) if relationship_count else 0.0
     corroboration_pct = round(corroborated_edges / relationship_count, 4) if relationship_count else 0.0
     avg_edge_age_days = round(cumulative_age_days / observed_edges, 1) if observed_edges else None
+    avg_edge_intelligence_score = round(cumulative_intelligence_score / relationship_count, 4) if relationship_count else 0.0
+    control_path_avg_intelligence_score = (
+        round(control_path_intelligence_score / control_path_intelligence_count, 4)
+        if control_path_intelligence_count
+        else 0.0
+    )
+    for family, metrics in edge_family_quality.items():
+        edge_count = max(int(metrics.get("edge_count") or 0), 1)
+        metrics["avg_intelligence_score"] = round(float(metrics.get("avg_intelligence_score") or 0.0) / edge_count, 4)
+        metrics["primary_family"] = family
 
     return {
         "version": "graph-intelligence-v1",
@@ -361,6 +565,13 @@ def build_graph_intelligence_summary(
         "claim_coverage_pct": claim_coverage_pct,
         "evidence_coverage_pct": evidence_coverage_pct,
         "corroborated_edge_pct": corroboration_pct,
+        "avg_edge_intelligence_score": avg_edge_intelligence_score,
+        "control_path_avg_intelligence_score": control_path_avg_intelligence_score,
+        "strong_edge_count": strong_edges,
+        "fragile_edge_count": fragile_edges,
+        "disputed_edge_count": disputed_edges,
+        "edge_intelligence_tier_counts": dict(sorted(edge_intelligence_tier_counts.items())),
+        "edge_family_quality": dict(sorted(edge_family_quality.items())),
         "official_or_modeled_edge_count": official_edge_count,
         "first_party_edge_count": first_party_edge_count,
         "third_party_public_only_edge_count": public_only_edge_count,
@@ -2449,6 +2660,8 @@ def get_vendor_graph_summary(
         if not include_provenance:
             for rel in unique_rels:
                 rel["claim_records"] = []
+
+        unique_rels = annotate_graph_relationship_intelligence(unique_rels)
 
         all_entities = _hydrate_missing_graph_entities(kg, all_entities, unique_rels)
         visible_entity_ids = {entity.id for entity in entities}

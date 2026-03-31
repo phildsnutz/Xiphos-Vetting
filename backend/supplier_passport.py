@@ -43,11 +43,18 @@ except ImportError:
     HAS_FOCI_SUMMARY = False
 
 try:
-    from graph_ingest import build_graph_intelligence_summary, get_vendor_graph_summary
+    from graph_ingest import (
+        annotate_graph_relationship_intelligence,
+        build_graph_intelligence_summary,
+        get_vendor_graph_summary,
+        score_graph_relationship_intelligence,
+    )
     HAS_GRAPH_SUMMARY = True
 except ImportError:
+    annotate_graph_relationship_intelligence = None
     build_graph_intelligence_summary = None
     get_vendor_graph_summary = None
+    score_graph_relationship_intelligence = None
     HAS_GRAPH_SUMMARY = False
 
 try:
@@ -378,13 +385,26 @@ def _top_control_paths(graph_summary: dict | None, limit: int = 5) -> list[dict]
 
     entity_lookup = _entity_map(graph_summary)
     rows: list[dict] = []
-    for rel in relationships:
+    relationship_rows = relationships
+    if callable(annotate_graph_relationship_intelligence):
+        relationship_rows = annotate_graph_relationship_intelligence(relationships)
+    for rel in relationship_rows:
         if not isinstance(rel, dict):
             continue
         rel_type = str(rel.get("rel_type") or "")
         if rel_type not in CONTROL_PATH_RELATIONSHIPS:
             continue
         data_sources = rel.get("data_sources") or []
+        intelligence = (
+            score_graph_relationship_intelligence(rel)
+            if callable(score_graph_relationship_intelligence) and "intelligence_score" not in rel
+            else {
+                "intelligence_score": float(rel.get("intelligence_score") or 0.0),
+                "intelligence_tier": str(rel.get("intelligence_tier") or "fragile"),
+                "authority_bucket": str(rel.get("authority_bucket") or "unspecified"),
+                "temporal_state": str(rel.get("temporal_state") or "unknown"),
+            }
+        )
         rows.append(
             {
                 "rel_type": rel_type,
@@ -399,14 +419,20 @@ def _top_control_paths(graph_summary: dict | None, limit: int = 5) -> list[dict]
                 "data_sources": data_sources,
                 "first_seen_at": rel.get("first_seen_at") or rel.get("created_at"),
                 "last_seen_at": rel.get("last_seen_at") or rel.get("created_at"),
+                "intelligence_score": float(intelligence.get("intelligence_score") or 0.0),
+                "intelligence_tier": str(intelligence.get("intelligence_tier") or "fragile"),
+                "authority_bucket": str(intelligence.get("authority_bucket") or "unspecified"),
+                "temporal_state": str(intelligence.get("temporal_state") or "unknown"),
                 "evidence_refs": _relationship_evidence_refs(rel),
             }
         )
 
     rows.sort(
         key=lambda item: (
+            -float(item.get("intelligence_score") or 0.0),
             -int(item.get("corroboration_count") or 0),
             -float(item.get("confidence") or 0.0),
+            str(item.get("last_seen_at") or ""),
             str(item.get("rel_type") or ""),
         )
     )
