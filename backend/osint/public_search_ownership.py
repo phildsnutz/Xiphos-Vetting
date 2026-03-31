@@ -32,7 +32,7 @@ SEARCH_LITE_URL = "https://lite.duckduckgo.com/lite/"
 YAHOO_SEARCH_URL = "https://search.yahoo.com/search"
 BING_SEARCH_URL = "https://www.bing.com/search"
 BRAVE_SEARCH_URL = "https://search.brave.com/search"
-SEARCH_TIMEOUT = 4
+SEARCH_TIMEOUT = 3
 TIMEOUT = SEARCH_TIMEOUT
 USER_AGENT = "Helios/5.2 (+https://xiphosllc.com)"
 MAX_RESULTS = 5
@@ -1542,6 +1542,11 @@ def _collect_first_party_pages(
     return pages[: public_html_ownership.MAX_PAGES]
 
 
+def _strong_first_party_identity_resolved(result: EnrichmentResult, visited_pages: set[str]) -> bool:
+    resolved_identifier_count = sum(1 for key in ("cage", "uei", "duns", "ncage") if result.identifiers.get(key))
+    return resolved_identifier_count >= 2 and len(visited_pages) >= 2
+
+
 def _extract_external_relationships(
     vendor_name: str,
     country: str,
@@ -2502,7 +2507,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 artifact_refs=artifact_refs,
                 seen_finding_keys=seen_finding_keys,
             )
-        if not merged_relationships and _within_budget(deadline, reserve_seconds=8):
+        strong_first_party_identity = _strong_first_party_identity_resolved(result, visited_pages)
+        if strong_first_party_identity:
+            result.structured_fields["broad_web_recovery_skipped"] = "strong_first_party_identity"
+
+        if not merged_relationships and not strong_first_party_identity and _within_budget(deadline, reserve_seconds=8):
             snippet_relationships, snippet_findings, snippet_risk_signals, snippet_refs = _collect_snippet_relationships(
                 vendor_name,
                 country,
@@ -2517,7 +2526,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             merged_risk_signals.extend(snippet_risk_signals)
             artifact_refs.extend(snippet_refs)
 
-        if not merged_relationships:
+        if not merged_relationships and not strong_first_party_identity:
             expanded_queries = _expanded_search_queries(vendor_name)
             ownership_queries: list[str] = []
             for query in expanded_queries:

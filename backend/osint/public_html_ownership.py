@@ -32,18 +32,18 @@ MAX_DISCOVERED_LINKS = 3
 MAX_DISCOVERY_SURFACE_LINKS = 6
 DEFAULT_PATHS = (
     "",
-    "/news",
-    "/blog",
-    "/newsroom",
     "/about",
     "/about-us",
     "/who-we-are",
-    "/history",
     "/company",
     "/the-company",
     "/en/the-company",
     "/leadership",
     "/ysgleadership",
+    "/history",
+    "/news",
+    "/newsroom",
+    "/blog",
 )
 DISCOVERY_HUB_PATHS = ("/news", "/newsroom", "/blog", "/press", "/articles", "/updates")
 USER_AGENT = "Helios/5.2 (+https://xiphosllc.com)"
@@ -563,6 +563,17 @@ def _website_variants(website: str) -> list[str]:
     return variants
 
 
+def _page_visit_key(raw: str) -> str:
+    normalized = _normalize_website(raw)
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme == "file":
+        return normalized
+    path = parsed.path.rstrip("/") or "/"
+    return f"{_first_party_host_key(normalized)}{path}"
+
+
 def _canonical_first_party_website(seed_website: str, evidence_urls: list[str] | tuple[str, ...] | set[str]) -> str:
     normalized_seed = _normalize_website(seed_website)
     seed_root = _root_website(normalized_seed)
@@ -618,7 +629,7 @@ def _candidate_urls(website: str) -> list[str]:
         if len(urls) >= MAX_PAGES:
             return urls
 
-    alternate_priority_paths = ("", "/news", "/blog", "/newsroom")
+    alternate_priority_paths = ("", "/about", "/company", "/leadership", "/news")
     for base in alternate_bases:
         for path in alternate_priority_paths:
             candidate = urljoin(f"{base}/", path.lstrip("/"))
@@ -650,9 +661,10 @@ def _resolve_first_party_pages(ids: dict, website: str) -> list[str]:
             continue
         if not _same_first_party_host(normalized, normalized_website):
             continue
-        if normalized == normalized_website or normalized in seen:
+        page_key = _page_visit_key(normalized)
+        if normalized == normalized_website or not page_key or page_key in seen:
             continue
-        seen.add(normalized)
+        seen.add(page_key)
         pages.append(normalized)
     return pages[:MAX_PAGES]
 
@@ -1546,14 +1558,20 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     queue = list(seeded_pages)
     if not fixture_only:
         queue.extend(candidate for candidate in _candidate_urls(website) if candidate not in queue)
-    visited: set[str] = set()
+    visited_urls: set[str] = set()
+    successful_page_keys: set[str] = set()
+    visited_pages: list[str] = []
 
     try:
-        while queue and len(visited) < MAX_PAGES:
-            page_url = queue.pop(0)
-            if page_url in visited:
+        while queue and len(visited_urls) < MAX_PAGES:
+            page_url = _normalize_website(queue.pop(0))
+            if not page_url:
                 continue
-            visited.add(page_url)
+            page_key = _page_visit_key(page_url) or page_url
+            if page_url in visited_urls or page_key in successful_page_keys:
+                continue
+            visited_urls.add(page_url)
+            visited_pages.append(page_url)
             page_result, discovered_links = extract_page(
                 vendor_name,
                 country,
@@ -1563,6 +1581,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             )
             if page_result.error:
                 continue
+            successful_page_keys.add(page_key)
             resolved_page_url = str(page_result.structured_fields.get("resolved_page_url") or page_url).rstrip("/")
             successful_pages.append(resolved_page_url)
             for key, value in page_result.identifiers.items():
@@ -1607,8 +1626,20 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 if relationship_finding:
                     findings.append(relationship_finding)
             for discovered in reversed(discovered_links):
-                if discovered not in visited and discovered not in queue:
-                    queue.insert(0, discovered)
+                normalized_discovered = _normalize_website(discovered)
+                if not normalized_discovered:
+                    continue
+                discovered_key = _page_visit_key(normalized_discovered) or normalized_discovered
+                queued = any(
+                    (_page_visit_key(candidate) or _normalize_website(candidate) or candidate) == discovered_key
+                    for candidate in queue
+                )
+                if (
+                    normalized_discovered not in visited_urls
+                    and discovered_key not in successful_page_keys
+                    and not queued
+                ):
+                    queue.insert(0, normalized_discovered)
     except Exception as exc:
         result.error = str(exc)
 
@@ -1635,7 +1666,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         result.structured_fields["seed_pages"] = canonical_seed_pages
     if fixture_pages:
         result.structured_fields["fixture_pages"] = fixture_pages
-    result.structured_fields["visited_pages"] = list(visited)
+    result.structured_fields["visited_pages"] = visited_pages
     result.structured_fields["successful_pages"] = successful_pages
     if relationships:
         result.risk_signals.append(

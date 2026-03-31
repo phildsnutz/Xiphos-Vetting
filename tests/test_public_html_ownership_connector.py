@@ -1050,3 +1050,13 @@ def test_public_html_rejects_marketing_copy_as_backer(monkeypatch):
 
     assert result.relationships == []
     assert result.findings == []
+
+
+def test_public_html_page_visit_key_collapses_www_variants_and_prioritizes_identity_pages():
+    urls = public_html_ownership._candidate_urls("https://vectorsolutions.us")
+
+    assert public_html_ownership._page_visit_key("https://vectorsolutions.us/news") == public_html_ownership._page_visit_key(
+        "https://www.vectorsolutions.us/news"
+    )
+    assert urls.index("https://vectorsolutions.us/about") < urls.index("https://vectorsolutions.us/news")
+    assert "https://vectorsolutions.us/news" in urls

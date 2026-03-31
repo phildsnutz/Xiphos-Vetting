@@ -1910,6 +1910,75 @@ def test_public_search_skips_identifier_phase_when_budget_is_tight(monkeypatch):
     assert any(rel["type"] == "backed_by" and rel["target_entity"] == "FreshTracks Capital" for rel in result.relationships)
 
 
+def test_public_search_skips_broad_web_recovery_when_first_party_identity_is_strong(monkeypatch):
+    official_search_html = """
+    <html>
+      <body>
+        <div class="result results_links results_links_deep web-result">
+          <a class="result__a" href="https://greensea.example/">Greensea IQ</a>
+          <a class="result__snippet" href="https://greensea.example/">Official site</a>
+        </div>
+      </body>
+    </html>
+    """
+    search_queries: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict, params: dict | None = None):
+        assert headers["User-Agent"].startswith("Helios/")
+        query = (params or {}).get("q") or ""
+        if url == public_search_ownership.SEARCH_URL:
+            search_queries.append(query)
+            if query == "Greensea IQ":
+                return _SearchResponse(official_search_html)
+            if not query.startswith("site:") and (
+                query.endswith(public_search_ownership.OWNERSHIP_SEARCH_SUFFIX)
+                or query.endswith(public_search_ownership.FINANCING_SEARCH_SUFFIX)
+            ):
+                raise AssertionError("broad web recovery should not run when first-party identity is already strong")
+            return _SearchResponse("<html><body></body></html>")
+        if url == public_search_ownership.SEARCH_LITE_URL:
+            return _SearchResponse("<html><body></body></html>")
+        if url == public_search_ownership.BRAVE_SEARCH_URL:
+            return _SearchResponse("<html><body></body></html>")
+        raise AssertionError(f"unexpected fetch: {url} / {query}")
+
+    def fake_extract_page(
+        vendor_name: str,
+        country: str = "",
+        *,
+        website: str,
+        page_url: str,
+        discover_links: bool = False,
+    ):
+        result = EnrichmentResult(source=public_html_ownership.SOURCE_NAME, vendor_name=vendor_name)
+        result.identifiers = {
+            "website": website,
+            "cage": "7H4F5",
+            "uei": "D5PKCPNDMCV9",
+            "duns": "044612087",
+        }
+        discovered = ["https://greensea.example/about-us"] if page_url == "https://greensea.example" else []
+        return result, discovered
+
+    monkeypatch.setattr(public_search_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "extract_page", fake_extract_page)
+
+    result = public_search_ownership.enrich("Greensea IQ", country="US")
+
+    assert result.identifiers["website"] == "https://greensea.example"
+    assert result.structured_fields["broad_web_recovery_skipped"] == "strong_first_party_identity"
+    assert all(
+        not (
+            not query.startswith("site:")
+            and (
+                query.endswith(public_search_ownership.OWNERSHIP_SEARCH_SUFFIX)
+                or query.endswith(public_search_ownership.FINANCING_SEARCH_SUFFIX)
+            )
+        )
+        for query in search_queries
+    )
+
+
 def test_public_search_uses_legacy_corporate_suffix_finance_query(monkeypatch):
     official_search_html = """
     <html>

@@ -14,6 +14,7 @@ Timeout: 12 seconds (GDELT can be slow)
 import json
 import time
 import logging
+import concurrent.futures
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -39,6 +40,7 @@ except Exception:
 
 BASE = "https://api.gdeltproject.org/api/v2/doc"
 USER_AGENT = "Xiphos/4.0 (compliance-tool@xiphos.dev)"
+REQUEST_TIMEOUT = 8
 
 # Risk search terms -- tightened to reduce false positives
 # Use NEAR operator to require proximity between vendor name and risk term
@@ -62,7 +64,7 @@ HIGH_CREDIBILITY_DOMAINS = {
 }
 
 
-def _get(url: str, retries: int = 2) -> dict | None:
+def _get(url: str, retries: int = 2, timeout_s: int = REQUEST_TIMEOUT) -> dict | None:
     """GET request to GDELT API with retry on 429."""
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, headers={
@@ -70,7 +72,7 @@ def _get(url: str, retries: int = 2) -> dict | None:
             "Accept": "application/json",
         })
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 raw = resp.read()
                 if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
@@ -123,8 +125,6 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         if clean_data and "articles" in clean_data:
             baseline_count = len(clean_data.get("articles", []))
 
-        time.sleep(0.5)
-
         # Step 2: Query with risk terms
         risk_query = f'"{vendor_name}" ({RISK_TERMS})'
         risk_query_encoded = urllib.parse.quote(risk_query)
@@ -167,15 +167,21 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        time.sleep(0.5)
-
-        # Step 3: Query tone chart for sentiment analysis
         tone_url = (
             f"{BASE}/doc?"
             f"query={risk_query_encoded}"
             f"&mode=ToneChart&format=json"
         )
-        tone_data = _get(tone_url)
+        gkg_url = (
+            f"https://api.gdeltproject.org/api/v2/doc/doc?"
+            f"query={clean_query}"
+            f"&mode=TimelineSourceCountry&format=json"
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            tone_future = executor.submit(_get, tone_url)
+            gkg_future = executor.submit(_get, gkg_url)
+            tone_data = tone_future.result()
+            gkg_data = gkg_future.result()
         tone_info = {}
         avg_tone = 0.0
         if tone_data and "tonechart" in tone_data:
@@ -197,16 +203,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     result.identifiers["gdelt_avg_tone"] = round(avg_tone, 2)
                     result.identifiers["gdelt_tone_sample_size"] = len(tone_values)
 
-        time.sleep(0.3)
-
-        # Step 3b: Query GKG (Global Knowledge Graph) for structured event data
-        # GKG provides entity-level event coding: themes, locations, persons, organizations
-        gkg_url = (
-            f"https://api.gdeltproject.org/api/v2/doc/doc?"
-            f"query={clean_query}"
-            f"&mode=TimelineSourceCountry&format=json"
-        )
-        gkg_data = _get(gkg_url)
+        # Step 3b: Query GKG (Global Knowledge Graph) for structured event data.
+        # Run alongside tone fetch to avoid paying full remote latency twice.
         if gkg_data and "timeline" in gkg_data:
             timeline = gkg_data.get("timeline", [])
             # Extract country distribution of media coverage
