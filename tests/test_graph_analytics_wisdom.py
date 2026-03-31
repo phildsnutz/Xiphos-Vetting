@@ -26,6 +26,7 @@ def _build_loaded_graph() -> GraphAnalytics:
             "rel_type": "beneficially_owned_by",
             "confidence": 0.9,
             "intelligence_score": 0.95,
+            "primary_edge_family": "ownership_control",
             "created_at": "",
         },
         {
@@ -34,6 +35,7 @@ def _build_loaded_graph() -> GraphAnalytics:
             "rel_type": "mentioned_with",
             "confidence": 0.95,
             "intelligence_score": 0.12,
+            "primary_edge_family": "identity_and_alias",
             "created_at": "",
         },
         {
@@ -42,6 +44,7 @@ def _build_loaded_graph() -> GraphAnalytics:
             "rel_type": "sanctioned_on",
             "confidence": 0.9,
             "intelligence_score": 0.92,
+            "primary_edge_family": "sanctions_and_legal",
             "created_at": "",
         },
     ]

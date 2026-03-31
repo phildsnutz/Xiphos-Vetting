@@ -22,6 +22,8 @@ except ImportError:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GRAPH_GOLD_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_gold_set_v1.json"
 GRAPH_NEGATIVE_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_construction_hard_negatives_v1.json"
+GRAPH_EDGE_TRUTH_HOLDOUT_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_edge_truth_holdout_v1.json"
+GRAPH_PROPAGATION_OUTCOMES_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "graph_propagation_outcomes_v1.json"
 TRIBUNAL_TRAINING_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "decision_tribunal_training_cases_v1.json"
 TRIBUNAL_CALIBRATION_PATH = REPO_ROOT / "fixtures" / "adversarial_gym" / "decision_tribunal_calibration_cases_v1.json"
 
@@ -71,6 +73,7 @@ class BinaryLogisticModel:
     global_threshold: float
     thresholds_by_family: dict[str, float]
     training_count: int
+    calibration_count: int
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,14 @@ class SoftmaxModel:
 class FamilyReliabilityProfile:
     posterior_mean_by_family: dict[str, float]
     global_posterior_mean: float
+    training_count: int
+
+
+@dataclass(frozen=True)
+class PropagationCoefficientModel:
+    coefficient_by_family: dict[str, float]
+    support_by_family: dict[str, int]
+    global_coefficient: float
     training_count: int
 
 
@@ -474,6 +485,16 @@ def _build_raw_edge_truth_training_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def _load_edge_truth_holdout_rows() -> list[dict[str, Any]]:
+    rows = _load_json_rows(GRAPH_EDGE_TRUTH_HOLDOUT_PATH)
+    holdout_rows: list[dict[str, Any]] = []
+    for row in rows:
+        positive = bool(row.get("should_create_edge"))
+        payload = _edge_feature_payload_from_training_row(row, positive=positive)
+        holdout_rows.append({"label": 1 if positive else 0, "edge_family": payload["edge_family"], "features": payload})
+    return holdout_rows
+
+
 def _build_edge_truth_training_rows() -> list[dict[str, Any]]:
     rows = _build_raw_edge_truth_training_rows()
     enriched_rows: list[dict[str, Any]] = []
@@ -481,6 +502,20 @@ def _build_edge_truth_training_rows() -> list[dict[str, Any]]:
         features = row.get("features") if isinstance(row.get("features"), dict) else {}
         enriched_rows.append({**row, "features": _attach_edge_hierarchical_prior(features)})
     return enriched_rows
+
+
+def _load_graph_propagation_training_rows() -> list[dict[str, Any]]:
+    rows = _load_json_rows(GRAPH_PROPAGATION_OUTCOMES_PATH)
+    training_rows: list[dict[str, Any]] = []
+    for row in rows:
+        family = str(row.get("edge_family") or "other").strip().lower() or "other"
+        training_rows.append(
+            {
+                "edge_family": family if family in EDGE_FAMILIES else "other",
+                "label": 1 if bool(row.get("should_propagate")) else 0,
+            }
+        )
+    return training_rows
 
 
 @lru_cache(maxsize=1)
@@ -508,15 +543,36 @@ def get_edge_truth_model() -> BinaryLogisticModel | None:
     means, scales, standardized = _standardize_fit(matrix)
     weights, bias = _fit_binary_logistic(standardized, label_array)
     probabilities = _sigmoid(standardized @ weights + bias)
+    holdout_rows = _load_edge_truth_holdout_rows()
+    calibration_count = len(holdout_rows)
+    if holdout_rows:
+        holdout_vectors: list[list[float]] = []
+        holdout_labels: list[int] = []
+        holdout_families: list[str] = []
+        for row in holdout_rows:
+            vector, _ = _edge_feature_vector(_attach_edge_hierarchical_prior(row["features"]))
+            holdout_vectors.append(vector)
+            holdout_labels.append(int(row["label"]))
+            holdout_families.append(str(row["edge_family"]))
+        holdout_matrix = np.array(holdout_vectors, dtype=float)
+        holdout_label_array = np.array(holdout_labels, dtype=int)
+        holdout_standardized = _standardize_apply(holdout_matrix, means, scales)
+        threshold_probs = _sigmoid(holdout_standardized @ weights + bias)
+        threshold_labels = holdout_label_array
+        threshold_families = holdout_families
+    else:
+        threshold_probs = probabilities
+        threshold_labels = label_array
+        threshold_families = families
 
-    global_threshold = _best_threshold(probabilities, label_array)
+    global_threshold = _best_threshold(threshold_probs, threshold_labels)
     thresholds_by_family: dict[str, float] = {}
-    for family in sorted(set(families)):
-        family_indices = [index for index, current_family in enumerate(families) if current_family == family]
+    for family in sorted(set(threshold_families)):
+        family_indices = [index for index, current_family in enumerate(threshold_families) if current_family == family]
         if len(family_indices) < 2:
             continue
-        family_probs = probabilities[family_indices]
-        family_labels = label_array[family_indices]
+        family_probs = threshold_probs[family_indices]
+        family_labels = threshold_labels[family_indices]
         if len(set(family_labels.tolist())) < 2:
             continue
         thresholds_by_family[family] = _best_threshold(family_probs, family_labels)
@@ -530,6 +586,7 @@ def get_edge_truth_model() -> BinaryLogisticModel | None:
         global_threshold=global_threshold,
         thresholds_by_family=thresholds_by_family,
         training_count=len(rows),
+        calibration_count=calibration_count,
     )
 
 
@@ -862,5 +919,32 @@ def get_edge_family_reliability_profile() -> FamilyReliabilityProfile | None:
     return FamilyReliabilityProfile(
         posterior_mean_by_family=family_scores,
         global_posterior_mean=round(float(global_posterior), 4),
+        training_count=len(rows),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_propagation_coefficient_model() -> PropagationCoefficientModel | None:
+    rows = _load_graph_propagation_training_rows()
+    if not rows:
+        return None
+
+    grouped: dict[str, list[int]] = {}
+    for row in rows:
+        family = str(row.get("edge_family") or "other")
+        grouped.setdefault(family, []).append(int(row.get("label") or 0))
+
+    global_posterior, _ = _posterior_and_support([int(row.get("label") or 0) for row in rows])
+    coefficient_by_family: dict[str, float] = {}
+    support_by_family: dict[str, int] = {}
+    for family, labels in grouped.items():
+        posterior, support = _posterior_and_support(labels)
+        coefficient_by_family[family] = round(posterior, 4)
+        support_by_family[family] = support
+
+    return PropagationCoefficientModel(
+        coefficient_by_family=coefficient_by_family,
+        support_by_family=support_by_family,
+        global_coefficient=round(global_posterior, 4),
         training_count=len(rows),
     )

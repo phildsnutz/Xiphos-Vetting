@@ -381,7 +381,7 @@ class TestComputeNetworkRiskIntegration(unittest.TestCase):
         self.assertGreater(result["network_risk_score"], 0,
                            "Vendor with high-risk subsidiary neighbor should have positive network risk")
         self.assertIn(result["network_risk_level"], ["medium", "high", "critical"])
-        self.assertEqual(result["propagation_model"], "empirical_bayes_edge_intelligence_v1")
+        self.assertEqual(result["propagation_model"], "fixture_learned_propagation_v2")
 
     @patch.object(nr, "_safe_import_kg")
     @patch.object(nr, "_safe_import_db")

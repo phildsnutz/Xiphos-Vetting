@@ -208,6 +208,101 @@ def test_supplier_passport_route_returns_portable_summary(client, monkeypatch):
     assert captured["mode"] == "light"
 
 
+def test_graph_full_intelligence_route_surfaces_decision_and_structural_importance(client, monkeypatch):
+    server = sys.modules["server"]
+
+    class FakeAnalytics:
+        def __init__(self):
+            self.nodes = {
+                "node:vendor": {
+                    "canonical_name": "Vendor Prime",
+                    "entity_type": "company",
+                    "confidence": 0.94,
+                    "country": "US",
+                    "created_at": "2026-03-31T00:00:00Z",
+                },
+                "node:bridge": {
+                    "canonical_name": "Bridge Entity",
+                    "entity_type": "company",
+                    "confidence": 0.81,
+                    "country": "GB",
+                    "created_at": "2026-03-30T00:00:00Z",
+                },
+            }
+            self.edges = [
+                {
+                    "source": "node:vendor",
+                    "target": "node:bridge",
+                    "rel_type": "contracts_with",
+                    "confidence": 0.88,
+                    "data_source": "fixture",
+                    "created_at": "2026-03-31T00:00:00Z",
+                }
+            ]
+
+        def load_graph(self):
+            return None
+
+        def compute_all_centrality(self):
+            return {
+                "node:vendor": {
+                    "composite_importance": 0.71,
+                    "structural_importance": 0.43,
+                    "decision_importance": 0.71,
+                    "degree": {"normalized": 0.8},
+                    "betweenness": {"normalized": 0.1},
+                    "pagerank": {"normalized": 0.6},
+                },
+                "node:bridge": {
+                    "composite_importance": 0.39,
+                    "structural_importance": 0.82,
+                    "decision_importance": 0.39,
+                    "degree": {"normalized": 0.5},
+                    "betweenness": {"normalized": 0.7},
+                    "pagerank": {"normalized": 0.4},
+                },
+            }
+
+        def detect_communities(self):
+            return {
+                "count": 1,
+                "modularity": 0.27,
+                "node_labels": {"node:vendor": 7, "node:bridge": 7},
+                "communities": {
+                    7: {
+                        "size": 2,
+                        "members": [
+                            {"id": "node:vendor"},
+                            {"id": "node:bridge"},
+                        ],
+                        "types": ["company", "company"],
+                    }
+                },
+            }
+
+        def compute_sanctions_exposure(self):
+            return {
+                "node:vendor": {"exposure_score": 0.41, "risk_level": "HIGH"},
+                "node:bridge": {"exposure_score": 0.0, "risk_level": "CLEAR"},
+            }
+
+        def compute_temporal_profile(self):
+            return {"total_edges": 1, "growth_rate_pct": 0.0}
+
+    monkeypatch.setattr(server, "HAS_GRAPH_ANALYTICS", True, raising=False)
+    monkeypatch.setattr(server, "GraphAnalytics", FakeAnalytics, raising=False)
+
+    response = client.get("/api/graph/full-intelligence")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["summary"]["total_nodes"] == 2
+    assert payload["nodes"][0]["centrality_decision"] >= 0.0
+    assert payload["nodes"][0]["centrality_structural"] >= 0.0
+    assert payload["top_by_importance"][0]["id"] == "node:vendor"
+    assert payload["top_by_structural_importance"][0]["id"] == "node:bridge"
+
+
 def test_supplier_passport_builder_combines_case_graph_and_control_paths(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(

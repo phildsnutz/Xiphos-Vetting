@@ -23,7 +23,7 @@ import os
 from typing import Optional
 
 from graph_ingest import annotate_graph_relationship_intelligence
-from learned_weighting import get_edge_family_reliability_profile
+from learned_weighting import get_edge_family_reliability_profile, get_propagation_coefficient_model
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +234,7 @@ def compute_network_risk(vendor_id: str) -> dict:
             "high_risk_neighbors": high_risk_count,
             "graph_density": round(graph_density, 2),
             "confidence": round(avg_confidence, 2),
-            "propagation_model": "empirical_bayes_edge_intelligence_v1",
+            "propagation_model": "fixture_learned_propagation_v2",
             "total_entities_analyzed": len(all_entities),
             "total_relationships_analyzed": len(all_relationships),
             "uncapped_modifier": round(total_modifier, 2),
@@ -383,9 +383,7 @@ def _edge_is_propagation_eligible(relationship: dict) -> bool:
 
 
 def _propagation_prior(relationship: dict) -> float:
-    profile = get_edge_family_reliability_profile()
-    if profile is None:
-        return 0.5
+    model = get_propagation_coefficient_model()
     family = str(
         relationship.get("primary_edge_family")
         or (
@@ -395,7 +393,9 @@ def _propagation_prior(relationship: dict) -> float:
         )
         or "other"
     )
-    return float(profile.posterior_mean_by_family.get(family, profile.global_posterior_mean))
+    if model is None:
+        return 0.5
+    return float(model.coefficient_by_family.get(family, model.global_coefficient))
 
 
 def _get_all_vendor_scores(db_mod) -> dict:

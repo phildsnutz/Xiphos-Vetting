@@ -1,0 +1,92 @@
+[
+  {
+    "case_id": "prop_owned_by_parent_risk",
+    "edge_family": "ownership_control",
+    "relationship_type": "OWNED_BY",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_beneficial_owner_risk",
+    "edge_family": "ownership_control",
+    "relationship_type": "BENEFICIALLY_OWNED_BY",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_contract_counterparty_risk",
+    "edge_family": "contracts_and_programs",
+    "relationship_type": "CONTRACTS_WITH",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_trade_route_risk",
+    "edge_family": "trade_and_logistics",
+    "relationship_type": "SHIPS_VIA",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_payment_bank_risk",
+    "edge_family": "finance_intermediary",
+    "relationship_type": "ROUTES_PAYMENT_THROUGH",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_service_dependency_risk",
+    "edge_family": "intermediaries_and_services",
+    "relationship_type": "DEPENDS_ON_SERVICE",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_network_dependency_risk",
+    "edge_family": "cyber_supply_chain",
+    "relationship_type": "DEPENDS_ON_NETWORK",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_sanctions_direct_risk",
+    "edge_family": "sanctions_and_legal",
+    "relationship_type": "SANCTIONED_ON",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_litigation_watch_risk",
+    "edge_family": "sanctions_and_legal",
+    "relationship_type": "LITIGANT_IN",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_regulatory_filing_context",
+    "edge_family": "official_and_regulatory",
+    "relationship_type": "FILED_WITH",
+    "should_propagate": false
+  },
+  {
+    "case_id": "prop_alias_noise_negative",
+    "edge_family": "identity_and_alias",
+    "relationship_type": "ALIAS_OF",
+    "should_propagate": false
+  },
+  {
+    "case_id": "prop_mention_noise_negative",
+    "edge_family": "identity_and_alias",
+    "relationship_type": "MENTIONED_WITH",
+    "should_propagate": false
+  },
+  {
+    "case_id": "prop_related_phrase_negative",
+    "edge_family": "identity_and_alias",
+    "relationship_type": "RELATED_ENTITY",
+    "should_propagate": false
+  },
+  {
+    "case_id": "prop_component_dependency_risk",
+    "edge_family": "component_dependency",
+    "relationship_type": "INTEGRATED_INTO",
+    "should_propagate": true
+  },
+  {
+    "case_id": "prop_generic_other_negative",
+    "edge_family": "other",
+    "relationship_type": "UNKNOWN",
+    "should_propagate": false
+  }
+]

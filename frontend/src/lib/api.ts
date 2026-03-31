@@ -2318,6 +2318,8 @@ export async function runDriftCheck(caseId: string): Promise<Record<string, unkn
 export interface GraphIntelligenceResult {
   graph_size: { nodes: number; edges: number };
   top_entities_by_importance: Array<Record<string, unknown>>;
+  top_entities_by_decision_importance?: Array<Record<string, unknown>>;
+  top_entities_by_structural_importance?: Array<Record<string, unknown>>;
   top_entities_by_risk: Array<Record<string, unknown>>;
   risk_distribution: Record<string, number>;
   communities: { count: number; modularity: number; largest_community_size: number };
@@ -2331,6 +2333,8 @@ export interface EnrichedGraphNode {
   confidence: number;
   country: string;
   centrality_composite: number;
+  centrality_structural?: number;
+  centrality_decision?: number;
   centrality_degree: number;
   centrality_betweenness: number;
   centrality_pagerank: number;
@@ -2360,6 +2364,7 @@ export interface FullGraphIntelligence {
     modularity: number;
   };
   top_by_importance: EnrichedGraphNode[];
+  top_by_structural_importance?: EnrichedGraphNode[];
   top_by_risk: EnrichedGraphNode[];
   communities: Array<{
     community_id: number;

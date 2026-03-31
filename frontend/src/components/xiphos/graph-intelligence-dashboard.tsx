@@ -27,6 +27,8 @@ interface EnrichedGraphNode {
   confidence: number;
   country?: string;
   centrality_composite: number;
+  centrality_structural?: number;
+  centrality_decision?: number;
   centrality_degree?: number;
   centrality_betweenness?: number;
   centrality_pagerank?: number;
@@ -66,6 +68,7 @@ interface FullGraphIntelligence {
     modularity: number;
   };
   top_by_importance: EnrichedGraphNode[];
+  top_by_structural_importance?: EnrichedGraphNode[];
   top_by_risk: EnrichedGraphNode[];
   communities: Array<{ community_id: number; size: number; members: string[]; dominant_type: string }>;
   temporal: TemporalProfile | null;
@@ -146,7 +149,7 @@ const COMMUNITY_PALETTE = [
 ];
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
-  { id: "importance", label: "Top by Importance" },
+  { id: "importance", label: "Decision Impact" },
   { id: "risk", label: "Top by Risk" },
   { id: "detail", label: "Detail" },
   { id: "analytics", label: "Analytics" },
@@ -168,6 +171,14 @@ const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   ID: [113.9, -0.8], MY: [101.7, 4.2], NZ: [174.9, -40.9], CL: [-71.5, -35.7],
   CO: [-74.3, 4.6], AR: [-63.6, -38.4], PE: [-75.0, -9.2],
 };
+
+function getDecisionImportance(node: EnrichedGraphNode): number {
+  return node.centrality_decision ?? node.centrality_composite ?? 0;
+}
+
+function getStructuralImportance(node: EnrichedGraphNode): number {
+  return node.centrality_structural ?? node.centrality_composite ?? 0;
+}
 
 // ============================================================================
 // Main Component
@@ -236,6 +247,7 @@ export function GraphIntelligenceDashboard() {
             data_source: e.data_source,
             created_at: undefined,
           })),
+          top_by_structural_importance: raw.top_by_structural_importance || [],
         };
         setGraphData(data);
       } catch (err) {
@@ -332,12 +344,14 @@ export function GraphIntelligenceDashboard() {
           expandedNodes.push(...members);
         } else {
           // Large community: collapse into a single super-node
-          const topMember = members.sort((a, b) => (b.centrality_composite || 0) - (a.centrality_composite || 0))[0];
+          const topMember = members.sort((a, b) => getDecisionImportance(b) - getDecisionImportance(a))[0];
           const superNode: EnrichedGraphNode = {
             ...topMember,
             id: `community_${communityId}`,
             canonical_name: `${topMember.canonical_name} +${members.length - 1}`,
             centrality_composite: members.reduce((s, m) => s + (m.centrality_composite || 0), 0) / members.length,
+            centrality_decision: members.reduce((s, m) => s + getDecisionImportance(m), 0) / members.length,
+            centrality_structural: members.reduce((s, m) => s + getStructuralImportance(m), 0) / members.length,
             sanctions_exposure: Math.max(...members.map((m) => m.sanctions_exposure)),
             risk_level: members.some((m) => m.risk_level === "CRITICAL") ? "CRITICAL" :
                         members.some((m) => m.risk_level === "HIGH") ? "HIGH" :
@@ -377,7 +391,7 @@ export function GraphIntelligenceDashboard() {
 
       // Hard cap at 2000 after collapsing
       if (nodes.length > 2000) {
-        const sorted = [...nodes].sort((a, b) => (b.centrality_composite || 0) - (a.centrality_composite || 0));
+        const sorted = [...nodes].sort((a, b) => getDecisionImportance(b) - getDecisionImportance(a));
         nodes = sorted.slice(0, 2000);
         const topNodeIds = new Set(nodes.map((n) => n.id));
         edges = edges.filter((e) => topNodeIds.has(e.source) && topNodeIds.has(e.target));
@@ -1100,7 +1114,8 @@ export function GraphIntelligenceDashboard() {
                   color: T.textSecondary,
                 }}
               >
-                <span>Centrality: {(tooltip.node.centrality_composite || 0).toFixed(2)}</span>
+                <span>Decision: {getDecisionImportance(tooltip.node).toFixed(2)}</span>
+                <span>Structural: {getStructuralImportance(tooltip.node).toFixed(2)}</span>
                 <span>Exposure: {(tooltip.node.sanctions_exposure * 100).toFixed(0)}%</span>
               </div>
             </div>
@@ -1333,6 +1348,7 @@ export function GraphIntelligenceDashboard() {
       <RightSidebar
         selectedNode={selectedNode}
         topByImportance={graphData?.top_by_importance || []}
+        topByStructuralImportance={graphData?.top_by_structural_importance || []}
         topByRisk={graphData?.top_by_risk || []}
         communities={graphData?.communities || []}
         riskDistribution={riskDistribution}
@@ -1627,6 +1643,7 @@ function LeftSidebar(props: {
 function RightSidebar(props: {
   selectedNode: EnrichedGraphNode | null;
   topByImportance: EnrichedGraphNode[];
+  topByStructuralImportance: EnrichedGraphNode[];
   topByRisk: EnrichedGraphNode[];
   communities: Array<{ community_id: number; size: number; members: string[]; dominant_type: string }>;
   riskDistribution: Record<string, number>;
@@ -1690,6 +1707,18 @@ function RightSidebar(props: {
       {/* Tab Content */}
       {activeTab === "importance" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div
+            style={{
+              padding: "8px",
+              background: "rgba(14, 165, 233, 0.08)",
+              border: "1px solid rgba(14, 165, 233, 0.25)",
+              borderRadius: "6px",
+              fontSize: `${FS.caption}px`,
+              color: T.textSecondary,
+            }}
+          >
+            Decision impact drives operator ranking. Structural importance shows graph shape and bridge value.
+          </div>
           {props.topByImportance.slice(0, 10).map((node) => (
             <div
               key={node.id}
@@ -1710,11 +1739,40 @@ function RightSidebar(props: {
               }}
             >
               <div style={{ fontWeight: 600, marginBottom: "4px" }}>{node.canonical_name}</div>
-              <div style={{ color: T.textSecondary, fontSize: `${FS.caption}px` }}>
-                Centrality: {(node.centrality_composite || 0).toFixed(2)}
+              <div style={{ color: T.textSecondary, fontSize: `${FS.caption}px`, display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                <span>Decision: {getDecisionImportance(node).toFixed(2)}</span>
+                <span>Structural: {getStructuralImportance(node).toFixed(2)}</span>
               </div>
             </div>
           ))}
+
+          {props.topByStructuralImportance.length > 0 && (
+            <div style={{ marginTop: "12px" }}>
+              <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
+                STRUCTURAL BRIDGES
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {props.topByStructuralImportance.slice(0, 5).map((node) => (
+                  <div
+                    key={`structural-${node.id}`}
+                    style={{
+                      padding: "8px",
+                      background: T.bg,
+                      borderRadius: "4px",
+                      borderLeft: `3px solid ${TYPE_META[node.entity_type]?.stroke || T.accent}`,
+                      fontSize: `${FS.sm}px`,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: "4px" }}>{node.canonical_name}</div>
+                    <div style={{ color: T.textSecondary, fontSize: `${FS.caption}px`, display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                      <span>Structural: {getStructuralImportance(node).toFixed(2)}</span>
+                      <span>Decision: {getDecisionImportance(node).toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1775,9 +1833,16 @@ function RightSidebar(props: {
           </div>
 
           <div>
-            <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600 }}>CENTRALITY</div>
+            <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600 }}>DECISION IMPORTANCE</div>
             <div style={{ fontSize: `${FS.sm}px`, marginTop: "4px" }}>
-              {(props.selectedNode.centrality_composite || 0).toFixed(3)}
+              {getDecisionImportance(props.selectedNode).toFixed(3)}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600 }}>STRUCTURAL IMPORTANCE</div>
+            <div style={{ fontSize: `${FS.sm}px`, marginTop: "4px" }}>
+              {getStructuralImportance(props.selectedNode).toFixed(3)}
             </div>
           </div>
 
@@ -2051,7 +2116,7 @@ function LayoutButton(props: { active: boolean; onClick: () => void; children: R
 function buildCytoscapeElements(nodes: EnrichedGraphNode[], edges: GraphEdge[]): ElementDefinition[] {
   const elements: ElementDefinition[] = nodes.map((node) => {
     const riskColor = RISK_COLORS[node.risk_level];
-    const size = Math.max(20, Math.min(60, 20 + node.centrality_composite * 40));
+    const size = Math.max(20, Math.min(60, 20 + getDecisionImportance(node) * 40));
     const communityColor =
       node.community_id != null
         ? COMMUNITY_PALETTE[node.community_id % COMMUNITY_PALETTE.length]

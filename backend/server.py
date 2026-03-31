@@ -5284,7 +5284,7 @@ def api_graph_intelligence():
 @require_auth("screen:read")
 def api_graph_centrality():
     """Compute centrality metrics for all entities.
-    Returns degree, betweenness, closeness, pagerank, and composite importance.
+    Returns degree, betweenness, closeness, pagerank, and structural vs decision importance.
     """
     if not HAS_GRAPH_ANALYTICS:
         return jsonify({"error": "Graph analytics module not available"}), 501
@@ -5293,8 +5293,8 @@ def api_graph_centrality():
         analytics = GraphAnalytics()
         analytics.load_graph()
         result = analytics.compute_all_centrality()
-        # Sort by composite importance
-        sorted_entities = sorted(result.values(), key=lambda x: x.get("composite_importance", 0), reverse=True)
+        # Sort by decision importance for operator-facing use.
+        sorted_entities = sorted(result.values(), key=lambda x: x.get("decision_importance", x.get("composite_importance", 0)), reverse=True)
         return jsonify({"entities": sorted_entities, "count": len(sorted_entities)})
     except Exception as e:
         return jsonify({"error": f"Centrality computation failed: {str(e)}"}), 500
@@ -5430,6 +5430,8 @@ def api_graph_full_intelligence():
             "created_at": node_data.get("created_at", ""),
             # Analytics enrichment
             "centrality_composite": round(cent.get("composite_importance", 0), 4),
+            "centrality_structural": round(cent.get("structural_importance", 0), 4),
+            "centrality_decision": round(cent.get("decision_importance", cent.get("composite_importance", 0)), 4),
             "centrality_degree": round(cent.get("degree", {}).get("normalized", 0) if isinstance(cent.get("degree"), dict) else cent.get("degree", 0), 4),
             "centrality_betweenness": round(cent.get("betweenness", {}).get("normalized", 0) if isinstance(cent.get("betweenness"), dict) else cent.get("betweenness", 0), 4),
             "centrality_pagerank": round(cent.get("pagerank", {}).get("normalized", 0) if isinstance(cent.get("pagerank"), dict) else cent.get("pagerank", 0), 4),
@@ -5462,7 +5464,8 @@ def api_graph_full_intelligence():
         type_dist[t] = type_dist.get(t, 0) + 1
 
     # Top entities by composite centrality
-    top_by_importance = sorted(enriched_nodes, key=lambda x: x["centrality_composite"], reverse=True)[:20]
+    top_by_importance = sorted(enriched_nodes, key=lambda x: x["centrality_decision"], reverse=True)[:20]
+    top_by_structural_importance = sorted(enriched_nodes, key=lambda x: x["centrality_structural"], reverse=True)[:20]
     top_by_risk = sorted(enriched_nodes, key=lambda x: x["sanctions_exposure"], reverse=True)[:20]
 
     return jsonify({
@@ -5477,6 +5480,7 @@ def api_graph_full_intelligence():
             "modularity": round(communities.get("modularity", 0), 4),
         },
         "top_by_importance": top_by_importance,
+        "top_by_structural_importance": top_by_structural_importance,
         "top_by_risk": top_by_risk,
         "communities": [
             {
