@@ -223,7 +223,7 @@ def _severity_hex(s: str) -> str:
 # ============================================================================
 
 class NavyCover(Flowable):
-    """Compact navy cover block (120pt max height)."""
+    """Navy cover block with gold accent and vendor branding."""
     def __init__(self, w, h, vendor, dossier_id, date_str, classification, country, profile):
         Flowable.__init__(self)
         self.width = w
@@ -237,24 +237,35 @@ class NavyCover(Flowable):
 
     def draw(self):
         c = self.canv
+        # Background
         c.setFillColor(NAVY)
-        c.rect(0, 0, self.width, self.height, fill=1, stroke=0)
+        c.roundRect(0, 0, self.width, self.height, 6, fill=1, stroke=0)
+        # Gold accent bar at bottom
         c.setFillColor(GOLD)
         c.rect(0, 0, self.width, 3, fill=1, stroke=0)
-        # Branding (compact)
+        # Gold top rule
+        c.setStrokeColor(GOLD)
+        c.setLineWidth(0.5)
+        c.line(14, self.height - 8, self.width - 14, self.height - 8)
+        # Branding
         c.setFillColor(GOLD)
-        c.setFont("Helvetica-Bold", 8)
-        c.drawString(14, self.height - 16, "HELIOS DECISION DOSSIER")
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(14, self.height - 22, "HELIOS DECISION DOSSIER")
+        # Vendor name
         c.setFillColor(white)
-        c.setFont("Helvetica-Bold", 13)
-        vn = self.vendor[:50] + "..." if len(self.vendor) > 50 else self.vendor
-        c.drawString(14, self.height - 35, vn)
-        # Metadata footer (8pt)
+        c.setFont("Helvetica-Bold", 16)
+        vn = self.vendor[:48] + "..." if len(self.vendor) > 48 else self.vendor
+        c.drawString(14, self.height - 44, vn)
+        # Xiphos mark right-aligned
+        c.setFillColor(HexColor("#64748B"))
         c.setFont("Helvetica", 7)
+        c.drawRightString(self.width - 14, self.height - 22, "XIPHOS LLC")
+        # Metadata line
+        c.setFont("Helvetica", 7.5)
         c.setFillColor(LIGHT_GRAY)
-        meta = f"{self.country}  •  {self.profile.replace('_', ' ')}  •  {self.dossier_id}"
-        c.drawString(14, self.height - 48, meta)
-        c.drawString(14, self.height - 58, f"{self.date_str}  •  {self.classification}")
+        meta = f"{self.country}  |  {self.profile.replace('_', ' ')}  |  {self.dossier_id}"
+        c.drawString(14, self.height - 58, meta)
+        c.drawString(14, self.height - 70, f"{self.date_str}  |  {self.classification}")
 
 
 class RiskGauge(Flowable):
@@ -323,22 +334,28 @@ class HorizBar(Flowable):
 
 
 class AccentHeader(Flowable):
-    """Section header with left gold accent (22pt height)."""
+    """Section header with left gold accent and professional styling."""
     def __init__(self, text, width=None):
         Flowable.__init__(self)
         self.text = text
         self.hdr_width = width or (PAGE_W - 72)
-        self.height = 22
+        self.height = 24
 
     def draw(self):
         c = self.canv
         c.setFillColor(NAVY)
-        c.roundRect(0, 0, self.hdr_width, self.height, 2, fill=1, stroke=0)
+        c.roundRect(0, 0, self.hdr_width, self.height, 4, fill=1, stroke=0)
+        # Gold accent bar
         c.setFillColor(GOLD)
-        c.rect(0, 0, 3, self.height, fill=1, stroke=0)
+        c.roundRect(0, 0, 3.5, self.height, 2, fill=1, stroke=0)
+        # Header text
         c.setFillColor(white)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(11, 6, self.text)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(12, 7, self.text)
+        # Subtle gold rule at bottom
+        c.setStrokeColor(GOLD)
+        c.setLineWidth(0.3)
+        c.line(0, 0, self.hdr_width, 0)
 
 
 
@@ -349,13 +366,21 @@ class AccentHeader(Flowable):
 
 def _page_footer(canvas_obj, doc):
     canvas_obj.saveState()
-    canvas_obj.setFont("Helvetica", 7)
-    canvas_obj.setFillColor(MID_GRAY)
-    canvas_obj.drawString(36, 18, "CUI // Controlled Unclassified Information  |  Handle per 32 CFR Part 2002")
-    canvas_obj.drawRightString(PAGE_W - 36, 18, f"Page {doc.page}")
+    # Top rule
     canvas_obj.setStrokeColor(FAINT_GRAY)
     canvas_obj.setLineWidth(0.4)
     canvas_obj.line(36, PAGE_H - 28, PAGE_W - 36, PAGE_H - 28)
+    # Bottom separator
+    canvas_obj.setStrokeColor(GOLD)
+    canvas_obj.setLineWidth(0.3)
+    canvas_obj.line(36, 30, PAGE_W - 36, 30)
+    # Footer text
+    canvas_obj.setFont("Helvetica", 6.5)
+    canvas_obj.setFillColor(MID_GRAY)
+    canvas_obj.drawString(36, 20, "CUI  |  Controlled Unclassified Information  |  Handle per 32 CFR Part 2002")
+    canvas_obj.setFillColor(GOLD)
+    canvas_obj.setFont("Helvetica-Bold", 6.5)
+    canvas_obj.drawRightString(PAGE_W - 36, 20, f"HELIOS  |  Page {doc.page}")
     canvas_obj.restoreState()
 
 def _cover_footer(canvas_obj, doc):
@@ -369,25 +394,26 @@ def _cover_footer(canvas_obj, doc):
 def _styles():
     base = getSampleStyleSheet()
     return {
-        "body": ParagraphStyle("xb", parent=base["BodyText"], fontSize=9, leading=13,
+        "body": ParagraphStyle("xb", parent=base["BodyText"], fontSize=9, leading=13.5,
                                textColor=DARK_GRAY, spaceAfter=4),
-        "body_sm": ParagraphStyle("xbs", parent=base["BodyText"], fontSize=7.5, leading=10,
+        "body_sm": ParagraphStyle("xbs", parent=base["BodyText"], fontSize=7.5, leading=10.5,
                                   textColor=MID_GRAY, spaceAfter=2),
-        "narrative": ParagraphStyle("xn", parent=base["BodyText"], fontSize=9.5, leading=14,
+        "narrative": ParagraphStyle("xn", parent=base["BodyText"], fontSize=9.5, leading=14.5,
                                     textColor=DARK_GRAY, spaceAfter=8, spaceBefore=2),
-        "label": ParagraphStyle("xl", parent=base["BodyText"], fontSize=7.5, leading=10,
-                                textColor=MID_GRAY, fontName="Helvetica-Bold"),
+        "label": ParagraphStyle("xl", parent=base["BodyText"], fontSize=7, leading=9.5,
+                                textColor=MID_GRAY, fontName="Helvetica-Bold",
+                                spaceBefore=0, spaceAfter=1),
         "value": ParagraphStyle("xv", parent=base["BodyText"], fontSize=9.5, leading=13,
                                 textColor=NAVY, fontName="Helvetica-Bold"),
         "h2": ParagraphStyle("xh2", parent=base["Heading2"], fontSize=11, leading=14,
                              textColor=NAVY, fontName="Helvetica-Bold", spaceBefore=10, spaceAfter=4),
         "h3": ParagraphStyle("xh3", parent=base["Heading3"], fontSize=9.5, leading=12,
                              textColor=DARK_GRAY, fontName="Helvetica-Bold", spaceBefore=6, spaceAfter=3),
-        "footer": ParagraphStyle("xf", parent=base["BodyText"], fontSize=7, leading=9,
+        "footer": ParagraphStyle("xf", parent=base["BodyText"], fontSize=7, leading=9.5,
                                  textColor=LIGHT_GRAY),
-        "hero_title": ParagraphStyle("xht", parent=base["Title"], fontSize=18, leading=23,
+        "hero_title": ParagraphStyle("xht", parent=base["Title"], fontSize=16, leading=21,
                                      textColor=white, fontName="Helvetica-Bold"),
-        "hero_body": ParagraphStyle("xhb", parent=base["BodyText"], fontSize=9.5, leading=14,
+        "hero_body": ParagraphStyle("xhb", parent=base["BodyText"], fontSize=9, leading=13.5,
                                     textColor=HexColor("#D6DEE8")),
         "metric_label": ParagraphStyle("xml", parent=base["BodyText"], fontSize=7, leading=9,
                                        textColor=HexColor("#AAB4C3"), fontName="Helvetica-Bold"),
@@ -549,13 +575,13 @@ def _build_cover(data, st):
     date_str = data.audit_trail.assessment_date if data.audit_trail else datetime.now().strftime("%Y-%m-%d")
 
     cover = NavyCover(
-        w=PAGE_W - 72, h=80,
+        w=PAGE_W - 72, h=90,
         vendor=data.vendor_name, dossier_id=data.dossier_id,
         date_str=date_str, classification=data.classification_level,
         country=data.vendor_country, profile=data.profile,
     )
     elems.append(cover)
-    elems.append(Spacer(1, 0.12 * inch))
+    elems.append(Spacer(1, 0.1 * inch))
 
     # CUI banner
     cui_st = ParagraphStyle("cui", parent=st["body"], fontSize=8, textColor=white,
@@ -793,12 +819,15 @@ def _build_risk_score(data, st):
         f_tbl = Table(rows, colWidths=[1.2 * inch, 0.45 * inch, 0.65 * inch, 0.35 * inch, 0.75 * inch, 2.8 * inch])
         f_tbl.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
             ("TEXTCOLOR", (0, 0), (-1, 0), white),
             ("LINEBELOW", (0, 0), (-1, -2), 0.3, FAINT_GRAY),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [white, GHOST]),
+            ("BOX", (0, 0), (-1, -1), 0.4, BORDER_GRAY),
         ]))
         elems.append(f_tbl)
 
@@ -869,15 +898,18 @@ def _build_gates(data, st):
             Paragraph(g.notes[:60] + ("..." if len(g.notes) > 60 else ""), st["body_sm"]),
         ])
 
-    g_tbl = Table(rows, colWidths=[0.5 * inch, 2.3 * inch, 0.7 * inch, 2.9 * inch])
+    g_tbl = Table(rows, colWidths=[0.55 * inch, 2.2 * inch, 0.7 * inch, 2.95 * inch])
     g_tbl.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("BACKGROUND", (0, 0), (-1, 0), NAVY),
         ("TEXTCOLOR", (0, 0), (-1, 0), white),
         ("LINEBELOW", (0, 0), (-1, -2), 0.3, BORDER_GRAY),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [white, LIGHT_GRAY_BG]),
+        ("BOX", (0, 0), (-1, -1), 0.4, BORDER_GRAY),
     ]))
     elems.append(g_tbl)
     elems.append(Spacer(1, 0.12 * inch))
@@ -1037,13 +1069,15 @@ def _build_audit(data, st):
     tbl = Table(rows, colWidths=[1.1 * inch, 2.0 * inch, 1.1 * inch, 2.0 * inch])
     tbl.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("LINEBELOW", (0, 0), (-1, -2), 0.3, BORDER_GRAY),
         ("BACKGROUND", (0, 0), (-1, -1), LIGHT_GRAY_BG),
+        ("BOX", (0, 0), (-1, -1), 0.4, BORDER_GRAY),
     ]))
     elems.append(tbl)
-    elems.append(Spacer(1, 0.08 * inch))
+    elems.append(Spacer(1, 0.1 * inch))
     elems.append(Paragraph(
         "This document contains Controlled Unclassified Information (CUI). "
         "Distribution limited to authorized personnel. Handle per 32 CFR Part 2002. "
@@ -1060,7 +1094,7 @@ def _build_audit(data, st):
 def generate_compliance_dossier_pdf(data: ComplianceDossierInput, output_path: str) -> str:
     st = _styles()
     doc = SimpleDocTemplate(output_path, pagesize=letter,
-                            rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+                            rightMargin=36, leftMargin=36, topMargin=40, bottomMargin=40)
     story = []
     story.extend(_build_cover(data, st))
     story.extend(_build_executive_analysis(data, st))

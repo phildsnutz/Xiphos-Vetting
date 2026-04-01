@@ -2718,7 +2718,7 @@ def _generate_ai_narrative(vendor_id: str, vendor: dict, analysis_data: Optional
         return '''
         <section style="page-break-inside: avoid; margin-bottom: 32px;">
             <h2 style="color: #0A1628; border-bottom: 2px solid #C4A052; padding-bottom: 10px;
-                       margin-bottom: 16px; font-size: 16px; font-family: sans-serif;">
+                       margin-bottom: 16px; font-size: 16px;">
                 AI Narrative Brief
             </h2>
             <div style="padding: 16px 18px; border-radius: 18px; background: linear-gradient(135deg, #0A1628 0%, #102033 100%);
@@ -2815,13 +2815,13 @@ def _generate_ai_narrative(vendor_id: str, vendor: dict, analysis_data: Optional
     return f'''
     <section style="page-break-inside: avoid; margin-bottom: 32px;">
         <h2 style="color: #0A1628; border-bottom: 2px solid #C4A052; padding-bottom: 10px;
-                   margin-bottom: 16px; font-size: 16px; font-family: sans-serif;">
+                   margin-bottom: 16px; font-size: 16px;">
             AI Narrative Brief
         </h2>
         <div style="padding: 10px 14px; background: linear-gradient(135deg, #fff8e7 0%, #fffdf5 100%);
                     border: 1px solid rgba(196, 160, 82, 0.28); border-left: 4px solid #C4A052;
                     border-radius: 12px; margin-bottom: 18px; font-size: 10px; color: #6B7280;
-                    font-family: sans-serif; line-height: 1.6;">
+                    line-height: 1.6;">
             <strong style="color: #C4A052; letter-spacing: 0.06em;">ADVISORY LAYER</strong> &mdash;
             This AI brief complements the deterministic scoring engine, regulatory gates, and evidence-backed storyline.
             It never overrides hard stops or tier classification; it adds qualitative judgment, narrative synthesis, and diligence guidance.
@@ -3625,12 +3625,15 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
             @media print {{
                 body {{
                     background: white;
+                    font-size: 10pt;
                 }}
                 .container {{
                     box-shadow: none;
                     margin: 0;
                     border: none;
                     border-radius: 0;
+                    padding: 0.5in;
+                    max-width: none;
                 }}
                 section {{
                     page-break-inside: avoid;
@@ -3644,6 +3647,25 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
                     -webkit-print-color-adjust: exact;
                     print-color-adjust: exact;
                 }}
+                .hero-stats-grid,
+                .hero-signal-strip,
+                .hero-control-strip {{
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }}
+                .chapter-shell-dark {{
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }}
+                .storyline-card,
+                .evidence-card,
+                .coverage-card,
+                .chapter-nav-card {{
+                    page-break-inside: avoid;
+                }}
+                .watermark {{
+                    display: none;
+                }}
             }}
 
             .container {{
@@ -3655,16 +3677,22 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
                 padding: 0.9in;
                 box-shadow: 0 24px 80px rgba(10, 22, 40, 0.12);
                 border: 1px solid rgba(16, 32, 51, 0.08);
-                border-radius: 28px;
+                border-radius: 16px;
                 position: relative;
                 overflow-wrap: break-word;
                 word-break: break-word;
             }}
 
             /* Prevent long URLs from overflowing */
-            a, .detail-text {{
+            a {{
                 overflow-wrap: break-word;
                 word-break: break-all;
+                max-width: 100%;
+            }}
+
+            .detail-text {{
+                overflow-wrap: break-word;
+                word-break: break-word;
                 max-width: 100%;
             }}
 
@@ -3735,7 +3763,6 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
                 padding-bottom: 10px;
                 margin-bottom: 18px;
                 font-size: 17px;
-                font-family: Georgia, 'Times New Roman', serif;
                 font-weight: 600;
                 letter-spacing: 0.02em;
             }}
@@ -4238,7 +4265,6 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
             .chapter-nav-title {{
                 color: var(--navy-900);
                 font-size: 16px;
-                font-family: Georgia, 'Times New Roman', serif;
                 font-weight: 700;
                 margin-bottom: 8px;
             }}
@@ -4292,7 +4318,6 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
                 padding-bottom: 0;
                 color: inherit;
                 font-size: 28px;
-                font-family: Georgia, 'Times New Roman', serif;
                 font-weight: 700;
                 letter-spacing: -0.02em;
             }}
@@ -4555,7 +4580,7 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
 
             <div class="footer">
                 <div style="border-top: 1px solid #C4A052; padding-top: 12px;">
-                    <strong style="color: #C4A052; letter-spacing: 1px; font-family: sans-serif; font-size: 9px;">HELIOS</strong>
+                    <strong style="color: #C4A052; letter-spacing: 1px; font-size: 9px;">HELIOS</strong>
                     &nbsp;|&nbsp; Vendor ID: {escape(vendor_id)}<br>
                     Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')} &nbsp;|&nbsp;
                     Vendor intelligence and assurance<br>
