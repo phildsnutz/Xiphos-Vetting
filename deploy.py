@@ -363,7 +363,9 @@ def ensure_remote_parent(sftp: Any, remote_path: str) -> None:
 
 
 def should_exclude(rel_path: str) -> bool:
-    path = rel_path.strip("./")
+    path = pathlib.PurePosixPath(rel_path).as_posix()
+    if path.startswith("./"):
+        path = path[2:]
     if not path:
         return False
     name = pathlib.PurePosixPath(path).name
