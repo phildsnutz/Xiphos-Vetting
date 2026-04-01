@@ -344,6 +344,18 @@ try:
 except ImportError:
     HAS_GATES = False
 
+# --------------- Sentry error tracking ---------------
+import sentry_sdk
+
+_SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if _SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        traces_sample_rate=0.2,
+        profiles_sample_rate=0.1,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+    )
+
 # Static folder for serving the bundled frontend
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -7039,6 +7051,539 @@ def api_compliance_dashboard():
     except Exception as e:
         LOGGER.exception("Failed to get compliance dashboard: %s", e)
         return jsonify({"error": f"Failed to get compliance dashboard: {str(e)}"}), 500
+
+
+# ── Sprint 14-16 module wiring ──────────────────────────────────────────────
+
+# Decision Engine: classify screening alerts into disposition tiers
+try:
+    from decision_engine import classify_alert
+    HAS_DECISION_ENGINE = True
+except ImportError:
+    HAS_DECISION_ENGINE = False
+
+# Workflow Routing: route classified alerts to compliance queues
+try:
+    from workflow_routing import route_alert
+    HAS_WORKFLOW_ROUTING = True
+except ImportError:
+    HAS_WORKFLOW_ROUTING = False
+
+# Adversarial Gym: replay adversarial scenarios for trust surface validation
+try:
+    from adversarial_gym import load_scenarios, evaluate_scenarios, render_markdown
+    HAS_ADVERSARIAL_GYM = True
+except ImportError:
+    HAS_ADVERSARIAL_GYM = False
+
+# Cyber Risk Cascade: CVE risk propagation across supply chain
+try:
+    from cyber_risk_cascade import get_cyber_risk_cascade
+    HAS_CYBER_CASCADE = True
+except ImportError:
+    HAS_CYBER_CASCADE = False
+
+# Cyber Timeline: temporal view of CVE/KEV events
+try:
+    from cyber_timeline import get_cyber_timeline
+    HAS_CYBER_TIMELINE = True
+except ImportError:
+    HAS_CYBER_TIMELINE = False
+
+# Semantic Search: TF-IDF character n-gram sanctions matching
+try:
+    from semantic_search import SanctionsSemanticMatcher
+    HAS_SEMANTIC_SEARCH = True
+except ImportError:
+    HAS_SEMANTIC_SEARCH = False
+
+# Analyst Feedback: scoring calibration from analyst input
+try:
+    from analyst_feedback import (
+        save_feedback as submit_analyst_feedback,
+        get_feedback as get_analyst_feedback,
+        get_feedback_stats as get_analyst_feedback_stats,
+        calibrate_weights as calibrate_analyst_weights,
+        get_active_weights as get_active_analyst_weights,
+        init_feedback_tables,
+    )
+    HAS_ANALYST_FEEDBACK = True
+except ImportError:
+    HAS_ANALYST_FEEDBACK = False
+
+# Resilience Scoring: mission thread resilience metrics
+try:
+    from resilience_scoring import compute_mission_thread_resilience
+    HAS_RESILIENCE = True
+except ImportError:
+    HAS_RESILIENCE = False
+
+# Ownership Control Intelligence: FOCI/OCI analysis helpers
+try:
+    from ownership_control_intelligence import build_oci_summary
+    HAS_OCI = True
+except ImportError:
+    HAS_OCI = False
+
+# Compliance Dossier PDF: audit-ready PDF generation
+try:
+    from compliance_dossier_pdf import generate_compliance_dossier_pdf, ComplianceDossierInput
+    HAS_COMPLIANCE_PDF = True
+except ImportError:
+    HAS_COMPLIANCE_PDF = False
+
+# Threat Intel Substrate: enrichment-derived threat intel summary
+try:
+    from threat_intel_substrate import build_threat_intel_summary
+    HAS_THREAT_INTEL = True
+except ImportError:
+    HAS_THREAT_INTEL = False
+
+
+# ── Decision Engine Routes ──────────────────────────────────────────────────
+
+@app.route("/api/screen/classify", methods=["POST"])
+@require_auth("cases:read")
+def api_classify_alert():
+    """Classify a screening result into DEFINITE/PROBABLE/POSSIBLE/UNLIKELY."""
+    if not HAS_DECISION_ENGINE:
+        return jsonify({"error": "Decision engine not available"}), 501
+
+    body = request.get_json(force=True) or {}
+    vendor_name = body.get("vendor_name", "")
+    vendor_country = body.get("vendor_country", "")
+
+    if not vendor_name:
+        return jsonify({"error": "vendor_name is required"}), 400
+
+    try:
+        screening_result = screen_name(vendor_name)
+        disposition = classify_alert(screening_result, vendor_country=vendor_country)
+
+        result = {
+            "vendor_name": vendor_name,
+            "category": disposition.category,
+            "confidence_band": disposition.confidence_band,
+            "recommended_action": disposition.recommended_action,
+            "override_risk_weight": disposition.override_risk_weight,
+            "explanation": disposition.explanation,
+            "classification_factors": disposition.classification_factors,
+        }
+
+        if HAS_WORKFLOW_ROUTING:
+            routed = route_alert(disposition)
+            result["workflow"] = {
+                "queue": routed.queue.value if hasattr(routed, "queue") else str(routed),
+                "sla_hours": getattr(routed, "sla_hours", None),
+            }
+
+        log_audit("screen", "classify_alert", vendor_name,
+                  detail=f"Category: {disposition.category}, Action: {disposition.recommended_action}")
+
+        return jsonify(result)
+
+    except Exception as e:
+        LOGGER.exception("classify_alert failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Adversarial Gym Routes ──────────────────────────────────────────────────
+
+@app.route("/api/adversarial/run", methods=["POST"])
+@require_auth("system:config")
+def api_adversarial_run():
+    """Run adversarial scenario suite and return pass/fail report."""
+    if not HAS_ADVERSARIAL_GYM:
+        return jsonify({"error": "Adversarial gym not available"}), 501
+
+    try:
+        body = request.get_json(force=True) or {}
+        fixture_path = body.get("fixture_path")
+        scenarios = load_scenarios(fixture_path)
+        report = evaluate_scenarios(scenarios)
+
+        log_audit("adversarial", "gym_run", "all",
+                  detail=f"Scenarios: {report['scenario_count']}, Passed: {report['passed_count']}")
+
+        return jsonify(report)
+
+    except Exception as e:
+        LOGGER.exception("adversarial gym run failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/adversarial/report", methods=["POST"])
+@require_auth("system:config")
+def api_adversarial_report():
+    """Run adversarial suite and return Markdown report."""
+    if not HAS_ADVERSARIAL_GYM:
+        return jsonify({"error": "Adversarial gym not available"}), 501
+
+    try:
+        body = request.get_json(force=True) or {}
+        fixture_path = body.get("fixture_path")
+        scenarios = load_scenarios(fixture_path)
+        report = evaluate_scenarios(scenarios)
+        md = render_markdown(report, fixture_path or "default")
+
+        return Response(md, mimetype="text/markdown")
+
+    except Exception as e:
+        LOGGER.exception("adversarial report failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Cyber Risk Cascade Routes ──────────────────────────────────────────────
+
+@app.route("/api/cyber/risk-cascade", methods=["GET", "POST"])
+@require_auth("cases:read")
+def api_cyber_risk_cascade():
+    """Compute CVE risk propagation across supply chain."""
+    if not HAS_CYBER_CASCADE:
+        return jsonify({"error": "Cyber risk cascade not available"}), 501
+
+    try:
+        if request.method == "POST":
+            body = request.get_json(force=True) or {}
+            case_id = body.get("case_id")
+        else:
+            case_id = request.args.get("case_id")
+
+        cascade = get_cyber_risk_cascade(case_id=case_id)
+
+        log_audit("cyber", "risk_cascade", case_id or "global",
+                  detail=f"Nodes: {len(cascade.get('affected_nodes', []))}")
+
+        return jsonify(cascade)
+
+    except Exception as e:
+        LOGGER.exception("cyber risk cascade failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/cyber/timeline", methods=["GET", "POST"])
+@require_auth("cases:read")
+def api_cyber_timeline():
+    """Get temporal view of cyber events (CVE discoveries, KEV additions)."""
+    if not HAS_CYBER_TIMELINE:
+        return jsonify({"error": "Cyber timeline not available"}), 501
+
+    try:
+        if request.method == "POST":
+            body = request.get_json(force=True) or {}
+            case_id = body.get("case_id")
+        else:
+            case_id = request.args.get("case_id")
+
+        timeline = get_cyber_timeline(case_id=case_id)
+
+        log_audit("cyber", "timeline", case_id or "global",
+                  detail=f"Events: {len(timeline.get('events', []))}")
+
+        return jsonify(timeline)
+
+    except Exception as e:
+        LOGGER.exception("cyber timeline failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Semantic Sanctions Search Routes ────────────────────────────────────────
+
+@app.route("/api/screen/semantic", methods=["POST"])
+@require_auth("cases:read")
+def api_semantic_screen():
+    """Screen a name using semantic TF-IDF matching (complements fuzzy OFAC)."""
+    if not HAS_SEMANTIC_SEARCH:
+        return jsonify({"error": "Semantic search not available"}), 501
+
+    try:
+        body = request.get_json(force=True) or {}
+        query = body.get("query", "")
+        top_k = min(int(body.get("top_k", 10)), 50)
+
+        if not query:
+            return jsonify({"error": "query is required"}), 400
+
+        matcher = SanctionsSemanticMatcher()
+        results = matcher.search(query, top_k=top_k)
+
+        log_audit("screen", "semantic_search", query,
+                  detail=f"Results: {len(results)}")
+
+        return jsonify({"query": query, "results": results})
+
+    except Exception as e:
+        LOGGER.exception("semantic search failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Analyst Feedback Routes ─────────────────────────────────────────────────
+
+@app.route("/api/feedback", methods=["POST"])
+@require_auth("cases:create")
+def api_submit_feedback():
+    """Submit analyst feedback on a scoring result."""
+    if not HAS_ANALYST_FEEDBACK:
+        return jsonify({"error": "Analyst feedback module not available"}), 501
+
+    try:
+        body = request.get_json(force=True) or {}
+        vendor_id = body.get("vendor_id", "")
+        scoring_result_id = int(body.get("scoring_result_id", 0))
+        action = body.get("action", "")
+        original_tier = body.get("original_tier", "")
+        original_score = float(body.get("original_score", 0))
+        analyst_tier = body.get("analyst_tier")
+        notes = body.get("notes", "")
+        factor_overrides = body.get("factor_overrides")
+        created_by = body.get("created_by", "analyst")
+
+        if not vendor_id or not action or not original_tier:
+            return jsonify({"error": "vendor_id, action, and original_tier are required"}), 400
+
+        result = submit_analyst_feedback(
+            vendor_id=vendor_id,
+            scoring_result_id=scoring_result_id,
+            action=action,
+            original_tier=original_tier,
+            original_score=original_score,
+            analyst_tier=analyst_tier,
+            notes=notes,
+            factor_overrides=factor_overrides,
+            created_by=created_by,
+        )
+
+        log_audit("feedback", "submit", vendor_id,
+                  detail=f"Action: {action}")
+
+        return jsonify(result)
+
+    except Exception as e:
+        LOGGER.exception("submit feedback failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/feedback/<case_id>", methods=["GET"])
+@require_auth("cases:read")
+def api_get_feedback(case_id):
+    """Get all analyst feedback for a case."""
+    if not HAS_ANALYST_FEEDBACK:
+        return jsonify({"error": "Analyst feedback module not available"}), 501
+
+    try:
+        limit = int(request.args.get("limit", 50))
+        offset = int(request.args.get("offset", 0))
+        feedback = get_analyst_feedback(vendor_id=case_id, limit=limit, offset=offset)
+        return jsonify({"vendor_id": case_id, "feedback": feedback})
+
+    except Exception as e:
+        LOGGER.exception("get feedback failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/feedback/stats", methods=["GET"])
+@require_auth("cases:read")
+def api_feedback_stats():
+    """Get aggregate feedback statistics."""
+    if not HAS_ANALYST_FEEDBACK:
+        return jsonify({"error": "Analyst feedback module not available"}), 501
+
+    try:
+        stats = get_analyst_feedback_stats()
+        return jsonify(stats)
+
+    except Exception as e:
+        LOGGER.exception("feedback stats failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/feedback/calibrate", methods=["POST"])
+@require_auth("system:config")
+def api_calibrate_weights():
+    """Calibrate FGAMLogit weights from analyst feedback."""
+    if not HAS_ANALYST_FEEDBACK:
+        return jsonify({"error": "Analyst feedback module not available"}), 501
+
+    try:
+        body = request.get_json(force=True) or {}
+        min_samples = int(body.get("min_samples", 30))
+        result = calibrate_analyst_weights(min_samples=min_samples)
+
+        log_audit("feedback", "calibrate", "global",
+                  detail=f"Samples: {result.get('sample_count', 'N/A')}")
+
+        return jsonify(result)
+
+    except Exception as e:
+        LOGGER.exception("calibrate weights failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/feedback/active-weights", methods=["GET"])
+@require_auth("cases:read")
+def api_active_weights():
+    """Get the current active scoring weights."""
+    if not HAS_ANALYST_FEEDBACK:
+        return jsonify({"error": "Analyst feedback module not available"}), 501
+
+    try:
+        weights = get_active_analyst_weights()
+        return jsonify(weights)
+
+    except Exception as e:
+        LOGGER.exception("calibration stats failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Resilience Scoring Route ────────────────────────────────────────────────
+
+@app.route("/api/mission-threads/<thread_id>/resilience", methods=["POST"])
+@require_auth("cases:read")
+def api_resilience_score(thread_id):
+    """Compute mission thread resilience score."""
+    if not HAS_RESILIENCE:
+        return jsonify({"error": "Resilience scoring not available"}), 501
+
+    try:
+        body = request.get_json(force=True) or {}
+        thread = body.get("thread", {"id": thread_id})
+        members = body.get("members", [])
+        graph = body.get("graph", {})
+
+        score = compute_mission_thread_resilience(
+            thread=thread, members=members, graph=graph,
+        )
+
+        log_audit("resilience", "score", thread_id,
+                  detail=f"Score: {score.get('overall_score', 'N/A')}")
+
+        return jsonify(score)
+
+    except Exception as e:
+        LOGGER.exception("resilience score failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Ownership Control Intelligence Route ────────────────────────────────────
+
+@app.route("/api/cases/<case_id>/oci", methods=["GET"])
+@require_auth("cases:read")
+def api_oci_assessment(case_id):
+    """Get Ownership/Control/Influence assessment for a vendor."""
+    if not HAS_OCI:
+        return jsonify({"error": "OCI module not available"}), 501
+
+    try:
+        conn = db.get_conn()
+        row = conn.execute("SELECT * FROM cases WHERE id = ?", (case_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Case not found"}), 404
+
+        case_data = dict(row)
+
+        # Extract ownership profile from enrichment report
+        enrichment = {}
+        if case_data.get("enrichment_report"):
+            enrichment = json.loads(case_data["enrichment_report"]) if isinstance(
+                case_data["enrichment_report"], str) else case_data["enrichment_report"]
+        ownership_profile = enrichment.get("ownership_profile") or {}
+
+        # Get findings and relationships from knowledge graph
+        findings = []
+        relationships = []
+        if HAS_KG:
+            entities = kg.get_entities_for_case(case_id) if hasattr(kg, "get_entities_for_case") else []
+            for ent in entities:
+                rels = kg.get_entity_relationships(ent.get("id", "")) if hasattr(kg, "get_entity_relationships") else []
+                relationships.extend(rels)
+
+        assessment = build_oci_summary(ownership_profile, findings, relationships)
+
+        log_audit("oci", "assessment", case_id,
+                  detail=f"Owner class: {assessment.get('owner_class', 'N/A')}")
+
+        return jsonify(assessment)
+
+    except Exception as e:
+        LOGGER.exception("OCI assessment failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Compliance Dossier PDF Route ────────────────────────────────────────────
+
+@app.route("/api/cases/<case_id>/compliance-dossier-pdf", methods=["POST"])
+@require_auth("cases:read")
+def api_compliance_dossier_pdf(case_id):
+    """Generate an audit-ready compliance dossier PDF."""
+    if not HAS_COMPLIANCE_PDF:
+        return jsonify({"error": "Compliance dossier PDF not available (reportlab required)"}), 501
+
+    try:
+        import tempfile
+
+        conn = db.get_conn()
+        row = conn.execute("SELECT * FROM cases WHERE id = ?", (case_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Case not found"}), 404
+
+        case_data = dict(row)
+        body = request.get_json(force=True) or {}
+
+        dossier_input = ComplianceDossierInput(
+            vendor_name=case_data.get("vendor_name", "Unknown"),
+            case_id=case_id,
+            assessment_date=datetime.utcnow().strftime("%Y-%m-%d"),
+            risk_tier=case_data.get("tier", "UNKNOWN"),
+            composite_score=float(case_data.get("composite_score", 0)),
+            analyst_name=body.get("analyst_name", "Helios Platform"),
+        )
+
+        output_path = os.path.join(tempfile.gettempdir(), f"dossier_{case_id}.pdf")
+        generate_compliance_dossier_pdf(dossier_input, output_path)
+
+        log_audit("dossier", "compliance_pdf", case_id,
+                  detail=f"Tier: {dossier_input.risk_tier}")
+
+        return send_file(output_path, mimetype="application/pdf",
+                         as_attachment=True,
+                         download_name=f"compliance_dossier_{case_id}.pdf")
+
+    except Exception as e:
+        LOGGER.exception("compliance dossier PDF failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Threat Intel Summary Route ──────────────────────────────────────────────
+
+@app.route("/api/cases/<case_id>/threat-intel", methods=["GET"])
+@require_auth("cases:read")
+def api_threat_intel(case_id):
+    """Get threat intelligence summary from enrichment data."""
+    if not HAS_THREAT_INTEL:
+        return jsonify({"error": "Threat intel substrate not available"}), 501
+
+    try:
+        conn = db.get_conn()
+        row = conn.execute(
+            "SELECT enrichment_report FROM cases WHERE id = ?", (case_id,)
+        ).fetchone()
+        if not row or not row["enrichment_report"]:
+            return jsonify({"error": "No enrichment data for this case"}), 404
+
+        report = json.loads(row["enrichment_report"]) if isinstance(row["enrichment_report"], str) else row["enrichment_report"]
+        summary = build_threat_intel_summary(report)
+
+        if summary is None:
+            return jsonify({"case_id": case_id, "threat_intel": None, "message": "No threat intel signals found"})
+
+        log_audit("threat_intel", "summary", case_id,
+                  detail=f"Techniques: {len(summary.get('attack_techniques', []))}")
+
+        return jsonify({"case_id": case_id, "threat_intel": summary})
+
+    except Exception as e:
+        LOGGER.exception("threat intel summary failed: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

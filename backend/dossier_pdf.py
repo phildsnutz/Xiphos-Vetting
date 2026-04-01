@@ -1235,25 +1235,29 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
         fontName='Helvetica-Bold', alignment=0, leading=13, spaceAfter=10,
     )
     cover_band = Table(
-        [["", "", ""]],
-        colWidths=[2.4 * inch, 2.4 * inch, 2.4 * inch],
-        rowHeights=[0.12 * inch],
+        [["", "", "", "", ""]],
+        colWidths=[1.5 * inch, 1.5 * inch, 1.5 * inch, 1.5 * inch, 1.2 * inch],
+        rowHeights=[0.14 * inch],
     )
     cover_band.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, 0), HexColor("#0F1E2F")),
-        ("BACKGROUND", (1, 0), (1, 0), HexColor("#23405E")),
-        ("BACKGROUND", (2, 0), (2, 0), HexColor("#C4A052")),
+        ("BACKGROUND", (0, 0), (0, 0), HexColor("#0A1628")),
+        ("BACKGROUND", (1, 0), (1, 0), HexColor("#0F1E2F")),
+        ("BACKGROUND", (2, 0), (2, 0), HexColor("#1A3350")),
+        ("BACKGROUND", (3, 0), (3, 0), HexColor("#23405E")),
+        ("BACKGROUND", (4, 0), (4, 0), HexColor("#C4A052")),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(cover_band)
-    story.append(Spacer(1, 0.08 * inch))
+    story.append(Spacer(1, 0.1 * inch))
     story.append(Paragraph("XIPHOS INTELLIGENCE", header_style))
     story.append(Paragraph("HELIOS", header_main))
     story.append(Paragraph("Vendor Compliance Dossier", header_sub))
-    story.append(Paragraph('<font color="#C4A052">____________________</font>', ParagraphStyle('Rule', parent=styles['Normal'], spaceAfter=6)))
+    story.append(Paragraph('<font color="#C4A052">____________________</font>', ParagraphStyle('Rule', parent=styles['Normal'], spaceAfter=4)))
+    cover_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    story.append(Paragraph(f"Generated: {cover_date}", muted_style))
     story.append(Paragraph("Portable trust brief, evidence posture, and audit-ready appendix.", muted_style))
 
     # CUI banner

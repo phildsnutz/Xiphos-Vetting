@@ -110,3 +110,5 @@ docs/reports/predemo_readiness_packet/
 
 *.db-journal
 ml/training_data.csv
+ml/model/*.safetensors
+outreach/

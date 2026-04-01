@@ -382,8 +382,14 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
           )}
 
           {error && (
-            <div className="mt-4 rounded-2xl" style={{ padding: "12px 14px", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.24)", color: "#fda4af" }}>
-              {error}
+            <div className="mt-4 rounded-2xl flex items-center justify-between" style={{ padding: "12px 14px", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.24)", color: "#fda4af" }}>
+              <span>{error}</span>
+              <button
+                onClick={() => setError(null)}
+                style={{ marginLeft: 12, color: "#fda4af", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", border: "none" }}
+              >
+                Dismiss
+              </button>
             </div>
           )}
         </div>

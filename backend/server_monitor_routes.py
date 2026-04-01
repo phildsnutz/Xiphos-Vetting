@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from flask import jsonify, request
+
+logger = logging.getLogger(__name__)
 
 
 def register_monitor_routes(
@@ -230,3 +234,63 @@ def register_monitor_routes(
                 "total_count": total_count,
             }
         )
+
+    # ------------------------------------------------------------------ #
+    # S10-006  Source Status / Connector Health (per case)
+    # GET /api/cases/<case_id>/source-status
+    # ------------------------------------------------------------------ #
+    @app.route("/api/cases/<case_id>/source-status")
+    @require_auth("cases:read")
+    def api_case_source_status(case_id):
+        """Return connector-level status from the latest enrichment report.
+
+        Response: { case_id, enriched_at, connector_count,
+                    connectors: [ { name, status, has_data, findings_count,
+                                    last_checked_at, elapsed_ms, error } ] }
+        """
+        vendor = db.get_vendor(case_id)
+        if not vendor:
+            return jsonify({"error": "Case not found"}), 404
+
+        try:
+            report = db.get_latest_enrichment(case_id)
+            if not report:
+                return jsonify({
+                    "case_id": case_id,
+                    "connectors": [],
+                    "enriched_at": None,
+                    "connector_count": 0,
+                    "message": "No enrichment report available",
+                })
+
+            enriched_at = report.get("enriched_at")
+            connector_status = report.get("connector_status") or {}
+
+            connectors = []
+            for name in sorted(connector_status.keys()):
+                status_obj = connector_status[name]
+                if not isinstance(status_obj, dict):
+                    continue
+                connectors.append({
+                    "name": name,
+                    "status": status_obj.get("status", "unknown"),
+                    "has_data": bool(status_obj.get("has_data")),
+                    "findings_count": int(status_obj.get("findings_count") or 0),
+                    "last_checked_at": (
+                        status_obj.get("checked_at")
+                        or status_obj.get("last_checked_at")
+                        or enriched_at
+                    ),
+                    "elapsed_ms": status_obj.get("elapsed_ms"),
+                    "error": status_obj.get("error"),
+                })
+
+            return jsonify({
+                "case_id": case_id,
+                "enriched_at": enriched_at,
+                "connector_count": len(connectors),
+                "connectors": connectors,
+            })
+        except Exception as e:
+            logger.error("Source status failed for %s: %s", case_id, e)
+            return jsonify({"error": str(e)}), 500

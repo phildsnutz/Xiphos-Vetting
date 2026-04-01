@@ -126,7 +126,7 @@ interface SelectedEdgeSummary {
   priorityLabel: string;
 }
 
-type LayoutMode = "concentric" | "breadthfirst" | "cose";
+type LayoutMode = "concentric" | "breadthfirst" | "cose" | "cola";
 type ViewMode = "graph" | "table";
 type ViewportMode = "neighborhood" | "center" | "pan" | "none";
 type EdgeViewportMode = "fit" | "pan" | "none";
@@ -580,10 +580,14 @@ function filterRelationshipsByPriority(
 function maxDepthForLayout(layoutMode: LayoutMode, showSecondaryLinks: boolean): number | null {
   if (layoutMode === "concentric") return showSecondaryLinks ? 2 : 1;
   if (layoutMode === "breadthfirst") return 2;
+  if (layoutMode === "cola") return showSecondaryLinks ? 3 : 2;
   return null;
 }
 
 function describeScope(layoutMode: LayoutMode, showSecondaryLinks: boolean) {
+  if (layoutMode === "cola") {
+    return showSecondaryLinks ? "Force-directed (3-hop)" : "Force-directed (2-hop)";
+  }
   if (layoutMode === "concentric") {
     return showSecondaryLinks ? "Focused network · primary + secondary links" : "Focused network · primary links";
   }
@@ -812,6 +816,17 @@ function buildElements(
         claimRecords: relationship.claimRecords,
         priorityScore: relationship.priorityScore,
         priorityLabel: relationship.priorityLabel,
+        temporalRecency: (() => {
+          const last = relationship.lastSeenAt || relationship.createdAt;
+          if (!last) return 0.5;
+          const age = Date.now() - new Date(last).getTime();
+          const days = age / (1000 * 60 * 60 * 24);
+          if (days < 7) return 1.0;
+          if (days < 30) return 0.85;
+          if (days < 90) return 0.65;
+          if (days < 365) return 0.4;
+          return 0.2;
+        })(),
       },
     });
   });
@@ -1058,6 +1073,31 @@ function applyLayout(
   const layoutPadding = largeGraph ? 18 : 48;
   const spacingFactor = largeGraph ? 0.62 : 1.05;
 
+  if (layoutMode === "cola") {
+    // Force-directed with edge length constraints for cleaner separation
+    const layout = cy.layout({
+      name: "cose",
+      animate,
+      animationDuration: animate ? 400 : 0,
+      fit: !preserveViewport,
+      padding: layoutPadding,
+      nodeRepulsion: largeGraph ? 12000 : 32000,
+      idealEdgeLength: largeGraph ? 90 : 180,
+      edgeElasticity: largeGraph ? 40 : 80,
+      gravity: largeGraph ? 0.15 : 0.08,
+      componentSpacing: largeGraph ? 50 : 80,
+      nestingFactor: 1.2,
+      numIter: largeGraph ? 500 : 1000,
+      coolingFactor: 0.95,
+      minTemp: 1.0,
+    });
+    if (onComplete) {
+      layout.one("layoutstop", onComplete);
+    }
+    layout.run();
+    return;
+  }
+
   if (layoutMode === "breadthfirst") {
     const root = rootId ? cy.getElementById(rootId) : cy.nodes().first();
     const layout = cy.layout({
@@ -1158,6 +1198,7 @@ export function EntityGraph({
   const [tablePage, setTablePage] = useState(0);
   const [interactiveGraphKey, setInteractiveGraphKey] = useState<string | null>(null);
   const [showAdvancedControls, setShowAdvancedControls] = useState(false);
+  const [showTemporalHeat, setShowTemporalHeat] = useState(false);
   const [hasCustomizedDenseView, setHasCustomizedDenseView] = useState(false);
 
   // Neo4j expand/path state
@@ -1709,6 +1750,26 @@ export function EntityGraph({
     });
   }, [focusEdge, focusNode, isLargeGraph, layoutMode, resolvedRootId]);
 
+  // Temporal heat: adjust edge opacity based on recency
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !graphReadyRef.current) return;
+    cy.edges().forEach((edge) => {
+      const recency = Number(edge.data("temporalRecency") ?? 0.5);
+      const conf = Number(edge.data("confidence") ?? 0.5);
+      if (showTemporalHeat) {
+        edge.style("opacity", Math.max(0.08, recency * 0.7));
+        // Warm = recent (gold), cool = old (blue-gray)
+        if (recency >= 0.8) edge.style("line-color", "#c4a052");
+        else if (recency >= 0.5) edge.style("line-color", "#7a8a5c");
+        else edge.style("line-color", "#4a6080");
+      } else {
+        edge.style("opacity", 0.15 + conf * 0.35);
+        edge.style("line-color", edge.data("lineColor"));
+      }
+    });
+  }, [showTemporalHeat]);
+
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !pendingEdgeFocusId) return;
@@ -1898,6 +1959,7 @@ export function EntityGraph({
                   ["concentric", "Focused"],
                   ["breadthfirst", "Trace"],
                   ["cose", "Explore"],
+                  ["cola", "Force"],
                 ] as const).map(([mode, label]) => (
                   <button
                     key={mode}
@@ -2025,6 +2087,21 @@ export function EntityGraph({
                   {Math.round(minConfidence * 100)}%
                 </span>
               </div>
+
+              <button
+                onClick={() => setShowTemporalHeat(!showTemporalHeat)}
+                className="rounded-lg border cursor-pointer btn-interactive focus-ring"
+                style={{
+                  padding: "7px 10px",
+                  fontSize: FS.sm,
+                  background: showTemporalHeat ? `${GOLD}18` : T.raised,
+                  color: showTemporalHeat ? GOLD : T.dim,
+                  borderColor: showTemporalHeat ? `${GOLD}44` : T.border,
+                  fontWeight: 600,
+                }}
+              >
+                Temporal heat
+              </button>
 
               {isDenseNetwork && (
                 <button

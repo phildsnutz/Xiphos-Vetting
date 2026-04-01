@@ -9,3 +9,4 @@ cryptography>=42.0
 psycopg2-binary>=2.9
 numpy>=1.24
 neo4j>=5.0
+sentry-sdk[flask]>=2.0

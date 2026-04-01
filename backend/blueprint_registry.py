@@ -13,6 +13,7 @@ OPTIONAL_BLUEPRINTS: Sequence[tuple[str, str, str]] = (
     ("link_prediction_api", "link_prediction_bp", "link_prediction"),
     ("feedback_api", "feedback_bp", "feedback"),
     ("neo4j_api", "neo4j_bp", "neo4j"),
+    ("screening_api", "screening_bp", "batch_screening"),
 )
 
 
