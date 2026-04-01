@@ -63,6 +63,7 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
     setLoading(true);
     fetchMissionThreads(100)
       .then((payload) => {
@@ -89,6 +90,7 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
       return;
     }
     let cancelled = false;
+    setError(null);
     setLoading(true);
     Promise.all([
       fetchMissionThreadSummary(selectedId, 2),
@@ -172,6 +174,7 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
       return;
     }
     let cancelled = false;
+    setError(null);
     setPassportLoading(true);
     fetchMissionThreadMemberPassport(selectedId, Number(selectedMemberId), 2)
       .then((payload) => {
