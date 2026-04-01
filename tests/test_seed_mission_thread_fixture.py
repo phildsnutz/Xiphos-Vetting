@@ -1,6 +1,7 @@
 import importlib
 import os
 import sys
+from datetime import datetime, timezone
 
 
 ROOT_DIR = os.path.join(os.path.dirname(__file__), "..")
@@ -74,3 +75,24 @@ def test_seed_amentum_fixture_builds_thread_graph_and_passport(tmp_path, monkeyp
     assert primary["mission_context"]["focus_node_ids"]
     assert primary["supplier_passport"]["graph"]["mission_context"]["mission_thread_id"] == "mt-fixture-amentum-honolulu"
     assert primary["supplier_passport"]["graph"]["top_nodes_by_mission_importance"]
+
+
+def test_seed_fixture_cli_json_serializes_datetime(monkeypatch, capsys):
+    import seed_mission_thread_fixture
+
+    monkeypatch.setattr(
+        seed_mission_thread_fixture,
+        "seed_fixture_by_id",
+        lambda fixture_id, fixture_path=seed_mission_thread_fixture.DEFAULT_FIXTURE_PATH, depth=2: {
+            "fixture_id": fixture_id,
+            "summary": {
+                "generated_at": datetime(2026, 3, 31, 12, 0, tzinfo=timezone.utc),
+            },
+        },
+    )
+
+    exit_code = seed_mission_thread_fixture.main(["--fixture-id", "fixture-demo", "--json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "2026-03-31 12:00:00+00:00" in output

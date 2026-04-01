@@ -343,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
         depth=args.depth,
     )
     if args.json:
-        print(json.dumps(result, indent=2, sort_keys=True))
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
     else:
         summary = result.get("summary") or {}
         graph = result.get("graph") or {}
