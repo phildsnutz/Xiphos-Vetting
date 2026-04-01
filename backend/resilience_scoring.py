@@ -33,6 +33,56 @@ CONTROL_PATH_REL_TYPES = {
     REL_SHIPS_VIA,
 }
 
+INDOPACOM_THEATER_TOKENS = {"indopacom", "indo-pacific", "indo_pacific", "pacific"}
+INDOPACOM_ALLY_COUNTRIES = {
+    "AU",
+    "AUS",
+    "JP",
+    "JPN",
+    "KR",
+    "KOR",
+    "ROK",
+    "SG",
+    "SGP",
+    "NZ",
+    "NZL",
+    "PH",
+    "PHL",
+    "TH",
+    "THA",
+}
+AUSTERE_SITE_TOKENS = {
+    "guam",
+    "saipan",
+    "tinian",
+    "palau",
+    "yap",
+    "okinawa",
+    "darwin",
+    "philippines",
+    "marianas",
+    "timor",
+    "weipa",
+}
+FUEL_KEYWORDS = {
+    "fuel",
+    "refuel",
+    "petroleum",
+    "defuel",
+    "offload",
+    "bladder",
+    "pipeline",
+}
+REPAIR_KEYWORDS = {
+    "repair",
+    "maintenance",
+    "maintainer",
+    "depot",
+    "mro",
+    "calibration",
+    "sustainment",
+}
+
 CRITICALITY_ORDER = (
     "supporting",
     "important",
@@ -55,6 +105,14 @@ def _safe_prob(value: object, *, default: float = 0.0) -> float:
     return max(0.0, min(numeric, 1.0))
 
 
+def _normalize_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return _normalize_text(value).lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _criticality_score(label: object) -> float:
     normalized = _normalize_text(label).lower().replace(" ", "_")
     if normalized in {"primary", "essential"}:
@@ -62,6 +120,126 @@ def _criticality_score(label: object) -> float:
     if normalized not in CRITICALITY_INDEX:
         normalized = "supporting"
     return round((CRITICALITY_INDEX[normalized] + 1) / len(CRITICALITY_ORDER), 4)
+
+
+def _country_code(value: object) -> str:
+    code = _normalize_text(value).upper()
+    return code.split()[0] if code else ""
+
+
+def _is_indopacom_thread(thread: dict[str, Any]) -> bool:
+    theater = _normalize_text(thread.get("theater")).lower()
+    return any(token in theater for token in INDOPACOM_THEATER_TOKENS)
+
+
+def _member_text(member: dict[str, Any]) -> str:
+    parts = [
+        member.get("role"),
+        member.get("subsystem"),
+        member.get("site"),
+        member.get("notes"),
+        ((member.get("vendor") or {}).get("name")),
+        ((member.get("entity") or {}).get("canonical_name")),
+    ]
+    return " ".join(_normalize_text(part).lower() for part in parts if _normalize_text(part))
+
+
+def _site_is_austere(member: dict[str, Any]) -> bool:
+    text = " ".join(
+        [
+            _normalize_text(member.get("site")).lower(),
+            _normalize_text(member.get("notes")).lower(),
+        ]
+    )
+    return any(token in text for token in AUSTERE_SITE_TOKENS)
+
+
+def _member_country(member: dict[str, Any], graph_entities: dict[str, dict[str, Any]], node_ids: list[str]) -> str:
+    candidate_values = [
+        ((member.get("vendor") or {}).get("country")),
+        ((member.get("entity") or {}).get("country")),
+    ]
+    candidate_values.extend((graph_entities.get(node_id) or {}).get("country") for node_id in node_ids)
+    for value in candidate_values:
+        code = _country_code(value)
+        if code:
+            return code
+    return ""
+
+
+def _ally_access_quality(
+    *,
+    thread: dict[str, Any],
+    member: dict[str, Any],
+    graph_entities: dict[str, dict[str, Any]],
+    node_ids: list[str],
+    edge_metrics: dict[str, Any],
+) -> float:
+    if not _is_indopacom_thread(thread):
+        return 0.0
+
+    country = _member_country(member, graph_entities, node_ids)
+    if not country or country in {"US", "USA"}:
+        return 0.0
+
+    touched_types = set((edge_metrics.get("touched_relationship_types") or {}).keys())
+    score = 0.45 if country in INDOPACOM_ALLY_COUNTRIES else 0.15
+    if _normalize_bool(member.get("is_alternate")):
+        score += 0.2
+    if {"supports_site", "operates_facility"} & touched_types:
+        score += 0.15
+    if "substitutable_with" in touched_types:
+        score += 0.1
+    if any(token in _member_text(member) for token in REPAIR_KEYWORDS):
+        score += 0.1
+    return round(min(score, 0.95), 4)
+
+
+def _repair_latency_penalty(
+    *,
+    thread: dict[str, Any],
+    member: dict[str, Any],
+    edge_metrics: dict[str, Any],
+) -> float:
+    if not _is_indopacom_thread(thread):
+        return 0.0
+    if not any(token in _member_text(member) for token in REPAIR_KEYWORDS):
+        return 0.0
+
+    penalty = 0.35
+    if _site_is_austere(member):
+        penalty += 0.15
+    if int(edge_metrics.get("explicit_substitute_hits") or 0) == 0:
+        penalty += 0.15
+    if _safe_prob(edge_metrics.get("single_point_of_failure_signal")) > 0:
+        penalty += 0.15
+    if _safe_prob(edge_metrics.get("control_path_quality")) < 0.5:
+        penalty += 0.1
+    return round(min(penalty, 0.95), 4)
+
+
+def _austere_site_fuel_criticality(
+    *,
+    thread: dict[str, Any],
+    member: dict[str, Any],
+    edge_metrics: dict[str, Any],
+) -> float:
+    if not _is_indopacom_thread(thread):
+        return 0.0
+    if not _site_is_austere(member):
+        return 0.0
+    if not any(token in _member_text(member) for token in FUEL_KEYWORDS):
+        return 0.0
+
+    touched_types = set((edge_metrics.get("touched_relationship_types") or {}).keys())
+    score = 0.68
+    if {"supports_site", "ships_via", "distributed_by"} & touched_types:
+        score += 0.1
+    if _safe_prob(edge_metrics.get("single_point_of_failure_signal")) > 0:
+        score += 0.12
+    if _normalize_bool(member.get("is_alternate")):
+        score -= 0.12
+    return round(max(0.0, min(score, 1.0)), 4)
 
 
 def _geometric_mean(values: list[float]) -> float:
@@ -208,22 +386,39 @@ def compute_mission_thread_resilience(
         substitute_coverage_score = round(1.0 - (1.0 / equivalent_member_count), 4)
 
         edge_metrics = _node_touching_edge_metrics(node_ids, edges)
+        ally_access_quality = _ally_access_quality(
+            thread=thread,
+            member=member,
+            graph_entities=graph_entities,
+            node_ids=node_ids,
+            edge_metrics=edge_metrics,
+        )
+        repair_latency_penalty = _repair_latency_penalty(
+            thread=thread,
+            member=member,
+            edge_metrics=edge_metrics,
+        )
+        austere_site_fuel_criticality = _austere_site_fuel_criticality(
+            thread=thread,
+            member=member,
+            edge_metrics=edge_metrics,
+        )
         if edge_metrics["explicit_substitute_hits"] > 0:
             substitute_coverage_score = max(
                 substitute_coverage_score,
                 round(1.0 - (1.0 / (edge_metrics["explicit_substitute_hits"] + 1)), 4),
             )
 
-        mission_impact_score = round(
-            _geometric_mean(
-                [
-                    max(criticality_score, 1e-6),
-                    max(decision_importance, 1e-6),
-                    max(dependency_concentration, 1e-6),
-                ]
-            ),
-            4,
-        )
+        mission_impact_factors = [
+            max(criticality_score, 1e-6),
+            max(decision_importance, 1e-6),
+            max(dependency_concentration, 1e-6),
+        ]
+        if repair_latency_penalty > 0:
+            mission_impact_factors.append(max(repair_latency_penalty, 1e-6))
+        if austere_site_fuel_criticality > 0:
+            mission_impact_factors.append(max(austere_site_fuel_criticality, 1e-6))
+        mission_impact_score = round(_geometric_mean(mission_impact_factors), 4)
         substitute_gap = round(1.0 - substitute_coverage_score, 4)
         control_gap = round(1.0 - _safe_prob(edge_metrics["control_path_quality"]), 4)
         brittleness_factors = [
@@ -233,11 +428,23 @@ def compute_mission_thread_resilience(
         ]
         if edge_metrics["single_point_of_failure_signal"] > 0:
             brittleness_factors.append(max(edge_metrics["single_point_of_failure_signal"], 1e-6))
+        if repair_latency_penalty > 0:
+            brittleness_factors.append(max(repair_latency_penalty, 1e-6))
+        if austere_site_fuel_criticality > 0:
+            brittleness_factors.append(max(austere_site_fuel_criticality, 1e-6))
+        if ally_access_quality > 0:
+            brittleness_factors.append(max(1.0 - ally_access_quality, 1e-6))
         brittle_node_score = round(_geometric_mean(brittleness_factors), 4)
         resilience_score = round(max(0.0, 1.0 - brittle_node_score), 4)
 
         if edge_metrics["single_point_of_failure_signal"] >= 0.7:
             recommended_action = "Break the single-point dependency with an alternate supplier or subsystem path."
+        elif repair_latency_penalty >= max(substitute_gap, control_gap, dependency_concentration) and repair_latency_penalty >= 0.45:
+            recommended_action = "Pre-negotiate regional repair capacity and reciprocal maintenance coverage to cut Pacific repair latency."
+        elif austere_site_fuel_criticality >= max(substitute_gap, control_gap, dependency_concentration) and austere_site_fuel_criticality >= 0.65:
+            recommended_action = "Preposition fuel-transfer equipment and backup refuel coverage for this austere island site."
+        elif ally_access_quality >= 0.6 and _normalize_bool(member.get("is_alternate")):
+            recommended_action = "Harden ally-access activation terms and reciprocal maintenance or support certifications before relying on this alternate path."
         elif substitute_gap >= max(control_gap, dependency_concentration):
             recommended_action = "Qualify alternates or explicit substitutes for this mission role."
         elif control_gap >= dependency_concentration:
@@ -269,6 +476,9 @@ def compute_mission_thread_resilience(
                 "dependency_concentration": dependency_concentration,
                 "control_path_quality": edge_metrics["control_path_quality"],
                 "single_point_of_failure_signal": edge_metrics["single_point_of_failure_signal"],
+                "ally_access_quality": ally_access_quality,
+                "repair_latency_penalty": repair_latency_penalty,
+                "austere_site_fuel_criticality": austere_site_fuel_criticality,
                 "local_edge_intelligence": round(local_edge_intelligence, 4),
                 "recommended_action": recommended_action,
                 "touched_relationship_types": edge_metrics["touched_relationship_types"],
@@ -295,6 +505,17 @@ def compute_mission_thread_resilience(
             sum(row.get("brittle_node_score", 0.0) for row in member_scores) / len(member_scores),
             4,
         ) if member_scores else 0.0,
+        "average_ally_access_quality": round(
+            sum(row.get("ally_access_quality", 0.0) for row in member_scores) / len(member_scores),
+            4,
+        ) if member_scores else 0.0,
+        "average_repair_latency_penalty": round(
+            sum(row.get("repair_latency_penalty", 0.0) for row in member_scores) / len(member_scores),
+            4,
+        ) if member_scores else 0.0,
+        "austere_site_fuel_member_count": len(
+            [row for row in member_scores if row.get("austere_site_fuel_criticality", 0.0) >= 0.65]
+        ),
         "critical_brittle_member_count": len(
             [
                 row

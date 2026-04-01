@@ -182,3 +182,169 @@ def test_resilience_summary_ranks_brittle_members_and_thread_nodes(env):
     assert graph["member_resilience"][0]["recommended_action"]
     gamma_entity = next(entity for entity in graph["entities"] if entity["id"] == "entity:gamma")
     assert gamma_entity["mission_importance"] > 0
+
+
+def test_resilience_summary_models_indopacom_ally_access_repair_latency_and_austere_fuel(env):
+    server = env
+    client = server.app.test_client()
+
+    resp = client.post(
+        "/api/mission-threads",
+        json={
+            "name": "INDOPACOM sustainment stress test",
+            "lane": "counterparty",
+            "theater": "INDOPACOM",
+            "mission_type": "contested_logistics",
+        },
+    )
+    assert resp.status_code == 201
+    thread_id = resp.get_json()["id"]
+
+    repair = ResolvedEntity(
+        id="entity:repair-primary",
+        canonical_name="Pacific Repair Prime",
+        entity_type="company",
+        aliases=[],
+        identifiers={},
+        country="US",
+        relationships=[],
+        sources=["fixture"],
+        confidence=0.95,
+        last_updated="2026-03-31T00:00:00Z",
+    )
+    allied_alt = ResolvedEntity(
+        id="entity:ally-alt",
+        canonical_name="Southern Cross Maintenance",
+        entity_type="company",
+        aliases=[],
+        identifiers={},
+        country="AU",
+        relationships=[],
+        sources=["fixture"],
+        confidence=0.94,
+        last_updated="2026-03-31T00:00:00Z",
+    )
+    fuel = ResolvedEntity(
+        id="entity:fuel-prime",
+        canonical_name="Pacific Fuel Prime",
+        entity_type="company",
+        aliases=[],
+        identifiers={},
+        country="US",
+        relationships=[],
+        sources=["fixture"],
+        confidence=0.93,
+        last_updated="2026-03-31T00:00:00Z",
+    )
+    austere_site = ResolvedEntity(
+        id="entity:site-saipan",
+        canonical_name="Saipan Expeditionary Refuel Site",
+        entity_type="facility",
+        aliases=[],
+        identifiers={},
+        country="US",
+        relationships=[],
+        sources=["fixture"],
+        confidence=0.92,
+        last_updated="2026-03-31T00:00:00Z",
+    )
+    subsystem = ResolvedEntity(
+        id="entity:radar-lru",
+        canonical_name="Expeditionary Radar LRU",
+        entity_type="subsystem",
+        aliases=[],
+        identifiers={},
+        country="US",
+        relationships=[],
+        sources=["fixture"],
+        confidence=0.91,
+        last_updated="2026-03-31T00:00:00Z",
+    )
+
+    for entity in (repair, allied_alt, fuel, austere_site, subsystem):
+        server.kg.save_entity(entity)
+
+    server.kg.save_relationship(
+        repair.id,
+        subsystem.id,
+        "maintains_system_for",
+        confidence=0.9,
+        data_source="fixture",
+        evidence="Primary Pacific repair source",
+        vendor_id="fixture-thread",
+    )
+    server.kg.save_relationship(
+        repair.id,
+        subsystem.id,
+        "single_point_of_failure_for",
+        confidence=0.88,
+        data_source="fixture",
+        evidence="Primary repair is also the only full-certification path",
+        vendor_id="fixture-thread",
+    )
+    server.kg.save_relationship(
+        allied_alt.id,
+        repair.id,
+        "substitutable_with",
+        confidence=0.8,
+        data_source="fixture",
+        evidence="Australian alternate under reciprocal maintenance",
+        vendor_id="fixture-thread",
+    )
+    server.kg.save_relationship(
+        allied_alt.id,
+        austere_site.id,
+        "supports_site",
+        confidence=0.82,
+        data_source="fixture",
+        evidence="Allied support path",
+        vendor_id="fixture-thread",
+    )
+    server.kg.save_relationship(
+        fuel.id,
+        austere_site.id,
+        "supports_site",
+        confidence=0.89,
+        data_source="fixture",
+        evidence="Primary austere refuel provider",
+        vendor_id="fixture-thread",
+    )
+    server.kg.save_relationship(
+        fuel.id,
+        austere_site.id,
+        "single_point_of_failure_for",
+        confidence=0.86,
+        data_source="fixture",
+        evidence="Fuel sustainment SPOF",
+        vendor_id="fixture-thread",
+    )
+
+    repair_member = client.post(
+        f"/api/mission-threads/{thread_id}/members",
+        json={"entity_id": repair.id, "role": "radar_repair", "criticality": "mission_critical", "subsystem": "radar_lru", "site": "Guam"},
+    )
+    assert repair_member.status_code == 201
+    allied_member = client.post(
+        f"/api/mission-threads/{thread_id}/members",
+        json={"entity_id": allied_alt.id, "role": "regional_mro_alternate", "criticality": "high", "subsystem": "radar_lru", "site": "Darwin", "is_alternate": True},
+    )
+    assert allied_member.status_code == 201
+    fuel_member = client.post(
+        f"/api/mission-threads/{thread_id}/members",
+        json={"entity_id": fuel.id, "role": "forward_refuel", "criticality": "mission_critical", "subsystem": "fuel", "site": "Saipan"},
+    )
+    assert fuel_member.status_code == 201
+
+    summary_resp = client.get(f"/api/mission-threads/{thread_id}/summary")
+    assert summary_resp.status_code == 200
+    summary = summary_resp.get_json()
+
+    member_scores = {row["label"]: row for row in summary["resilience"]["member_scores"]}
+    assert member_scores["Southern Cross Maintenance"]["ally_access_quality"] >= 0.6
+    assert member_scores["Pacific Repair Prime"]["repair_latency_penalty"] >= 0.45
+    assert member_scores["Pacific Fuel Prime"]["austere_site_fuel_criticality"] >= 0.65
+
+    resilience_summary = summary["resilience"]["summary"]
+    assert resilience_summary["average_ally_access_quality"] > 0
+    assert resilience_summary["average_repair_latency_penalty"] > 0
+    assert resilience_summary["austere_site_fuel_member_count"] >= 1

@@ -113,3 +113,11 @@ def test_indopacom_fixtures_seed_brittle_mission_threads(tmp_path, monkeypatch, 
 
     exposure_rel_types = {row["rel_type"] for row in briefing["top_control_path_exposures"]}
     assert exposure_rel_types & expected_rel_types
+
+    member_scores = list((summary.get("resilience") or {}).get("member_scores") or [])
+    assert member_scores
+    if fixture_id == "first_island_chain_ace_refuel_c2":
+        assert any(row.get("austere_site_fuel_criticality", 0.0) >= 0.65 for row in member_scores)
+    if fixture_id == "regional_mro_reciprocal_maintenance_gap":
+        assert any(row.get("repair_latency_penalty", 0.0) >= 0.45 for row in member_scores)
+        assert any(row.get("ally_access_quality", 0.0) >= 0.6 for row in member_scores)
