@@ -84,9 +84,10 @@ def _get(url: str) -> tuple[dict | None, dict]:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}api_key={api_key}"
 
+    # SAM.gov exclusions endpoint returns 406 when Accept: application/json
+    # is sent explicitly, even though it serves JSON by default.
     req = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
-        "Accept": "application/json",
     })
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:

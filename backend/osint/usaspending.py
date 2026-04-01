@@ -25,8 +25,12 @@ MAX_SUPPLY_CHAIN_GRAPH_SUBS = 30
 MAX_SUPPLY_CHAIN_GRAPH_PRIMES = 25
 
 
+import logging as _logging
+_logger = _logging.getLogger(__name__)
+
+
 def _post(url: str, payload: dict) -> dict | None:
-    """POST JSON request."""
+    """POST JSON request.  Logs HTTP errors instead of silently swallowing."""
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={
         "User-Agent": USER_AGENT,
@@ -40,7 +44,15 @@ def _post(url: str, payload: dict) -> dict | None:
             if "html" in content_type.lower() or raw[:20].startswith(b"<!DOCTYPE"):
                 return None
             return json.loads(raw)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8")[:300]
+        except Exception:
+            pass
+        _logger.warning("USAspending HTTP %s for %s: %s", exc.code, url.split("?")[0], body)
+        return None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
 
 
@@ -384,7 +396,11 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
         if awards_data and "results" in awards_data:
             awards = awards_data["results"]
-            total_count = awards_data.get("page_metadata", {}).get("total") or len(awards)
+            # USAspending v2 switched to cursor pagination; "total" no longer exists.
+            # Use row count + hasNext flag for best-effort count.
+            has_more = awards_data.get("page_metadata", {}).get("hasNext", False)
+            total_count = len(awards)
+            count_label = f"{total_count}+" if has_more else str(total_count)
 
             total_amount = 0
             agencies = set()
@@ -407,9 +423,9 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
             result.findings.append(Finding(
                 source="usaspending", category="contracts",
-                title=f"Federal contracts: {total_count} awards, ${total_amount:,.0f} total",
+                title=f"Federal contracts: {count_label} awards, ${total_amount:,.0f} total",
                 detail=(
-                    f"Found {total_count} contract awards. "
+                    f"Found {count_label} contract awards. "
                     f"Agencies: {', '.join(list(agencies)[:5])}. "
                     f"NAICS codes: {', '.join(list(naics_codes)[:5])}."
                 ),
