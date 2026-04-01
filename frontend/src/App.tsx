@@ -61,25 +61,38 @@ function mapCalibration(apiCal: Record<string, unknown>): Calibration {
     };
   };
 
-  const meanConf = cal.contributions.length > 0
-    ? cal.contributions.reduce((s, c) => s + (c.confidence ?? c.weight ?? 0), 0) / cal.contributions.length : 0;
+  const asNumber = (value: unknown, fallback = 0): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const contributions = Array.isArray(cal.contributions) ? cal.contributions : [];
+  const hardStops = Array.isArray(cal.hard_stop_decisions) ? cal.hard_stop_decisions : [];
+  const softFlags = Array.isArray(cal.soft_flags) ? cal.soft_flags : [];
+  const findings = Array.isArray(cal.narratives?.findings) ? cal.narratives.findings : [];
+  const marginalInformationValues = Array.isArray(cal.marginal_information_values)
+    ? cal.marginal_information_values
+    : [];
+  const interval = cal.interval && typeof cal.interval === "object"
+    ? cal.interval
+    : { lower: 0, upper: 0, coverage: 0 };
+
+  const meanConf = contributions.length > 0
+    ? contributions.reduce((s, c) => s + asNumber(c.confidence ?? c.weight), 0) / contributions.length : 0;
 
   return {
-    p: cal.calibrated_probability,
+    p: asNumber(cal.calibrated_probability),
     tier: parseTier(cal.combined_tier ?? cal.calibrated_tier),
     combinedTier: parseTier(cal.combined_tier ?? cal.calibrated_tier),
-    lo: cal.interval.lower,
-    hi: cal.interval.upper,
-    cov: cal.interval.coverage ?? 0,
+    lo: asNumber(interval.lower),
+    hi: asNumber(interval.upper),
+    cov: asNumber(interval.coverage),
     mc: meanConf,
-    ct: cal.contributions.map((c) => ({
-      n: c.factor, raw: c.raw_score, c: c.confidence ?? c.weight ?? 0, s: c.signed_contribution, d: c.description,
+    ct: contributions.map((c) => ({
+      n: c.factor, raw: asNumber(c.raw_score), c: asNumber(c.confidence ?? c.weight), s: asNumber(c.signed_contribution), d: c.description,
     })),
-    stops: cal.hard_stop_decisions.map((h) => ({ t: h.trigger, x: h.explanation, c: h.confidence })),
-    flags: cal.soft_flags.map((f) => ({ t: f.trigger, x: f.explanation, c: f.confidence })),
-    finds: cal.narratives?.findings ?? [],
-    miv: (cal.marginal_information_values ?? []).map((m) => ({
-      t: m.recommendation ?? m.factor ?? "", i: m.expected_info_gain_pp ?? m.expected_shift_pp ?? 0, tp: m.tier_change_probability,
+    stops: hardStops.map((h) => ({ t: h.trigger, x: h.explanation, c: asNumber(h.confidence) })),
+    flags: softFlags.map((f) => ({ t: f.trigger, x: f.explanation, c: asNumber(f.confidence) })),
+    finds: findings,
+    miv: marginalInformationValues.map((m) => ({
+      t: m.recommendation ?? m.factor ?? "", i: asNumber(m.expected_info_gain_pp ?? m.expected_shift_pp), tp: asNumber(m.tier_change_probability),
     })),
     // v5.0 DoD layer
     dodEligible: cal.is_dod_eligible,
@@ -186,12 +199,14 @@ export default function App() {
           homeTabInitializedRef.current = true;
         }
       })
-      .catch(() => {
-        // Token might be expired
-        if (authRequired) {
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        if (authRequired && message.toLowerCase().includes("session expired")) {
           clearSession();
           setUser(null);
+          return;
         }
+        console.error("Failed to load cases after authentication", err);
       });
   }, [authRequired, refreshCases, selected]);
 
