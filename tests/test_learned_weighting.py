@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 
 BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
 if BACKEND_DIR not in sys.path:
@@ -21,6 +23,7 @@ from learned_weighting import (  # type: ignore  # noqa: E402
     predict_edge_truth_probability,
     predict_tribunal_probabilities,
 )
+import learned_weighting as learned_weighting_module  # type: ignore  # noqa: E402
 
 
 def _load_tribunal_cases() -> list[dict]:
@@ -87,6 +90,38 @@ def test_edge_truth_model_prefers_scoped_official_relationships():
     assert strong["probability"] > weak["probability"]
     assert strong["hierarchical_prior"] > weak["hierarchical_prior"]
     assert weak["probability"] < 0.5
+
+
+def test_edge_truth_prediction_falls_back_cleanly_without_numpy(monkeypatch: pytest.MonkeyPatch):
+    learned_weighting_module.get_edge_truth_model.cache_clear()
+    monkeypatch.setattr(learned_weighting_module, "np", None)
+
+    row = {
+        "primary_edge_family": "ownership_control",
+        "authority_bucket": "official_or_modeled",
+        "temporal_state": "active",
+        "descriptor_only": False,
+        "legacy_unscoped": False,
+        "corroboration_count": 2,
+        "claim_records": [
+            {
+                "evidence_records": [
+                    {
+                        "authority_level": "official_registry",
+                        "url": "https://registry.example.test/owner",
+                    }
+                ]
+            }
+        ],
+    }
+
+    score = learned_weighting_module.predict_edge_truth_probability(row)
+
+    assert score["training_count"] == 0
+    assert score["probability"] == score["hierarchical_prior"]
+    assert 0.0 < score["probability"] < 1.0
+
+    learned_weighting_module.get_edge_truth_model.cache_clear()
 
 
 def test_propagation_model_learns_family_coefficients_from_outcome_fixture():

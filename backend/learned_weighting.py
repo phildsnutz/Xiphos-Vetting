@@ -230,11 +230,12 @@ def _normalized_entropy(probabilities: np.ndarray) -> np.ndarray:
 
 def _logit_scalar(value: float) -> float:
     clipped = min(max(float(value), 1e-6), 1.0 - 1e-6)
-    return float(np.log(clipped / (1.0 - clipped)))
+    return float(math.log(clipped / (1.0 - clipped)))
 
 
 def _sigmoid_scalar(value: float) -> float:
-    return float(_sigmoid(np.array([value], dtype=float))[0])
+    clipped = min(max(float(value), -35.0), 35.0)
+    return float(1.0 / (1.0 + math.exp(-clipped)))
 
 
 def _map_source_authority_to_bucket(source_authority: str) -> str:
