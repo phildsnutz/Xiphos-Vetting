@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
+import json
 import threading
 import time
 from typing import Any
@@ -56,6 +58,13 @@ except ImportError:
     get_vendor_graph_summary = None
     score_graph_relationship_intelligence = None
     HAS_GRAPH_SUMMARY = False
+
+try:
+    from graph_analytics import GraphAnalytics
+    HAS_GRAPH_ANALYTICS = True
+except ImportError:
+    GraphAnalytics = None
+    HAS_GRAPH_ANALYTICS = False
 
 try:
     from knowledge_graph import attach_relationship_provenance
@@ -245,9 +254,13 @@ _GATED_OFFICIAL_CONNECTOR_SOURCES = {
     "france_inpi_rne",
 }
 
-_SUPPLIER_PASSPORT_CACHE: dict[tuple[str, str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
+_SUPPLIER_PASSPORT_CACHE: dict[tuple[str, str, str, str, str, str, str, str, str, str, str], dict[str, Any]] = {}
 _SUPPLIER_PASSPORT_CACHE_LOCK = threading.Lock()
 _SUPPLIER_PASSPORT_TTL_SECONDS = 120
+
+
+def _normalize_text(value: object) -> str:
+    return str(value or "").strip()
 
 
 def _summary_version(summary: dict | None) -> str:
@@ -271,7 +284,8 @@ def _supplier_passport_cache_key(
     cyber_summary: dict | None,
     export_summary: dict | None,
     oci_adjudicator_key: str,
-) -> tuple[str, str, str, str, str, str, str, str, str, str]:
+    mission_context_key: str,
+) -> tuple[str, str, str, str, str, str, str, str, str, str, str]:
     return (
         case_id,
         mode,
@@ -283,10 +297,11 @@ def _supplier_passport_cache_key(
         _summary_version(cyber_summary),
         _summary_version(export_summary),
         oci_adjudicator_key,
+        mission_context_key,
     )
 
 
-def _get_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str, str]) -> dict[str, Any] | None:
+def _get_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str, str, str]) -> dict[str, Any] | None:
     now = time.time()
     with _SUPPLIER_PASSPORT_CACHE_LOCK:
         cached = _SUPPLIER_PASSPORT_CACHE.get(cache_key)
@@ -299,7 +314,7 @@ def _get_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str,
         return payload.copy() if isinstance(payload, dict) else None
 
 
-def _store_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str, str], passport: dict[str, Any]) -> None:
+def _store_cached_supplier_passport(cache_key: tuple[str, str, str, str, str, str, str, str, str, str, str], passport: dict[str, Any]) -> None:
     with _SUPPLIER_PASSPORT_CACHE_LOCK:
         _SUPPLIER_PASSPORT_CACHE[cache_key] = {
             "_cached_at": time.time(),
@@ -566,6 +581,90 @@ def _control_path_summary(control_paths: list[dict[str, Any]] | None) -> dict[st
         "intermediary_count": len(intermediary),
         "top_financing_paths": _focus_rows(financing),
         "top_intermediary_paths": _focus_rows(intermediary),
+    }
+
+
+def _normalized_mission_context(mission_context: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(mission_context, dict):
+        return {}
+    normalized = {
+        "mission_thread_id": _normalize_text(mission_context.get("mission_thread_id")),
+        "role": _normalize_text(mission_context.get("role")),
+        "criticality": _normalize_text(mission_context.get("criticality")),
+        "subsystem": _normalize_text(mission_context.get("subsystem")),
+        "site": _normalize_text(mission_context.get("site")),
+        "focus_entity_ids": [
+            str(entity_id)
+            for entity_id in (mission_context.get("focus_entity_ids") or [])
+            if str(entity_id)
+        ],
+    }
+    alternate_count = mission_context.get("alternate_count")
+    if alternate_count not in (None, ""):
+        try:
+            normalized["alternate_count"] = max(int(alternate_count), 0)
+        except (TypeError, ValueError):
+            pass
+    return {key: value for key, value in normalized.items() if value not in (None, "", [], {})}
+
+
+def _mission_context_cache_key(mission_context: dict[str, Any] | None) -> str:
+    normalized = _normalized_mission_context(mission_context)
+    if not normalized:
+        return ""
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+
+
+def _mission_conditioned_graph_summary(
+    graph_summary: dict[str, Any] | None,
+    mission_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized_context = _normalized_mission_context(mission_context)
+    if not normalized_context or not HAS_GRAPH_ANALYTICS or GraphAnalytics is None or not isinstance(graph_summary, dict):
+        return None
+
+    analytics = GraphAnalytics()
+    analytics.nodes = {
+        str(entity.get("id") or ""): dict(entity)
+        for entity in (graph_summary.get("entities") or [])
+        if isinstance(entity, dict) and str(entity.get("id") or "")
+    }
+    analytics.edges = []
+    analytics.adj = defaultdict(list)
+    raw_edges = annotate_graph_relationship_intelligence(
+        [
+            dict(rel)
+            for rel in (graph_summary.get("relationships") or [])
+            if isinstance(rel, dict)
+        ]
+    ) if callable(annotate_graph_relationship_intelligence) else [
+        dict(rel)
+        for rel in (graph_summary.get("relationships") or [])
+        if isinstance(rel, dict)
+    ]
+    for rel in raw_edges:
+        src = str(rel.get("source") or rel.get("source_entity_id") or "")
+        tgt = str(rel.get("target") or rel.get("target_entity_id") or "")
+        if not src or not tgt or src not in analytics.nodes or tgt not in analytics.nodes:
+            continue
+        edge = dict(rel)
+        edge["source"] = src
+        edge["target"] = tgt
+        edge_idx = len(analytics.edges)
+        analytics.edges.append(edge)
+        analytics.adj[src].append((tgt, edge_idx))
+        analytics.adj[tgt].append((src, edge_idx))
+    analytics.loaded = True
+
+    centrality = analytics.compute_all_centrality(mission_context=normalized_context)
+    top_nodes = sorted(
+        centrality.values(),
+        key=lambda row: row.get("mission_importance", row.get("decision_importance", row.get("composite_importance", 0.0))),
+        reverse=True,
+    )[:5]
+    return {
+        "mission_context": normalized_context,
+        "top_nodes_by_mission_importance": top_nodes,
     }
 
 
@@ -1015,6 +1114,8 @@ def _network_risk_summary(case_id: str) -> dict | None:
         risk = compute_network_risk(case_id)
     except Exception:
         return None
+    if not isinstance(risk, dict):
+        return None
     return {
         "score": risk.get("network_risk_score", 0.0),
         "level": risk.get("network_risk_level", "none"),
@@ -1055,6 +1156,7 @@ def build_supplier_passport(
     case_id: str,
     *,
     mode: str = "full",
+    mission_context: dict | None = None,
     vendor: dict | None = None,
     score: dict | None = None,
     latest_decision: dict | None = None,
@@ -1093,6 +1195,7 @@ def build_supplier_passport(
     )
     workflow_lane = _workflow_lane(vendor, cyber_summary=cyber_summary, export_summary=export_summary)
     oci_adjudicator_key = get_oci_adjudicator_cache_key()
+    mission_context_key = _mission_context_cache_key(mission_context)
 
     cache_key = _supplier_passport_cache_key(
         case_id,
@@ -1105,6 +1208,7 @@ def build_supplier_passport(
         cyber_summary,
         export_summary,
         oci_adjudicator_key,
+        mission_context_key,
     )
     cached = _get_cached_supplier_passport(cache_key)
     if cached is not None:
@@ -1157,6 +1261,7 @@ def build_supplier_passport(
     claim_health = _graph_claim_health(control_graph_summary)
     control_entities = control_graph_summary.get("entities") or []
     control_relationships = control_graph_summary.get("relationships") or []
+    mission_conditioned_graph = _mission_conditioned_graph_summary(graph_summary, mission_context)
     ownership_profile = _resolved_ownership_profile(vendor_input, score)
     ownership_oci_summary = build_oci_summary(
         ownership_profile,
@@ -1237,6 +1342,8 @@ def build_supplier_passport(
             "control_path_summary": control_path_summary,
             "claim_health": claim_health,
             "intelligence": graph_intelligence or {},
+            "mission_context": (mission_conditioned_graph or {}).get("mission_context") or {},
+            "top_nodes_by_mission_importance": (mission_conditioned_graph or {}).get("top_nodes_by_mission_importance") or [],
         },
         "network_risk": network_risk,
         "monitoring": _monitoring_summary(case_id),

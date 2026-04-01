@@ -85,3 +85,21 @@ def test_graph_analytics_sanctions_exposure_ignores_weak_noise_paths():
     assert exposure["a"]["risk_level"] in {"HIGH", "CRITICAL"}
     assert exposure["b"]["exposure_score"] > 0.0
     assert exposure["c"]["risk_level"] == "CLEAR"
+
+
+def test_graph_analytics_mission_importance_changes_with_focus_and_context():
+    analytics = _build_loaded_graph()
+
+    default_centrality = analytics.compute_all_centrality()
+    mission_centrality = analytics.compute_all_centrality(
+        mission_context={
+            "focus_entity_ids": ["c"],
+            "criticality": "mission_critical",
+            "subsystem": "Co-Mention Noise",
+        }
+    )
+
+    assert default_centrality["a"]["decision_importance"] > default_centrality["c"]["decision_importance"]
+    assert mission_centrality["c"]["focus_proximity"] == 1.0
+    assert mission_centrality["c"]["contextual_relevance"] == 1.0
+    assert mission_centrality["c"]["mission_importance"] > mission_centrality["a"]["mission_importance"]

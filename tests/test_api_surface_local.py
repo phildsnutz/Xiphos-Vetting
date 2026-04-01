@@ -599,6 +599,86 @@ def test_supplier_passport_caches_expensive_graph_and_network_calls(client, monk
     assert network_calls["count"] == 1
 
 
+def test_supplier_passport_adds_mission_conditioned_graph_overlay(client, monkeypatch):
+    case_id = _create_case(client, name="Mission Overlay Vendor")
+    server = sys.modules["server"]
+    server.db.save_enrichment(
+        case_id,
+        {
+            "overall_risk": "LOW",
+            "summary": {"connectors_run": 2, "connectors_with_data": 1, "findings_total": 1},
+            "identifiers": {"website": "https://overlay.example"},
+            "enriched_at": "2026-03-31T10:00:00Z",
+        },
+    )
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 14,
+            "is_hard_stop": False,
+            "scored_at": "2026-03-31T10:01:00Z",
+            "calibrated": {"calibrated_probability": 0.14, "calibrated_tier": "TIER_4_CLEAR"},
+        },
+    )
+
+    import supplier_passport
+
+    monkeypatch.setattr(
+        supplier_passport,
+        "get_vendor_graph_summary",
+        lambda vendor_id, **kwargs: {
+            "entity_count": 3,
+            "relationship_count": 2,
+            "root_entity_ids": ["entity:vendor"],
+            "entity_type_distribution": {"company": 1, "facility": 1, "subsystem": 1},
+            "relationship_type_distribution": {"supports_site": 1, "maintains_system_for": 1},
+            "entities": [
+                {"id": "entity:vendor", "canonical_name": "Mission Overlay Vendor", "entity_type": "company"},
+                {"id": "entity:site", "canonical_name": "Honolulu Sustainment Site", "entity_type": "facility"},
+                {"id": "entity:subsystem", "canonical_name": "Lift Pod", "entity_type": "subsystem"},
+            ],
+            "relationships": [
+                {
+                    "source_entity_id": "entity:vendor",
+                    "target_entity_id": "entity:site",
+                    "rel_type": "supports_site",
+                    "confidence": 0.82,
+                    "data_sources": ["fixture"],
+                    "created_at": "2026-03-31T00:00:00Z",
+                },
+                {
+                    "source_entity_id": "entity:vendor",
+                    "target_entity_id": "entity:subsystem",
+                    "rel_type": "maintains_system_for",
+                    "confidence": 0.87,
+                    "data_sources": ["fixture"],
+                    "created_at": "2026-03-31T00:00:00Z",
+                },
+            ],
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(supplier_passport, "compute_network_risk", lambda vendor_id: None, raising=False)
+    monkeypatch.setattr(supplier_passport, "_SUPPLIER_PASSPORT_CACHE", {}, raising=False)
+
+    passport = supplier_passport.build_supplier_passport(
+        case_id,
+        mission_context={
+            "mission_thread_id": "mt-demo",
+            "role": "heavy_lift_provider",
+            "criticality": "mission_critical",
+            "subsystem": "Lift Pod",
+            "site": "Honolulu",
+            "focus_entity_ids": ["entity:vendor"],
+        },
+    )
+
+    assert passport["graph"]["mission_context"]["mission_thread_id"] == "mt-demo"
+    assert passport["graph"]["mission_context"]["site"] == "Honolulu"
+    assert passport["graph"]["top_nodes_by_mission_importance"]
+    assert "mission_importance" in passport["graph"]["top_nodes_by_mission_importance"][0]
+
+
 def test_supplier_passport_control_paths_prefer_intelligence_score_over_raw_confidence():
     import supplier_passport
 

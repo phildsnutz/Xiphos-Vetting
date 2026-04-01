@@ -52,6 +52,28 @@ from graph_ingest import annotate_graph_relationship_intelligence
 
 logger = logging.getLogger(__name__)
 
+_MISSION_CRITICALITY_ORDER = (
+    "supporting",
+    "important",
+    "high",
+    "critical",
+    "mission_critical",
+)
+_MISSION_CRITICALITY_INDEX = {label: idx for idx, label in enumerate(_MISSION_CRITICALITY_ORDER)}
+
+
+def _normalize_text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _mission_criticality_score(value: object) -> float:
+    normalized = _normalize_text(value).lower().replace(" ", "_")
+    if normalized in {"primary", "essential"}:
+        normalized = "high"
+    if normalized not in _MISSION_CRITICALITY_INDEX:
+        normalized = "supporting"
+    return round((_MISSION_CRITICALITY_INDEX[normalized] + 1) / len(_MISSION_CRITICALITY_ORDER), 4)
+
 
 def _safe_import_kg():
     try:
@@ -144,6 +166,49 @@ class GraphAnalytics:
 
     def _edge_distance(self, edge: dict) -> float:
         return 1.0 / max(self._edge_strength(edge), 1e-6)
+
+    def _mission_focus_proximity(self, focus_entity_ids: list[str]) -> dict[str, float]:
+        if not focus_entity_ids:
+            return {nid: 1.0 for nid in self.nodes}
+
+        min_distance = {nid: float("inf") for nid in self.nodes}
+        for focus_id in focus_entity_ids:
+            if focus_id not in self.nodes:
+                continue
+            _, _, _, distances = self._weighted_shortest_path_tree(focus_id)
+            for nid, distance in distances.items():
+                min_distance[nid] = min(min_distance.get(nid, float("inf")), distance)
+
+        proximity: dict[str, float] = {}
+        for nid in self.nodes:
+            distance = min_distance.get(nid, float("inf"))
+            if math.isinf(distance):
+                proximity[nid] = 0.0
+            else:
+                proximity[nid] = round(1.0 / (1.0 + max(distance, 0.0)), 4)
+        return proximity
+
+    def _node_contextual_relevance(self, node: dict, mission_context: dict[str, object] | None) -> float:
+        if not isinstance(mission_context, dict):
+            return 1.0
+
+        tokens = [
+            _normalize_text(mission_context.get("role")).lower(),
+            _normalize_text(mission_context.get("subsystem")).lower(),
+            _normalize_text(mission_context.get("site")).lower(),
+        ]
+        tokens = [token for token in tokens if token]
+        if not tokens:
+            return 1.0
+
+        haystack = " ".join(
+            [
+                _normalize_text(node.get("canonical_name")).lower(),
+                _normalize_text(node.get("entity_type")).lower(),
+            ]
+        )
+        matched = sum(1 for token in tokens if token in haystack)
+        return round(matched / len(tokens), 4) if tokens else 1.0
 
     def _weighted_shortest_path_tree(self, source_id: str) -> tuple[list[str], dict[str, list[str]], dict[str, float], dict[str, float]]:
         stack: list[str] = []
@@ -334,7 +399,7 @@ class GraphAnalytics:
 
         return result
 
-    def compute_all_centrality(self) -> dict:
+    def compute_all_centrality(self, mission_context: Optional[dict] = None) -> dict:
         """
         Compute all centrality metrics and return both structural and decision
         importance per entity.
@@ -349,6 +414,14 @@ class GraphAnalytics:
         betweenness = self.compute_betweenness_centrality()
         closeness = self.compute_closeness_centrality()
         pagerank = self.compute_pagerank()
+        normalized_mission_context = mission_context if isinstance(mission_context, dict) else None
+        focus_entity_ids = [
+            str(entity_id)
+            for entity_id in ((normalized_mission_context or {}).get("focus_entity_ids") or [])
+            if str(entity_id)
+        ]
+        focus_proximity = self._mission_focus_proximity(focus_entity_ids)
+        mission_criticality = _mission_criticality_score((normalized_mission_context or {}).get("criticality"))
 
         result = {}
         for nid in self.nodes:
@@ -362,6 +435,18 @@ class GraphAnalytics:
             structural_importance = math.prod(safe_structural) ** (1.0 / len(safe_structural))
             decision_components = [structural_importance, max(float(local_edge_intelligence), 1e-6)]
             decision_importance = math.prod(decision_components) ** (1.0 / len(decision_components))
+            node_focus_proximity = focus_proximity.get(nid, 1.0 if normalized_mission_context is None else 0.0)
+            contextual_relevance = self._node_contextual_relevance(self.nodes[nid], normalized_mission_context)
+            if normalized_mission_context is None:
+                mission_importance = decision_importance
+            else:
+                mission_components = [
+                    max(float(decision_importance), 1e-6),
+                    max(float(node_focus_proximity), 1e-6),
+                    max(float(mission_criticality), 1e-6),
+                    max(float(contextual_relevance), 1e-6),
+                ]
+                mission_importance = math.prod(mission_components) ** (1.0 / len(mission_components))
 
             result[nid] = {
                 "entity_id": nid,
@@ -374,6 +459,9 @@ class GraphAnalytics:
                 "local_edge_intelligence": round(local_edge_intelligence, 4),
                 "structural_importance": round(structural_importance, 4),
                 "decision_importance": round(decision_importance, 4),
+                "focus_proximity": round(node_focus_proximity, 4),
+                "contextual_relevance": round(contextual_relevance, 4),
+                "mission_importance": round(mission_importance, 4),
                 "composite_importance": round(decision_importance, 4),
             }
 
@@ -1059,14 +1147,14 @@ class GraphAnalytics:
             "risk_factors": risk_factors,
         }
 
-    def compute_graph_intelligence(self) -> dict:
+    def compute_graph_intelligence(self, mission_context: Optional[dict] = None) -> dict:
         """
         Compute a full intelligence summary of the knowledge graph.
         Returns a dashboard-ready payload with all analytics.
         """
         self._ensure_loaded()
 
-        centrality = self.compute_all_centrality()
+        centrality = self.compute_all_centrality(mission_context=mission_context)
         communities = self.detect_communities()
         temporal = self.compute_temporal_profile()
         sanctions = self.compute_sanctions_exposure()
@@ -1080,6 +1168,11 @@ class GraphAnalytics:
         top_structural_entities = sorted(
             centrality.values(),
             key=lambda x: x.get("structural_importance", 0),
+            reverse=True,
+        )[:10]
+        top_mission_entities = sorted(
+            centrality.values(),
+            key=lambda x: x.get("mission_importance", x.get("decision_importance", x.get("composite_importance", 0))),
             reverse=True,
         )[:10]
 
@@ -1100,9 +1193,10 @@ class GraphAnalytics:
                 "nodes": len(self.nodes),
                 "edges": len(self.edges),
             },
-            "top_entities_by_importance": top_decision_entities,
+            "top_entities_by_importance": top_mission_entities if isinstance(mission_context, dict) else top_decision_entities,
             "top_entities_by_decision_importance": top_decision_entities,
             "top_entities_by_structural_importance": top_structural_entities,
+            "top_entities_by_mission_importance": top_mission_entities,
             "top_entities_by_risk": [
                 {
                     "entity_id": nid,
@@ -1122,4 +1216,5 @@ class GraphAnalytics:
                 ),
             },
             "temporal": temporal,
+            "mission_context_applied": isinstance(mission_context, dict),
         }

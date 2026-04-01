@@ -714,7 +714,21 @@ def build_mission_thread_member_passport(
 
     supplier_passport = None
     if callable(build_supplier_passport) and _normalize_text(member.get("vendor_id")):
-        supplier_passport = copy.deepcopy(build_supplier_passport(str(member.get("vendor_id")), mode=mode))
+        supplier_passport = copy.deepcopy(
+            build_supplier_passport(
+                str(member.get("vendor_id")),
+                mode=mode,
+                mission_context={
+                    "mission_thread_id": thread_id,
+                    "role": member.get("role"),
+                    "criticality": member.get("criticality"),
+                    "subsystem": member.get("subsystem"),
+                    "site": member.get("site"),
+                    "focus_entity_ids": list((graph.get("member_focus_node_ids") or {}).get(str(member_id), []) or []),
+                    "alternate_count": len(alternates),
+                },
+            )
+        )
 
     return {
         "passport_version": "mission-thread-passport-v1",

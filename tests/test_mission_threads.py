@@ -276,3 +276,5 @@ def test_mission_thread_member_passport_wraps_supplier_passport_with_mission_con
     assert passport["mission_context"]["alternate_members"][0]["vendor_id"] == alternate_case_id
     assert passport["supplier_passport"]["vendor"]["id"] == primary_case_id
     assert "graph" in passport["supplier_passport"]
+    assert passport["supplier_passport"]["graph"]["mission_context"]["mission_thread_id"] == thread_id
+    assert passport["supplier_passport"]["graph"]["top_nodes_by_mission_importance"] is not None
