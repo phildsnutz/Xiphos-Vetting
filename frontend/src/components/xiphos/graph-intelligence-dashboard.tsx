@@ -238,7 +238,7 @@ export function GraphIntelligenceDashboard() {
         const raw = await fetchFullGraphIntelligence();
         const data: FullGraphIntelligence = {
           ...raw,
-          temporal: (raw.temporal as TemporalProfile | null) ?? null,
+          temporal: (raw.temporal as unknown as TemporalProfile | null) ?? null,
           edges: (raw.edges || []).map((e: ApiGraphEdge) => ({
             source: e.source_entity_id,
             target: e.target_entity_id,
@@ -1971,7 +1971,7 @@ function RightSidebar(props: {
                     <div style={{ fontSize: `${FS.caption}px`, color: "#0ea5e9", fontWeight: 600 }}>
                       {props.pathResult.hops} hop{props.pathResult.hops !== 1 ? "s" : ""} found
                     </div>
-                    {props.pathResult.path.map((step: ShortestPathStep, i: number) => (
+                    {(props.pathResult.path ?? []).map((step: ShortestPathStep, i: number) => (
                       <div key={i} style={{
                         padding: "6px", background: T.bg, borderRadius: "4px",
                         borderLeft: `3px solid #0ea5e9`, fontSize: `${FS.caption}px`,
@@ -2039,7 +2039,7 @@ function RightSidebar(props: {
                       onClick={() => props.onShowWave(i)}
                       style={{
                         padding: "3px 8px",
-                        background: i <= props.propagationWaveIndex ? `rgba(251, 146, 60, ${0.3 + (i / props.propagationResult.waves.length) * 0.7})` : T.bg,
+                        background: i <= props.propagationWaveIndex ? `rgba(251, 146, 60, ${0.3 + (i / (props.propagationResult?.waves.length ?? 1)) * 0.7})` : T.bg,
                         border: `1px solid ${i <= props.propagationWaveIndex ? "#fb923c" : T.border}`,
                         color: i <= props.propagationWaveIndex ? "#fff" : T.textSecondary,
                         borderRadius: "4px", cursor: "pointer", fontSize: `${FS.caption}px`,
@@ -2153,8 +2153,8 @@ function buildCytoscapeElements(nodes: EnrichedGraphNode[], edges: GraphEdge[]):
   return elements;
 }
 
-function buildCytoscapeStyle(): cytoscape.Stylesheet[] {
-  return [
+function buildCytoscapeStyle(): cytoscape.StylesheetJsonBlock[] {
+  return ([
     {
       selector: "node",
       style: {
@@ -2286,5 +2286,5 @@ function buildCytoscapeStyle(): cytoscape.Stylesheet[] {
         "shadow-opacity": 0.7,
       },
     },
-  ];
+  ] as unknown) as cytoscape.StylesheetJsonBlock[];
 }

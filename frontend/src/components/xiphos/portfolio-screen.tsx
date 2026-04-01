@@ -103,7 +103,7 @@ export function PortfolioScreen({
   laneSummary,
 }: PortfolioScreenProps) {
   const [sortBy, setSortBy] = useState<SortBy>("score");
-  const portfolioFocus: PortfolioFocus = "all";
+  const portfolioFocus = "all" as PortfolioFocus;
   const laneFilter: LaneFilter = globalLane ?? "all";
   const [anomalies, setAnomalies] = useState<Record<string, unknown>[]>([]);
   const [monitorChanges, setMonitorChanges] = useState<MonitorChangeEntry[]>([]);

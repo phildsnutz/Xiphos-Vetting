@@ -349,7 +349,7 @@ function RiskDistributionChart({ data }: { data: Record<string, number> }) {
         </Pie>
         <Tooltip
           contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, color: T.text }}
-          formatter={(value: number | string) => [value, "Count"]}
+          formatter={(value: unknown) => [String(value ?? ""), "Count"]}
         />
       </PieChart>
     </ResponsiveContainer>
@@ -386,7 +386,7 @@ function PostureDistributionChart({ data }: { data: Record<string, number> }) {
         <YAxis tick={{ fill: T.muted, fontSize: 12 }} />
         <Tooltip
           contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, color: T.text }}
-          formatter={(value: number | string) => [value, "Count"]}
+          formatter={(value: unknown) => [String(value ?? ""), "Count"]}
         />
         <Bar dataKey="value" fill={T.accent} radius={[8, 8, 0, 0]}>
           {chartData.map((entry, index) => (

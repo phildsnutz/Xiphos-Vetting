@@ -1643,7 +1643,7 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
 
   const sourceStatuses = useMemo(() => {
     if (!enrichment) return [];
-    return Object.entries(enrichment.connector_status).sort(([, a], [, b]) => {
+    return Object.entries(enrichment.connector_status || {}).sort(([, a], [, b]) => {
       const aScore = a.error ? 2 : a.has_data ? 0 : 1;
       const bScore = b.error ? 2 : b.has_data ? 0 : 1;
       if (aScore !== bScore) return bScore - aScore;
