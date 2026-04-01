@@ -2441,6 +2441,47 @@ export interface MissionThreadMemberPassport {
   supplier_passport: Record<string, unknown> | null;
 }
 
+export interface MissionThreadBriefingExposure {
+  rel_type: string;
+  source_entity_id: string;
+  target_entity_id: string;
+  source_label: string;
+  target_label: string;
+  intelligence_score: number;
+  mission_importance: number;
+  evidence: string;
+  vendor_id: string;
+}
+
+export interface MissionThreadBriefingGap {
+  category: string;
+  severity: string;
+  detail: string;
+  member_id?: string | number;
+}
+
+export interface MissionThreadBriefing {
+  briefing_version: string;
+  generated_at: string;
+  mission_thread: MissionThreadHeader;
+  operator_readout: string;
+  overview: {
+    member_count: number;
+    vendor_member_count: number;
+    entity_member_count: number;
+    alternate_member_count: number;
+    entity_count: number;
+    relationship_count: number;
+    resilience_summary: Record<string, unknown>;
+  };
+  top_brittle_members: MissionThreadMemberScore[];
+  top_control_path_exposures: MissionThreadBriefingExposure[];
+  mission_important_nodes: Array<Record<string, unknown>>;
+  unresolved_evidence_gaps: MissionThreadBriefingGap[];
+  recommended_mitigations: string[];
+  member_briefs: MissionThreadMemberPassport[];
+}
+
 export async function fetchMissionThreads(limit = 100): Promise<{ mission_threads: MissionThreadHeader[]; total: number }> {
   return json(`/api/mission-threads?limit=${limit}`);
 }
@@ -2466,6 +2507,10 @@ export async function fetchMissionThreadGraph(id: string, depth = 2): Promise<Mi
 
 export async function fetchMissionThreadMemberPassport(id: string, memberId: number, depth = 2, mode = "full"): Promise<MissionThreadMemberPassport> {
   return json(`/api/mission-threads/${id}/members/${memberId}/passport?depth=${depth}&mode=${encodeURIComponent(mode)}`);
+}
+
+export async function fetchMissionThreadBriefing(id: string, depth = 2, mode = "control"): Promise<MissionThreadBriefing> {
+  return json(`/api/mission-threads/${id}/briefing?depth=${depth}&mode=${encodeURIComponent(mode)}`);
 }
 
 // ---- Graph Analytics ----

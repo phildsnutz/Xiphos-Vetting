@@ -3,11 +3,14 @@ import { AlertTriangle, ArrowRight, Grid3X3, Network, Plus, Shield } from "lucid
 import { T, FS } from "@/lib/tokens";
 import {
   createMissionThread,
+  fetchMissionThreadBriefing,
   fetchMissionThreadMemberPassport,
   fetchMissionThreadSummary,
   fetchMissionThreads,
 } from "@/lib/api";
 import type {
+  MissionThreadBriefing,
+  MissionThreadBriefingExposure,
   MissionThreadHeader,
   MissionThreadMemberPassport,
   MissionThreadMemberScore,
@@ -48,6 +51,7 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
   const [selectedId, setSelectedId] = useState<string>("");
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
   const [summary, setSummary] = useState<MissionThreadSummary | null>(null);
+  const [briefing, setBriefing] = useState<MissionThreadBriefing | null>(null);
   const [memberPassport, setMemberPassport] = useState<MissionThreadMemberPassport | null>(null);
   const [loading, setLoading] = useState(false);
   const [passportLoading, setPassportLoading] = useState(false);
@@ -81,14 +85,19 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
   useEffect(() => {
     if (!selectedId) {
       setSummary(null);
+      setBriefing(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    fetchMissionThreadSummary(selectedId, 2)
-      .then((payload) => {
+    Promise.all([
+      fetchMissionThreadSummary(selectedId, 2),
+      fetchMissionThreadBriefing(selectedId, 2, "control"),
+    ])
+      .then(([summaryPayload, briefingPayload]) => {
         if (!cancelled) {
-          setSummary(payload);
+          setSummary(summaryPayload);
+          setBriefing(briefingPayload);
           setError(null);
         }
       })
@@ -112,9 +121,25 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
     () => resilience?.top_brittle_members || [],
     [resilience?.top_brittle_members],
   );
+  const briefingMembers = useMemo(
+    () => briefing?.top_brittle_members || [],
+    [briefing?.top_brittle_members],
+  );
   const missionNodes = useMemo(
-    () => summary?.graph?.top_nodes_by_mission_importance || [],
-    [summary?.graph?.top_nodes_by_mission_importance],
+    () => briefing?.mission_important_nodes || summary?.graph?.top_nodes_by_mission_importance || [],
+    [briefing?.mission_important_nodes, summary?.graph?.top_nodes_by_mission_importance],
+  );
+  const controlPathExposures = useMemo(
+    () => briefing?.top_control_path_exposures || [],
+    [briefing?.top_control_path_exposures],
+  );
+  const evidenceGaps = useMemo(
+    () => briefing?.unresolved_evidence_gaps || [],
+    [briefing?.unresolved_evidence_gaps],
+  );
+  const mitigations = useMemo(
+    () => briefing?.recommended_mitigations || [],
+    [briefing?.recommended_mitigations],
   );
   const memberRecord = asRecord(memberPassport?.member);
   const memberVendor = asRecord(memberRecord?.vendor);
@@ -130,15 +155,16 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
   }, [selectedId]);
 
   useEffect(() => {
-    if (!brittleMembers.length) {
+    const sourceMembers = briefingMembers.length ? briefingMembers : brittleMembers;
+    if (!sourceMembers.length) {
       setSelectedMemberId("");
       setMemberPassport(null);
       return;
     }
-    if (!brittleMembers.some((member) => member.member_id === selectedMemberId)) {
-      setSelectedMemberId(brittleMembers[0].member_id);
+    if (!sourceMembers.some((member) => member.member_id === selectedMemberId)) {
+      setSelectedMemberId(sourceMembers[0].member_id);
     }
-  }, [brittleMembers, selectedMemberId]);
+  }, [briefingMembers, brittleMembers, selectedMemberId]);
 
   useEffect(() => {
     if (!selectedId || !selectedMemberId || Number.isNaN(Number(selectedMemberId))) {
@@ -313,6 +339,45 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
             </div>
           </div>
 
+          {briefing && (
+            <div className="mt-5 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-3">
+              <div className="glass-card" style={{ padding: 16 }}>
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Operator brief</div>
+                <div className="text-lg font-semibold text-slate-100 leading-8">{briefing.operator_readout}</div>
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="rounded-2xl" style={{ padding: "10px 12px", background: "rgba(8, 13, 23, 0.48)", border: `1px solid ${T.border}` }}>
+                    <div className="text-[11px] uppercase tracking-wider text-slate-500">Alternates</div>
+                    <div className="text-sm font-semibold text-slate-100">{briefing.overview.alternate_member_count}</div>
+                  </div>
+                  <div className="rounded-2xl" style={{ padding: "10px 12px", background: "rgba(8, 13, 23, 0.48)", border: `1px solid ${T.border}` }}>
+                    <div className="text-[11px] uppercase tracking-wider text-slate-500">Gaps</div>
+                    <div className="text-sm font-semibold text-amber-300">{evidenceGaps.length}</div>
+                  </div>
+                  <div className="rounded-2xl" style={{ padding: "10px 12px", background: "rgba(8, 13, 23, 0.48)", border: `1px solid ${T.border}` }}>
+                    <div className="text-[11px] uppercase tracking-wider text-slate-500">Exposures</div>
+                    <div className="text-sm font-semibold text-rose-300">{controlPathExposures.length}</div>
+                  </div>
+                  <div className="rounded-2xl" style={{ padding: "10px 12px", background: "rgba(8, 13, 23, 0.48)", border: `1px solid ${T.border}` }}>
+                    <div className="text-[11px] uppercase tracking-wider text-slate-500">Mitigations</div>
+                    <div className="text-sm font-semibold text-emerald-300">{mitigations.length}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="glass-card" style={{ padding: 16 }}>
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Immediate moves</div>
+                <div className="flex flex-col gap-2">
+                  {mitigations.length === 0 ? (
+                    <div className="text-sm text-slate-300">No mitigations generated yet.</div>
+                  ) : mitigations.slice(0, 4).map((item, index) => (
+                    <div key={`${item}-${index}`} className="rounded-2xl" style={{ padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}` }}>
+                      <div className="text-sm text-slate-100">{item}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mt-4 rounded-2xl" style={{ padding: "12px 14px", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.24)", color: "#fda4af" }}>
               {error}
@@ -377,11 +442,11 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3">
-                {brittleMembers.length === 0 ? (
+                {(briefingMembers.length ? briefingMembers : brittleMembers).length === 0 ? (
                   <div className="rounded-2xl" style={{ padding: "16px 18px", background: T.surface, border: `1px solid ${T.border}` }}>
                     <div className="text-sm text-slate-300">No brittle members yet. Add members to a thread to start ranking mission impact.</div>
                   </div>
-                ) : brittleMembers.map((member) => {
+                ) : (briefingMembers.length ? briefingMembers : brittleMembers).map((member) => {
                   const tone = memberTone(member);
                   const active = member.member_id === selectedMemberId;
                   return (
@@ -468,6 +533,56 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
               </div>
 
               <div className="flex flex-col gap-5">
+                <div className="glass-panel" style={{ padding: 18 }}>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Control-path exposures</div>
+                      <div className="text-sm text-slate-300">What can actually break the thread, not just what sits in the graph.</div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {controlPathExposures.length === 0 ? (
+                      <div className="rounded-2xl" style={{ padding: "16px 18px", background: T.surface, border: `1px solid ${T.border}` }}>
+                        <div className="text-sm text-slate-300">No control-path exposures ranked yet.</div>
+                      </div>
+                    ) : controlPathExposures.slice(0, 4).map((exposure: MissionThreadBriefingExposure, index: number) => (
+                      <div key={`${exposure.source_entity_id}-${exposure.target_entity_id}-${index}`} className="rounded-3xl" style={{ padding: "16px 18px", background: T.surface, border: `1px solid ${T.border}` }}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-100">
+                              {exposure.source_label} <span className="text-slate-500">→</span> {exposure.target_label}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-400">{laneLabel(exposure.rel_type)}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs uppercase tracking-wider text-slate-500">Intel</div>
+                            <div className="text-sm font-semibold text-rose-300">{pct(exposure.intelligence_score)}</div>
+                          </div>
+                        </div>
+                        {exposure.evidence && (
+                          <div className="mt-3 text-sm text-slate-300">{exposure.evidence}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: 18 }}>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Evidence gaps</div>
+                  <div className="flex flex-col gap-3">
+                    {evidenceGaps.length === 0 ? (
+                      <div className="rounded-2xl" style={{ padding: "16px 18px", background: T.surface, border: `1px solid ${T.border}` }}>
+                        <div className="text-sm text-slate-300">No unresolved evidence gaps were flagged for this thread.</div>
+                      </div>
+                    ) : evidenceGaps.slice(0, 4).map((gap, index) => (
+                      <div key={`${gap.category}-${index}`} className="rounded-3xl" style={{ padding: "14px 16px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.18)" }}>
+                        <div className="text-[11px] uppercase tracking-wider text-amber-300 mb-1">{laneLabel(gap.severity)}</div>
+                        <div className="text-sm text-slate-100">{gap.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="glass-panel" style={{ padding: 18 }}>
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div>
