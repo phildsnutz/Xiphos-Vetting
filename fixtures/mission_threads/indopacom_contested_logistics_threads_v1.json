@@ -1,0 +1,997 @@
+{
+  "fixture_version": "mission-thread-fixtures-v1",
+  "generated_at": "2026-03-31T00:00:00Z",
+  "fixtures": [
+    {
+      "id": "first_island_chain_ace_refuel_c2",
+      "title": "First Island Chain ACE refuel and degraded C2 thread",
+      "thread": {
+        "id": "mt-fixture-first-island-chain-ace",
+        "name": "First Island Chain ACE refuel and degraded C2",
+        "description": "Models distributed refuel and expeditionary C2 support across Guam and Saipan where fuel generation and secure sustainment communications both degrade under pressure.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "ace_refuel_ops",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-pacific-aerial-fuel",
+          "name": "Pacific Aerial Fuel Systems",
+          "country": "US",
+          "program": "ace_refuel_ops",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "PACAFUEL123",
+            "cage": "8PAF1"
+          },
+          "score": {
+            "composite_score": 0.31,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.29,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-island-spectrum",
+          "name": "Island Spectrum Integrators",
+          "country": "US",
+          "program": "expeditionary_c2",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "ISLANDSPEC1",
+            "cage": "8ISP2"
+          },
+          "score": {
+            "composite_score": 0.38,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.35,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-mariana-reserve-fuel",
+          "name": "Mariana Reserve Fuel Services",
+          "country": "US",
+          "program": "ace_refuel_ops",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "MARIANAFUEL1",
+            "cage": "8MRF3"
+          },
+          "score": {
+            "composite_score": 0.24,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.22,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:pacific-aerial-fuel",
+          "canonical_name": "Pacific Aerial Fuel Systems",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "PACAFUEL123",
+            "cage": "8PAF1"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.96,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:island-spectrum",
+          "canonical_name": "Island Spectrum Integrators",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "ISLANDSPEC1",
+            "cage": "8ISP2"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.95,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:mariana-reserve-fuel",
+          "canonical_name": "Mariana Reserve Fuel Services",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "MARIANAFUEL1",
+            "cage": "8MRF3"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.94,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:saipan-expeditionary-refuel-site",
+          "canonical_name": "Saipan Expeditionary Refuel Site",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.93,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:grrip-expeditionary-c2-kit",
+          "canonical_name": "GRRIP Expeditionary C2 Kit",
+          "entity_type": "subsystem",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.91,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:pacific-commercial-backhaul",
+          "canonical_name": "Pacific Commercial Backhaul",
+          "entity_type": "telecom_provider",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.82,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-pacific-aerial-fuel",
+          "entity_id": "entity:pacific-aerial-fuel"
+        },
+        {
+          "vendor_id": "c-fixture-island-spectrum",
+          "entity_id": "entity:island-spectrum"
+        },
+        {
+          "vendor_id": "c-fixture-mariana-reserve-fuel",
+          "entity_id": "entity:mariana-reserve-fuel"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:pacific-aerial-fuel",
+          "target_entity_id": "entity:saipan-expeditionary-refuel-site",
+          "rel_type": "supports_site",
+          "confidence": 0.91,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Pacific Aerial Fuel Systems is the primary wet-wing defuel and refuel provider for the Saipan expeditionary site.",
+          "vendor_id": "c-fixture-pacific-aerial-fuel",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "ace_refuel",
+            "problem": "dispersed_austere_basing"
+          }
+        },
+        {
+          "source_entity_id": "entity:pacific-aerial-fuel",
+          "target_entity_id": "entity:saipan-expeditionary-refuel-site",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.84,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Without Pacific Aerial Fuel Systems, the forward refuel point loses its only primary fuel-generation team inside the thread.",
+          "vendor_id": "c-fixture-pacific-aerial-fuel",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "ace_refuel",
+            "problem": "fuel_generation_spof"
+          }
+        },
+        {
+          "source_entity_id": "entity:mariana-reserve-fuel",
+          "target_entity_id": "entity:pacific-aerial-fuel",
+          "rel_type": "substitutable_with",
+          "confidence": 0.73,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Mariana Reserve Fuel Services can surge as a degraded-capacity alternate for Pacific Aerial Fuel Systems.",
+          "vendor_id": "c-fixture-mariana-reserve-fuel",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "ace_refuel",
+            "problem": "alternate_capacity"
+          }
+        },
+        {
+          "source_entity_id": "entity:island-spectrum",
+          "target_entity_id": "entity:grrip-expeditionary-c2-kit",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.9,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Island Spectrum Integrators maintains the expeditionary GRRIP package used to move sustainment SITREPs and routing updates.",
+          "vendor_id": "c-fixture-island-spectrum",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "ace_refuel",
+            "problem": "degraded_c2"
+          }
+        },
+        {
+          "source_entity_id": "entity:island-spectrum",
+          "target_entity_id": "entity:saipan-expeditionary-refuel-site",
+          "rel_type": "supports_site",
+          "confidence": 0.86,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Island Spectrum Integrators provides expeditionary communications support at the Saipan refuel site.",
+          "vendor_id": "c-fixture-island-spectrum",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:island-spectrum",
+          "target_entity_id": "entity:pacific-commercial-backhaul",
+          "rel_type": "depends_on_network",
+          "confidence": 0.78,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Sustainment routing updates rely on commercial backhaul to move secure expeditionary traffic when traditional links are degraded.",
+          "vendor_id": "c-fixture-island-spectrum",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "ace_refuel",
+            "problem": "commercial_network_dependency"
+          }
+        },
+        {
+          "source_entity_id": "entity:grrip-expeditionary-c2-kit",
+          "target_entity_id": "entity:saipan-expeditionary-refuel-site",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.79,
+          "data_source": "mission_thread_fixture",
+          "evidence": "The refuel site loses secure routing and sustainment reporting if the expeditionary C2 kit fails or cannot connect.",
+          "vendor_id": "c-fixture-island-spectrum",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-pacific-aerial-fuel",
+          "role": "forward_refuel",
+          "criticality": "mission_critical",
+          "subsystem": "fuel",
+          "site": "Saipan",
+          "notes": "Primary wet-wing defuel and refuel provider."
+        },
+        {
+          "vendor_id": "c-fixture-island-spectrum",
+          "role": "expeditionary_c2",
+          "criticality": "critical",
+          "subsystem": "c2",
+          "site": "Saipan",
+          "notes": "Owns the expeditionary sustainment communications lane."
+        },
+        {
+          "vendor_id": "c-fixture-mariana-reserve-fuel",
+          "role": "alternate_refuel",
+          "criticality": "important",
+          "subsystem": "fuel",
+          "site": "Guam",
+          "is_alternate": true,
+          "notes": "Alternate provider with lower capacity and slower surge."
+        },
+        {
+          "entity_id": "entity:grrip-expeditionary-c2-kit",
+          "role": "c2_package",
+          "criticality": "high",
+          "subsystem": "c2",
+          "site": "Saipan",
+          "notes": "Expeditionary kit used to move sustainment routing and SITREP data."
+        }
+      ]
+    },
+    {
+      "id": "littoral_jpots_fuel_offload_mesh",
+      "title": "Littoral JPOTS fuel offload after port denial",
+      "thread": {
+        "id": "mt-fixture-littoral-jpots-fuel",
+        "name": "Littoral JPOTS fuel offload after port denial",
+        "description": "Models fuel sustainment after conventional port loss where offshore distribution, lighterage, payment routing, and expeditionary pipeline gear become the mission thread.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "shore_offload_fuel",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-littoral-petroleum-transfer",
+          "name": "Littoral Petroleum Transfer Co",
+          "country": "US",
+          "program": "shore_offload_fuel",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "LITPETROL1",
+            "cage": "7LPT1"
+          },
+          "score": {
+            "composite_score": 0.34,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.31,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-coral-marine-lighterage",
+          "name": "Coral Marine Lighterage",
+          "country": "AU",
+          "program": "shore_offload_fuel",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "CORALLIGHT1"
+          },
+          "score": {
+            "composite_score": 0.29,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.27,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-expeditionary-pipeline",
+          "name": "Expeditionary Pipeline Systems",
+          "country": "US",
+          "program": "shore_offload_fuel",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "PIPELINEE2F1"
+          },
+          "score": {
+            "composite_score": 0.26,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.24,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:littoral-petroleum-transfer",
+          "canonical_name": "Littoral Petroleum Transfer Co",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "LITPETROL1",
+            "cage": "7LPT1"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.96,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:coral-marine-lighterage",
+          "canonical_name": "Coral Marine Lighterage",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "CORALLIGHT1"
+          },
+          "country": "AU",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.94,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:expeditionary-pipeline",
+          "canonical_name": "Expeditionary Pipeline Systems",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "PIPELINEE2F1"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.93,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:palau-fuel-bladder-site",
+          "canonical_name": "Palau Expeditionary Fuel Bladder Site",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "PW",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.92,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:palau-commercial-lighterage-mesh",
+          "canonical_name": "Palau Commercial Lighterage Mesh",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "PW",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.89,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:early-entry-fluid-distribution-system",
+          "canonical_name": "Early Entry Fluid Distribution System",
+          "entity_type": "subsystem",
+          "aliases": [
+            "E2FDS"
+          ],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.9,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:reef-settlement-bank",
+          "canonical_name": "Reef Settlement Bank",
+          "entity_type": "bank",
+          "aliases": [],
+          "identifiers": {},
+          "country": "SG",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.83,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "entity_id": "entity:littoral-petroleum-transfer"
+        },
+        {
+          "vendor_id": "c-fixture-coral-marine-lighterage",
+          "entity_id": "entity:coral-marine-lighterage"
+        },
+        {
+          "vendor_id": "c-fixture-expeditionary-pipeline",
+          "entity_id": "entity:expeditionary-pipeline"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:littoral-petroleum-transfer",
+          "target_entity_id": "entity:palau-fuel-bladder-site",
+          "rel_type": "supports_site",
+          "confidence": 0.9,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Littoral Petroleum Transfer Co is the prime contractor responsible for fuel receipt and onward distribution at the Palau expeditionary fuel site.",
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "jpots_fuel_offload",
+            "problem": "port_denial"
+          }
+        },
+        {
+          "source_entity_id": "entity:littoral-petroleum-transfer",
+          "target_entity_id": "entity:palau-fuel-bladder-site",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.86,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Without Littoral Petroleum Transfer Co, the thread loses its only integrated offshore-to-shore fuel distribution prime.",
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:littoral-petroleum-transfer",
+          "target_entity_id": "entity:coral-marine-lighterage",
+          "rel_type": "distributed_by",
+          "confidence": 0.84,
+          "data_source": "mission_thread_fixture",
+          "evidence": "The fuel thread depends on Coral Marine Lighterage to shuttle product from offshore vessels into the austere shoreline transfer lane.",
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "jpots_fuel_offload",
+            "problem": "commercial_lighterage"
+          }
+        },
+        {
+          "source_entity_id": "entity:littoral-petroleum-transfer",
+          "target_entity_id": "entity:palau-commercial-lighterage-mesh",
+          "rel_type": "ships_via",
+          "confidence": 0.8,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Offshore movement is routed through a commercial lighterage mesh because the conventional port is unavailable.",
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:coral-marine-lighterage",
+          "target_entity_id": "entity:palau-fuel-bladder-site",
+          "rel_type": "supports_site",
+          "confidence": 0.83,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Coral Marine Lighterage lands fuel and transfer equipment at the expeditionary shoreline site.",
+          "vendor_id": "c-fixture-coral-marine-lighterage",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:coral-marine-lighterage",
+          "target_entity_id": "entity:palau-commercial-lighterage-mesh",
+          "rel_type": "operates_facility",
+          "confidence": 0.79,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Coral Marine Lighterage operates the commercial landing-craft mesh that substitutes for a conventional port.",
+          "vendor_id": "c-fixture-coral-marine-lighterage",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:littoral-petroleum-transfer",
+          "target_entity_id": "entity:reef-settlement-bank",
+          "rel_type": "routes_payment_through",
+          "confidence": 0.68,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Commercial shuttle and lighterage services settle through Reef Settlement Bank, making it the finance choke point for surge operations.",
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:expeditionary-pipeline",
+          "target_entity_id": "entity:early-entry-fluid-distribution-system",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.87,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Expeditionary Pipeline Systems keeps the E2FDS transfer equipment mission-capable for fuel reception and inland pumping.",
+          "vendor_id": "c-fixture-expeditionary-pipeline",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:early-entry-fluid-distribution-system",
+          "target_entity_id": "entity:palau-fuel-bladder-site",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.82,
+          "data_source": "mission_thread_fixture",
+          "evidence": "If the expeditionary fluid distribution system fails, offshore fuel can be received but not moved inland to the operating site.",
+          "vendor_id": "c-fixture-expeditionary-pipeline",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-littoral-petroleum-transfer",
+          "role": "fuel_offload_prime",
+          "criticality": "mission_critical",
+          "subsystem": "fuel_distribution",
+          "site": "Palau",
+          "notes": "Prime fuel offload integrator after conventional port denial."
+        },
+        {
+          "vendor_id": "c-fixture-coral-marine-lighterage",
+          "role": "commercial_lighterage",
+          "criticality": "critical",
+          "subsystem": "maritime_access",
+          "site": "Palau",
+          "notes": "Controls the offshore-to-shore shuttle lane."
+        },
+        {
+          "vendor_id": "c-fixture-expeditionary-pipeline",
+          "role": "pipeline_maintenance",
+          "criticality": "high",
+          "subsystem": "fuel_transfer",
+          "site": "Palau",
+          "notes": "Keeps expeditionary transfer equipment usable."
+        },
+        {
+          "entity_id": "entity:early-entry-fluid-distribution-system",
+          "role": "fuel_transfer_system",
+          "criticality": "critical",
+          "subsystem": "fuel_transfer",
+          "site": "Palau",
+          "notes": "Expeditionary transfer gear that turns offshore fuel into inland sustainment."
+        }
+      ]
+    },
+    {
+      "id": "regional_mro_reciprocal_maintenance_gap",
+      "title": "Regional MRO reroute and reciprocal maintenance gap",
+      "thread": {
+        "id": "mt-fixture-regional-mro-gap",
+        "name": "Regional MRO reroute and reciprocal maintenance gap",
+        "description": "Models forward repair for radar and sensor modules where regional sustainment centers and reciprocal maintenance agreements determine whether damaged equipment returns to the fight or back to CONUS.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "regional_mro",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-pacific-sensor-depot",
+          "name": "Pacific Sensor Depot",
+          "country": "US",
+          "program": "regional_mro",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "PACSENSOR1",
+            "cage": "7PSD1"
+          },
+          "score": {
+            "composite_score": 0.36,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.33,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-southern-cross-maintenance",
+          "name": "Southern Cross Aviation Maintenance",
+          "country": "AU",
+          "program": "regional_mro",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "SOUTHCROSS1"
+          },
+          "score": {
+            "composite_score": 0.27,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.24,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-rising-sun-repair",
+          "name": "Rising Sun Component Repair",
+          "country": "JP",
+          "program": "regional_mro",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "RISINGSUN1"
+          },
+          "score": {
+            "composite_score": 0.3,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.27,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:pacific-sensor-depot",
+          "canonical_name": "Pacific Sensor Depot",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "PACSENSOR1",
+            "cage": "7PSD1"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.96,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:southern-cross-maintenance",
+          "canonical_name": "Southern Cross Aviation Maintenance",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "SOUTHCROSS1"
+          },
+          "country": "AU",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.94,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:rising-sun-repair",
+          "canonical_name": "Rising Sun Component Repair",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "RISINGSUN1"
+          },
+          "country": "JP",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.93,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:expeditionary-radar-lru",
+          "canonical_name": "Expeditionary Radar LRU",
+          "entity_type": "subsystem",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.91,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:darwin-regional-sustainment-center",
+          "canonical_name": "Darwin Regional Sustainment Center",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "AU",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.9,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:okinawa-forward-repair-site",
+          "canonical_name": "Okinawa Forward Repair Site",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "JP",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.89,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:cross-theater-calibration-cloud",
+          "canonical_name": "Cross-Theater Calibration Cloud",
+          "entity_type": "service",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.82,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-pacific-sensor-depot",
+          "entity_id": "entity:pacific-sensor-depot"
+        },
+        {
+          "vendor_id": "c-fixture-southern-cross-maintenance",
+          "entity_id": "entity:southern-cross-maintenance"
+        },
+        {
+          "vendor_id": "c-fixture-rising-sun-repair",
+          "entity_id": "entity:rising-sun-repair"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:pacific-sensor-depot",
+          "target_entity_id": "entity:expeditionary-radar-lru",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.92,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Pacific Sensor Depot remains the only fully fielded primary repair source for the expeditionary radar line-replaceable unit.",
+          "vendor_id": "c-fixture-pacific-sensor-depot",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "regional_mro",
+            "problem": "repair_depth"
+          }
+        },
+        {
+          "source_entity_id": "entity:pacific-sensor-depot",
+          "target_entity_id": "entity:expeditionary-radar-lru",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.88,
+          "data_source": "mission_thread_fixture",
+          "evidence": "If Pacific Sensor Depot is unavailable, the radar module reverts to long-haul CONUS repair timelines.",
+          "vendor_id": "c-fixture-pacific-sensor-depot",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:southern-cross-maintenance",
+          "target_entity_id": "entity:darwin-regional-sustainment-center",
+          "rel_type": "supports_site",
+          "confidence": 0.87,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Southern Cross Aviation Maintenance staffs the Darwin regional sustainment center prepared for reciprocal maintenance workloads.",
+          "vendor_id": "c-fixture-southern-cross-maintenance",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:southern-cross-maintenance",
+          "target_entity_id": "entity:darwin-regional-sustainment-center",
+          "rel_type": "operates_facility",
+          "confidence": 0.81,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Southern Cross Aviation Maintenance operates the Darwin repair hub used for ally-accessible maintenance reroutes.",
+          "vendor_id": "c-fixture-southern-cross-maintenance",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:southern-cross-maintenance",
+          "target_entity_id": "entity:pacific-sensor-depot",
+          "rel_type": "substitutable_with",
+          "confidence": 0.77,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Southern Cross Aviation Maintenance is the best current reciprocal-maintenance alternate for Pacific Sensor Depot, but capacity is partial and activation is agreement-dependent.",
+          "vendor_id": "c-fixture-southern-cross-maintenance",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:southern-cross-maintenance",
+          "target_entity_id": "entity:expeditionary-radar-lru",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.74,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Southern Cross can repair the radar module after reciprocal-maintenance activation, but not yet at full prime throughput.",
+          "vendor_id": "c-fixture-southern-cross-maintenance",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:rising-sun-repair",
+          "target_entity_id": "entity:okinawa-forward-repair-site",
+          "rel_type": "supports_site",
+          "confidence": 0.8,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Rising Sun Component Repair supports forward component screening and triage at Okinawa.",
+          "vendor_id": "c-fixture-rising-sun-repair",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:pacific-sensor-depot",
+          "target_entity_id": "entity:cross-theater-calibration-cloud",
+          "rel_type": "depends_on_service",
+          "confidence": 0.69,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Final calibration records and repair release data rely on a cross-theater cloud service before modules can return to use.",
+          "vendor_id": "c-fixture-pacific-sensor-depot",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "scenario": "regional_mro",
+            "problem": "repair_data_dependency"
+          }
+        },
+        {
+          "source_entity_id": "entity:pacific-sensor-depot",
+          "target_entity_id": "entity:darwin-regional-sustainment-center",
+          "rel_type": "ships_via",
+          "confidence": 0.72,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Unserviceable modules are rerouted through Darwin when direct return to CONUS is too slow for theater demand.",
+          "vendor_id": "c-fixture-pacific-sensor-depot",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-pacific-sensor-depot",
+          "role": "primary_radar_repair",
+          "criticality": "mission_critical",
+          "subsystem": "radar_lru",
+          "site": "Guam",
+          "notes": "Primary repair source if the radar module breaks in theater."
+        },
+        {
+          "vendor_id": "c-fixture-southern-cross-maintenance",
+          "role": "regional_mro_alternate",
+          "criticality": "high",
+          "subsystem": "radar_lru",
+          "site": "Darwin",
+          "is_alternate": true,
+          "notes": "Best current allied alternate under reciprocal maintenance."
+        },
+        {
+          "vendor_id": "c-fixture-rising-sun-repair",
+          "role": "forward_component_triage",
+          "criticality": "important",
+          "subsystem": "radar_lru",
+          "site": "Okinawa",
+          "is_alternate": true,
+          "notes": "Forward triage and limited repair support."
+        },
+        {
+          "entity_id": "entity:expeditionary-radar-lru",
+          "role": "mission_module",
+          "criticality": "mission_critical",
+          "subsystem": "radar_lru",
+          "site": "Guam",
+          "notes": "Mission-critical radar line-replaceable unit."
+        }
+      ]
+    }
+  ]
+}
