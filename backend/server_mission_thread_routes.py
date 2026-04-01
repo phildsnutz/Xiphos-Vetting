@@ -10,6 +10,7 @@ def register_mission_thread_routes(
     app,
     require_auth,
     mission_threads_module,
+    mission_thread_briefing_module,
     log_audit,
     current_user_email_provider,
     current_user_id_provider,
@@ -132,6 +133,23 @@ def register_mission_thread_routes(
         depth = request.args.get("depth", 2, type=int)
         try:
             payload = mission_threads_module.build_mission_thread_graph(thread_id, depth=depth)
+            if not payload:
+                return jsonify({"error": "Mission thread not found"}), 404
+            return jsonify(payload)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/mission-threads/<thread_id>/briefing", methods=["GET"])
+    @require_auth("cases:read")
+    def api_mission_thread_briefing(thread_id):
+        depth = request.args.get("depth", 2, type=int)
+        mode = request.args.get("mode", "control", type=str)
+        try:
+            payload = mission_thread_briefing_module.build_mission_thread_briefing(
+                thread_id,
+                depth=depth,
+                member_passport_mode=mode,
+            )
             if not payload:
                 return jsonify({"error": "Mission thread not found"}), 404
             return jsonify(payload)

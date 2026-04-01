@@ -80,6 +80,7 @@ from profile_api import profile_bp
 from server_graph_routes import register_graph_surface_routes
 from server_mission_thread_routes import register_mission_thread_routes
 from server_monitor_routes import register_monitor_routes
+import mission_thread_briefing as mission_thread_briefing_module
 import mission_threads as mission_threads_module
 
 # Optional: sanctions sync engine (may fail if dependencies missing)
@@ -2031,6 +2032,7 @@ register_mission_thread_routes(
     app=app,
     require_auth=require_auth,
     mission_threads_module=mission_threads_module,
+    mission_thread_briefing_module=mission_thread_briefing_module,
     log_audit=log_audit,
     current_user_email_provider=_current_user_email,
     current_user_id_provider=_current_user_id,

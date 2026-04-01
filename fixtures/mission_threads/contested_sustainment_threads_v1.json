@@ -1,0 +1,828 @@
+{
+  "fixture_version": "mission-thread-fixtures-v1",
+  "generated_at": "2026-03-31T00:00:00Z",
+  "fixtures": [
+    {
+      "id": "pacific_radar_single_point_failure",
+      "title": "Pacific radar sustainment single point of failure",
+      "thread": {
+        "id": "mt-fixture-pacific-radar-spof",
+        "name": "Pacific radar sustainment single point of failure",
+        "description": "Models a radar sustainment chain with one certified maintainer and no alternate at the mission-critical node.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "air_missile_defense",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-radar-maintainer",
+          "name": "Pacific Sensor Sustainment LLC",
+          "country": "US",
+          "program": "air_missile_defense",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "RADARMAINT123",
+            "cage": "9RDR1"
+          },
+          "score": {
+            "composite_score": 0.44,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.41,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:pacific-sensor-sustainment",
+          "canonical_name": "Pacific Sensor Sustainment LLC",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "RADARMAINT123",
+            "cage": "9RDR1"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.97,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:guam-radar-mesh",
+          "canonical_name": "Guam Radar Sustainment Mesh",
+          "entity_type": "subsystem",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.95,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-radar-maintainer",
+          "entity_id": "entity:pacific-sensor-sustainment"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:pacific-sensor-sustainment",
+          "target_entity_id": "entity:guam-radar-mesh",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.93,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Pacific Sensor Sustainment is the only certified maintainer for the Guam radar mesh.",
+          "vendor_id": "c-fixture-radar-maintainer",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "mission_lane": "counterparty",
+            "scenario": "single_point_of_failure"
+          }
+        },
+        {
+          "source_entity_id": "entity:pacific-sensor-sustainment",
+          "target_entity_id": "entity:guam-radar-mesh",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.89,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Pacific Sensor Sustainment performs depot-level sustainment on the Guam radar mesh.",
+          "vendor_id": "c-fixture-radar-maintainer",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-radar-maintainer",
+          "role": "radar_maintenance",
+          "criticality": "mission_critical",
+          "subsystem": "radar",
+          "site": "Guam",
+          "notes": "Primary certified maintainer."
+        }
+      ]
+    },
+    {
+      "id": "dual_source_aerial_lift_mesh",
+      "title": "Dual-source aerial lift sustainment mesh",
+      "thread": {
+        "id": "mt-fixture-dual-source-airlift",
+        "name": "Dual-source aerial lift sustainment mesh",
+        "description": "Models a lift mission thread with an alternate supplier and site support relationships.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "rotary_lift",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-alpha-airlift",
+          "name": "Alpha Airlift Systems",
+          "country": "US",
+          "program": "rotary_lift",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "ALPHAAIR123"
+          },
+          "score": {
+            "composite_score": 0.27,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.25,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-bravo-airlift",
+          "name": "Bravo Airlift Reserve",
+          "country": "US",
+          "program": "rotary_lift",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "BRAVOAIR123"
+          },
+          "score": {
+            "composite_score": 0.24,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.23,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:alpha-airlift",
+          "canonical_name": "Alpha Airlift Systems",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "ALPHAAIR123"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.96,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:bravo-airlift",
+          "canonical_name": "Bravo Airlift Reserve",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "BRAVOAIR123"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.95,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:honolulu-lift-apron",
+          "canonical_name": "Honolulu Lift Apron",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.91,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-alpha-airlift",
+          "entity_id": "entity:alpha-airlift"
+        },
+        {
+          "vendor_id": "c-fixture-bravo-airlift",
+          "entity_id": "entity:bravo-airlift"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:alpha-airlift",
+          "target_entity_id": "entity:honolulu-lift-apron",
+          "rel_type": "supports_site",
+          "confidence": 0.88,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Alpha Airlift is the primary rotorcraft sustainment provider for the Honolulu lift apron.",
+          "vendor_id": "c-fixture-alpha-airlift",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:bravo-airlift",
+          "target_entity_id": "entity:honolulu-lift-apron",
+          "rel_type": "supports_site",
+          "confidence": 0.83,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Bravo Airlift can support surge operations from the Honolulu lift apron.",
+          "vendor_id": "c-fixture-bravo-airlift",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:alpha-airlift",
+          "target_entity_id": "entity:bravo-airlift",
+          "rel_type": "substitutable_with",
+          "confidence": 0.87,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Bravo Airlift is an approved alternate for Alpha Airlift on Pacific lift missions.",
+          "vendor_id": "c-fixture-alpha-airlift",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-alpha-airlift",
+          "role": "heavy_lift_provider",
+          "criticality": "critical",
+          "subsystem": "lift",
+          "site": "Honolulu"
+        },
+        {
+          "vendor_id": "c-fixture-bravo-airlift",
+          "role": "heavy_lift_provider",
+          "criticality": "important",
+          "subsystem": "lift",
+          "site": "Honolulu",
+          "is_alternate": true
+        }
+      ]
+    },
+    {
+      "id": "hidden_holding_dependency_mesh",
+      "title": "Hidden holding company dependency mesh",
+      "thread": {
+        "id": "mt-fixture-hidden-holding-dependency",
+        "name": "Hidden holding company dependency mesh",
+        "description": "Models a mission thread where ownership concentration sits behind a holding company.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "contested_sustainment",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-orbit-components",
+          "name": "Orbit Components LLC",
+          "country": "US",
+          "program": "contested_sustainment",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "ORBITCOMP123"
+          },
+          "score": {
+            "composite_score": 0.52,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.48,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:orbit-components",
+          "canonical_name": "Orbit Components LLC",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "ORBITCOMP123"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.96,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:apex-holdings",
+          "canonical_name": "Apex Pacific Holdings",
+          "entity_type": "holding_company",
+          "aliases": [],
+          "identifiers": {},
+          "country": "SG",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.91,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:relay-modem-pack",
+          "canonical_name": "Relay Modem Pack",
+          "entity_type": "component",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.9,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-orbit-components",
+          "entity_id": "entity:orbit-components"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:orbit-components",
+          "target_entity_id": "entity:apex-holdings",
+          "rel_type": "owned_by",
+          "confidence": 0.78,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Orbit Components is majority owned by Apex Pacific Holdings.",
+          "vendor_id": "c-fixture-orbit-components",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:orbit-components",
+          "target_entity_id": "entity:relay-modem-pack",
+          "rel_type": "supplies_component_to",
+          "confidence": 0.81,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Orbit Components supplies relay modem packs into the sustainment mission thread.",
+          "vendor_id": "c-fixture-orbit-components",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-orbit-components",
+          "role": "component_supplier",
+          "criticality": "critical",
+          "subsystem": "relay_comms",
+          "site": "Guam"
+        }
+      ]
+    },
+    {
+      "id": "service_intermediary_bottleneck",
+      "title": "Service intermediary bottleneck",
+      "thread": {
+        "id": "mt-fixture-service-intermediary",
+        "name": "Service intermediary bottleneck",
+        "description": "Models a mission thread where a single hosted service creates dependency concentration.",
+        "created_by": "fixture-seed",
+        "lane": "cyber",
+        "program": "distributed_ops",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-logistics-orchestrator",
+          "name": "Logistics Orchestrator Systems",
+          "country": "US",
+          "program": "distributed_ops",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "LOGIORCH123"
+          },
+          "score": {
+            "composite_score": 0.39,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.36,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:logistics-orchestrator",
+          "canonical_name": "Logistics Orchestrator Systems",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "LOGIORCH123"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.95,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:pacific-cloud-control",
+          "canonical_name": "Pacific Cloud Control",
+          "entity_type": "service",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.9,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-logistics-orchestrator",
+          "entity_id": "entity:logistics-orchestrator"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:logistics-orchestrator",
+          "target_entity_id": "entity:pacific-cloud-control",
+          "rel_type": "depends_on_service",
+          "confidence": 0.84,
+          "data_source": "mission_thread_fixture",
+          "evidence": "The logistics orchestration stack depends on Pacific Cloud Control for workflow execution.",
+          "vendor_id": "c-fixture-logistics-orchestrator",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-logistics-orchestrator",
+          "role": "workflow_orchestrator",
+          "criticality": "critical",
+          "subsystem": "workflow",
+          "site": "Honolulu"
+        }
+      ]
+    },
+    {
+      "id": "amentum_honolulu_contested_logistics",
+      "title": "Amentum Honolulu contested logistics thread",
+      "thread": {
+        "id": "mt-fixture-amentum-honolulu",
+        "name": "Amentum Honolulu contested logistics thread",
+        "description": "Synthetic mission-thread seed for the Honolulu Center for Contested Logistics wedge. Models planning, sustainment, alternate lift, and treasury-route dependencies.",
+        "created_by": "fixture-seed",
+        "lane": "counterparty",
+        "program": "c5isr_sustainment",
+        "theater": "INDOPACOM",
+        "mission_type": "contested_logistics",
+        "status": "draft"
+      },
+      "vendors": [
+        {
+          "id": "c-fixture-amentum-honolulu",
+          "name": "Amentum Services, Inc.",
+          "country": "US",
+          "program": "c5isr_sustainment",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "AMENTUM12345",
+            "cage": "7AMNT"
+          },
+          "score": {
+            "composite_score": 0.34,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.31,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          },
+          "enrichment": {
+            "vendor_name": "Amentum Services, Inc.",
+            "country": "US",
+            "overall_risk": "MODERATE",
+            "identifiers": {
+              "uei": "AMENTUM12345",
+              "cage": "7AMNT"
+            },
+            "summary": {
+              "findings_total": 3,
+              "critical": 0,
+              "high": 1,
+              "connectors_run": 1,
+              "connectors_with_data": 1
+            },
+            "connector_status": {
+              "fixture_seed": {
+                "status": "with_data",
+                "findings": 3
+              }
+            },
+            "relationships": [
+              {
+                "type": "supports_site",
+                "target_name": "Honolulu Center for Contested Logistics"
+              },
+              {
+                "type": "maintains_system_for",
+                "target_name": "Distributed Sustainment Orchestrator"
+              },
+              {
+                "type": "routes_payment_through",
+                "target_name": "Pacific Treasury Bank"
+              }
+            ],
+            "findings": [
+              {
+                "severity": "medium",
+                "title": "Treasury route concentration",
+                "source": "fixture_seed"
+              }
+            ],
+            "total_elapsed_ms": 1200,
+            "enriched_at": "2026-03-31T00:00:00Z"
+          }
+        },
+        {
+          "id": "c-fixture-pacific-rotor",
+          "name": "Pacific Rotor Mobility LLC",
+          "country": "US",
+          "program": "c5isr_sustainment",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "PACROTOR123"
+          },
+          "score": {
+            "composite_score": 0.29,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.28,
+              "calibrated_tier": "low",
+              "display_tier": "low",
+              "program_recommendation": "approve"
+            }
+          }
+        },
+        {
+          "id": "c-fixture-island-analytics",
+          "name": "Island Sustainment Analytics",
+          "country": "US",
+          "program": "c5isr_sustainment",
+          "profile": "defense_acquisition",
+          "identifiers": {
+            "uei": "ISLANDANA123"
+          },
+          "score": {
+            "composite_score": 0.47,
+            "is_hard_stop": false,
+            "calibrated": {
+              "calibrated_probability": 0.44,
+              "calibrated_tier": "medium",
+              "display_tier": "medium",
+              "program_recommendation": "watch"
+            }
+          }
+        }
+      ],
+      "entities": [
+        {
+          "id": "entity:amentum-services",
+          "canonical_name": "Amentum Services, Inc.",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "AMENTUM12345",
+            "cage": "7AMNT"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.98,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:pacific-rotor-mobility",
+          "canonical_name": "Pacific Rotor Mobility LLC",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "PACROTOR123"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.96,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:island-sustainment-analytics",
+          "canonical_name": "Island Sustainment Analytics",
+          "entity_type": "company",
+          "aliases": [],
+          "identifiers": {
+            "uei": "ISLANDANA123"
+          },
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.95,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:honolulu-contested-logistics-center",
+          "canonical_name": "Honolulu Center for Contested Logistics",
+          "entity_type": "facility",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.93,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:distributed-sustainment-orchestrator",
+          "canonical_name": "Distributed Sustainment Orchestrator",
+          "entity_type": "subsystem",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.94,
+          "last_updated": "2026-03-31T00:00:00Z"
+        },
+        {
+          "id": "entity:pacific-treasury-bank",
+          "canonical_name": "Pacific Treasury Bank",
+          "entity_type": "bank",
+          "aliases": [],
+          "identifiers": {},
+          "country": "US",
+          "sources": [
+            "mission_thread_fixture"
+          ],
+          "confidence": 0.89,
+          "last_updated": "2026-03-31T00:00:00Z"
+        }
+      ],
+      "vendor_entity_links": [
+        {
+          "vendor_id": "c-fixture-amentum-honolulu",
+          "entity_id": "entity:amentum-services"
+        },
+        {
+          "vendor_id": "c-fixture-pacific-rotor",
+          "entity_id": "entity:pacific-rotor-mobility"
+        },
+        {
+          "vendor_id": "c-fixture-island-analytics",
+          "entity_id": "entity:island-sustainment-analytics"
+        }
+      ],
+      "relationships": [
+        {
+          "source_entity_id": "entity:amentum-services",
+          "target_entity_id": "entity:honolulu-contested-logistics-center",
+          "rel_type": "supports_site",
+          "confidence": 0.9,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Amentum is modeled as the primary operator supporting the Honolulu Center for Contested Logistics.",
+          "vendor_id": "c-fixture-amentum-honolulu",
+          "source_class": "fixture",
+          "authority_level": "analyst",
+          "structured_fields": {
+            "mission_role": "center_operator",
+            "theater": "INDOPACOM"
+          }
+        },
+        {
+          "source_entity_id": "entity:amentum-services",
+          "target_entity_id": "entity:distributed-sustainment-orchestrator",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.88,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Amentum maintains the distributed sustainment orchestration layer used in the thread.",
+          "vendor_id": "c-fixture-amentum-honolulu",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:amentum-services",
+          "target_entity_id": "entity:pacific-treasury-bank",
+          "rel_type": "routes_payment_through",
+          "confidence": 0.77,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Treasury settlement is concentrated through Pacific Treasury Bank.",
+          "vendor_id": "c-fixture-amentum-honolulu",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:island-sustainment-analytics",
+          "target_entity_id": "entity:distributed-sustainment-orchestrator",
+          "rel_type": "single_point_of_failure_for",
+          "confidence": 0.91,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Island Sustainment Analytics is the only certified planning-orchestration maintainer in the seed scenario.",
+          "vendor_id": "c-fixture-island-analytics",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:island-sustainment-analytics",
+          "target_entity_id": "entity:distributed-sustainment-orchestrator",
+          "rel_type": "maintains_system_for",
+          "confidence": 0.86,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Island Sustainment Analytics maintains the planning-orchestration subsystem.",
+          "vendor_id": "c-fixture-island-analytics",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        },
+        {
+          "source_entity_id": "entity:pacific-rotor-mobility",
+          "target_entity_id": "entity:amentum-services",
+          "rel_type": "substitutable_with",
+          "confidence": 0.84,
+          "data_source": "mission_thread_fixture",
+          "evidence": "Pacific Rotor Mobility is modeled as an approved alternate lift provider for the mission thread.",
+          "vendor_id": "c-fixture-pacific-rotor",
+          "source_class": "fixture",
+          "authority_level": "analyst"
+        }
+      ],
+      "members": [
+        {
+          "vendor_id": "c-fixture-amentum-honolulu",
+          "role": "center_operator",
+          "criticality": "mission_critical",
+          "subsystem": "contested_logistics_cell",
+          "site": "Honolulu",
+          "notes": "Primary local operator."
+        },
+        {
+          "vendor_id": "c-fixture-pacific-rotor",
+          "role": "lift_provider",
+          "criticality": "critical",
+          "subsystem": "lift",
+          "site": "Honolulu",
+          "is_alternate": true,
+          "notes": "Approved alternate lift provider."
+        },
+        {
+          "vendor_id": "c-fixture-island-analytics",
+          "role": "planning_orchestration",
+          "criticality": "mission_critical",
+          "subsystem": "planning",
+          "site": "Honolulu",
+          "notes": "Planning and experimentation dependency."
+        },
+        {
+          "entity_id": "entity:distributed-sustainment-orchestrator",
+          "role": "mission_system",
+          "criticality": "mission_critical",
+          "subsystem": "planning",
+          "site": "Honolulu",
+          "notes": "Core mission-thread subsystem."
+        }
+      ]
+    }
+  ]
+}
