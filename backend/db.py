@@ -1435,7 +1435,7 @@ def get_recent_risk_changes(limit: int = 20) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("""
             SELECT vendor_id, previous_risk, current_risk, checked_at
-            FROM monitoring_log WHERE risk_changed = 1
+            FROM monitoring_log WHERE CAST(risk_changed AS INTEGER) = 1
             ORDER BY checked_at DESC LIMIT ?
         """, (limit,)).fetchall()
         return [_monitoring_row_to_dict(r) for r in rows]

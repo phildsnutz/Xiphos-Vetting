@@ -565,7 +565,7 @@ def _get_activity_feed(case_id: Optional[str] = None, limit: int = 20) -> List[D
                            ml.risk_changed, ml.checked_at
                     FROM monitoring_log ml
                     JOIN vendors v ON ml.vendor_id = v.id
-                    WHERE ml.risk_changed = 1
+                    WHERE CAST(ml.risk_changed AS INTEGER) = 1
                     ORDER BY ml.checked_at DESC LIMIT 10
                 """).fetchall()
                 for r in rows:
