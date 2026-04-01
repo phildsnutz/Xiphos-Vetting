@@ -252,7 +252,7 @@ def add_mission_thread_member(
                     criticality,
                     subsystem,
                     site,
-                    1 if _normalize_bool(is_alternate) else 0,
+                    _normalize_bool(is_alternate),
                     notes,
                 ),
             )

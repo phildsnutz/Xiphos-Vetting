@@ -218,6 +218,76 @@ def test_mission_thread_graph_accepts_explicit_entity_members(client):
     assert any(item["id"] == thread_id for item in payload["mission_threads"])
 
 
+def test_add_mission_thread_member_passes_boolean_flag_to_db(monkeypatch):
+    import mission_threads
+
+    captured: dict[str, tuple] = {}
+
+    class FakeRow(dict):
+        def keys(self):
+            return super().keys()
+
+    class FakeResult:
+        def __init__(self, row=None):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql, params=()):
+            if "SELECT id FROM mission_thread_members" in sql and "ORDER BY id DESC" not in sql:
+                return FakeResult(None)
+            if "INSERT INTO mission_thread_members" in sql:
+                captured["insert_params"] = params
+                return FakeResult(None)
+            if "SELECT id FROM mission_thread_members" in sql and "ORDER BY id DESC" in sql:
+                return FakeResult(FakeRow({"id": 7}))
+            if "INSERT INTO mission_thread_roles" in sql:
+                return FakeResult(None)
+            if "UPDATE mission_threads SET updated_at" in sql:
+                return FakeResult(None)
+            raise AssertionError(sql)
+
+    monkeypatch.setattr(mission_threads, "_ensure_thread_exists", lambda thread_id: None)
+    monkeypatch.setattr(
+        mission_threads,
+        "_validate_member_targets",
+        lambda vendor_id, entity_id: (
+            {
+                "id": vendor_id,
+                "name": "Pacific Aerial Fuel Systems",
+                "country": "US",
+                "program": "ace_refuel_ops",
+                "profile": "defense_acquisition",
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(mission_threads.db, "get_conn", lambda: FakeConn())
+    monkeypatch.setattr(mission_threads, "get_mission_thread_member", lambda member_id: {"id": member_id})
+
+    member = mission_threads.add_mission_thread_member(
+        "mt-postgres-bool",
+        vendor_id="c-fixture-pacific-aerial-fuel",
+        role="forward_refuel",
+        criticality="mission_critical",
+        subsystem="fuel",
+        site="Saipan",
+        is_alternate=False,
+        notes="Primary wet-wing defuel and refuel provider.",
+    )
+
+    assert member["id"] == 7
+    assert captured["insert_params"][7] is False
+
+
 def test_mission_thread_member_passport_wraps_supplier_passport_with_mission_context(client):
     test_client = client["client"]
     primary_case_id = _create_case(test_client, name="Ghost Air Sustainment")
