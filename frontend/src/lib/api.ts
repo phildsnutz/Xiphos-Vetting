@@ -2313,6 +2313,161 @@ export async function runDriftCheck(caseId: string): Promise<Record<string, unkn
   return json(`/api/cases/${caseId}/drift`, { method: "POST" });
 }
 
+// ---- Mission Threads ----
+
+export interface MissionThreadHeader {
+  id: string;
+  name: string;
+  description: string;
+  lane: string;
+  program: string;
+  theater: string;
+  mission_type: string;
+  status: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  member_count: number;
+}
+
+export interface MissionThreadMemberScore {
+  member_id: string;
+  vendor_id: string;
+  entity_id: string;
+  label: string;
+  role: string;
+  criticality: string;
+  criticality_score: number;
+  decision_importance: number;
+  structural_importance: number;
+  mission_impact_score: number;
+  brittle_node_score: number;
+  resilience_score: number;
+  substitute_coverage_score: number;
+  dependency_concentration: number;
+  control_path_quality: number;
+  single_point_of_failure_signal: number;
+  recommended_action: string;
+}
+
+export interface MissionThreadSummary {
+  mission_thread: MissionThreadHeader;
+  member_count: number;
+  vendor_member_count: number;
+  entity_member_count: number;
+  alternate_member_count: number;
+  role_distribution: Record<string, number>;
+  criticality_distribution: Record<string, number>;
+  tier_distribution: Record<string, number>;
+  members: Array<Record<string, unknown>>;
+  graph: {
+    entity_count: number;
+    relationship_count: number;
+    root_entity_ids: string[];
+    entity_type_distribution: Record<string, number>;
+    relationship_type_distribution: Record<string, number>;
+    intelligence: Record<string, unknown>;
+    resilience_summary: {
+      model_version?: string;
+      average_resilience_score?: number;
+      average_brittle_node_score?: number;
+      critical_brittle_member_count?: number;
+      top_brittle_members?: MissionThreadMemberScore[];
+      top_resilient_members?: MissionThreadMemberScore[];
+      top_nodes_by_mission_importance?: Array<Record<string, unknown>>;
+    };
+    top_nodes_by_mission_importance: Array<Record<string, unknown>>;
+  };
+  resilience: {
+    summary: {
+      model_version?: string;
+      average_resilience_score?: number;
+      average_brittle_node_score?: number;
+      critical_brittle_member_count?: number;
+      top_brittle_members?: MissionThreadMemberScore[];
+      top_resilient_members?: MissionThreadMemberScore[];
+      top_nodes_by_mission_importance?: Array<Record<string, unknown>>;
+    };
+    member_scores: MissionThreadMemberScore[];
+  };
+}
+
+export interface MissionThreadGraph {
+  mission_thread_id: string;
+  thread: MissionThreadHeader;
+  member_count: number;
+  vendor_member_count: number;
+  entity_member_count: number;
+  entity_count: number;
+  relationship_count: number;
+  entity_type_distribution: Record<string, number>;
+  relationship_type_distribution: Record<string, number>;
+  entities: Array<Record<string, unknown>>;
+  relationships: GraphEdge[];
+  intelligence: Record<string, unknown>;
+  resilience_summary: Record<string, unknown>;
+  analytics: {
+    node_metrics?: Record<string, Record<string, unknown>>;
+    top_nodes_by_mission_importance?: Array<Record<string, unknown>>;
+  };
+  member_resilience: MissionThreadMemberScore[];
+}
+
+export interface MissionThreadMemberPassport {
+  passport_version: string;
+  mission_thread: MissionThreadHeader;
+  member: Record<string, unknown>;
+  mission_context: {
+    role: string;
+    criticality: string;
+    subsystem: string;
+    site: string;
+    is_alternate: boolean;
+    alternate_members: Array<Record<string, unknown>>;
+    focus_node_ids: string[];
+    single_point_of_failure: boolean;
+  };
+  resilience: {
+    member: MissionThreadMemberScore;
+    thread: Record<string, unknown>;
+  };
+  focus_entities: Array<Record<string, unknown>>;
+  graph: {
+    entity_count: number;
+    relationship_count: number;
+    relationship_type_distribution: Record<string, number>;
+    top_nodes_by_mission_importance: Array<Record<string, unknown>>;
+  };
+  supplier_passport: Record<string, unknown> | null;
+}
+
+export async function fetchMissionThreads(limit = 100): Promise<{ mission_threads: MissionThreadHeader[]; total: number }> {
+  return json(`/api/mission-threads?limit=${limit}`);
+}
+
+export async function createMissionThread(payload: Record<string, unknown>): Promise<MissionThreadHeader> {
+  return json("/api/mission-threads", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchMissionThread(id: string): Promise<MissionThreadHeader & { members?: Array<Record<string, unknown>> }> {
+  return json(`/api/mission-threads/${id}`);
+}
+
+export async function fetchMissionThreadSummary(id: string, depth = 2): Promise<MissionThreadSummary> {
+  return json(`/api/mission-threads/${id}/summary?depth=${depth}`);
+}
+
+export async function fetchMissionThreadGraph(id: string, depth = 2): Promise<MissionThreadGraph> {
+  return json(`/api/mission-threads/${id}/graph?depth=${depth}`);
+}
+
+export async function fetchMissionThreadMemberPassport(id: string, memberId: number, depth = 2, mode = "full"): Promise<MissionThreadMemberPassport> {
+  return json(`/api/mission-threads/${id}/members/${memberId}/passport?depth=${depth}&mode=${encodeURIComponent(mode)}`);
+}
+
 // ---- Graph Analytics ----
 
 export interface GraphIntelligenceResult {

@@ -14,6 +14,7 @@ Relationship types extracted:
   - contracts_with (FPDS, SAM.gov awards)
   - related_entity (cross-correlation aliases)
   - supplies_component_to / integrated_into (critical subsystem supply paths)
+  - maintains_system_for / supports_site / substitutable_with / single_point_of_failure_for
   - owned_by / beneficially_owned_by / backed_by (ownership, financing, and control chains)
 
 Entity types:
@@ -56,6 +57,10 @@ REL_MENTIONED_WITH = "mentioned_with"
 REL_SUPPLIES_COMPONENT_TO = "supplies_component_to"
 REL_SUPPLIES_COMPONENT = "supplies_component"
 REL_INTEGRATED_INTO = "integrated_into"
+REL_MAINTAINS_SYSTEM_FOR = "maintains_system_for"
+REL_SUPPORTS_SITE = "supports_site"
+REL_SUBSTITUTABLE_WITH = "substitutable_with"
+REL_SINGLE_POINT_OF_FAILURE_FOR = "single_point_of_failure_for"
 REL_OWNED_BY = "owned_by"
 REL_BENEFICIALLY_OWNED_BY = "beneficially_owned_by"
 REL_BACKED_BY = "backed_by"
@@ -98,6 +103,10 @@ _GRAPH_EDGE_FAMILIES: dict[str, tuple[str, ...]] = {
     REL_SUPPLIES_COMPONENT_TO: ("cyber_supply_chain", "component_dependency"),
     REL_SUPPLIES_COMPONENT: ("cyber_supply_chain", "component_dependency"),
     REL_INTEGRATED_INTO: ("cyber_supply_chain", "component_dependency"),
+    REL_MAINTAINS_SYSTEM_FOR: ("contracts_and_programs", "component_dependency"),
+    REL_SUPPORTS_SITE: ("trade_and_logistics", "component_dependency"),
+    REL_SUBSTITUTABLE_WITH: ("component_dependency",),
+    REL_SINGLE_POINT_OF_FAILURE_FOR: ("component_dependency", "trade_and_logistics"),
     REL_DEPENDS_ON_NETWORK: ("cyber_supply_chain", "intermediaries_and_services"),
     REL_DEPENDS_ON_SERVICE: ("cyber_supply_chain", "intermediaries_and_services"),
     REL_DISTRIBUTED_BY: ("trade_and_logistics", "intermediaries_and_services"),
@@ -1714,6 +1723,10 @@ def _ingest_relationship(kg, er, primary_entity_id: str, vendor_name: str, rel: 
         REL_SUPPLIES_COMPONENT_TO,
         REL_SUPPLIES_COMPONENT,
         REL_INTEGRATED_INTO,
+        REL_MAINTAINS_SYSTEM_FOR,
+        REL_SUPPORTS_SITE,
+        REL_SUBSTITUTABLE_WITH,
+        REL_SINGLE_POINT_OF_FAILURE_FOR,
         REL_OWNED_BY,
         REL_BENEFICIALLY_OWNED_BY,
         REL_BACKED_BY,
@@ -1868,6 +1881,10 @@ def _graph_training_fixture_profile(rows: list[dict[str, Any]]) -> str:
         REL_INTEGRATED_INTO,
         REL_SUPPLIES_COMPONENT,
         REL_SUPPLIES_COMPONENT_TO,
+        REL_MAINTAINS_SYSTEM_FOR,
+        REL_SUPPORTS_SITE,
+        REL_SUBSTITUTABLE_WITH,
+        REL_SINGLE_POINT_OF_FAILURE_FOR,
     }:
         return "supplier_cyber_trust"
     if relation_types & {REL_DISTRIBUTED_BY, REL_SHIPS_VIA, REL_ROUTES_PAYMENT_THROUGH}:
@@ -1890,10 +1907,24 @@ def _graph_training_fixture_target_type(rel_type: str, target_name: str) -> str:
         return "service"
     if normalized_rel == REL_OPERATES_FACILITY:
         return "facility"
+    if normalized_rel == REL_SUPPORTS_SITE:
+        return "facility"
     if normalized_rel == REL_DISTRIBUTED_BY:
         return "distributor"
     if normalized_rel == REL_SHIPS_VIA:
         return "shipment_route"
+    if normalized_rel == REL_MAINTAINS_SYSTEM_FOR:
+        if any(token in normalized_name for token in ("aircraft", "radar", "platform", "system", "sensor", "gateway", "terminal")):
+            return "subsystem"
+        return "company"
+    if normalized_rel == REL_SUBSTITUTABLE_WITH:
+        if any(token in normalized_name for token in ("module", "component", "firmware", "sensor", "gateway")):
+            return "component"
+        return "company"
+    if normalized_rel == REL_SINGLE_POINT_OF_FAILURE_FOR:
+        if any(token in normalized_name for token in ("site", "base", "depot", "hangar", "port", "warehouse", "facility")):
+            return "facility"
+        return "subsystem"
     if normalized_rel == REL_INTEGRATED_INTO:
         if any(token in normalized_name for token in ("module", "component", "firmware", "sensor", "gateway")):
             return "component"
@@ -1917,7 +1948,7 @@ def _graph_training_fixture_relationship(row: dict[str, Any], primary_entity_typ
     target_name = str(row.get("target_entity") or "").strip()
     evidence = str(row.get("evidence_text") or "").strip() or f"Graph training fixture relationship for {source_name}"
     edge_family = str(row.get("edge_family") or "").strip()
-    source_entity_type = "component" if rel_type == REL_INTEGRATED_INTO else primary_entity_type
+    source_entity_type = "component" if rel_type in {REL_INTEGRATED_INTO, REL_SINGLE_POINT_OF_FAILURE_FOR} else primary_entity_type
     target_entity_type = _graph_training_fixture_target_type(rel_type, target_name)
     return {
         "type": rel_type,

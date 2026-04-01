@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard } from "lucide-react";
+import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard, Network } from "lucide-react";
 import { T, FS, FX } from "@/lib/tokens";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { HeliosLanding } from "@/components/xiphos/helios-landing";
+import { MissionThreadsScreen } from "@/components/xiphos/mission-threads-screen";
 import { PortfolioScreen } from "@/components/xiphos/portfolio-screen";
 import { DemoCompare } from "@/components/xiphos/demo-compare";
 import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligence-dashboard";
@@ -130,7 +131,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   };
 }
 
-type Tab = "dashboard" | "helios" | "portfolio" | "graph" | "admin";
+type Tab = "dashboard" | "helios" | "portfolio" | "threads" | "graph" | "admin";
 
 function shellPriorityRank(disposition: ReturnType<typeof portfolioDisposition>): number {
   if (disposition === "blocked") return 3;
@@ -681,6 +682,20 @@ export default function App() {
                     Overview
                   </button>
                   <button
+                    onClick={() => { setTab("threads"); setSelected(null); }}
+                    className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
+                    style={{
+                      fontSize: FS.sm,
+                      fontWeight: 700,
+                      background: tab === "threads" ? T.accentSoft : "transparent",
+                      color: tab === "threads" ? T.accent : T.muted,
+                      borderBottom: tab === "threads" ? "2px solid #0ea5e9" : "none",
+                    }}
+                  >
+                    <Network size={12} />
+                    Threads
+                  </button>
+                  <button
                     onClick={() => { setTab("graph"); setSelected(null); }}
                     className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
                     style={{
@@ -711,7 +726,7 @@ export default function App() {
                     </button>
                   )}
                 </div>
-                {tab !== "admin" && tab !== "graph" && tab !== "dashboard" && (
+                {tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads" && (
                   <div
                     className="flex items-center gap-1 rounded-full min-w-0 overflow-x-auto"
                     style={{ padding: 4, background: T.surface, border: `1px solid ${T.borderStrong}`, boxShadow: FX.softShadow }}
@@ -820,6 +835,8 @@ export default function App() {
               onNavigate={(t) => setTab(t as Tab)}
               laneSummary={shellLaneSummary}
             />
+          ) : tab === "threads" ? (
+            <MissionThreadsScreen onNavigate={(t) => setTab(t as Tab)} />
           ) : tab === "graph" ? (
             <GraphIntelligenceDashboard />
           ) : tab === "admin" && user && hasPermission(user, "auditor") ? (

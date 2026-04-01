@@ -216,3 +216,63 @@ def test_mission_thread_graph_accepts_explicit_entity_members(client):
     payload = list_resp.get_json()
     assert payload["total"] >= 1
     assert any(item["id"] == thread_id for item in payload["mission_threads"])
+
+
+def test_mission_thread_member_passport_wraps_supplier_passport_with_mission_context(client):
+    test_client = client["client"]
+    primary_case_id = _create_case(test_client, name="Ghost Air Sustainment")
+    alternate_case_id = _create_case(test_client, name="Ghost Air Alternate")
+
+    create_resp = test_client.post(
+        "/api/mission-threads",
+        json={
+            "name": "Rotorcraft sustainment mesh",
+            "lane": "counterparty",
+            "program": "rotary_lift",
+            "theater": "INDOPACOM",
+            "mission_type": "contested_logistics",
+        },
+    )
+    assert create_resp.status_code == 201
+    thread_id = create_resp.get_json()["id"]
+
+    primary_member_resp = test_client.post(
+        f"/api/mission-threads/{thread_id}/members",
+        json={
+            "vendor_id": primary_case_id,
+            "role": "heavy_lift_provider",
+            "criticality": "mission_critical",
+            "subsystem": "lift",
+            "site": "Honolulu",
+        },
+    )
+    assert primary_member_resp.status_code == 201
+    primary_member = primary_member_resp.get_json()
+
+    alternate_member_resp = test_client.post(
+        f"/api/mission-threads/{thread_id}/members",
+        json={
+            "vendor_id": alternate_case_id,
+            "role": "heavy_lift_provider",
+            "criticality": "important",
+            "subsystem": "lift",
+            "site": "Honolulu",
+            "is_alternate": True,
+        },
+    )
+    assert alternate_member_resp.status_code == 201
+
+    passport_resp = test_client.get(
+        f"/api/mission-threads/{thread_id}/members/{primary_member['id']}/passport"
+    )
+    assert passport_resp.status_code == 200
+    passport = passport_resp.get_json()
+    assert passport["passport_version"] == "mission-thread-passport-v1"
+    assert passport["mission_thread"]["id"] == thread_id
+    assert passport["member"]["vendor_id"] == primary_case_id
+    assert passport["mission_context"]["role"] == "heavy_lift_provider"
+    assert passport["mission_context"]["criticality"] == "mission_critical"
+    assert len(passport["mission_context"]["alternate_members"]) == 1
+    assert passport["mission_context"]["alternate_members"][0]["vendor_id"] == alternate_case_id
+    assert passport["supplier_passport"]["vendor"]["id"] == primary_case_id
+    assert "graph" in passport["supplier_passport"]

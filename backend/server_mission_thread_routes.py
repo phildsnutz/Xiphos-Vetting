@@ -137,3 +137,21 @@ def register_mission_thread_routes(
             return jsonify(payload)
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/mission-threads/<thread_id>/members/<int:member_id>/passport", methods=["GET"])
+    @require_auth("cases:read")
+    def api_mission_thread_member_passport(thread_id, member_id):
+        depth = request.args.get("depth", 2, type=int)
+        mode = request.args.get("mode", "full", type=str)
+        try:
+            payload = mission_threads_module.build_mission_thread_member_passport(
+                thread_id,
+                member_id,
+                depth=depth,
+                mode=mode,
+            )
+            if not payload:
+                return jsonify({"error": "Mission thread member not found"}), 404
+            return jsonify(payload)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
