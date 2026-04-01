@@ -1462,7 +1462,7 @@ def get_recent_monitor_changes(limit: int = 20, since_hours: int | None = None) 
         FROM monitoring_log ml
         JOIN vendors v ON v.id = ml.vendor_id
         WHERE (
-            COALESCE(ml.risk_changed, 0) = 1
+            (ml.risk_changed IS NOT NULL AND CAST(ml.risk_changed AS INTEGER) != 0)
             OR COALESCE(ml.new_findings_count, 0) > 0
             OR ABS(COALESCE(ml.score_after, 0) - COALESCE(ml.score_before, 0)) >= 0.01
             OR COALESCE(ml.change_type, 'no_change') != 'no_change'
