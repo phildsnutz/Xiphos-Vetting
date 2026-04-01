@@ -88,8 +88,14 @@ def _rate_limit_meta() -> dict:
     }
 
 
-def _get(url: str) -> tuple[dict | None, dict]:
-    """GET with optional API key and explicit status metadata."""
+def _get(url: str, *, skip_accept_header: bool = False) -> tuple[dict | None, dict]:
+    """GET with optional API key and explicit status metadata.
+
+    Args:
+        skip_accept_header: If True, omit the ``Accept: application/json``
+            header.  The SAM.gov exclusions endpoint returns HTTP 406 when
+            that header is present, even though it serves JSON by default.
+    """
     if _rate_limit_active():
         return None, _rate_limit_meta()
 
@@ -98,10 +104,10 @@ def _get(url: str) -> tuple[dict | None, dict]:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}api_key={api_key}"
 
-    req = urllib.request.Request(url, headers={
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-    })
+    headers = {"User-Agent": USER_AGENT}
+    if not skip_accept_header:
+        headers["Accept"] = "application/json"
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             payload = json.loads(resp.read())
@@ -249,7 +255,9 @@ def _search_exclusions(name: str) -> tuple[list[dict], dict]:
         return [], {"status": 0, "throttled": False, "error": "SAM.gov API key not configured."}
     encoded = urllib.parse.quote(name)
     url = f"{EXCLUSIONS_BASE}?q={encoded}&page=0&size=10"
-    data, meta = _get(url)
+    # skip_accept_header: SAM.gov exclusions returns 406 when
+    # Accept: application/json is sent explicitly (API quirk).
+    data, meta = _get(url, skip_accept_header=True)
     if not data:
         return [], meta
     return data.get("results", []), meta
