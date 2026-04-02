@@ -55,6 +55,15 @@ RELATIONSHIP_WEIGHTS = {
     "filed_with": 0.20,
     "regulated_by": 0.25,
     "mentioned_with": 0.15,
+    # Capture Intelligence relationships
+    "awarded_under": 0.55,
+    "predecessor_of": 0.70,
+    "successor_of": 0.70,
+    "performed_at": 0.40,
+    "funded_by": 0.50,
+    "competed_on": 0.45,
+    "teamed_with": 0.65,
+    "incumbent_on": 0.60,
 }
 NEO4J_ENTITY_BATCH_SIZE = max(1, int(os.environ.get("XIPHOS_NEO4J_ENTITY_BATCH_SIZE", "500") or "500"))
 NEO4J_REL_BATCH_SIZE = max(1, int(os.environ.get("XIPHOS_NEO4J_REL_BATCH_SIZE", "250") or "250"))

@@ -72,6 +72,16 @@ REL_OPERATES_FACILITY = "operates_facility"
 REL_SHIPS_VIA = "ships_via"
 REL_DEPENDS_ON_SERVICE = "depends_on_service"
 
+# -- Capture Intelligence edge family (Contract Vehicle Intelligence) --
+REL_AWARDED_UNDER = "awarded_under"
+REL_PREDECESSOR_OF = "predecessor_of"
+REL_SUCCESSOR_OF = "successor_of"
+REL_PERFORMED_AT = "performed_at"
+REL_FUNDED_BY = "funded_by"
+REL_COMPETED_ON = "competed_on"
+REL_TEAMED_WITH = "teamed_with"
+REL_INCUMBENT_ON = "incumbent_on"
+
 _OFFICIAL_AUTHORITY_LEVELS = {
     "official_registry",
     "official_program_system",
@@ -113,12 +123,22 @@ _GRAPH_EDGE_FAMILIES: dict[str, tuple[str, ...]] = {
     REL_OPERATES_FACILITY: ("trade_and_logistics", "intermediaries_and_services"),
     REL_SHIPS_VIA: ("trade_and_logistics", "intermediaries_and_services"),
     REL_ROUTES_PAYMENT_THROUGH: ("trade_and_logistics", "finance_intermediary"),
+    # -- Capture Intelligence --
+    REL_AWARDED_UNDER: ("capture_intelligence", "contracts_and_programs"),
+    REL_PREDECESSOR_OF: ("capture_intelligence",),
+    REL_SUCCESSOR_OF: ("capture_intelligence",),
+    REL_PERFORMED_AT: ("capture_intelligence", "trade_and_logistics"),
+    REL_FUNDED_BY: ("capture_intelligence", "contracts_and_programs"),
+    REL_COMPETED_ON: ("capture_intelligence",),
+    REL_TEAMED_WITH: ("capture_intelligence", "contracts_and_programs"),
+    REL_INCUMBENT_ON: ("capture_intelligence", "contracts_and_programs"),
 }
 
 _REQUIRED_EDGE_FAMILIES_BY_LANE: dict[str, tuple[str, ...]] = {
     "defense_counterparty_trust": ("ownership_control",),
     "supplier_cyber_trust": ("ownership_control", "cyber_supply_chain"),
     "export_authorization": ("ownership_control", "trade_and_logistics"),
+    "contract_vehicle_intelligence": ("capture_intelligence", "contracts_and_programs"),
 }
 
 # ---------------------------------------------------------------------------

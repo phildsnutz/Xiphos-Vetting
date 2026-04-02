@@ -2229,6 +2229,13 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
             <div style={{ fontSize: FS.base, color: T.dim, lineHeight: 1.62, maxWidth: 760 }}>{decisionSummary}</div>
           </div>
 
+          {/* Action Panel: promoted above the fold for immediate operator visibility */}
+          {cal && (
+            <div style={{ marginTop: 16 }}>
+              <ActionPanel case={c} />
+            </div>
+          )}
+
           {showWorkflowLanes && (
             <div
               className="mt-4 rounded-[24px] helios-glass"
@@ -2599,22 +2606,65 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
             </div>
           )}
 
-          {/* LEVEL 1: Key Findings (always visible) */}
-          {cal?.finds && cal.finds.length > 0 && (
-            <div className="mt-3 rounded-lg p-4 glass-card">
-              <div className="font-semibold uppercase tracking-wider mb-3" style={{ fontSize: FS.sm, color: T.muted }}>
-                Key Findings
-              </div>
-              {cal.finds.map((finding, i) => (
-                <div key={i} className="flex gap-2" style={{ marginTop: i > 0 ? 6 : 0 }}>
-                  <span className="font-mono font-bold shrink-0" style={{ fontSize: FS.sm, color: T.accent }}>
-                    {String(i + 1).padStart(2, "0")}
+          {/* LEVEL 1: Key Findings (always visible, deduplicated) */}
+          {cal?.finds && cal.finds.length > 0 && (() => {
+            // Deduplicate findings: group identical/near-identical entries, show count badge
+            const findingsMap = new Map<string, number>();
+            for (const f of cal.finds) {
+              const key = f.trim().toLowerCase();
+              findingsMap.set(key, (findingsMap.get(key) ?? 0) + 1);
+            }
+            // Preserve original casing from first occurrence
+            const seen = new Set<string>();
+            const uniqueFindings: { text: string; count: number }[] = [];
+            for (const f of cal.finds) {
+              const key = f.trim().toLowerCase();
+              if (!seen.has(key)) {
+                seen.add(key);
+                uniqueFindings.push({ text: f, count: findingsMap.get(key) ?? 1 });
+              }
+            }
+            return (
+              <div className="mt-3 rounded-lg p-4 glass-card">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
+                    Key Findings
                   </span>
-                  <span style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5 }}>{finding}</span>
+                  {cal.finds.length !== uniqueFindings.length && (
+                    <span style={{ fontSize: FS.caption, color: T.textTertiary }}>
+                      {cal.finds.length} total, {uniqueFindings.length} unique
+                    </span>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
+                {uniqueFindings.map((f, i) => (
+                  <div key={i} className="flex gap-2 items-start" style={{ marginTop: i > 0 ? 6 : 0 }}>
+                    <span className="font-mono font-bold shrink-0" style={{ fontSize: FS.sm, color: T.accent }}>
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.5, flex: 1 }}>{f.text}</span>
+                    {f.count > 1 && (
+                      <span
+                        className="shrink-0 inline-flex items-center justify-center rounded-full font-mono"
+                        style={{
+                          fontSize: FS.caption,
+                          fontWeight: 700,
+                          minWidth: 22,
+                          height: 22,
+                          padding: "0 6px",
+                          background: `${T.accent}18`,
+                          color: T.accent,
+                          border: `1px solid ${T.accent}33`,
+                        }}
+                        title={`${f.count} identical findings consolidated`}
+                      >
+                        x{f.count}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           {showWorkflowLanes && (
                 <div ref={authorityInputsRef} style={{ marginTop: 12, marginBottom: 2 }}>
@@ -4245,12 +4295,6 @@ export function CaseDetail({ c, onBack, onRescore, onDossier, onCaseRefresh, glo
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {cal && (
-            <div ref={actionPanelRef} className="mt-4">
-              <ActionPanel case={c} />
             </div>
           )}
 

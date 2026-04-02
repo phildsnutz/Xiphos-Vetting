@@ -152,7 +152,7 @@ export function CaseRow({ c, onClick }: CaseRowProps) {
         {/* Name + date + profile */}
         <div className="flex-1 min-w-0 overflow-hidden">
           <div className="flex items-center gap-2">
-            <div className="font-bold truncate" style={{ fontSize: FS.lg, color: T.text }}>
+            <div className="font-bold truncate" style={{ fontSize: FS.base, color: T.text }}>
               {displayName(c.name)}
             </div>
             {programLabel && (

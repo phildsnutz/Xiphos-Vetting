@@ -81,6 +81,30 @@ export function Gauge({ value, lo, hi }: GaugeProps) {
         ))}
       </div>
 
+      {/* Threshold labels */}
+      <div className="relative w-full" style={{ height: 14, marginTop: 2 }}>
+        {([
+          { pct: 0, label: "Clear" },
+          { pct: 15, label: "Watch" },
+          { pct: 30, label: "Review" },
+          { pct: 50, label: "Block" },
+        ] as const).map((t) => (
+          <span
+            key={t.pct}
+            className="absolute"
+            style={{
+              left: `${t.pct}%`,
+              fontSize: 10,
+              color: T.textTertiary,
+              fontWeight: 500,
+              transform: t.pct > 0 ? "translateX(-50%)" : "none",
+            }}
+          >
+            {t.label}
+          </span>
+        ))}
+      </div>
+
       {/* CI label */}
       {lo != null && hi != null && (
         <div className="flex items-center gap-3" style={{ marginTop: 4 }}>

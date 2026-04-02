@@ -586,12 +586,27 @@ def list_vendors(limit: int = 100) -> list[dict]:
 
 
 def list_vendors_with_scores(limit: int = 100) -> list[dict]:
-    """Fetch vendors with their latest scores in a single query (avoids N+1)."""
+    """Fetch vendors with their latest scores in a single query (avoids N+1).
+
+    Deduplicates by LOWER(name): when multiple vendor rows share the same
+    normalised name, only the most-recently-updated row is returned.  This
+    prevents repeated smoke-tests, deploy-verify runs, and re-intakes from
+    cluttering the portfolio view (C1 audit finding).
+    """
     with get_conn() as conn:
         rows = conn.execute("""
+            WITH deduped AS (
+                SELECT id, name, country, program, profile, vendor_input,
+                       created_at, updated_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY LOWER(TRIM(name))
+                           ORDER BY updated_at DESC, created_at DESC
+                       ) AS rn
+                FROM vendors
+            )
             SELECT v.id, v.name, v.country, v.program, v.profile, v.vendor_input,
                    v.created_at, sr.full_result, sr.scored_at
-            FROM vendors v
+            FROM deduped v
             LEFT JOIN scoring_results sr ON sr.vendor_id = v.id
                 AND sr.id = (
                     SELECT id FROM scoring_results
@@ -599,6 +614,7 @@ def list_vendors_with_scores(limit: int = 100) -> list[dict]:
                     ORDER BY scored_at DESC, id DESC
                     LIMIT 1
                 )
+            WHERE v.rn = 1
             ORDER BY v.updated_at DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -1507,7 +1523,7 @@ def save_anomaly(vendor_id: str, entity_name: str, detector: str,
 
 def get_stats() -> dict:
     with get_conn() as conn:
-        vendor_count = conn.execute("SELECT COUNT(*) FROM vendors").fetchone()[0]
+        vendor_count = conn.execute("SELECT COUNT(DISTINCT LOWER(TRIM(name))) FROM vendors").fetchone()[0]
         alert_count = conn.execute("SELECT COUNT(*) FROM alerts WHERE resolved = 0").fetchone()[0]
         screening_count = conn.execute("SELECT COUNT(*) FROM screening_log").fetchone()[0]
 

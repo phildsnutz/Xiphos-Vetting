@@ -80,6 +80,7 @@ from profile_api import profile_bp
 from server_graph_routes import register_graph_surface_routes
 from server_mission_thread_routes import register_mission_thread_routes
 from server_monitor_routes import register_monitor_routes
+from server_axiom_routes import register_axiom_routes
 import mission_thread_briefing as mission_thread_briefing_module
 import mission_threads as mission_threads_module
 
@@ -2038,6 +2039,12 @@ register_monitor_routes(
     serialize_monitor_status=_serialize_monitor_status,
     serialize_monitor_run=_serialize_monitor_run,
     parse_since_hours=_parse_since_hours,
+)
+
+register_axiom_routes(
+    app=app,
+    require_auth=require_auth,
+    db=db,
 )
 
 register_mission_thread_routes(
@@ -6391,8 +6398,8 @@ def api_bulk_ingest_summary():
         """)
         risk_dist = {row[0]: row[1] for row in cur.fetchall()}
 
-        # Total cases (vendors)
-        cur.execute("SELECT COUNT(*) FROM vendors")
+        # Total cases (deduplicated by name to match portfolio view)
+        cur.execute("SELECT COUNT(DISTINCT LOWER(TRIM(name))) FROM vendors")
         total_cases = cur.fetchone()[0]
 
         # Score distribution (buckets from scoring_results.composite_score)

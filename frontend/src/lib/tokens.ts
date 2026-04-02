@@ -19,7 +19,7 @@ export const T = {
   // Text (3 levels: primary, secondary, tertiary)
   text: "#e8e8ed",
   textSecondary: "#9898a8",
-  textTertiary: "#5a5a6a",
+  textTertiary: "#8a8a9a",
 
   // Primary action (ONE accent, cyan)
   accent: "#0ea5e9",
@@ -29,13 +29,13 @@ export const T = {
   // Semantic status colors (badges/indicators ONLY)
   statusBlocked: "#ef4444",
   statusReview: "#f59e0b",
-  statusWatch: "#f59e0b",
+  statusWatch: "#fb923c",
   statusQualified: "#3b82f6",
   statusApproved: "#22c55e",
 
   // Backward-compatible aliases (used by App.tsx, case-detail.tsx, action-panel.tsx, etc.)
   muted: "#9898a8",
-  dim: "#5a5a6a",
+  dim: "#8a8a9a",
   raised: "#18181f",
   borderStrong: "#2a2a3a",
   green: "#22c55e",
@@ -55,6 +55,7 @@ export const T = {
   dRedBg: "rgba(239, 68, 68, 0.12)",
   orange: "#f97316",
   orangeBg: "rgba(249, 115, 22, 0.12)",
+  watchBg: "rgba(251, 146, 60, 0.12)",
   hover: "#18181f",
   borderLight: "#1e1e2a",
   hardStopBg: "rgba(239, 68, 68, 0.10)",
@@ -263,8 +264,8 @@ export const RISK_META: Record<RiskKey, { label: string; color: string; bg: stri
 
 export function probColor(p: number): string {
   if (p < 0.15) return T.statusApproved;
-  if (p < 0.3) return T.statusWatch;
-  if (p < 0.5) return T.statusReview;
+  if (p < 0.30) return T.statusWatch;    // orange-400 (#fb923c)
+  if (p < 0.50) return T.statusReview;   // amber-500 (#f59e0b)
   return T.statusBlocked;
 }
 

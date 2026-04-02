@@ -230,34 +230,55 @@ export function GraphIntelligenceDashboard() {
   const [propagationLoading, setPropagationLoading] = useState(false);
   const [propagationWaveIndex, setPropagationWaveIndex] = useState(0);
 
-  // Load graph data on mount
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        const raw = await fetchFullGraphIntelligence();
-        const data: FullGraphIntelligence = {
-          ...raw,
-          temporal: (raw.temporal as unknown as TemporalProfile | null) ?? null,
-          edges: (raw.edges || []).map((e: ApiGraphEdge) => ({
-            source: e.source_entity_id,
-            target: e.target_entity_id,
-            rel_type: e.rel_type,
-            confidence: e.confidence,
-            data_source: e.data_source,
-            created_at: undefined,
-          })),
-          top_by_structural_importance: raw.top_by_structural_importance || [],
-        };
-        setGraphData(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load graph intelligence");
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
+  // Load graph data on mount with timeout and retry
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
+  const LOAD_TIMEOUT_MS = 15000;
+
+  const loadGraphData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+
+      const raw = await Promise.race([
+        fetchFullGraphIntelligence(),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener("abort", () =>
+            reject(new Error("Request timed out after 15 seconds"))
+          );
+        }),
+      ]);
+
+      clearTimeout(timeoutId);
+
+      const data: FullGraphIntelligence = {
+        ...raw,
+        temporal: (raw.temporal as unknown as TemporalProfile | null) ?? null,
+        edges: (raw.edges || []).map((e: ApiGraphEdge) => ({
+          source: e.source_entity_id,
+          target: e.target_entity_id,
+          rel_type: e.rel_type,
+          confidence: e.confidence,
+          data_source: e.data_source,
+          created_at: undefined,
+        })),
+        top_by_structural_importance: raw.top_by_structural_importance || [],
+      };
+      setGraphData(data);
+      setRetryCount(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load graph intelligence");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadGraphData();
+  }, [loadGraphData]);
 
   // Compute temporal bounds from graph data
   const temporalBounds = useMemo(() => {
@@ -857,8 +878,40 @@ export function GraphIntelligenceDashboard() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: GRAPH_BG }}>
-        <div style={{ color: T.text, fontSize: `${FS.md}px` }}>Loading Graph Intelligence...</div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: GRAPH_BG, gap: 16 }}>
+        {/* Skeleton pulse animation */}
+        <div style={{ display: "flex", gap: 12 }}>
+          {[80, 60, 100, 70].map((w, i) => (
+            <div
+              key={i}
+              style={{
+                width: w,
+                height: 12,
+                borderRadius: 6,
+                background: `${T.text}10`,
+                animation: "pulse 1.5s ease-in-out infinite",
+                animationDelay: `${i * 0.15}s`,
+              }}
+            />
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              border: `2px solid ${T.accent}`,
+              borderTopColor: "transparent",
+              borderRadius: "50%",
+              animation: "spin 0.8s linear infinite",
+            }}
+          />
+          <span style={{ color: T.textSecondary, fontSize: `${FS.base}px` }}>Loading graph data...</span>
+        </div>
+        <style>{`
+          @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.7; } }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
       </div>
     );
   }
@@ -866,7 +919,65 @@ export function GraphIntelligenceDashboard() {
   if (error) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: GRAPH_BG }}>
-        <div style={{ color: T.statusBlocked, fontSize: `${FS.md}px` }}>Error: {error}</div>
+        <div
+          style={{
+            maxWidth: 420,
+            padding: 32,
+            borderRadius: 12,
+            background: T.surface,
+            border: `1px solid ${T.border}`,
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: `${T.statusBlocked}18`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+            }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={T.statusBlocked} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+          </div>
+          <div style={{ fontSize: `${FS.md}px`, fontWeight: 700, color: T.text, marginBottom: 8 }}>
+            Graph Intelligence Unavailable
+          </div>
+          <div style={{ fontSize: `${FS.base}px`, color: T.textSecondary, marginBottom: 20, lineHeight: 1.5 }}>
+            {error}
+          </div>
+          {retryCount < MAX_RETRIES ? (
+            <button
+              onClick={() => {
+                setRetryCount((c) => c + 1);
+                loadGraphData();
+              }}
+              style={{
+                padding: "10px 24px",
+                borderRadius: 8,
+                background: T.accent,
+                color: "#fff",
+                border: "none",
+                fontSize: `${FS.base}px`,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Retry ({MAX_RETRIES - retryCount} attempts remaining)
+            </button>
+          ) : (
+            <div style={{ fontSize: `${FS.sm}px`, color: T.textTertiary }}>
+              Max retries reached. Check your network connection and refresh the page.
+            </div>
+          )}
+        </div>
       </div>
     );
   }

@@ -494,258 +494,79 @@ export default function App() {
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: T.bg, color: T.text }}>
         {/* Header */}
         <header
-          className="px-4 lg:px-6 py-2 shrink-0 helios-glass"
+          className="px-4 lg:px-6 shrink-0 helios-glass"
           style={{
-            minHeight: "56px",
+            height: 52,
             borderBottom: `1px solid ${T.borderStrong}`,
             background: FX.shell,
+            display: "flex",
+            alignItems: "center",
           }}
         >
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-3 w-full">
+            {/* Left: Brand + Nav tabs in single row */}
+            <div className="flex items-center gap-3 min-w-0 overflow-x-auto">
               <div
-                className="inline-flex items-center gap-2 rounded-full min-w-0"
-                style={{
-                  padding: "8px 12px",
-                  background: `${shellLaneMeta.softBackground}`,
-                  border: `1px solid ${shellLaneMeta.softBorder}`,
-                  boxShadow: FX.softShadow,
-                }}
+                className="inline-flex items-center gap-1.5 shrink-0"
+                style={{ cursor: "default" }}
               >
-                <div
-                  className="flex items-center justify-center rounded-full shrink-0"
-                  style={{
-                    width: 28,
-                    height: 28,
-                    background: "rgba(255,255,255,0.04)",
-                    border: `1px solid ${T.borderStrong}`,
-                  }}
-                >
-                  <Shield size={15} color={shellLaneMeta.accent} />
-                </div>
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="font-bold" style={{ fontSize: FS.base, color: T.text, letterSpacing: "-0.02em" }}>
-                    Helios
-                  </span>
-                  <span className="hidden sm:inline" style={{ fontSize: FS.sm, color: T.dim }}>
-                    by Xiphos
-                  </span>
-                </div>
+                <Shield size={16} color={shellLaneMeta.accent} />
+                <span className="font-bold" style={{ fontSize: FS.base, color: T.text, letterSpacing: "-0.02em" }}>
+                  Helios
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap justify-end">
-                {apiAvailable !== null && (
-                  <div className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5" title={apiAvailable ? "API connected" : "Scoring engine runs client-side"} style={{ background: T.surface, border: `1px solid ${T.borderStrong}` }}>
-                    {apiAvailable ? <Wifi size={12} color={T.green} /> : <WifiOff size={12} color={T.muted} />}
-                    <span style={{ fontSize: FS.sm, fontWeight: 600, color: apiAvailable ? T.green : T.muted }}>
-                      {apiAvailable ? "Live" : "Offline"}
-                    </span>
-                  </div>
-                )}
-                {apiAvailable && (
-                  <button
-                    onClick={() => {
-                      setShowFeedbackDialog(true);
-                      setFeedbackError(null);
-                      setFeedbackSuccess(null);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 cursor-pointer helios-focus-ring"
-                    style={{
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                      background: FX.panel,
-                      color: T.text,
-                      border: `1px solid ${T.borderStrong}`,
-                      boxShadow: FX.softShadow,
-                    }}
-                  >
-                    <MessageSquare size={12} color={T.accent} />
-                    <span className="hidden sm:inline">Beta feedback</span>
-                  </button>
-                )}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowUserMenu(!showUserMenu)}
-                    className="flex items-center gap-1.5 rounded cursor-pointer"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      padding: "2px 4px",
-                    }}
-                  >
-                    <div
-                      className="flex items-center justify-center rounded-full font-bold"
-                      style={{ width: 28, height: 28, fontSize: FS.sm, background: T.accent + "22", color: T.accent }}
-                    >
-                      {initials}
-                    </div>
-                    {user && (
-                      <span className="hidden sm:inline" style={{ fontSize: FS.sm, color: T.muted, fontWeight: 600 }}>
-                        {roleLabel(user.role)}
-                      </span>
-                    )}
-                  </button>
+              <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
 
-                  {showUserMenu && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-40"
-                        onClick={() => setShowUserMenu(false)}
-                      />
-                      <div
-                        className="absolute right-0 top-full mt-1 rounded-lg z-50 overflow-hidden"
-                        style={{
-                          width: 220,
-                          background: T.surface,
-                          border: `1px solid ${T.border}`,
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                        }}
-                      >
-                        {user && (
-                          <div className="p-3" style={{ borderBottom: `1px solid ${T.border}` }}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <User size={12} color={T.accent} />
-                              <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>
-                                {user.name || user.email}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: FS.sm, color: T.muted }}>{user.email}</div>
-                            <div
-                              className="inline-block rounded mt-1.5 font-mono"
-                              style={{
-                                fontSize: FS.sm,
-                                padding: "2px 6px",
-                                background: T.accent + "18",
-                                color: T.accent,
-                              }}
-                            >
-                              {roleLabel(user.role)}
-                            </div>
-                          </div>
-                        )}
-                        {authRequired && (
-                          <button
-                            onClick={handleLogout}
-                            className="w-full flex items-center gap-2 px-3 py-2.5 cursor-pointer"
-                            style={{
-                              fontSize: FS.sm,
-                              color: T.red,
-                              background: "transparent",
-                              border: "none",
-                              textAlign: "left",
-                            }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                          >
-                            <LogOut size={12} />
-                            Sign Out
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-col gap-2 min-w-0">
-                <div
-                  className="flex items-center gap-1 rounded-full min-w-0 overflow-x-auto"
-                  style={{ padding: 4, background: T.surface, border: `1px solid ${T.borderStrong}`, boxShadow: FX.softShadow }}
-                >
-                  <button
-                    onClick={() => { setTab("portfolio"); setSelected(null); }}
-                    className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
-                    style={{
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                      background: tab === "portfolio" ? T.accentSoft : "transparent",
-                      color: tab === "portfolio" ? T.accent : T.muted,
-                      borderBottom: tab === "portfolio" ? "2px solid #0ea5e9" : "none",
-                    }}
-                  >
-                    <Shield size={12} />
-                    Workbench
-                  </button>
-                  <button
-                    onClick={() => { setTab("helios"); setSelected(null); }}
-                    className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
-                    style={{
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                      background: tab === "helios" ? WORKFLOW_LANE_META.counterparty.softBackground : "transparent",
-                      color: tab === "helios" ? WORKFLOW_LANE_META.counterparty.accent : T.muted,
-                      borderBottom: tab === "helios" ? "2px solid #0ea5e9" : "none",
-                    }}
-                  >
-                    <Shield size={12} />
-                    Intake
-                  </button>
-                  <button
-                    onClick={() => { setTab("dashboard"); setSelected(null); }}
-                    className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
-                    style={{
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                      background: tab === "dashboard" ? T.accentSoft : "transparent",
-                      color: tab === "dashboard" ? T.accent : T.muted,
-                      borderBottom: tab === "dashboard" ? "2px solid #0ea5e9" : "none",
-                    }}
-                  >
-                    <LayoutDashboard size={12} />
-                    Overview
-                  </button>
-                  <button
-                    onClick={() => { setTab("threads"); setSelected(null); }}
-                    className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
-                    style={{
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                      background: tab === "threads" ? T.accentSoft : "transparent",
-                      color: tab === "threads" ? T.accent : T.muted,
-                      borderBottom: tab === "threads" ? "2px solid #0ea5e9" : "none",
-                    }}
-                  >
-                    <Network size={12} />
-                    Threads
-                  </button>
-                  <button
-                    onClick={() => { setTab("graph"); setSelected(null); }}
-                    className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
-                    style={{
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                      background: tab === "graph" ? T.accentSoft : "transparent",
-                      color: tab === "graph" ? T.accent : T.muted,
-                      borderBottom: tab === "graph" ? "2px solid #0ea5e9" : "none",
-                    }}
-                  >
-                    <Grid3X3 size={12} />
-                    Graph Intel
-                  </button>
-                  {hasPermission(user, "auditor") && (
+              {/* Nav tab pills (inline with brand) */}
+              <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
+                {([
+                  { id: "portfolio" as const, label: "Workbench", icon: Shield },
+                  { id: "helios" as const, label: "Intake", icon: Shield },
+                  { id: "dashboard" as const, label: "Overview", icon: LayoutDashboard },
+                  { id: "threads" as const, label: "Threads", icon: Network },
+                  { id: "graph" as const, label: "Graph Intel", icon: Grid3X3 },
+                ] as const).map((t) => {
+                  const isActive = tab === t.id;
+                  return (
                     <button
-                      onClick={() => { setTab("admin"); setSelected(null); }}
-                      className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
+                      key={t.id}
+                      onClick={() => { setTab(t.id); setSelected(null); }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 border-none cursor-pointer helios-focus-ring shrink-0 rounded"
                       style={{
                         fontSize: FS.sm,
-                        fontWeight: 700,
-                        background: tab === "admin" ? T.accentSoft : "transparent",
-                        color: tab === "admin" ? T.accent : T.muted,
-                        borderBottom: tab === "admin" ? "2px solid #0ea5e9" : "none",
+                        fontWeight: isActive ? 700 : 500,
+                        background: isActive ? T.accentSoft : "transparent",
+                        color: isActive ? T.accent : T.muted,
                       }}
                     >
-                      <Settings size={12} />
-                      Admin
+                      <t.icon size={12} />
+                      {t.label}
                     </button>
-                  )}
-                </div>
-                {tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads" && (
-                  <div
-                    className="flex items-center gap-1 rounded-full min-w-0 overflow-x-auto"
-                    style={{ padding: 4, background: T.surface, border: `1px solid ${T.borderStrong}`, boxShadow: FX.softShadow }}
+                  );
+                })}
+                {hasPermission(user, "auditor") && (
+                  <button
+                    onClick={() => { setTab("admin"); setSelected(null); }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 border-none cursor-pointer helios-focus-ring shrink-0 rounded"
+                    style={{
+                      fontSize: FS.sm,
+                      fontWeight: tab === "admin" ? 700 : 500,
+                      background: tab === "admin" ? T.accentSoft : "transparent",
+                      color: tab === "admin" ? T.accent : T.muted,
+                    }}
                   >
+                    <Settings size={12} />
+                    Admin
+                  </button>
+                )}
+              </div>
+
+              {/* Lane selector (inline, only for relevant tabs) */}
+              {tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads" && (
+                <>
+                  <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+                  <div className="flex items-center gap-0.5 shrink-0">
                     {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
                       const meta = WORKFLOW_LANE_META[lane];
                       const isActive = workflowMode === lane;
@@ -753,10 +574,10 @@ export default function App() {
                         <button
                           key={lane}
                           onClick={() => setWorkflowMode(lane)}
-                          className="inline-flex items-center rounded-full px-3 py-1.5 border-none cursor-pointer helios-focus-ring shrink-0"
+                          className="inline-flex items-center rounded px-2.5 py-1 border-none cursor-pointer helios-focus-ring shrink-0"
                           style={{
                             fontSize: FS.sm,
-                            fontWeight: 700,
+                            fontWeight: isActive ? 700 : 500,
                             background: isActive ? meta.softBackground : "transparent",
                             color: isActive ? meta.accent : T.muted,
                           }}
@@ -767,17 +588,20 @@ export default function App() {
                       );
                     })}
                   </div>
-                )}
-              </div>
+                </>
+              )}
+            </div>
 
+            {/* Right: Search + Status + User (compact) */}
+            <div className="flex items-center gap-2 shrink-0">
               {tab === "portfolio" && !selected && (
-                <div className="relative w-full lg:w-auto">
+                <div className="relative hidden sm:block">
                   <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" color={T.muted} />
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search vendors..."
-                    className="rounded-full outline-none helios-focus-ring w-full sm:w-56"
+                    placeholder="Search..."
+                    className="rounded-full outline-none helios-focus-ring w-44"
                     style={{
                       paddingLeft: 28,
                       paddingRight: 10,
@@ -785,34 +609,110 @@ export default function App() {
                       paddingBottom: 5,
                       fontSize: FS.sm,
                       background: T.surface,
-                      border: `1px solid ${T.borderStrong}`,
+                      border: `1px solid ${T.border}`,
                       color: T.text,
                     }}
                   />
                 </div>
               )}
+              {apiAvailable !== null && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-full" title={apiAvailable ? "API connected" : "Offline"} style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                  {apiAvailable ? <Wifi size={10} color={T.green} /> : <WifiOff size={10} color={T.muted} />}
+                  <span className="hidden lg:inline" style={{ fontSize: 11, fontWeight: 600, color: apiAvailable ? T.green : T.muted }}>
+                    {apiAvailable ? "Live" : "Offline"}
+                  </span>
+                </div>
+              )}
+              {apiAvailable && (
+                <button
+                  onClick={() => {
+                    setShowFeedbackDialog(true);
+                    setFeedbackError(null);
+                    setFeedbackSuccess(null);
+                  }}
+                  className="inline-flex items-center rounded-full p-1.5 cursor-pointer helios-focus-ring"
+                  style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.muted }}
+                  title="Beta feedback"
+                >
+                  <MessageSquare size={14} color={T.accent} />
+                </button>
+              )}
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-1 rounded cursor-pointer"
+                  style={{ background: "transparent", border: "none", padding: "2px" }}
+                >
+                  <div
+                    className="flex items-center justify-center rounded-full font-bold"
+                    style={{ width: 26, height: 26, fontSize: 11, background: T.accent + "22", color: T.accent }}
+                  >
+                    {initials}
+                  </div>
+                </button>
+
+                {showUserMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowUserMenu(false)}
+                    />
+                    <div
+                      className="absolute right-0 top-full mt-1 rounded-lg z-50 overflow-hidden"
+                      style={{
+                        width: 220,
+                        background: T.surface,
+                        border: `1px solid ${T.border}`,
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                      }}
+                    >
+                      {user && (
+                        <div className="p-3" style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <User size={12} color={T.accent} />
+                            <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>
+                              {user.name || user.email}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: FS.sm, color: T.muted }}>{user.email}</div>
+                          <div
+                            className="inline-block rounded mt-1.5 font-mono"
+                            style={{
+                              fontSize: FS.sm,
+                              padding: "2px 6px",
+                              background: T.accent + "18",
+                              color: T.accent,
+                            }}
+                          >
+                            {roleLabel(user.role)}
+                          </div>
+                        </div>
+                      )}
+                      {authRequired && (
+                        <button
+                          onClick={handleLogout}
+                          className="w-full flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+                          style={{
+                            fontSize: FS.sm,
+                            color: T.red,
+                            background: "transparent",
+                            border: "none",
+                            textAlign: "left",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <LogOut size={12} />
+                          Sign Out
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </header>
-
-      {tab !== "admin" && (
-        <section
-          className="px-4 lg:px-6 py-2 shrink-0"
-          style={{ borderBottom: `1px solid ${T.borderStrong}`, background: "transparent" }}
-        >
-          <div className="max-w-[1400px] mx-auto flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-            <span style={{ fontSize: 11, fontWeight: 700, color: shellLaneMeta.accent, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Current operating lane
-            </span>
-            <span style={{ fontSize: FS.base, fontWeight: 700, color: T.text }}>
-              {shellLaneMeta.label}
-            </span>
-            <span style={{ fontSize: FS.base, color: T.muted }}>
-              {shellLaneCases.length} active · {shellLaneBlocked} blocked
-            </span>
-          </div>
-        </section>
-      )}
 
       {/* Main content */}
       <main className={`flex-1 overflow-auto ${tab === "graph" || tab === "dashboard" ? "p-0" : "p-4 lg:p-6"}`}>

@@ -548,6 +548,15 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="official_program_system",
         access_model="public_api",
     ),
+    "careers_scraper": ConnectorRegistryEntry(
+        label="Careers Scraper (AXIOM)",
+        category="Grey Zone OSINT",
+        description="Job board and careers page scraper for subcontractor identification. Primary source when SAM Subaward API fails (FEDSIM vehicles).",
+        source_class="grey_zone_osint",
+        authority_level="third_party_public",
+        access_model="public_scrape",
+        runtime_active=True,
+    ),
 }
 
 
@@ -601,6 +610,7 @@ ACTIVE_CONNECTOR_ORDER: list[str] = [
     "sbir_awards",
     "sec_xbrl",
     "recap_courts",
+    "careers_scraper",
 ]
 
 ACTIVE_CONNECTOR_NAMES = tuple(ACTIVE_CONNECTOR_ORDER)

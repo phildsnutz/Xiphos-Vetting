@@ -344,13 +344,13 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
         <div
           className="rounded-lg p-4 mb-4"
           style={{
-            background: T.amberBg,
-            border: `2px solid ${T.amber}`,
+            background: T.watchBg,
+            border: `2px solid ${T.statusWatch}`,
           }}
         >
           <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={16} color={T.amber} />
-            <span className="font-bold" style={{ fontSize: FS.md, color: T.amber }}>
+            <AlertTriangle size={16} color={T.statusWatch} />
+            <span className="font-bold" style={{ fontSize: FS.md, color: T.statusWatch }}>
               STANDARD MONITORING – Periodic Review
             </span>
           </div>
@@ -362,7 +362,7 @@ export function ActionPanel({ case: c }: ActionPanelProps) {
         {/* Soft flags if any */}
         {cal.flags && cal.flags.length > 0 && (
           <div className="mb-4 rounded-lg p-3 glass-card">
-            <div className="font-semibold mb-2" style={{ fontSize: FS.sm, color: T.amber }}>
+            <div className="font-semibold mb-2" style={{ fontSize: FS.sm, color: T.statusWatch }}>
               Items Requiring Attention
             </div>
             {cal.flags.map((flag, i) => (
