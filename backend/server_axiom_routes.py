@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from flask import jsonify, request
+from flask import g, jsonify, request
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,6 @@ def register_axiom_routes(*, app, require_auth, db):
         """
         try:
             from axiom_agent import run_agent, SearchTarget
-            from auth import get_current_user
 
             body = request.get_json(silent=True) or {}
             prime = body.get("prime_contractor", "").strip()
@@ -76,9 +75,8 @@ def register_axiom_routes(*, app, require_auth, db):
                 context=body.get("context", ""),
             )
 
-            # Get user's AI config for API key
-            user = get_current_user()
-            user_id = user.get("id", "") if user else ""
+            # Get user ID from Flask g context (set by require_auth)
+            user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
 
             result = run_agent(
                 target=target,
@@ -118,7 +116,6 @@ def register_axiom_routes(*, app, require_auth, db):
         """
         try:
             from axiom_agent import run_agent, ingest_agent_result, SearchTarget
-            from auth import get_current_user
 
             body = request.get_json(silent=True) or {}
             prime = body.get("prime_contractor", "").strip()
@@ -135,8 +132,7 @@ def register_axiom_routes(*, app, require_auth, db):
                 context=body.get("context", ""),
             )
 
-            user = get_current_user()
-            user_id = user.get("id", "") if user else ""
+            user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
 
             result = run_agent(
                 target=target,
@@ -179,7 +175,6 @@ def register_axiom_routes(*, app, require_auth, db):
         """
         try:
             from axiom_extractor import extract_from_text
-            from auth import get_current_user
             from ai_analysis import get_ai_config
 
             body = request.get_json(silent=True) or {}
@@ -187,8 +182,7 @@ def register_axiom_routes(*, app, require_auth, db):
             if not content:
                 return jsonify({"error": "Missing required field: content"}), 400
 
-            user = get_current_user()
-            user_id = user.get("id", "") if user else ""
+            user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
 
             # Resolve API key
             api_key = ""
@@ -248,7 +242,6 @@ def register_axiom_routes(*, app, require_auth, db):
         """
         try:
             from axiom_extractor import extract_from_job_postings
-            from auth import get_current_user
             from ai_analysis import get_ai_config
 
             body = request.get_json(silent=True) or {}
@@ -256,8 +249,7 @@ def register_axiom_routes(*, app, require_auth, db):
             if not postings:
                 return jsonify({"error": "Missing required field: postings"}), 400
 
-            user = get_current_user()
-            user_id = user.get("id", "") if user else ""
+            user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
 
             api_key = ""
             provider = body.get("provider", "anthropic")
