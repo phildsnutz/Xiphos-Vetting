@@ -110,6 +110,9 @@ def init_axiom_monitor_tables():
     """Create AXIOM monitoring tables if they don't exist."""
     try:
         import db
+        import os
+        _is_pg = os.environ.get("HELIOS_DB_ENGINE", "sqlite").lower().strip() == "postgres"
+        _auto_id = "SERIAL PRIMARY KEY" if _is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
         with db.get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -130,9 +133,9 @@ def init_axiom_monitor_tables():
                     updated_at TEXT NOT NULL
                 )
             """)
-            cursor.execute("""
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS axiom_snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {_auto_id},
                     watchlist_id TEXT NOT NULL,
                     scan_timestamp TEXT NOT NULL,
                     entities TEXT NOT NULL DEFAULT '[]',
@@ -148,9 +151,9 @@ def init_axiom_monitor_tables():
                 CREATE INDEX IF NOT EXISTS idx_axiom_snapshots_watchlist
                 ON axiom_snapshots(watchlist_id, scan_timestamp DESC)
             """)
-            cursor.execute("""
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS axiom_alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {_auto_id},
                     watchlist_id TEXT NOT NULL,
                     alert_type TEXT NOT NULL,
                     severity TEXT NOT NULL,
