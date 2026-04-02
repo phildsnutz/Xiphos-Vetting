@@ -26,6 +26,7 @@ and make judgments about what's worth pursuing.
 
 import json
 import logging
+import re
 import time
 import urllib.request
 import urllib.error
@@ -34,6 +35,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Connector registry for OODA loop
+try:
+    from osint.connector_registry import CONNECTOR_REGISTRY, ACTIVE_CONNECTOR_ORDER
+except ImportError:
+    CONNECTOR_REGISTRY = {}
+    ACTIVE_CONNECTOR_ORDER = []
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -93,6 +101,7 @@ class SearchIteration:
     raw_findings_count: int = 0
     entities_discovered: list[str] = field(default_factory=list)
     follow_up_queries: list[str] = field(default_factory=list)
+    connector_calls: list[dict] = field(default_factory=list)  # Track connector executions
     llm_reasoning: str = ""
     elapsed_ms: int = 0
 
@@ -106,6 +115,7 @@ class AgentResult:
     iterations: list[SearchIteration] = field(default_factory=list)
     total_queries: int = 0
     total_findings: int = 0
+    total_connector_calls: int = 0  # Track total connector executions
     intelligence_gaps: list[dict] = field(default_factory=list)
     advisory_opportunities: list[dict] = field(default_factory=list)
     elapsed_ms: int = 0
@@ -206,25 +216,113 @@ def _call_openai(prompt: str, system: str, model: str, api_key: str,
 # Prompts
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are AXIOM, an intelligence analyst specializing in government contract 
-vehicle analysis and subcontractor identification. You analyze job postings, company data, 
+def _build_system_prompt_with_connectors() -> str:
+    """Build system prompt that includes available connectors."""
+    base = """You are AXIOM, an intelligence analyst specializing in government contract
+vehicle analysis and subcontractor identification. You analyze job postings, company data,
 and public records to map teaming relationships in the defense/intelligence community.
 
 You operate in an iterative search loop. Each iteration:
 1. You receive raw findings from web scraping
 2. You extract entities and relationships
 3. You decide what follow-up searches would yield the highest intelligence value
-4. You either generate follow-up queries or declare the search complete
+4. You may request targeted connector enrichments to fill intelligence gaps
+5. You either generate follow-up queries or declare the search complete
 
 Your outputs must be valid JSON matching the schema provided in each prompt.
 Be precise with entity names (use official company names, not abbreviations).
-Confidence scores: 0.3=speculative, 0.5=possible, 0.7=probable, 0.85=likely, 0.95=confirmed."""
+Confidence scores: 0.3=speculative, 0.5=possible, 0.7=probable, 0.85=likely, 0.95=confirmed.
+
+CONNECTOR CAPABILITIES:
+You have access to the following OSINT connectors that can be invoked within your analysis loop
+to enrich vendor intelligence. Request a connector by including a JSON object in your response with:
+  "connector_requests": [
+    {"name": "connector_name", "vendor_name": "company name", "parameters": {...}}
+  ]
+
+Available connectors by category:
+
+GOVERNMENT & CONTRACTS (9):
+  - sam_gov: US federal SAM.gov entity registration, UEI, CAGE, exclusions
+  - sam_subaward_reporting: SAM.gov subcontract/subaward reporting data
+  - usaspending: Federal spending and award history
+  - fpds_contracts: Federal procurement contract history
+  - sbir_awards: SBIR/STTR award history
+  - dla_cage: Defense Logistics Agency CAGE registry
+  - fara: DOJ Foreign Agents Registration Act filings
+  - fedramp_marketplace: FedRAMP authorization and cloud service posture
+  - piee_sprs: DoD supplier performance and cyber posture (authenticated)
+
+SANCTIONS & RESTRICTED PARTIES (8):
+  - ofac_sdn: Treasury Specially Designated Nationals
+  - trade_csl: Commerce Dept Consolidated Screening List (13 lists)
+  - un_sanctions: UN Security Council sanctions
+  - eu_sanctions: European Commission sanctions
+  - uk_hmt_sanctions: UK HM Treasury sanctions
+  - opensanctions_pep: Politically exposed person screening
+  - worldbank_debarred: World Bank/IDB/ADB debarments
+  - dod_sam_exclusions: DoD SAM exclusions and EPLS checks
+
+OWNERSHIP & CORPORATE (9):
+  - sec_edgar: SEC filings, ownership, subsidiaries
+  - gleif_lei: Legal Entity Identifiers, parent chains
+  - opencorporates: Global corporate registry, officers
+  - uk_companies_house: UK beneficial ownership register
+  - corporations_canada: Canadian federal corporations
+  - australia_abn_asic: Australian Business Register and ASIC
+  - singapore_acra: Singapore entity profile
+  - new_zealand_companies_office: NZ Companies Register
+  - wikidata_company: Public knowledge graph company metadata
+
+FINANCIAL & COMPLIANCE (8):
+  - sec_xbrl: Structured SEC financial data
+  - fdic_bankfind: FDIC bank regulatory data
+  - epa_echo: EPA enforcement and compliance history
+  - osha_safety: OSHA workplace safety records
+  - cisa_kev: Known Exploited Vulnerabilities catalog
+  - nvd_overlay: NIST NVD product and vulnerability overlay
+  - osv_dev: Open source package vulnerability lookups
+  - deps_dev: Open source package and advisory metadata
+
+LITIGATION & ADVERSE MEDIA (4):
+  - courtlistener: Federal/state court litigation records
+  - recap_courts: Federal litigation archive and dockets
+  - gdelt_media: Adverse media monitoring via GDELT
+  - google_news: Real-time public news coverage
+
+INTERNATIONAL REGISTRIES (5):
+  - france_inpi_rne: French entity identity corroboration
+  - netherlands_kvk: Dutch Chamber of Commerce
+  - norway_brreg: Norwegian organization data
+  - icij_offshore: Panama/Paradise/Pandora Papers
+  - foci_artifact_upload: Customer FOCI artifact upload
+
+Example connector request in your response:
+  "connector_requests": [
+    {
+      "name": "sam_gov",
+      "vendor_name": "SMX Technologies Inc",
+      "parameters": {"country": "US"}
+    },
+    {
+      "name": "fpds_contracts",
+      "vendor_name": "SMX Technologies Inc",
+      "parameters": {}
+    }
+  ]
+
+Use connectors strategically to confirm suspected subcontractors, verify government relationships,
+or fill critical intelligence gaps."""
+
+    return base
+
+SYSTEM_PROMPT = _build_system_prompt_with_connectors()
 
 
 def _build_analysis_prompt(target: SearchTarget, raw_findings: list[dict],
                            iteration: int, previous_entities: list[str]) -> str:
-    """Build the LLM prompt for analyzing scraper results."""
-    return f"""Analyze the following job board scraping results for intelligence value.
+    """Build the LLM prompt for analyzing scraper results and requesting connectors."""
+    return f"""Analyze the following job board scraping results and connector findings for intelligence value.
 
 TARGET:
 - Prime Contractor: {target.prime_contractor}
@@ -259,6 +357,13 @@ Respond with valid JSON:
       "evidence": ["brief description"]
     }}
   ],
+  "connector_requests": [
+    {{
+      "name": "connector_name_from_list",
+      "vendor_name": "Company Name",
+      "parameters": {{"country": "US"}}
+    }}
+  ],
   "follow_up_queries": [
     "search query string that would yield high intelligence value"
   ],
@@ -278,8 +383,111 @@ Set search_complete to true ONLY when:
 - The intelligence picture is sufficiently complete for the target
 - Remaining gaps can only be filled through non-automated means
 
+CONNECTOR USAGE GUIDANCE:
+Request connectors (via connector_requests array) when:
+- You need to verify a company exists and find its official identifiers (sam_gov, sec_edgar, opencorporates)
+- You need to confirm contract history or subcontract awards (fpds_contracts, usaspending, sam_subaward_reporting)
+- You need to screen for sanctions, debarment, or exclusions (ofac_sdn, trade_csl, worldbank_debarred)
+- You need to find ownership, parent companies, or subsidiaries (sec_edgar, gleif_lei, opencorporates)
+- You need litigation or regulatory history (courtlistener, epa_echo, osha_safety)
+
 Generate 0-{MAX_FOLLOW_UPS_PER_ITER} follow-up queries. Each should be specific and different from previous queries.
-Focus follow-ups on: confirming suspected subs, finding additional subs, attributing positions to specific vehicles, identifying teaming partners."""
+Focus follow-ups on: confirming suspected subs, finding additional subs, attributing positions to specific vehicles, identifying teaming partners.
+Use connectors strategically to confirm key suspected entities before exhausting career site scraping."""
+
+
+# ---------------------------------------------------------------------------
+# Connector integration
+# ---------------------------------------------------------------------------
+
+def _run_connector(connector_name: str, vendor_name: str, **kwargs) -> dict:
+    """
+    Dynamically import and execute a registered connector.
+
+    Args:
+        connector_name: Key from CONNECTOR_REGISTRY (e.g., "sam_gov")
+        vendor_name: Target vendor/company name
+        **kwargs: Additional parameters for the connector (country, ids, etc.)
+
+    Returns:
+        Dict with keys:
+          - success (bool): Whether connector executed without error
+          - connector_name (str): The connector that was called
+          - vendor_name (str): The vendor queried
+          - findings_count (int): Number of findings returned
+          - findings (list): Simplified finding dicts for LLM consumption
+          - identifiers (dict): Any discovered identifiers (UEI, CIK, LEI, etc.)
+          - error (str): Error message if connector failed
+          - elapsed_ms (int): Execution time
+    """
+    result = {
+        "success": False,
+        "connector_name": connector_name,
+        "vendor_name": vendor_name,
+        "findings_count": 0,
+        "findings": [],
+        "identifiers": {},
+        "error": "",
+        "elapsed_ms": 0,
+    }
+
+    # Verify connector is registered
+    if connector_name not in CONNECTOR_REGISTRY:
+        result["error"] = f"Unknown connector: {connector_name}. Available: {', '.join(ACTIVE_CONNECTOR_ORDER)}"
+        return result
+
+    try:
+        start = datetime.now(timezone.utc)
+
+        # Dynamically import connector module
+        module_name = f"osint.{connector_name}"
+        module = __import__(module_name, fromlist=["enrich"])
+        enrich_func = getattr(module, "enrich", None)
+
+        if not enrich_func:
+            result["error"] = f"Connector {connector_name} has no enrich() function"
+            return result
+
+        # Call the connector with standard interface
+        enrichment = enrich_func(vendor_name=vendor_name, **kwargs)
+
+        # Convert EnrichmentResult to simplified findings for LLM
+        findings = []
+        for f in enrichment.findings:
+            findings.append({
+                "source": f.source,
+                "category": f.category,
+                "title": f.title,
+                "detail": f.detail,
+                "severity": f.severity,
+                "confidence": f.confidence,
+                "url": f.url,
+            })
+
+        result["success"] = True
+        result["findings_count"] = len(findings)
+        result["findings"] = findings
+        result["identifiers"] = enrichment.identifiers or {}
+        result["elapsed_ms"] = int(
+            (datetime.now(timezone.utc) - start).total_seconds() * 1000
+        )
+
+        logger.info(
+            "axiom_agent: connector '%s' for '%s' returned %d findings in %dms",
+            connector_name, vendor_name, len(findings), result["elapsed_ms"],
+        )
+
+    except ImportError as e:
+        result["error"] = f"Failed to import connector module {connector_name}: {e}"
+        logger.warning("axiom_agent: %s", result["error"])
+    except AttributeError as e:
+        result["error"] = f"Connector {connector_name} missing required interface: {e}"
+        logger.warning("axiom_agent: %s", result["error"])
+    except Exception as e:
+        result["error"] = f"Connector {connector_name} failed: {e}"
+        logger.exception("axiom_agent: connector execution error: %s", e)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +523,37 @@ def _run_scraper(query: str, target: SearchTarget) -> list[dict]:
     except Exception as e:
         logger.exception("axiom_agent: scraper failed for query '%s': %s", query, e)
         return []
+
+
+def _parse_connector_requests(llm_response: str) -> list[dict]:
+    """
+    Extract connector requests from LLM response JSON.
+
+    The LLM may include a "connector_requests" array in its JSON response:
+      "connector_requests": [
+        {"name": "sam_gov", "vendor_name": "Company Inc", "parameters": {...}},
+        ...
+      ]
+
+    Returns:
+        List of connector request dicts, or empty list if none found.
+    """
+    requests = []
+    try:
+        # Handle markdown code blocks
+        clean_response = llm_response.strip()
+        if clean_response.startswith("```"):
+            clean_response = clean_response.split("\n", 1)[1]
+            if clean_response.endswith("```"):
+                clean_response = clean_response[:-3]
+            clean_response = clean_response.strip()
+
+        data = json.loads(clean_response)
+        requests = data.get("connector_requests", [])
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+
+    return requests
 
 
 def _run_web_search(query: str) -> list[dict]:
@@ -479,6 +718,61 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 result.iterations.append(iter_record)
                 continue
 
+            # Execute connector requests if present
+            connector_requests = analysis.get("connector_requests", [])
+            for conn_req in connector_requests:
+                try:
+                    conn_name = conn_req.get("name", "")
+                    vendor = conn_req.get("vendor_name", "")
+                    params = conn_req.get("parameters", {})
+
+                    if not conn_name or not vendor:
+                        logger.warning(
+                            "axiom_agent: incomplete connector request: name=%s, vendor=%s",
+                            conn_name, vendor
+                        )
+                        continue
+
+                    logger.info(
+                        "axiom_agent: executing connector '%s' for vendor '%s'",
+                        conn_name, vendor
+                    )
+
+                    conn_result = _run_connector(conn_name, vendor, **params)
+                    iter_record.connector_calls.append(conn_result)
+                    result.total_connector_calls += 1
+
+                    # Add connector findings to iteration findings
+                    if conn_result["success"]:
+                        for finding in conn_result["findings"]:
+                            iter_findings.append({
+                                "category": finding.get("category", "connector_finding"),
+                                "title": finding.get("title", ""),
+                                "detail": finding.get("detail", ""),
+                                "source": f"connector:{conn_name}",
+                                "severity": finding.get("severity", "info"),
+                                "confidence": finding.get("confidence", 0.5),
+                                "url": finding.get("url", ""),
+                                "connector_source": conn_name,
+                            })
+                        time.sleep(1.0)  # Brief delay between connector calls
+                    else:
+                        logger.warning(
+                            "axiom_agent: connector '%s' failed: %s",
+                            conn_name, conn_result.get("error", "unknown error")
+                        )
+
+                except Exception as e:
+                    logger.exception(
+                        "axiom_agent: error executing connector request: %s", e
+                    )
+                    iter_record.connector_calls.append({
+                        "success": False,
+                        "connector_name": conn_req.get("name", "unknown"),
+                        "vendor_name": conn_req.get("vendor_name", "unknown"),
+                        "error": str(e),
+                    })
+
             # Process discovered entities
             for ent_data in analysis.get("entities", []):
                 name = ent_data.get("name", "").strip()
@@ -564,10 +858,11 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     result.elapsed_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
 
     logger.info(
-        "axiom_agent: complete. %d entities, %d relationships, %d gaps, %d advisory opportunities, %d iterations, %dms",
+        "axiom_agent: complete. %d entities, %d relationships, %d gaps, %d advisory opportunities, "
+        "%d iterations, %d connector calls, %dms",
         len(result.entities), len(result.relationships),
         len(result.intelligence_gaps), len(result.advisory_opportunities),
-        len(result.iterations), result.elapsed_ms,
+        len(result.iterations), result.total_connector_calls, result.elapsed_ms,
     )
 
     return result
@@ -711,7 +1006,8 @@ def main():
         print(f"KG Ingestion: {summary}")
 
     print(f"\nSummary: {len(result.entities)} entities, {len(result.relationships)} relationships, "
-          f"{len(result.intelligence_gaps)} gaps, {len(result.advisory_opportunities)} advisory opportunities")
+          f"{len(result.intelligence_gaps)} gaps, {len(result.advisory_opportunities)} advisory opportunities, "
+          f"{result.total_connector_calls} connector calls")
 
 
 if __name__ == "__main__":

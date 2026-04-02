@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard, Network } from "lucide-react";
+import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard, Network, Radar } from "lucide-react";
 import { T, FS, FX } from "@/lib/tokens";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { LoginScreen } from "@/components/xiphos/login-screen";
@@ -11,6 +11,7 @@ import { DemoCompare } from "@/components/xiphos/demo-compare";
 import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligence-dashboard";
 import ComplianceDashboard from "@/components/xiphos/compliance-dashboard";
 import { ErrorBoundary } from "@/components/xiphos/error-boundary";
+import { AxiomDashboard } from "@/components/xiphos/axiom-dashboard";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
@@ -144,7 +145,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
   };
 }
 
-type Tab = "dashboard" | "helios" | "portfolio" | "threads" | "graph" | "admin";
+type Tab = "dashboard" | "helios" | "portfolio" | "threads" | "graph" | "axiom" | "admin";
 
 function shellPriorityRank(disposition: ReturnType<typeof portfolioDisposition>): number {
   if (disposition === "blocked") return 3;
@@ -526,6 +527,7 @@ export default function App() {
                   { id: "dashboard" as const, label: "Overview", icon: LayoutDashboard },
                   { id: "threads" as const, label: "Threads", icon: Network },
                   { id: "graph" as const, label: "Graph Intel", icon: Grid3X3 },
+                  { id: "axiom" as const, label: "AXIOM", icon: Radar },
                 ] as const).map((t) => {
                   const isActive = tab === t.id;
                   return (
@@ -715,8 +717,8 @@ export default function App() {
         </header>
 
       {/* Main content */}
-      <main className={`flex-1 overflow-auto ${tab === "graph" || tab === "dashboard" ? "p-0" : "p-4 lg:p-6"}`}>
-        <div className={`${tab === "graph" || tab === "dashboard" ? "w-full h-full" : "max-w-[1400px] mx-auto"} h-full`}>
+      <main className={`flex-1 overflow-auto ${tab === "graph" || tab === "dashboard" || tab === "axiom" ? "p-0" : "p-4 lg:p-6"}`}>
+        <div className={`${tab === "graph" || tab === "dashboard" || tab === "axiom" ? "w-full h-full" : "max-w-[1400px] mx-auto"} h-full`}>
           {selected ? (
             <CaseDetail
               c={selected}
@@ -754,6 +756,8 @@ export default function App() {
             <MissionThreadsScreen onNavigate={(t) => setTab(t as Tab)} />
           ) : tab === "graph" ? (
             <GraphIntelligenceDashboard />
+          ) : tab === "axiom" ? (
+            <AxiomDashboard />
           ) : tab === "admin" && user && hasPermission(user, "auditor") ? (
             <AdminPanel currentUser={user} />
           ) : (
