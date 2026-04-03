@@ -7,18 +7,14 @@ import type { VettingCase } from "@/lib/types";
 import { emit } from "@/lib/telemetry";
 import { EmptyPanel, InlineMessage, MetricTile, SectionEyebrow } from "./shell-primitives";
 import { portfolioDisposition, workflowLaneForCase, WORKFLOW_LANE_META } from "./portfolio-utils";
-import type { WorkflowLane } from "./portfolio-utils";
 
 interface PortfolioScreenProps {
   allCases: VettingCase[];
   cases: VettingCase[];
   query?: string;
   onSelect: (c: VettingCase) => void;
-  globalLane?: WorkflowLane;
-  onGlobalLaneChange?: (lane: WorkflowLane) => void;
   onNavigate?: (tab: string) => void;
   laneSummary?: {
-    lane: WorkflowLane;
     label: string;
     shortLabel: string;
     description: string;
@@ -32,7 +28,6 @@ interface PortfolioScreenProps {
 }
 
 type SortBy = "score" | "name" | "date";
-type LaneFilter = "all" | "counterparty" | "cyber" | "export";
 
 function caseTimestamp(c: VettingCase): number {
   const raw = c.created_at || c.date;
@@ -135,21 +130,18 @@ export function PortfolioScreen({
   cases,
   query,
   onSelect,
-  globalLane,
   onNavigate,
   laneSummary,
 }: PortfolioScreenProps) {
   const [sortBy, setSortBy] = useState<SortBy>("score");
   const [anomalies, setAnomalies] = useState<Record<string, unknown>[]>([]);
   const [monitorChanges, setMonitorChanges] = useState<MonitorChangeEntry[]>([]);
-  const laneFilter: LaneFilter = globalLane ?? "all";
 
   useEffect(() => {
     fetchPortfolioAnomalies(20).then((result) => setAnomalies(result.anomalies ?? [])).catch(() => undefined);
     fetchMonitorChanges(20).then((result) => setMonitorChanges(result.changes ?? [])).catch(() => undefined);
   }, []);
 
-  const activeLaneMeta = laneFilter === "all" ? null : WORKFLOW_LANE_META[laneFilter];
   const blockedCases = useMemo(() => cases.filter((c) => portfolioDisposition(c) === "blocked"), [cases]);
   const reviewCases = useMemo(() => cases.filter((c) => portfolioDisposition(c) === "review"), [cases]);
   const watchCases = useMemo(() => cases.filter((c) => portfolioDisposition(c) === "qualified"), [cases]);
@@ -158,10 +150,7 @@ export function PortfolioScreen({
     [cases],
   );
   const sortedCases = useMemo(() => {
-    const scopedCases = laneFilter === "all"
-      ? cases
-      : cases.filter((c) => workflowLaneForCase(c) === laneFilter);
-    const sorted = [...scopedCases];
+    const sorted = [...cases];
     if (sortBy === "score") {
       sorted.sort((a, b) => operatorPriorityScore(b) - operatorPriorityScore(a));
     } else if (sortBy === "name") {
@@ -170,12 +159,11 @@ export function PortfolioScreen({
       sorted.sort((a, b) => caseTimestamp(b) - caseTimestamp(a));
     }
     return sorted;
-  }, [cases, laneFilter, sortBy]);
+  }, [cases, sortBy]);
 
   const topCase = priorityCases[0] ?? null;
   const queueSummary = laneSummary?.summary
-    || activeLaneMeta?.description
-    || "Review the cases that need a disposition next, clear blockers, and move the lane forward.";
+    || "Review the cases that need a disposition next, clear blockers, and move the vendor assessment queue forward.";
 
   return (
     <div
@@ -201,7 +189,7 @@ export function PortfolioScreen({
           <div style={{ minWidth: 0, flex: 1, maxWidth: 840 }}>
             <SectionEyebrow>Operator workbench</SectionEyebrow>
             <div style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text, marginTop: SP.sm }}>
-              {activeLaneMeta ? `${activeLaneMeta.shortLabel} queue` : "Work the queue, not the chrome."}
+              Work the queue, not the chrome.
             </div>
             <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.65, marginTop: SP.sm }}>
               {queueSummary}
@@ -320,7 +308,7 @@ export function PortfolioScreen({
             <div>
               <SectionEyebrow>Priority queue</SectionEyebrow>
               <div style={{ fontSize: FS.base, fontWeight: 800, color: T.text, marginTop: SP.xs }}>
-                Start where the lane breaks first.
+                Start where the queue breaks first.
               </div>
             </div>
             <div style={{ fontSize: FS.xs, color: T.textTertiary }}>
@@ -384,8 +372,8 @@ export function PortfolioScreen({
             </div>
           ) : (
             <EmptyPanel
-              title="No active cases in this lane"
-              description="Open a new intake or switch lanes if the work is sitting somewhere else."
+              title="No active assessments yet"
+              description="Open a new intake or pivot in from a contract vehicle to seed the queue."
               action={
                 <button
                   type="button"
@@ -593,7 +581,7 @@ export function PortfolioScreen({
               }}
             >
               <span>Vendor</span>
-              <span>Lane</span>
+              <span>Support layer</span>
               <span>Tier</span>
               <span>Disposition</span>
               <span style={{ textAlign: "right" }}>Risk</span>
@@ -724,8 +712,8 @@ export function PortfolioScreen({
           </div>
         ) : (
           <EmptyPanel
-            title="No active cases in this lane"
-            description="Open a new intake to start the queue, or switch lanes if the work is sitting somewhere else."
+            title="No active assessments yet"
+            description="Open a new intake to start the queue, or pivot in from a contract vehicle if that is where the work begins."
             action={
               <button
                 type="button"

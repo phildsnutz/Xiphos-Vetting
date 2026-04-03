@@ -21,8 +21,14 @@ import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermis
 import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, ScreeningPolicyBasis, ScoringPolicyMetadata } from "@/lib/types";
 import { parseTier, tierToRisk } from "@/lib/tokens";
-import { WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "@/components/xiphos/portfolio-utils";
-import type { WorkflowLane } from "@/components/xiphos/portfolio-utils";
+import {
+  PRODUCT_PILLAR_META,
+  WORKFLOW_LANE_META,
+  portfolioDisposition,
+  productPillarForCase,
+  workflowLaneForCase,
+} from "@/components/xiphos/portfolio-utils";
+import type { ProductPillar, WorkflowLane } from "@/components/xiphos/portfolio-utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InlineMessage, ShortcutBadge } from "@/components/xiphos/shell-primitives";
 
@@ -173,6 +179,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("portfolio");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
+  const [productFocus, setProductFocus] = useState<ProductPillar>("vendor_assessment");
   const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [casesLoading, setCasesLoading] = useState(!isFileMode);
@@ -249,11 +256,9 @@ export default function App() {
     });
   }, [isFileMode, loadCases]);
 
-  const shellLaneMeta = WORKFLOW_LANE_META[workflowMode];
-  const shellLaneCases = useMemo(
-    () => cases.filter((c) => workflowLaneForCase(c) === workflowMode),
-    [cases, workflowMode],
-  );
+  const activePillar = selected ? productPillarForCase(selected) : productFocus;
+  const shellPillarMeta = PRODUCT_PILLAR_META[activePillar];
+  const shellLaneCases = useMemo(() => cases, [cases]);
   const shellLaneBlocked = useMemo(
     () => shellLaneCases.filter((c) => portfolioDisposition(c) === "blocked").length,
     [shellLaneCases],
@@ -275,25 +280,30 @@ export default function App() {
     return ranked[0] ?? null;
   }, [shellLaneCases]);
   const shellSummary = useMemo(() => {
+    if (activePillar === "contract_vehicle") {
+      return "Start from the vehicle, map primes and subs, then turn the right vendors into assessments and AXIOM-backed dossier work.";
+    }
     if (shellLaneCases.length === 0) {
-      return `No ${shellLaneMeta.label.toLowerCase()} cases are active yet. Start a new case in this lane.`;
+      return "No vendor assessments are active yet. Start from a supplier or pivot in from a contract vehicle.";
     }
     if (shellLaneBlocked > 0) {
-      return `${shellLaneBlocked} blocked ${shellLaneMeta.shortLabel.toLowerCase()} case${shellLaneBlocked === 1 ? "" : "s"} require immediate action.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
+      return `${shellLaneBlocked} blocked vendor assessment${shellLaneBlocked === 1 ? "" : "s"} require immediate action.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
     }
     if (shellLaneReview > 0) {
-      return `${shellLaneReview} ${shellLaneMeta.shortLabel.toLowerCase()} case${shellLaneReview === 1 ? "" : "s"} need focused review.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
+      return `${shellLaneReview} vendor assessment${shellLaneReview === 1 ? "" : "s"} need focused review.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
     }
     if (shellLaneWatch > 0) {
-      return `${shellLaneWatch} qualified ${shellLaneMeta.shortLabel.toLowerCase()} case${shellLaneWatch === 1 ? "" : "s"} remain on watch.${shellTopCase ? ` Highest priority: ${shellTopCase.name}.` : ""}`;
+      return `${shellLaneWatch} qualified assessment${shellLaneWatch === 1 ? "" : "s"} remain on watch.${shellTopCase ? ` Highest priority: ${shellTopCase.name}.` : ""}`;
     }
-    return `The ${shellLaneMeta.label.toLowerCase()} queue is currently stable.${shellTopCase ? ` Highest-priority case: ${shellTopCase.name}.` : ""}`;
-  }, [shellLaneBlocked, shellLaneCases.length, shellLaneMeta.label, shellLaneMeta.shortLabel, shellLaneReview, shellLaneWatch, shellTopCase]);
+    return `The vendor assessment queue is currently stable.${shellTopCase ? ` Highest-priority case: ${shellTopCase.name}.` : ""}`;
+  }, [activePillar, shellLaneBlocked, shellLaneCases.length, shellLaneReview, shellLaneWatch, shellTopCase]);
   const shellLaneSummary = useMemo(() => ({
     lane: workflowMode,
-    label: shellLaneMeta.label,
-    shortLabel: shellLaneMeta.shortLabel,
-    description: shellLaneMeta.description,
+    label: activePillar === "contract_vehicle" ? "Contract vehicle intelligence" : "Vendor assessment queue",
+    shortLabel: activePillar === "contract_vehicle" ? "Vehicle" : "Vendor",
+    description: activePillar === "contract_vehicle"
+      ? "Start from the vehicle and spin the right vendors into assessment."
+      : "All active vendor assessments across core, cyber, and export support layers.",
     activeCount: shellLaneCases.length,
     reviewCount: shellLaneReview,
     blockedCount: shellLaneBlocked,
@@ -301,11 +311,9 @@ export default function App() {
     summary: shellSummary,
     topCaseName: shellTopCase?.name ?? null,
   }), [
+    activePillar,
     shellLaneBlocked,
     shellLaneCases.length,
-    shellLaneMeta.description,
-    shellLaneMeta.label,
-    shellLaneMeta.shortLabel,
     shellLaneReview,
     shellLaneWatch,
     shellSummary,
@@ -344,7 +352,10 @@ export default function App() {
   const handleCaseCreated = async (caseId: string) => {
     const mapped = await refreshCases();
     const newCase = mapped.find((c) => c.id === caseId);
-    if (newCase) setSelected(newCase);
+    if (newCase) {
+      setProductFocus("vendor_assessment");
+      setSelected(newCase);
+    }
   };
 
   useEffect(() => {
@@ -481,13 +492,13 @@ export default function App() {
                 : "Admin";
 
   const screenSubtitle = selected
-    ? `${WORKFLOW_LANE_META[workflowLaneForCase(selected)].shortLabel} case review`
+    ? `Vendor assessment workspace • ${WORKFLOW_LANE_META[workflowLaneForCase(selected)].label.toLowerCase()}`
     : tab === "portfolio"
       ? shellSummary
       : tab === "helios"
-        ? "Start a new case, pivot to vehicle search, or resume the queue."
+        ? "Open a vendor assessment, pivot from a contract vehicle, or bring supporting layers into scope."
         : tab === "dashboard"
-          ? "Status, drift, and operator pressure across the workspace."
+          ? "Status, drift, and supporting-layer pressure across the workspace."
           : tab === "threads"
             ? "Model contested sustainment as a mission problem, not a single-vendor problem."
             : tab === "graph"
@@ -612,13 +623,13 @@ export default function App() {
     {
       id: "helios",
       label: "Intake",
-      description: "Open new cases and pivot into vehicle search.",
+      description: "Start vendor assessments or pivot in from a contract vehicle.",
       icon: Shield,
     },
     {
       id: "dashboard",
       label: "Overview",
-      description: "Read posture, drift, and cross-lane pressure.",
+      description: "Read posture, drift, and supporting-layer pressure.",
       icon: LayoutDashboard,
     },
     {
@@ -655,7 +666,8 @@ export default function App() {
     : "TG";
 
   const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
-  const showLaneControls = !selected && tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads";
+  const showWorkflowControls = !selected && tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads";
+  const showSupportingLayerControls = showWorkflowControls && productFocus === "vendor_assessment";
   const shellContent = selected ? (
     <CaseDetail
       c={selected}
@@ -663,7 +675,6 @@ export default function App() {
       onRescore={apiAvailable ? handleRescore : undefined}
       onDossier={handleDossier}
       onCaseRefresh={handleCaseCreated}
-      globalLane={workflowMode}
       laneSummary={shellLaneSummary}
     />
   ) : tab === "dashboard" ? (
@@ -675,20 +686,20 @@ export default function App() {
       onCasesRefresh={async () => { await refreshCases(); }}
       cases={cases}
       preferredLane={workflowMode}
+      preferredPillar={productFocus}
       onPreferredLaneChange={setWorkflowMode}
+      onPreferredPillarChange={setProductFocus}
     />
   ) : tab === "portfolio" ? (
     casesLoading ? (
       <PortfolioSkeleton />
     ) : (
       <PortfolioScreen
-        key={`portfolio-${workflowMode}`}
+        key="portfolio"
         allCases={cases}
         cases={filtered}
         query={query}
         onSelect={setSelected}
-        globalLane={workflowMode}
-        onGlobalLaneChange={setWorkflowMode}
         onNavigate={(t) => setTab(t as Tab)}
         laneSummary={shellLaneSummary}
       />
@@ -708,7 +719,9 @@ export default function App() {
       onCasesRefresh={async () => { await refreshCases(); }}
       cases={cases}
       preferredLane={workflowMode}
+      preferredPillar={productFocus}
       onPreferredLaneChange={setWorkflowMode}
+      onPreferredPillarChange={setProductFocus}
     />
   );
 
@@ -779,11 +792,11 @@ export default function App() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: shellLaneMeta.softBackground,
-                    border: `1px solid ${shellLaneMeta.accent}${O["20"]}`,
+                    background: shellPillarMeta.softBackground,
+                    border: `1px solid ${shellPillarMeta.accent}${O["20"]}`,
                   }}
                 >
-                  <Shield size={18} color={shellLaneMeta.accent} />
+                  <Shield size={18} color={shellPillarMeta.accent} />
                 </div>
                 <div>
                   <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em" }}>Helios</div>
@@ -848,8 +861,8 @@ export default function App() {
                   }}
                   className="helios-focus-ring"
                   style={{
-                    border: `1px solid ${active ? `${shellLaneMeta.accent}${O["20"]}` : "transparent"}`,
-                    background: active ? shellLaneMeta.softBackground : "transparent",
+                    border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : "transparent"}`,
+                    background: active ? shellPillarMeta.softBackground : "transparent",
                     color: active ? T.text : T.textSecondary,
                     borderRadius: 16,
                     padding: PAD.default,
@@ -869,12 +882,12 @@ export default function App() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: active ? `${shellLaneMeta.accent}${O["12"]}` : T.surface,
-                      border: `1px solid ${active ? `${shellLaneMeta.accent}${O["20"]}` : T.border}`,
+                      background: active ? `${shellPillarMeta.accent}${O["12"]}` : T.surface,
+                      border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : T.border}`,
                       flexShrink: 0,
                     }}
                   >
-                    <Icon size={15} color={active ? shellLaneMeta.accent : T.textTertiary} />
+                    <Icon size={15} color={active ? shellPillarMeta.accent : T.textTertiary} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: FS.sm, fontWeight: 700, color: active ? T.text : T.textSecondary }}>
@@ -903,7 +916,7 @@ export default function App() {
                       {item.badge}
                     </span>
                   ) : (
-                    <ChevronRight size={14} color={active ? shellLaneMeta.accent : T.textTertiary} />
+                    <ChevronRight size={14} color={active ? shellPillarMeta.accent : T.textTertiary} />
                   )}
                 </button>
               );
@@ -911,7 +924,7 @@ export default function App() {
           </nav>
 
           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: SP.sm }}>
-            {showLaneControls ? (
+            {showWorkflowControls ? (
               <div
                 className="glass-card"
                 style={{
@@ -923,17 +936,28 @@ export default function App() {
                 }}
               >
                 <div style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textTertiary }}>
-                  Focus lane
+                  Primary workflow
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
-                  {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
-                    const meta = WORKFLOW_LANE_META[lane];
-                    const active = workflowMode === lane;
+                  {(Object.keys(PRODUCT_PILLAR_META) as ProductPillar[]).map((pillar) => {
+                    const meta = PRODUCT_PILLAR_META[pillar];
+                    const active = productFocus === pillar;
                     return (
                       <button
-                        key={lane}
+                        key={pillar}
                         type="button"
-                        onClick={() => setWorkflowMode(lane)}
+                        onClick={() => {
+                          setProductFocus(pillar);
+                          setSelected(null);
+                          if (pillar === "contract_vehicle") {
+                            setWorkflowMode("counterparty");
+                            setTab("helios");
+                            return;
+                          }
+                          if (tab === "helios") {
+                            setTab("portfolio");
+                          }
+                        }}
                         className="helios-focus-ring"
                         style={{
                           border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
@@ -947,10 +971,13 @@ export default function App() {
                         }}
                         title={meta.description}
                       >
-                        {meta.shortLabel}
+                        {meta.label}
                       </button>
                     );
                   })}
+                </div>
+                <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
+                  Cyber and export stay inside vendor assessment as supporting layers.
                 </div>
               </div>
             ) : null}
@@ -985,7 +1012,12 @@ export default function App() {
                     </span>
                     {selected ? <ChevronRight size={14} color={T.textTertiary} /> : null}
                     {selected ? (
-                      <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: shellLaneMeta.accent }}>
+                      <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: PRODUCT_PILLAR_META.vendor_assessment.accent }}>
+                        {PRODUCT_PILLAR_META.vendor_assessment.label}
+                      </span>
+                    ) : null}
+                    {selected ? (
+                      <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: WORKFLOW_LANE_META[workflowLaneForCase(selected)].accent }}>
                         {WORKFLOW_LANE_META[workflowLaneForCase(selected)].shortLabel}
                       </span>
                     ) : null}
@@ -1211,9 +1243,9 @@ export default function App() {
                             display: "inline-flex",
                             alignItems: "center",
                             gap: SP.xs,
-                            border: `1px solid ${active ? `${shellLaneMeta.accent}${O["20"]}` : T.border}`,
-                            background: active ? shellLaneMeta.softBackground : T.surface,
-                            color: active ? shellLaneMeta.accent : T.textSecondary,
+                            border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : T.border}`,
+                            background: active ? shellPillarMeta.softBackground : T.surface,
+                            color: active ? shellPillarMeta.accent : T.textSecondary,
                             borderRadius: 999,
                             padding: "8px 12px",
                             fontSize: FS.sm,
@@ -1228,7 +1260,7 @@ export default function App() {
                     })}
                   </div>
 
-                  {showLaneControls ? (
+                  {showSupportingLayerControls ? (
                     <div className="flex flex-wrap items-center gap-2">
                       {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
                         const meta = WORKFLOW_LANE_META[lane];
@@ -1353,7 +1385,7 @@ export default function App() {
             <DialogHeader>
               <DialogTitle style={{ color: T.text }}>Submit beta feedback</DialogTitle>
               <DialogDescription style={{ color: T.muted }}>
-                Captures the current lane, screen, and case context for triage.
+                Captures the current workflow, screen, and case context for triage.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmitFeedback} className="flex flex-col gap-3">
@@ -1391,7 +1423,8 @@ export default function App() {
               >
                 <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 4 }}>Current context</div>
                 <div style={{ fontSize: FS.sm, color: T.text }}>
-                  Lane: {selected ? WORKFLOW_LANE_META[workflowLaneForCase(selected)].label : shellLaneMeta.label}
+                  Workflow: {selected ? PRODUCT_PILLAR_META.vendor_assessment.label : PRODUCT_PILLAR_META[productFocus].label}
+                  {selected ? ` · Supporting layer: ${WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}` : ""}
                   {" · "}
                   Screen: {selected ? "case" : tab}
                   {selected ? ` · Case: ${selected.name}` : ""}

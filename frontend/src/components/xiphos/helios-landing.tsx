@@ -14,7 +14,8 @@ import type { EntityCandidate, VehicleVendor, VehicleSearchResult, EntityResolut
 import type { VettingCase } from "@/lib/types";
 import { SupplyChainGraph } from "./supply-chain-graph";
 import { EnrichmentStream } from "./enrichment-stream";
-import { WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "./portfolio-utils";
+import { PRODUCT_PILLAR_META, WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "./portfolio-utils";
+import type { ProductPillar } from "./portfolio-utils";
 import { EmptyPanel, InlineMessage, MetricTile, SectionEyebrow } from "./shell-primitives";
 
 const GOLD = T.gold;
@@ -26,7 +27,9 @@ interface HeliosLandingProps {
   onCasesRefresh?: () => Promise<void>;
   cases?: VettingCase[];
   preferredLane?: DecisionLane;
+  preferredPillar?: ProductPillar;
   onPreferredLaneChange?: (lane: DecisionLane) => void;
+  onPreferredPillarChange?: (pillar: ProductPillar) => void;
 }
 
 type Phase = "idle" | "resolving" | "candidates" | "confirm" | "creating" | "enriching" | "done" | "error" | "vehicle-searching" | "vehicle-results";
@@ -64,32 +67,48 @@ const EXPORT_JURISDICTION_OPTIONS: Array<{ value: NonNullable<ExportAuthorizatio
 
 const LANE_BRIEFS: Record<DecisionLane, { title: string; question: string; outputs: string; evidence: string; useWhen: string }> = {
   counterparty: {
-    title: "Defense counterparty trust",
-    question: "Can we award, keep, or qualify this supplier given ownership, foreign-influence, and network evidence?",
+    title: "Core vendor assessment",
+    question: "Can we trust, pursue, partner with, or approve this vendor from the core diligence record?",
     outputs: "Approved / Qualified / Review / Blocked",
     evidence: "Form 328, ownership charts, SAM.gov registration, SAM.gov subaward reporting, sanctions, and network context",
-    useWhen: "Use this for pre-award adjudication, FOCI-sensitive review, and supplier trust decisions.",
+    useWhen: "Use this as the default path for supplier trust, ownership, FOCI, and pre-award adjudication.",
   },
   cyber: {
-    title: "Supply chain assurance",
-    question: "Can this supplier, product, and dependency stack be trusted with CUI-sensitive or mission-critical work given attestation, remediation, provenance, and vulnerability evidence?",
-    outputs: "Ready / Qualified / Review / Blocked",
+    title: "Cyber support layer",
+    question: "What cyber, software, and remediation evidence should change the vendor decision?",
+    outputs: "Raises trust / preserves trust / requires review / blocks work",
     evidence: "SPRS exports, OSCAL SSP or POA&M artifacts, SBOM or VEX evidence, and product vulnerability overlays",
-    useWhen: "Use this when the decision depends on CMMC readiness, software or firmware assurance, dependency risk, or cyber posture.",
+    useWhen: "Use this when the vendor decision depends on CMMC readiness, dependency risk, or software assurance evidence.",
   },
   export: {
-    title: "Export authorization",
-    question: "Can this item, technical-data release, or foreign-person access request move forward under current control posture?",
+    title: "Export support layer",
+    question: "What export-control evidence should change the vendor decision or access boundary?",
     outputs: "Likely prohibited / License required / Exception path / Likely NLR / Escalate",
     evidence: "Classification memos, license history, access-control records, and BIS or DDTC rule guidance",
-    useWhen: "Use this for item transfers, technical-data release, and foreign-person access decisions.",
+    useWhen: "Use this when item transfer, technical-data release, or foreign-person access changes the vendor decision.",
   },
 };
 
-const LANE_ICONS = {
-  counterparty: Building2,
-  cyber: Zap,
-  export: Globe2,
+const PILLAR_BRIEFS: Record<ProductPillar, { title: string; question: string; outputs: string; evidence: string; useWhen: string }> = {
+  vendor_assessment: {
+    title: "Vendor Assessment",
+    question: "Can we trust, clear, or block this vendor once the right supporting layers are in scope?",
+    outputs: "Approved / Watch / Review / Blocked",
+    evidence: "Core diligence, cyber evidence, export controls, graph context, and AXIOM gap closure.",
+    useWhen: "Use this when the decision starts with a supplier, subcontractor, affiliate, or prime.",
+  },
+  contract_vehicle: {
+    title: "Contract Vehicle Intelligence",
+    question: "What does this vehicle’s prime and sub ecosystem tell us about who to pursue, partner with, or attack?",
+    outputs: "Vehicle map / vendor queue / dossier leads",
+    evidence: "Award spine, subaward fragments, teammate inference, AXIOM collection, and dossier closure.",
+    useWhen: "Use this when the work starts from a vehicle, not a supplier.",
+  },
+};
+
+const PILLAR_ICONS: Record<ProductPillar, typeof Building2> = {
+  vendor_assessment: Building2,
+  contract_vehicle: GitBranch,
 } as const;
 
 function caseTimestamp(value?: string): number {
@@ -217,7 +236,9 @@ export function HeliosLanding({
   onCasesRefresh,
   cases = [],
   preferredLane = "counterparty",
+  preferredPillar = "vendor_assessment",
   onPreferredLaneChange,
+  onPreferredPillarChange,
 }: HeliosLandingProps) {
   const [input, setInput] = useState("");
   const [searchMode, setSearchMode] = useState<"entity" | "vehicle" | "export">("entity");
@@ -247,16 +268,18 @@ export function HeliosLanding({
   const fallbackCandidates = recommendedCandidate
     ? candidates.filter((candidate) => candidate.candidate_id !== recommendedCandidate.candidate_id)
     : candidates;
-  const entityWorkflowLabel = entityWorkflow === "cyber" ? "Supply chain assurance" : "Defense counterparty trust";
-  const confirmIntro = entityWorkflow === "cyber"
-    ? "Final check before Helios begins supply chain assurance review."
-    : "Final check before Helios begins defense counterparty review.";
-  const confirmPrimaryAction = entityWorkflow === "cyber" ? "Begin Cyber Review" : "Begin Counterparty Review";
+  const activePillar: ProductPillar = searchMode === "vehicle" ? "contract_vehicle" : "vendor_assessment";
   const activeLane: DecisionLane = searchMode === "export" ? "export" : entityWorkflow === "cyber" ? "cyber" : "counterparty";
+  const activePillarBrief = PILLAR_BRIEFS[activePillar];
+  const activePillarMeta = PRODUCT_PILLAR_META[activePillar];
   const activeLaneBrief = LANE_BRIEFS[activeLane];
   const activeLaneMeta = WORKFLOW_LANE_META[activeLane];
-  const laneCases = cases
-    .filter((c) => workflowLaneForCase(c) === activeLane)
+  const entityWorkflowLabel = entityWorkflow === "cyber" ? "Vendor assessment · cyber layer" : "Vendor assessment · core layer";
+  const confirmIntro = entityWorkflow === "cyber"
+    ? "Final check before Helios opens a vendor assessment with cyber evidence in scope."
+    : "Final check before Helios opens the vendor assessment.";
+  const confirmPrimaryAction = "Begin Vendor Assessment";
+  const laneCases = [...cases]
     .sort((a, b) => caseTimestamp(b.created_at || b.date) - caseTimestamp(a.created_at || a.date));
   const priorityLaneCases = [...laneCases]
     .sort((a, b) => casePriorityScore(b, clockTs) - casePriorityScore(a, clockTs))
@@ -283,7 +306,9 @@ export function HeliosLanding({
   }).length;
   const freshCount = laneCases.filter((c) => clockTs - caseTimestamp(c.created_at || c.date) <= 86_400_000).length;
   const primaryPlaceholder =
-    activeLane === "cyber"
+    activePillar === "contract_vehicle"
+      ? "Enter contract vehicle name, PIID, or solicitation"
+      : activeLane === "cyber"
       ? "Enter supplier, product vendor, or software provider"
       : activeLane === "counterparty"
         ? "Enter supplier, subcontractor, or prime contractor"
@@ -303,6 +328,11 @@ export function HeliosLanding({
   useEffect(() => {
     if (phase !== "idle") return;
     const syncTimer = window.setTimeout(() => {
+      if (preferredPillar === "contract_vehicle") {
+        setSearchMode("vehicle");
+        setEntityWorkflow("counterparty");
+        return;
+      }
       if (preferredLane === "export") {
         setSearchMode("export");
         return;
@@ -311,7 +341,7 @@ export function HeliosLanding({
       setEntityWorkflow(preferredLane === "cyber" ? "cyber" : "counterparty");
     }, 0);
     return () => window.clearTimeout(syncTimer);
-  }, [phase, preferredLane]);
+  }, [phase, preferredLane, preferredPillar]);
 
   useEffect(() => {
     if (phase !== "idle") return;
@@ -324,15 +354,38 @@ export function HeliosLanding({
   }, []);
 
   const openVehicleUtility = useCallback(() => {
+    onPreferredPillarChange?.("contract_vehicle");
     setSearchMode("vehicle");
     setEntityWorkflow("counterparty");
     setInput("");
     setErrorText("");
     focusEntityInput();
-  }, [focusEntityInput]);
+  }, [focusEntityInput, onPreferredPillarChange]);
+
+  const handlePillarSelect = useCallback((pillar: ProductPillar) => {
+    onPreferredPillarChange?.(pillar);
+    setErrorText("");
+    setInput("");
+    setPhase("idle");
+    setStatusText("");
+    if (pillar === "contract_vehicle") {
+      setSearchMode("vehicle");
+      setEntityWorkflow("counterparty");
+      focusEntityInput();
+      return;
+    }
+    if (preferredLane === "export") {
+      setSearchMode("export");
+      return;
+    }
+    setSearchMode("entity");
+    setEntityWorkflow(preferredLane === "cyber" ? "cyber" : "counterparty");
+    focusEntityInput();
+  }, [focusEntityInput, onPreferredPillarChange, preferredLane]);
 
   const handleLaneSelect = useCallback((lane: DecisionLane) => {
     onPreferredLaneChange?.(lane);
+    onPreferredPillarChange?.("vendor_assessment");
     setErrorText("");
     setInput("");
     setPhase("idle");
@@ -344,7 +397,7 @@ export function HeliosLanding({
     setSearchMode("entity");
     setEntityWorkflow(lane === "cyber" ? "cyber" : "counterparty");
     focusEntityInput();
-  }, [focusEntityInput, onPreferredLaneChange]);
+  }, [focusEntityInput, onPreferredLaneChange, onPreferredPillarChange]);
 
   // Step 1: User submits a name -> resolve entity
   const handleSubmit = async () => {
@@ -405,7 +458,7 @@ export function HeliosLanding({
 
     setEntityName(recipientName);
     setPhase("creating");
-    setStatusText("Creating export authorization case...");
+    setStatusText("Creating vendor assessment with export layer...");
     setErrorText("");
 
     try {
@@ -597,7 +650,9 @@ export function HeliosLanding({
 
   const reset = () => {
     setPhase("idle"); setStatusText(""); setErrorText("");
-    if (preferredLane === "export") {
+    if (preferredPillar === "contract_vehicle") {
+      setSearchMode("vehicle");
+    } else if (preferredLane === "export") {
       setSearchMode("export");
     } else {
       setSearchMode("entity");
@@ -609,7 +664,7 @@ export function HeliosLanding({
     setVehicleResults(null);
     setShowGraph(false); setBatchStatus("idle"); setBatchResults(null);
     setActiveCaseId(null);
-    if (preferredLane !== "export") {
+    if (preferredPillar !== "contract_vehicle" && preferredLane !== "export") {
       inputRef.current?.focus();
     }
   };
@@ -630,18 +685,17 @@ export function HeliosLanding({
       {phase === "idle" && (
         <div style={{ width: "100%", maxWidth: 1360 }} className="animate-slide-up">
           <div style={{ display: "flex", flexDirection: "column", gap: SP.lg, width: "100%" }}>
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              {(["counterparty", "cyber", "export"] as DecisionLane[]).map((lane) => {
-                const meta = WORKFLOW_LANE_META[lane];
-                const brief = LANE_BRIEFS[lane];
-                const counts = laneCounts[lane];
-                const active = lane === activeLane;
-                const LaneIcon = LANE_ICONS[lane];
+            <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {(["vendor_assessment", "contract_vehicle"] as ProductPillar[]).map((pillar) => {
+                const meta = PRODUCT_PILLAR_META[pillar];
+                const brief = PILLAR_BRIEFS[pillar];
+                const active = pillar === activePillar;
+                const PillarIcon = PILLAR_ICONS[pillar];
                 return (
                   <button
-                    key={lane}
+                    key={pillar}
                     type="button"
-                    onClick={() => handleLaneSelect(lane)}
+                    onClick={() => handlePillarSelect(pillar)}
                     className="glass-card helios-focus-ring"
                     style={{
                       padding: PAD.comfortable,
@@ -670,7 +724,7 @@ export function HeliosLanding({
                             color: meta.accent,
                           }}
                         >
-                          <LaneIcon size={18} />
+                          <PillarIcon size={18} />
                         </div>
                         <div>
                           <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -687,20 +741,84 @@ export function HeliosLanding({
                     </div>
                     <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{brief.question}</div>
                     <div style={{ display: "flex", gap: SP.xs, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: FS.xs, color: T.text, padding: "5px 8px", borderRadius: 999, background: T.surface, border: `1px solid ${T.border}` }}>
-                        {counts.total} active
-                      </span>
-                      <span style={{ fontSize: FS.xs, color: T.amber, padding: "5px 8px", borderRadius: 999, background: T.amberBg, border: `1px solid ${T.amber}${O["30"]}` }}>
-                        {counts.review} review
-                      </span>
-                      <span style={{ fontSize: FS.xs, color: T.red, padding: "5px 8px", borderRadius: 999, background: T.redBg, border: `1px solid ${T.red}${O["30"]}` }}>
-                        {counts.blocked} blocked
-                      </span>
+                      {pillar === "vendor_assessment" ? (
+                        <>
+                          <span style={{ fontSize: FS.xs, color: T.text, padding: "5px 8px", borderRadius: 999, background: T.surface, border: `1px solid ${T.border}` }}>
+                            {cases.length} active
+                          </span>
+                          <span style={{ fontSize: FS.xs, color: T.amber, padding: "5px 8px", borderRadius: 999, background: T.amberBg, border: `1px solid ${T.amber}${O["30"]}` }}>
+                            {blockedCount + reviewCount} needs review
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: FS.xs, color: T.text, padding: "5px 8px", borderRadius: 999, background: T.surface, border: `1px solid ${T.border}` }}>
+                            award spine
+                          </span>
+                          <span style={{ fontSize: FS.xs, color: T.accent, padding: "5px 8px", borderRadius: 999, background: T.accentSoft, border: `1px solid ${T.accent}${O["30"]}` }}>
+                            prime + sub map
+                          </span>
+                        </>
+                      )}
                     </div>
                   </button>
                 );
               })}
             </section>
+
+            {activePillar === "vendor_assessment" ? (
+              <section
+                className="glass-card"
+                style={{
+                  padding: PAD.default,
+                  borderRadius: 18,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: SP.sm,
+                }}
+              >
+                <div>
+                  <SectionEyebrow>Assessment scope</SectionEyebrow>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
+                    Use Core by default. Cyber and export act as supporting layers that change the vendor decision when needed.
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(["counterparty", "cyber", "export"] as DecisionLane[]).map((lane) => {
+                    const meta = WORKFLOW_LANE_META[lane];
+                    const counts = laneCounts[lane];
+                    const active = lane === activeLane;
+                    return (
+                      <button
+                        key={lane}
+                        type="button"
+                        onClick={() => handleLaneSelect(lane)}
+                        className="helios-focus-ring"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: SP.xs,
+                          borderRadius: 999,
+                          border: `1px solid ${active ? meta.softBorder : T.border}`,
+                          background: active ? meta.softBackground : T.surface,
+                          color: active ? meta.accent : T.textSecondary,
+                          padding: "8px 12px",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                        title={meta.description}
+                      >
+                        {meta.shortLabel}
+                        <span style={{ fontSize: FS.xs, color: active ? meta.accent : T.textTertiary }}>
+                          {counts.total}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
 
             <section className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] gap-4 items-start">
               <div
@@ -708,8 +826,8 @@ export function HeliosLanding({
                 style={{
                   padding: PAD.spacious,
                   borderRadius: 24,
-                  border: `1px solid ${activeLaneMeta.softBorder}`,
-                  background: `linear-gradient(145deg, ${activeLaneMeta.softBackground}, rgba(10, 18, 30, 0.9))`,
+                  border: `1px solid ${activePillarMeta.softBorder}`,
+                  background: `linear-gradient(145deg, ${activePillarMeta.softBackground}, rgba(10, 18, 30, 0.9))`,
                   boxShadow: FX.cardGlow,
                   display: "flex",
                   flexDirection: "column",
@@ -718,12 +836,18 @@ export function HeliosLanding({
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div style={{ minWidth: 0, flex: 1, maxWidth: 760 }}>
-                    <SectionEyebrow>New decision</SectionEyebrow>
+                    <SectionEyebrow>{activePillar === "contract_vehicle" ? "Contract vehicle intelligence" : "Vendor assessment"}</SectionEyebrow>
                     <div style={{ fontSize: "clamp(28px, 4vw, 42px)", lineHeight: 1.04, letterSpacing: "-0.04em", color: T.text, fontWeight: 800, marginTop: SP.sm }}>
-                      Start the next {activeLaneMeta.shortLabel.toLowerCase()} decision.
+                      {activePillar === "contract_vehicle"
+                        ? "Start from the contract vehicle."
+                        : activeLane === "export"
+                          ? "Start the vendor assessment with export controls in scope."
+                          : activeLane === "cyber"
+                            ? "Start the vendor assessment with cyber evidence in scope."
+                            : "Start the next vendor assessment."}
                     </div>
                     <div style={{ marginTop: SP.sm, fontSize: FS.base, color: T.textSecondary, lineHeight: 1.65 }}>
-                      {activeLaneBrief.question}
+                      {activePillar === "contract_vehicle" ? activePillarBrief.question : activeLaneBrief.question}
                     </div>
                   </div>
 
@@ -732,7 +856,7 @@ export function HeliosLanding({
                     style={{
                       padding: PAD.default,
                       borderRadius: 18,
-                      border: `1px solid ${activeLaneMeta.softBorder}`,
+                      border: `1px solid ${activePillar === "contract_vehicle" ? activePillarMeta.softBorder : activeLaneMeta.softBorder}`,
                       background: "rgba(7, 12, 22, 0.58)",
                       width: "100%",
                       maxWidth: 280,
@@ -740,10 +864,10 @@ export function HeliosLanding({
                   >
                     <SectionEyebrow>Decision frame</SectionEyebrow>
                     <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, marginTop: SP.sm }}>
-                      {activeLaneBrief.outputs}
+                      {activePillar === "contract_vehicle" ? activePillarBrief.outputs : activeLaneBrief.outputs}
                     </div>
                     <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.6, marginTop: SP.sm }}>
-                      {activeLaneBrief.evidence}
+                      {activePillar === "contract_vehicle" ? activePillarBrief.evidence : activeLaneBrief.evidence}
                     </div>
                   </div>
                 </div>
@@ -754,7 +878,7 @@ export function HeliosLanding({
                       <InlineMessage
                         tone="info"
                         title="Vehicle mode"
-                        message="Search the public contract award spine first, then pivot individual vendors into Helios review and AXIOM-backed dossier closure."
+                        message="Search the public contract award spine first, then pivot the right vendors into assessment and AXIOM-backed dossier closure."
                         icon={GitBranch}
                       />
                     ) : null}
@@ -799,7 +923,7 @@ export function HeliosLanding({
                           height: 44,
                           borderRadius: 14,
                           border: "none",
-                          background: input.trim() ? activeLaneMeta.accent : T.border,
+                          background: input.trim() ? activePillarMeta.accent : T.border,
                           color: input.trim() ? "#04101f" : T.textTertiary,
                           cursor: input.trim() ? "pointer" : "default",
                           display: "inline-flex",
@@ -825,22 +949,18 @@ export function HeliosLanding({
                           padding: "12px 16px",
                           borderRadius: 14,
                           border: "none",
-                          background: input.trim() ? activeLaneMeta.accent : T.border,
+                          background: input.trim() ? activePillarMeta.accent : T.border,
                           color: input.trim() ? "#04101f" : T.textTertiary,
                           cursor: input.trim() ? "pointer" : "default",
                           fontSize: FS.sm,
                           fontWeight: 800,
                         }}
                       >
-                        {searchMode === "vehicle"
-                          ? "Search vehicle"
-                          : activeLane === "cyber"
-                            ? "Start cyber review"
-                            : "Start counterparty review"}
+                        {searchMode === "vehicle" ? "Search vehicle" : "Start vendor assessment"}
                         <ArrowRight size={14} />
                       </button>
 
-                      {activeLane === "counterparty" && searchMode !== "vehicle" ? (
+                      {activePillar === "vendor_assessment" && searchMode !== "vehicle" ? (
                         <button
                           type="button"
                           onClick={openVehicleUtility}
@@ -879,12 +999,12 @@ export function HeliosLanding({
                           fontWeight: 700,
                         }}
                       >
-                        Open lane portfolio
+                        Open assessment queue
                       </button>
                     </div>
 
                     <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                      {activeLaneBrief.useWhen}
+                      {activePillar === "contract_vehicle" ? activePillarBrief.useWhen : activeLaneBrief.useWhen}
                     </div>
                   </>
                 ) : (
@@ -1018,8 +1138,8 @@ export function HeliosLanding({
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <InlineMessage
                         tone="info"
-                        title="Export path"
-                        message="Helios will open a case, run the live screening stack, and structure the result around likely prohibited, license-required, exception-path, or escalation outcomes."
+                        title="Export support layer"
+                        message="Helios will open a vendor assessment, run the live screening stack, and structure the result around the export-control evidence that should change the decision."
                         icon={Globe2}
                       />
                       <button
@@ -1031,7 +1151,7 @@ export function HeliosLanding({
                           padding: "12px 16px",
                           borderRadius: 14,
                           border: "none",
-                          background: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? activeLaneMeta.accent : T.border,
+                          background: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? activePillarMeta.accent : T.border,
                           color: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "#04101f" : T.textTertiary,
                           cursor: exportForm.recipient_name?.trim() && exportForm.destination_country?.trim() ? "pointer" : "default",
                           fontSize: FS.sm,
@@ -1041,7 +1161,7 @@ export function HeliosLanding({
                           gap: SP.xs,
                         }}
                       >
-                        Open export authorization case
+                        Open vendor assessment
                         <ArrowRight size={14} />
                       </button>
                     </div>
@@ -1063,7 +1183,7 @@ export function HeliosLanding({
                   }}
                 >
                   <div>
-                    <SectionEyebrow>Lane pulse</SectionEyebrow>
+                    <SectionEyebrow>Assessment pulse</SectionEyebrow>
                     <div style={{ fontSize: FS.base, color: T.text, fontWeight: 800, marginTop: SP.xs }}>
                       Queue pressure and movement
                     </div>
@@ -1077,7 +1197,7 @@ export function HeliosLanding({
                   </div>
 
                   <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                    {freshCount} case{freshCount === 1 ? "" : "s"} moved in the last 24 hours. {blockedCount > 0 ? "Blocked work is still sitting in this lane." : "No hard-stop backlog is waiting here."}
+                    {freshCount} case{freshCount === 1 ? "" : "s"} moved in the last 24 hours. {blockedCount > 0 ? "Blocked work is still sitting in the queue." : "No hard-stop backlog is waiting here."}
                   </div>
                 </section>
 
@@ -1172,7 +1292,7 @@ export function HeliosLanding({
                                   textTransform: "uppercase",
                                 }}
                               >
-                                {caseDispositionLabel(disposition, activeLane)}
+                                {caseDispositionLabel(disposition, workflowLaneForCase(c))}
                               </span>
                             </div>
                           </button>
@@ -1181,8 +1301,8 @@ export function HeliosLanding({
                     </div>
                   ) : (
                     <EmptyPanel
-                      title={`No active ${activeLaneMeta.shortLabel.toLowerCase()} queue yet`}
-                      description="Start the first case in this lane and Helios will route the package into the portfolio and graph surfaces automatically."
+                      title="No active assessment queue yet"
+                      description="Start the first case and Helios will route the package into the portfolio, graph, and AXIOM surfaces automatically."
                     />
                   )}
                 </section>
@@ -1589,14 +1709,14 @@ export function HeliosLanding({
                 {entityWorkflow === "cyber" ? (
                   <>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Confirm the supplier and identifiers</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Run live screening and prepare cyber-readiness evidence lanes</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend a supplier trust posture</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Run live screening and prepare the cyber support layer</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend the vendor disposition</div>
                   </>
                 ) : (
                   <>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Confirm the entity and its identifiers</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Run live OSINT and ownership / FOCI screening</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend a counterparty disposition</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}><CheckCircle size={11} color={T.green} /> Score the case and recommend the vendor disposition</div>
                   </>
                 )}
               </div>

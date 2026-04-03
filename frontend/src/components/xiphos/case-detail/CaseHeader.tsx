@@ -4,6 +4,7 @@ import { useCaseDetail } from "./case-context";
 import { T, FS, PAD, SP } from "@/lib/tokens";
 import type { AIAnalysisStatus } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
+import { PRODUCT_PILLAR_META, WORKFLOW_LANE_META, workflowLaneForCase } from "../portfolio-utils";
 
 interface CaseHeaderProps {
   c: VettingCase;
@@ -31,10 +32,35 @@ export const CaseHeader: React.FC<CaseHeaderProps> = ({
   } = useCaseDetail();
   const aiBriefLoading = aiBriefStatus?.status === "running" || aiBriefStatus?.status === "pending";
   const aiBriefReady = aiBriefStatus?.status === "ready" || aiBriefStatus?.status === "completed";
+  const supportingLayer = WORKFLOW_LANE_META[workflowLaneForCase(c)];
 
   return (
     <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
       <div>
+        <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: SP.xs }}>
+          <span
+            style={{
+              fontSize: FS.xs,
+              color: PRODUCT_PILLAR_META.vendor_assessment.accent,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            {PRODUCT_PILLAR_META.vendor_assessment.label}
+          </span>
+          <span
+            style={{
+              fontSize: FS.xs,
+              color: supportingLayer.accent,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            {supportingLayer.label}
+          </span>
+        </div>
         <h1 className="text-2xl font-bold" style={{ color: T.text, marginBottom: SP.sm - 2 }}>
           {c.name}
         </h1>

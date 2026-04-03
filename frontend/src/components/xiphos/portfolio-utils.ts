@@ -3,6 +3,33 @@ import type { VettingCase } from "@/lib/types";
 
 export type PortfolioDisposition = "blocked" | "review" | "qualified" | "clear";
 export type WorkflowLane = "counterparty" | "cyber" | "export";
+export type ProductPillar = "vendor_assessment" | "contract_vehicle";
+
+export const PRODUCT_PILLAR_META: Record<ProductPillar, {
+  label: string;
+  shortLabel: string;
+  description: string;
+  accent: string;
+  softBackground: string;
+  softBorder: string;
+}> = {
+  vendor_assessment: {
+    label: "Vendor Assessment",
+    shortLabel: "Vendor",
+    description: "Supplier trust, supporting layers, and analyst disposition work.",
+    accent: T.gold,
+    softBackground: T.goldSoft,
+    softBorder: `${T.gold}33`,
+  },
+  contract_vehicle: {
+    label: "Contract Vehicle Intelligence",
+    shortLabel: "Vehicle",
+    description: "Start from the vehicle, map the ecosystem, and close dossier gaps.",
+    accent: T.accent,
+    softBackground: T.accentSoft,
+    softBorder: `${T.accent}33`,
+  },
+};
 
 export const WORKFLOW_LANE_META: Record<WorkflowLane, {
   label: string;
@@ -13,30 +40,35 @@ export const WORKFLOW_LANE_META: Record<WorkflowLane, {
   softBorder: string;
 }> = {
   counterparty: {
-    label: "Defense counterparty trust",
-    shortLabel: "Counterparty",
-    description: "FOCI, ownership, and pre-award supplier adjudication",
+    label: "Core vendor assessment",
+    shortLabel: "Core",
+    description: "Base supplier trust, ownership, FOCI, and adjudication evidence.",
     accent: T.gold,
     softBackground: T.goldSoft,
     softBorder: `${T.gold}33`,
   },
   cyber: {
-    label: "Supply chain assurance",
+    label: "Cyber support layer",
     shortLabel: "Cyber",
-    description: "Supplier, software, and dependency assurance with cyber evidence",
+    description: "CMMC, remediation, dependency, and software assurance evidence.",
     accent: T.teal,
     softBackground: T.tealSoft,
     softBorder: `${T.teal}33`,
   },
   export: {
-    label: "Export authorization",
+    label: "Export support layer",
     shortLabel: "Export",
-    description: "Item, data, and foreign-person authorization review",
+    description: "Authorization, classification, and foreign-person access evidence.",
     accent: T.accent,
     softBackground: T.accentSoft,
     softBorder: `${T.accent}33`,
   },
 };
+
+export function productPillarForCase(c: VettingCase): ProductPillar {
+  void c;
+  return "vendor_assessment";
+}
 
 export function portfolioDisposition(c: VettingCase): PortfolioDisposition {
   if (!c.cal?.tier) {

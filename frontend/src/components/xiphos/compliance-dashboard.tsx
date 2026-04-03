@@ -261,7 +261,7 @@ function LaneSummaryCard({
   return (
     <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
       <div style={{ color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-xs font-semibold mb-2">
-        Operator lane
+        Workflow segment
       </div>
       <h3 style={{ color: T.text }} className="text-lg font-semibold mb-1">
         {title}
@@ -440,12 +440,12 @@ function InsightsPanel({ insights }: { insights: CrossLaneInsights }) {
   return (
     <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
       <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
-        Cross-Lane Insights
+        Shared Evidence Insights
       </h3>
 
       {!hasIssues && (
         <p style={{ color: T.muted }} className="text-sm">
-          No critical cross-lane issues detected.
+          No critical cross-workflow issues detected.
         </p>
       )}
 
@@ -705,8 +705,8 @@ export default function ComplianceDashboard() {
 
   const operatorPriorityItems = [
     {
-      title: "Counterparty decisions waiting",
-      detail: `${data.counterparty_lane.pending_reviews} supplier reviews are still unresolved in the counterparty lane.`,
+      title: "Vendor decisions waiting",
+      detail: `${data.counterparty_lane.pending_reviews} vendor reviews are still unresolved in the assessment queue.`,
       metric: `${data.counterparty_lane.pending_reviews} pending`,
       tone: data.counterparty_lane.pending_reviews > 0 ? T.amber : T.green,
     },
@@ -717,8 +717,8 @@ export default function ComplianceDashboard() {
       tone: data.export_lane.pending_license_applications > 0 ? T.red : T.green,
     },
     {
-      title: "Cross-lane conflicts",
-      detail: `${totalCrossLaneIssues(data.cross_lane_insights)} issues are crossing lanes through export flags, graph-connected risk, or policy gaps.`,
+      title: "Shared evidence conflicts",
+      detail: `${totalCrossLaneIssues(data.cross_lane_insights)} issues are crossing workflow boundaries through export flags, graph-connected risk, or policy gaps.`,
       metric: `${totalCrossLaneIssues(data.cross_lane_insights)} signals`,
       tone: totalCrossLaneIssues(data.cross_lane_insights) > 0 ? T.accent : T.green,
     },
@@ -751,7 +751,7 @@ export default function ComplianceDashboard() {
                 Land on what needs action, not on passive charts.
               </h1>
               <p style={{ color: T.text }} className="text-base leading-7 max-w-2xl">
-                The dashboard now answers the operator question first: where the queue is backing up, where posture is drifting, and which lane needs a decision next.
+                The dashboard now answers the operator question first: where the queue is backing up, where posture is drifting, and which workflow or support layer needs a decision next.
               </p>
             </div>
             <div className="flex flex-col items-start lg:items-end gap-3">
@@ -797,13 +797,13 @@ export default function ComplianceDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <KPICard label="Total Cases" value={data.summary.total_cases} icon={CheckCircle} />
           <KPICard label="Active Alerts" value={data.summary.total_alerts} icon={ShieldAlert} />
-          <KPICard label="Pending Counterparty" value={data.counterparty_lane.pending_reviews} icon={Building2} />
-          <KPICard label="Pending Export" value={data.export_lane.pending_license_applications} icon={Globe2} />
+          <KPICard label="Pending Vendor Reviews" value={data.counterparty_lane.pending_reviews} icon={Building2} />
+          <KPICard label="Export Pressure" value={data.export_lane.pending_license_applications} icon={Globe2} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <LaneSummaryCard
-            title="Counterparty lane"
+            title="Vendor assessment"
             subtitle="Supplier adjudication, ownership pressure, and trust decisions"
             metrics={[
               { label: "Cases Screened", value: data.counterparty_lane.cases_screened },
@@ -825,7 +825,7 @@ export default function ComplianceDashboard() {
           />
 
           <LaneSummaryCard
-            title="Export lane"
+            title="Export support layer"
             subtitle="Authorizations, NLR paths, and license-required pressure"
             metrics={[
               { label: "Authorizations", value: data.export_lane.total_authorizations },
@@ -847,7 +847,7 @@ export default function ComplianceDashboard() {
           />
 
           <LaneSummaryCard
-            title="Cyber lane"
+            title="Cyber support layer"
             subtitle="Graph density, dependency watch, and centrality pressure"
             metrics={[
               { label: "Entities", value: data.cyber_lane.entities_in_graph },
@@ -871,14 +871,14 @@ export default function ComplianceDashboard() {
                 Queue drift
               </div>
               <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
-                Counterparty risk trend, last 30 days
+                Vendor assessment risk trend, last 30 days
               </h3>
               <RiskTrendChart data={data.counterparty_lane.risk_trend} />
             </div>
           ) : (
             <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
               <h3 style={{ color: T.text }} className="text-lg font-semibold mb-2">
-                Counterparty risk trend
+                Vendor assessment risk trend
               </h3>
               <p style={{ color: T.muted }} className="text-sm">
                 No trend data is available yet.
