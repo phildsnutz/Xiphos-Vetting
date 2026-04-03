@@ -698,24 +698,25 @@ export function HeliosLanding({
                     onClick={() => handlePillarSelect(pillar)}
                     className="glass-card helios-focus-ring"
                     style={{
-                      padding: PAD.comfortable,
-                      borderRadius: 18,
+                      padding: PAD.default,
+                      borderRadius: 16,
                       border: `1px solid ${active ? meta.softBorder : T.borderStrong}`,
                       background: active ? meta.softBackground : FX.panelStrong,
                       textAlign: "left",
                       display: "flex",
-                      flexDirection: "column",
-                      gap: SP.sm,
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: SP.md,
                       cursor: "pointer",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.sm }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: SP.sm, minWidth: 0, flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: SP.sm, minWidth: 0, flex: 1 }}>
                         <div
                           style={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: 12,
+                            width: 30,
+                            height: 30,
+                            borderRadius: 10,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -724,42 +725,40 @@ export function HeliosLanding({
                             color: meta.accent,
                           }}
                         >
-                          <PillarIcon size={18} />
+                          <PillarIcon size={16} />
                         </div>
-                        <div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                             {meta.shortLabel}
                           </div>
                           <div style={{ fontSize: FS.base, color: T.text, fontWeight: 700 }}>{brief.title}</div>
+                          <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.45, marginTop: SP.xs }}>
+                            {pillar === "vendor_assessment"
+                              ? "Start from the vendor, then bring cyber or export into scope only if they change the decision."
+                              : "Start from the vehicle, map the ecosystem, and push the right vendors into assessment."}
+                          </div>
                         </div>
                       </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: SP.xs, flexShrink: 0 }}>
                       {active ? (
                         <span style={{ fontSize: FS.xs, color: meta.accent, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                           Active
                         </span>
                       ) : null}
-                    </div>
-                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{brief.question}</div>
-                    <div style={{ display: "flex", gap: SP.xs, flexWrap: "wrap" }}>
-                      {pillar === "vendor_assessment" ? (
-                        <>
-                          <span style={{ fontSize: FS.xs, color: T.text, padding: "5px 8px", borderRadius: 999, background: T.surface, border: `1px solid ${T.border}` }}>
-                            {cases.length} active
-                          </span>
-                          <span style={{ fontSize: FS.xs, color: T.amber, padding: "5px 8px", borderRadius: 999, background: T.amberBg, border: `1px solid ${T.amber}${O["30"]}` }}>
-                            {blockedCount + reviewCount} needs review
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ fontSize: FS.xs, color: T.text, padding: "5px 8px", borderRadius: 999, background: T.surface, border: `1px solid ${T.border}` }}>
-                            award spine
-                          </span>
-                          <span style={{ fontSize: FS.xs, color: T.accent, padding: "5px 8px", borderRadius: 999, background: T.accentSoft, border: `1px solid ${T.accent}${O["30"]}` }}>
-                            prime + sub map
-                          </span>
-                        </>
-                      )}
+                      <span
+                        style={{
+                          fontSize: FS.xs,
+                          color: pillar === "vendor_assessment" ? T.text : T.accent,
+                          padding: "5px 8px",
+                          borderRadius: 999,
+                          background: pillar === "vendor_assessment" ? T.surface : T.accentSoft,
+                          border: pillar === "vendor_assessment" ? `1px solid ${T.border}` : `1px solid ${T.accent}${O["30"]}`,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {pillar === "vendor_assessment" ? `${cases.length} active` : "award spine"}
+                      </span>
                     </div>
                   </button>
                 );
@@ -1006,6 +1005,13 @@ export function HeliosLanding({
                     <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
                       {activePillar === "contract_vehicle" ? activePillarBrief.useWhen : activeLaneBrief.useWhen}
                     </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      <MetricTile label="Active" value={laneCases.length} />
+                      <MetricTile label="Needs decision" value={blockedCount + reviewCount} tone={blockedCount + reviewCount > 0 ? "warning" : "neutral"} />
+                      <MetricTile label="Moving" value={movingCount} tone={movingCount > 0 ? "success" : "neutral"} />
+                      <MetricTile label="Connectors" value={connectorCount} tone="info" />
+                    </div>
                   </>
                 ) : (
                   <div
@@ -1182,37 +1188,6 @@ export function HeliosLanding({
                     gap: SP.sm,
                   }}
                 >
-                  <div>
-                    <SectionEyebrow>Assessment pulse</SectionEyebrow>
-                    <div style={{ fontSize: FS.base, color: T.text, fontWeight: 800, marginTop: SP.xs }}>
-                      Queue pressure and movement
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <MetricTile label="Active" value={laneCases.length} />
-                    <MetricTile label="Needs decision" value={blockedCount + reviewCount} tone={blockedCount + reviewCount > 0 ? "warning" : "neutral"} />
-                    <MetricTile label="Moving" value={movingCount} tone={movingCount > 0 ? "success" : "neutral"} />
-                    <MetricTile label="Live connectors" value={connectorCount} tone="info" />
-                  </div>
-
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                    {freshCount} case{freshCount === 1 ? "" : "s"} moved in the last 24 hours. {blockedCount > 0 ? "Blocked work is still sitting in the queue." : "No hard-stop backlog is waiting here."}
-                  </div>
-                </section>
-
-                <section
-                  className="glass-card"
-                  style={{
-                    padding: PAD.comfortable,
-                    borderRadius: 20,
-                    border: `1px solid ${T.borderStrong}`,
-                    background: FX.panelStrong,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: SP.sm,
-                  }}
-                >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <SectionEyebrow>Priority queue</SectionEyebrow>
@@ -1305,14 +1280,20 @@ export function HeliosLanding({
                       description="Start the first case and Helios will route the package into the portfolio, graph, and AXIOM surfaces automatically."
                     />
                   )}
-                </section>
 
-                <InlineMessage
-                  tone="info"
-                  title="AXIOM handoff"
-                  message="Intake should open the case fast. AXIOM and the graph should be what close the dark space after the case exists."
-                  icon={Sparkles}
-                />
+                  <div
+                    style={{
+                      marginTop: SP.xs,
+                      paddingTop: SP.sm,
+                      borderTop: `1px solid ${T.border}`,
+                      fontSize: FS.sm,
+                      color: T.textSecondary,
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    {freshCount} case{freshCount === 1 ? "" : "s"} moved in the last 24 hours. {blockedCount > 0 ? "Blocked work is still sitting in the queue." : "No hard-stop backlog is waiting here."} AXIOM and the graph should close the dark space after intake creates the case.
+                  </div>
+                </section>
               </div>
             </section>
           </div>

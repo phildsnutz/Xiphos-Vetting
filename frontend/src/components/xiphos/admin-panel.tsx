@@ -6,6 +6,7 @@ import type { ApiUser, AuditEntry, BetaFeedbackEntry, BetaOpsSummary } from "@/l
 import { roleLabel } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 import { AISettings } from "./ai-settings";
+import { WORKFLOW_LANE_META } from "./portfolio-utils";
 
 interface AdminPanelProps {
   currentUser: AuthUser;
@@ -17,6 +18,14 @@ const ROLE_COLORS: Record<string, { color: string; bg: string }> = {
   auditor: { color: T.amber, bg: T.amberBg },
   reviewer: { color: T.green, bg: T.greenBg },
 };
+
+function workflowContextLabel(value?: string | null): string {
+  if (!value) return "Unspecified";
+  if (value in WORKFLOW_LANE_META) {
+    return WORKFLOW_LANE_META[value as keyof typeof WORKFLOW_LANE_META].label;
+  }
+  return value.replace(/_/g, " ");
+}
 
 export function AdminPanel({ currentUser }: AdminPanelProps) {
   const isAdmin = currentUser.role === "admin";
@@ -448,17 +457,17 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
             <div className="rounded-lg p-4" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
               <div className="flex items-center gap-2 mb-3">
                 <MessageSquare size={13} color={T.accent} />
-                <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>Feedback by lane</span>
+                <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>Feedback by workflow context</span>
               </div>
               <div className="flex flex-col gap-2">
                 {(betaSummary?.feedback_by_lane ?? []).map((item) => (
                   <div key={item.workflow_lane ?? "unknown"} className="flex items-center justify-between">
-                    <span style={{ fontSize: FS.sm, color: T.text }}>{item.workflow_lane || "unspecified"}</span>
+                    <span style={{ fontSize: FS.sm, color: T.text }}>{workflowContextLabel(item.workflow_lane)}</span>
                     <span style={{ fontSize: FS.sm, color: T.muted }}>{item.count}</span>
                   </div>
                 ))}
                 {(betaSummary?.feedback_by_lane ?? []).length === 0 && (
-                  <div style={{ fontSize: FS.sm, color: T.muted }}>No lane-specific feedback recorded yet.</div>
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>No workflow-specific feedback recorded yet.</div>
                 )}
               </div>
             </div>
@@ -481,7 +490,7 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
                       className="rounded"
                       style={{ fontSize: 11, padding: "2px 6px", background: `${T.accent}18`, color: T.accent }}
                     >
-                      {item.workflow_lane || "unspecified"}
+                      {workflowContextLabel(item.workflow_lane)}
                     </span>
                     <span
                       className="rounded"
