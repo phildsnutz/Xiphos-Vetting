@@ -14,6 +14,16 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+from urllib.parse import urlparse
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND_DIR = ROOT / "backend"
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from secure_runtime_env import load_runtime_env
 
 
 def request_json(base_url: str, method: str, path: str, payload=None, headers=None, timeout: int = 30):
@@ -53,6 +63,38 @@ def multipart_upload(base_url: str, path: str, filename: str, content: str, head
 def fail(message: str):
     print(f"FAIL: {message}")
     sys.exit(1)
+
+
+def is_local_base_url(base_url: str) -> bool:
+    host = (urlparse(base_url).hostname or "").lower()
+    return host in {"127.0.0.1", "localhost", "0.0.0.0"}
+
+
+def probe_neo4j_health(base_url: str) -> dict:
+    req = urllib.request.Request(f"{base_url.rstrip('/')}/api/neo4j/health", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read()
+            payload = json.loads(body.decode("utf-8")) if body else {}
+            status = str(payload.get("status") or "").strip() or "unverified"
+            if status not in {"available", "unavailable"}:
+                status = "unverified"
+            return {
+                "status": status,
+                "neo4j_available": bool(payload.get("neo4j_available")),
+                "configured": bool(payload.get("configured")),
+                "database": str(payload.get("database") or ""),
+                "http_status": resp.status,
+            }
+    except Exception as exc:
+        return {
+            "status": "unverified",
+            "neo4j_available": False,
+            "configured": False,
+            "database": "",
+            "http_status": 0,
+            "error": str(exc),
+        }
 
 
 def login_with_retry(base_url: str, email: str, password: str, *, wait_seconds: int, poll_seconds: float = 2.0):
@@ -108,7 +150,18 @@ def main() -> int:
     parser.add_argument("--skip-stream", action="store_true")
     parser.add_argument("--read-only", action="store_true")
     parser.add_argument("--wait-for-ready-seconds", type=int, default=0)
+    parser.add_argument("--runtime-env-file", default="")
+    parser.add_argument("--skip-runtime-env", action="store_true")
+    parser.add_argument("--require-neo4j", action="store_true")
     args = parser.parse_args()
+
+    runtime_env = {
+        "loaded": False,
+        "path": "",
+        "available_keys": [],
+    }
+    if not args.skip_runtime_env:
+        runtime_env = load_runtime_env(args.runtime_env_file)
 
     headers = {}
     if args.token:
@@ -136,6 +189,23 @@ def main() -> int:
     except Exception as exc:
         fail(f"/api/health failed: {exc}")
     print(f"PASS: health ({health.get('osint_connector_count', 0)} connectors)")
+
+    neo4j = probe_neo4j_health(args.base_url)
+    neo4j_expected = bool(args.require_neo4j) or (
+        is_local_base_url(args.base_url)
+        and bool(neo4j.get("configured") or ("NEO4J_URI" in runtime_env.get("available_keys", []) and "NEO4J_PASSWORD" in runtime_env.get("available_keys", [])))
+    )
+    if neo4j_expected and neo4j["status"] != "available":
+        detail = neo4j.get("error") or neo4j["status"]
+        env_path = runtime_env.get("path") or "no runtime env file loaded"
+        fail(f"neo4j expected but {detail} (runtime env: {env_path})")
+    if neo4j["status"] == "available":
+        print(f"PASS: neo4j ({neo4j.get('database') or 'default'})")
+    elif neo4j_expected:
+        fail(f"neo4j expected but {neo4j['status']}")
+    else:
+        reason = runtime_env.get("path") or "no local runtime env loaded"
+        print(f"PASS: neo4j {neo4j['status']} ({reason})")
 
     status, _, providers = request_json(args.base_url, "GET", "/api/ai/providers", headers=headers, timeout=20)
     if status != 200 or not providers.get("providers"):

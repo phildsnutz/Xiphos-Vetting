@@ -7,6 +7,7 @@ JWT token in Authorization header.
 """
 
 import logging
+import os
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, g
@@ -25,6 +26,7 @@ from neo4j_integration import (
     get_top_central_entities_neo4j,
     get_entity_neighbors_neo4j,
     get_graph_stats_neo4j,
+    get_neo4j_database,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,10 +63,13 @@ def _serialize_sync_job(job: dict, *, status_code: int = 200):
 def health_check():
     """Check if Neo4j is available."""
     available = is_neo4j_available()
+    configured = bool(os.environ.get("NEO4J_URI", "").strip() and os.environ.get("NEO4J_PASSWORD", "").strip())
     return jsonify(
         {
             "neo4j_available": available,
             "status": "available" if available else "unavailable",
+            "configured": configured,
+            "database": get_neo4j_database() or "",
             "timestamp": datetime.utcnow().isoformat(),
         }
     ), 200

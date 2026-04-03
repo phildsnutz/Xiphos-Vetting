@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import subprocess
 import sys
 import time
@@ -27,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT / "backend"
@@ -40,6 +42,7 @@ from ai_analysis import compute_analysis_fingerprint, get_latest_analysis  # noq
 from dossier import generate_dossier  # noqa: E402
 from dossier_pdf import generate_pdf_dossier  # noqa: E402
 from graph_ingest import get_vendor_graph_summary  # noqa: E402
+from secure_runtime_env import load_runtime_env  # noqa: E402
 
 try:
     from pypdf import PdfReader  # type: ignore
@@ -147,6 +150,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--require-neo4j", action="store_true")
     parser.add_argument("--allow-missing-neo4j", dest="require_neo4j", action="store_false")
+    parser.add_argument("--runtime-env-file", default="")
+    parser.add_argument("--skip-runtime-env", action="store_true")
     parser.add_argument("--warm-monitoring", action="store_true", help="Attempt one local monitoring pass before warning")
     parser.add_argument("--print-json", action="store_true", help="Print the JSON summary to stdout")
     return parser.parse_args()
@@ -388,25 +393,88 @@ def _gate_success(verdict: str, success_values: set[str]) -> bool:
     return verdict in success_values | {"SKIPPED"}
 
 
-def probe_neo4j_health(base_url: str) -> dict[str, Any]:
+def _is_local_base_url(base_url: str) -> bool:
+    host = (urlparse(base_url).hostname or "").lower()
+    return host in {"127.0.0.1", "localhost", "0.0.0.0"}
+
+
+def _local_neo4j_runtime_status(runtime_env_file: str, *, skip_runtime_env: bool) -> dict[str, Any]:
+    runtime_env = {
+        "loaded": False,
+        "path": "",
+        "available_keys": [],
+        "injected_keys": [],
+        "paths_checked": [],
+    }
+    if not skip_runtime_env:
+        runtime_env = load_runtime_env(runtime_env_file)
+
+    configured = bool(os.environ.get("NEO4J_URI", "").strip() and os.environ.get("NEO4J_PASSWORD", "").strip())
+    database = os.environ.get("NEO4J_DATABASE", "").strip() or os.environ.get("NEO4J_USER", "").strip()
+    if not configured:
+        return {
+            "status": "unverified",
+            "configured": False,
+            "database": database,
+            "runtime_env": runtime_env,
+        }
+
+    try:
+        from neo4j_integration import get_neo4j_database, is_neo4j_available
+
+        available = is_neo4j_available()
+        return {
+            "status": "available" if available else "unavailable",
+            "configured": True,
+            "database": get_neo4j_database() or database,
+            "runtime_env": runtime_env,
+        }
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "configured": True,
+            "database": database,
+            "runtime_env": runtime_env,
+            "error": str(exc),
+        }
+
+
+def probe_neo4j_health(base_url: str, *, runtime_env_file: str = "", skip_runtime_env: bool = False) -> dict[str, Any]:
+    local_runtime = _local_neo4j_runtime_status(runtime_env_file, skip_runtime_env=skip_runtime_env)
     req = urllib.request.Request(f"{base_url.rstrip('/')}/api/neo4j/health", method="GET")
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             body = resp.read()
             payload = json.loads(body.decode("utf-8")) if body else {}
+            server_status = str(payload.get("status") or "").strip() or "unverified"
+            if server_status not in {"available", "unavailable"}:
+                server_status = "unverified"
             return {
                 "http_status": resp.status,
                 "neo4j_available": bool(payload.get("neo4j_available")),
-                "status": str(payload.get("status") or ""),
+                "status": server_status,
+                "server_status": server_status,
+                "server_configured": (bool(payload.get("configured")) if "configured" in payload else None),
+                "database": str(payload.get("database") or local_runtime.get("database") or ""),
                 "timestamp": str(payload.get("timestamp") or ""),
+                "local_runtime_status": str(local_runtime.get("status") or "unverified"),
+                "local_runtime_configured": bool(local_runtime.get("configured")),
+                "local_runtime_env": local_runtime.get("runtime_env") or {},
+                "probe_scope": "local" if _is_local_base_url(base_url) else "remote",
             }
     except Exception as exc:
         return {
             "http_status": 0,
             "neo4j_available": False,
-            "status": "probe_failed",
+            "status": "unverified",
+            "server_status": "unverified",
             "timestamp": "",
             "error": str(exc),
+            "database": str(local_runtime.get("database") or ""),
+            "local_runtime_status": str(local_runtime.get("status") or "unverified"),
+            "local_runtime_configured": bool(local_runtime.get("configured")),
+            "local_runtime_env": local_runtime.get("runtime_env") or {},
+            "probe_scope": "local" if _is_local_base_url(base_url) else "remote",
         }
 
 
@@ -414,7 +482,7 @@ def _overall_verdict(summary: dict[str, Any]) -> str:
     if summary["cases_with_failures"] > 0:
         return "FAIL"
     neo4j = summary.get("neo4j") if isinstance(summary.get("neo4j"), dict) else {}
-    if bool(neo4j.get("required")) and not bool(neo4j.get("neo4j_available")):
+    if bool(neo4j.get("required")) and str(neo4j.get("status") or "") != "available":
         return "FAIL"
     gauntlet_verdict = str(summary["query_to_dossier"]["overall_verdict"])
     readiness_verdict = str(summary["readiness"]["overall_verdict"])
@@ -453,6 +521,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Required: **{'yes' if summary['neo4j']['required'] else 'no'}**",
         f"- Available: **{'yes' if summary['neo4j']['neo4j_available'] else 'no'}**",
         f"- Status: `{summary['neo4j']['status']}`",
+        f"- Probe scope: `{summary['neo4j'].get('probe_scope', '')}`",
+        f"- Server status: `{summary['neo4j'].get('server_status', '')}`",
+        f"- Server configured: `{summary['neo4j'].get('server_configured', 'unknown')}`",
+        f"- Local runtime status: `{summary['neo4j'].get('local_runtime_status', '')}`",
+        f"- Local runtime env: `{(summary['neo4j'].get('local_runtime_env') or {}).get('path', '')}`",
         "",
         "## Query To Dossier",
         "",
@@ -701,7 +774,11 @@ def main() -> int:
 
     results = [run_case(vendor, args.graph_depth, warm_monitoring=args.warm_monitoring) for vendor in vendors]
     summary = build_summary(results, args.graph_depth)
-    summary["neo4j"] = probe_neo4j_health(args.gauntlet_base_url)
+    summary["neo4j"] = probe_neo4j_health(
+        args.gauntlet_base_url,
+        runtime_env_file=args.runtime_env_file,
+        skip_runtime_env=args.skip_runtime_env,
+    )
     summary["neo4j"]["required"] = bool(args.require_neo4j)
     summary["query_to_dossier"] = run_query_to_dossier(args)
     summary["readiness"] = run_readiness(args)
