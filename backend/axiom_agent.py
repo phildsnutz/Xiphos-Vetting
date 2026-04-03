@@ -910,17 +910,17 @@ def ingest_agent_result(agent_result: AgentResult, vendor_id: str = "") -> dict:
                     try:
                         conn.execute("""
                             INSERT INTO kg_entities (id, canonical_name, entity_type,
-                                aliases, identifiers, sources, confidence, risk_level, last_updated)
-                            VALUES (?, ?, ?, '[]', ?, ?, ?, 'unknown', ?)
+                                aliases, identifiers, sources, confidence, risk_level, last_updated, created_at)
+                            VALUES (?, ?, ?, '[]', ?, ?, ?, 'unknown', ?, ?)
                             ON CONFLICT(id) DO UPDATE SET
-                                confidence = MAX(kg_entities.confidence, excluded.confidence),
+                                confidence = GREATEST(kg_entities.confidence, excluded.confidence),
                                 sources = excluded.sources,
                                 last_updated = excluded.last_updated
                         """, (
                             entity_id, entity.name, entity.entity_type,
                             json.dumps(entity.attributes),
                             json.dumps(["axiom_agent"]),
-                            entity.confidence, now,
+                            entity.confidence, now, now,
                         ))
                         summary["entities_created"] += 1
                     except Exception as e:

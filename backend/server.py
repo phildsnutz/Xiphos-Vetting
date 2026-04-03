@@ -1164,10 +1164,34 @@ def _ingest_case_graph(case_id: str, vendor: dict, report: dict) -> dict | None:
         return None
 
 
+def _queue_neo4j_incremental_sync(since_timestamp: str, *, metadata: dict | None = None) -> dict | None:
+    try:
+        from neo4j_integration import is_neo4j_available
+        from neo4j_sync_scheduler import get_neo4j_sync_scheduler
+
+        if not is_neo4j_available():
+            return {"status": "unavailable"}
+
+        job = get_neo4j_sync_scheduler().queue_incremental_sync(
+            since_timestamp,
+            metadata=metadata or {"requested_via": "persist_enrichment_artifacts"},
+        )
+        return {
+            "status": job.get("status") or "queued",
+            "job_id": job.get("job_id"),
+            "status_url": f"/api/neo4j/sync/{job.get('job_id')}" if job.get("job_id") else None,
+            "reused_existing_job": bool(job.get("reused_existing_job")),
+        }
+    except Exception as err:
+        LOGGER.debug("Neo4j incremental sync skipped: %s", err)
+        return {"status": "failed", "error": str(err)}
+
+
 def _persist_enrichment_artifacts(case_id: str, vendor: dict, report: dict) -> dict:
     if not report:
         return {"events": [], "graph": None}
 
+    sync_since = datetime.utcnow().isoformat() + "Z"
     db.save_enrichment(case_id, report)
     events = _persist_case_events(case_id, vendor, report) if HAS_INTEL else []
     graph_stats = _ingest_case_graph(case_id, vendor, report)
@@ -1187,7 +1211,19 @@ def _persist_enrichment_artifacts(case_id: str, vendor: dict, report: dict) -> d
         except Exception as err:
             LOGGER.debug("Cyber graph ingest skipped for %s: %s", case_id, err)
 
-    return {"events": events, "graph": graph_stats, "cyber_graph": cyber_graph_stats}
+    neo4j_sync = None
+    if graph_stats or cyber_graph_stats:
+        neo4j_sync = _queue_neo4j_incremental_sync(
+            sync_since,
+            metadata={"requested_via": "persist_enrichment_artifacts", "case_id": case_id},
+        )
+
+    return {
+        "events": events,
+        "graph": graph_stats,
+        "cyber_graph": cyber_graph_stats,
+        "neo4j_sync": neo4j_sync,
+    }
 
 
 def enqueue_intel_summary_job(case_id: str, user_id: str, report_hash: str) -> dict:

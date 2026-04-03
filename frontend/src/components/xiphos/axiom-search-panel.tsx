@@ -1,35 +1,136 @@
 import { useState } from "react";
-import { T, FS } from "@/lib/tokens";
-import { Search, Play, Upload, AlertCircle } from "lucide-react";
+import { T, FS, PAD, SP } from "@/lib/tokens";
+import { Play, Upload, AlertCircle } from "lucide-react";
 import { getToken } from "@/lib/auth";
+import { EmptyPanel, InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+
+type AxiomProvider = "anthropic" | "openai";
+
+interface RawAxiomSearchResult {
+  status?: string;
+  error?: string;
+  iteration?: number;
+  iterations?: unknown[];
+  entities?: Array<{
+    name: string;
+    entity_type?: string;
+    type?: string;
+    confidence?: number;
+  }>;
+  relationships?: Array<{
+    source_entity?: string;
+    source?: string;
+    target_entity?: string;
+    target?: string;
+    rel_type?: string;
+    relationship_type?: string;
+    confidence?: number;
+  }>;
+  intelligence_gaps?: Array<{
+    gap_type?: string;
+    description?: string;
+    confidence?: number;
+  }>;
+  advisory_opportunities?: Array<{
+    opportunity_type?: string;
+    description?: string;
+    priority?: string;
+  }>;
+  advisory?: Array<{
+    opportunity_type?: string;
+    description?: string;
+    priority?: string;
+  }>;
+  total_queries?: number;
+  total_connector_calls?: number;
+  elapsed_ms?: number;
+  kg_ingestion?: {
+    entities_created?: number;
+    relationships_created?: number;
+    claims_created?: number;
+    evidence_created?: number;
+  };
+  neo4j_sync?: {
+    status?: string;
+    job_id?: string;
+    status_url?: string | null;
+    reused_existing_job?: boolean;
+    error?: string;
+  };
+}
 
 interface AxiomSearchResult {
   status: string;
-  iteration?: number;
-  entities?: Array<{
+  iteration: number;
+  entities: Array<{
     name: string;
     type: string;
     confidence: number;
   }>;
-  relationships?: Array<{
+  relationships: Array<{
     source: string;
     target: string;
     relationship_type: string;
-  }>;
-  signals?: Array<{
-    type: string;
-    value: string;
     confidence: number;
   }>;
-  advisory?: Array<{
+  intelligenceGaps: Array<{
+    gap_type: string;
+    description: string;
+    confidence: number;
+  }>;
+  advisory: Array<{
     opportunity_type: string;
     description: string;
     priority: string;
   }>;
+  totalQueries: number;
+  totalConnectorCalls: number;
+  elapsedMs: number;
+  kgIngestion?: RawAxiomSearchResult["kg_ingestion"];
+  neo4jSync?: RawAxiomSearchResult["neo4j_sync"];
 }
 
 interface AxiomSearchPanelProps {
   onResultsChange?: (results: AxiomSearchResult) => void;
+}
+
+function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
+  return {
+    status: raw.status || "completed",
+    iteration: raw.iteration ?? raw.iterations?.length ?? 0,
+    entities: (raw.entities || []).map((entity) => ({
+      name: entity.name,
+      type: entity.entity_type || entity.type || "unknown",
+      confidence: entity.confidence ?? 0,
+    })),
+    relationships: (raw.relationships || []).map((relationship) => ({
+      source: relationship.source_entity || relationship.source || "Unknown",
+      target: relationship.target_entity || relationship.target || "Unknown",
+      relationship_type: relationship.rel_type || relationship.relationship_type || "related_to",
+      confidence: relationship.confidence ?? 0,
+    })),
+    intelligenceGaps: (raw.intelligence_gaps || []).map((gap) => ({
+      gap_type: gap.gap_type || "gap",
+      description: gap.description || "No description provided",
+      confidence: gap.confidence ?? 0,
+    })),
+    advisory: (raw.advisory_opportunities || raw.advisory || []).map((opportunity) => ({
+      opportunity_type: opportunity.opportunity_type || "advisory",
+      description: opportunity.description || "No description provided",
+      priority: opportunity.priority || "medium",
+    })),
+    totalQueries: raw.total_queries ?? 0,
+    totalConnectorCalls: raw.total_connector_calls ?? 0,
+    elapsedMs: raw.elapsed_ms ?? 0,
+    kgIngestion: raw.kg_ingestion,
+    neo4jSync: raw.neo4j_sync,
+  };
+}
+
+function formatMillis(elapsedMs: number): string {
+  if (!elapsedMs) return "0 ms";
+  if (elapsedMs < 1000) return `${elapsedMs} ms`;
+  return `${(elapsedMs / 1000).toFixed(1)} s`;
 }
 
 export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
@@ -37,55 +138,73 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
   const [domainFocus, setDomainFocus] = useState("");
-  const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
-  const [model, setModel] = useState("claude-3-5-sonnet");
+  const [provider, setProvider] = useState<AxiomProvider>("anthropic");
+  const [model, setModel] = useState("claude-sonnet-4-6");
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [iteration, setIteration] = useState(0);
   const [results, setResults] = useState<AxiomSearchResult | null>(null);
   const [error, setError] = useState<string>("");
   const [isIngesting, setIsIngesting] = useState(false);
+  const [autoIngest, setAutoIngest] = useState(true);
 
-  const handleSearch = async () => {
+  const runSearch = async (ingest: boolean) => {
     if (!targetEntity.trim()) {
       setError("Target entity is required");
-      return;
+      return null;
     }
 
+    const endpoint = ingest ? "/api/axiom/search/ingest" : "/api/axiom/search";
+    const token = getToken();
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify({
+        prime_contractor: targetEntity,
+        vehicle_name: vehicleName || undefined,
+        installation: installation || undefined,
+        context: domainFocus || undefined,
+        provider,
+        model,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Search failed: ${response.status}`);
+    }
+
+    const raw = (await response.json()) as RawAxiomSearchResult;
+    if (raw.error) {
+      throw new Error(raw.error);
+    }
+
+    const data = normalizeSearchResult(raw);
+    setResults(data);
+    setIteration(data.iteration);
+    onResultsChange?.(data);
+    return data;
+  };
+
+  const handleSearch = async () => {
     setError("");
     setIsRunning(true);
-    setStatus("Initializing search...");
+    setStatus(autoIngest ? "Initializing search and ingesting to Knowledge Graph..." : "Initializing search...");
     setIteration(0);
     setResults(null);
 
     try {
-      const token = getToken();
-      const response = await fetch("/api/axiom/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        body: JSON.stringify({
-          target_entity: targetEntity,
-          vehicle_name: vehicleName || undefined,
-          installation: installation || undefined,
-          domain_focus: domainFocus || undefined,
-          provider,
-          model,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Search failed: ${response.status}`);
+      const data = await runSearch(autoIngest);
+      if (data) {
+        setStatus(
+          autoIngest
+            ? "Search completed and results ingested to Knowledge Graph"
+            : data.status || "Search completed",
+        );
       }
-
-      const data = (await response.json()) as AxiomSearchResult;
-      setResults(data);
-      setStatus(data.status || "Search completed");
-      setIteration(data.iteration || 0);
-      onResultsChange?.(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -96,31 +215,14 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   };
 
   const handleIngestToKG = async () => {
-    if (!results) return;
-
     setIsIngesting(true);
     setError("");
 
     try {
-      const token = getToken();
-      const response = await fetch("/api/axiom/search/ingest", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        body: JSON.stringify({
-          search_results: results,
-          target_entity: targetEntity,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Ingest failed: ${response.status}`);
+      const data = await runSearch(true);
+      if (data) {
+        setStatus("Search rerun and results ingested to Knowledge Graph");
       }
-
-      setStatus("Results ingested to knowledge graph");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -131,12 +233,14 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
 
   return (
     <div
-      className="flex flex-col gap-4 p-4 rounded-lg"
-      style={{ background: T.surface, border: `1px solid ${T.border}` }}
+      className="flex flex-col gap-4 rounded-lg"
+      style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
-      <h3 style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>AXIOM Search</h3>
+      <div>
+        <SectionEyebrow>Search</SectionEyebrow>
+        <h2 style={{ fontSize: FS.base, fontWeight: 700, color: T.text, margin: `${SP.xs}px 0 0` }}>Run a focused collection pass</h2>
+      </div>
 
-      {/* Search inputs */}
       <div className="space-y-3">
         <div>
           <label
@@ -145,7 +249,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               fontSize: FS.sm,
               fontWeight: 500,
               color: T.muted,
-              marginBottom: 6,
+              marginBottom: SP.sm,
             }}
           >
             Target Entity Name *
@@ -154,11 +258,12 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             type="text"
             value={targetEntity}
             onChange={(e) => setTargetEntity(e.target.value)}
-            placeholder="e.g., Acme Corp, John Smith"
+            placeholder="e.g., Acme Corp, SMX Technologies"
             disabled={isRunning}
+            aria-label="AXIOM target entity"
             className="w-full rounded border outline-none"
             style={{
-              padding: "8px 10px",
+              padding: PAD.default,
               fontSize: FS.sm,
               background: T.bg,
               border: `1px solid ${T.border}`,
@@ -175,7 +280,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 fontSize: FS.sm,
                 fontWeight: 500,
                 color: T.muted,
-                marginBottom: 6,
+                marginBottom: SP.sm,
               }}
             >
               Vehicle Name
@@ -186,9 +291,10 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               onChange={(e) => setVehicleName(e.target.value)}
               placeholder="Optional"
               disabled={isRunning}
+              aria-label="AXIOM vehicle name"
               className="w-full rounded border outline-none"
               style={{
-                padding: "8px 10px",
+                padding: PAD.default,
                 fontSize: FS.sm,
                 background: T.bg,
                 border: `1px solid ${T.border}`,
@@ -203,7 +309,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 fontSize: FS.sm,
                 fontWeight: 500,
                 color: T.muted,
-                marginBottom: 6,
+                marginBottom: SP.sm,
               }}
             >
               Installation
@@ -214,9 +320,10 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               onChange={(e) => setInstallation(e.target.value)}
               placeholder="Optional"
               disabled={isRunning}
+              aria-label="AXIOM installation"
               className="w-full rounded border outline-none"
               style={{
-                padding: "8px 10px",
+                padding: PAD.default,
                 fontSize: FS.sm,
                 background: T.bg,
                 border: `1px solid ${T.border}`,
@@ -233,26 +340,54 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               fontSize: FS.sm,
               fontWeight: 500,
               color: T.muted,
-              marginBottom: 6,
+              marginBottom: SP.sm,
             }}
           >
-            Domain Focus
+            Context / Mission Focus
           </label>
           <input
             type="text"
             value={domainFocus}
             onChange={(e) => setDomainFocus(e.target.value)}
-            placeholder="e.g., defense, tech, finance"
+            placeholder="e.g., INDOPACOM C5ISR support"
             disabled={isRunning}
+            aria-label="AXIOM mission context"
             className="w-full rounded border outline-none"
             style={{
-              padding: "8px 10px",
+              padding: PAD.default,
               fontSize: FS.sm,
               background: T.bg,
               border: `1px solid ${T.border}`,
               color: T.text,
             }}
           />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="autoIngestCheckbox"
+            checked={autoIngest}
+            onChange={(e) => setAutoIngest(e.target.checked)}
+            disabled={isRunning}
+            aria-label="Auto-ingest AXIOM results to knowledge graph"
+            style={{
+              cursor: isRunning ? "not-allowed" : "pointer",
+              width: SP.lg,
+              height: SP.lg,
+            }}
+          />
+          <label
+            htmlFor="autoIngestCheckbox"
+            style={{
+              fontSize: FS.sm,
+              fontWeight: 500,
+              color: T.text,
+              cursor: isRunning ? "not-allowed" : "pointer",
+            }}
+          >
+            Auto-ingest to Knowledge Graph
+          </label>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -263,18 +398,23 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 fontSize: FS.sm,
                 fontWeight: 500,
                 color: T.muted,
-                marginBottom: 6,
+                marginBottom: SP.sm,
               }}
             >
               Provider
             </label>
             <select
               value={provider}
-              onChange={(e) => setProvider(e.target.value as "anthropic" | "openai")}
+              onChange={(e) => {
+                const nextProvider = e.target.value as AxiomProvider;
+                setProvider(nextProvider);
+                setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4.1");
+              }}
               disabled={isRunning}
+              aria-label="AXIOM provider"
               className="w-full rounded border outline-none"
               style={{
-                padding: "8px 10px",
+                padding: PAD.default,
                 fontSize: FS.sm,
                 background: T.bg,
                 border: `1px solid ${T.border}`,
@@ -292,7 +432,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 fontSize: FS.sm,
                 fontWeight: 500,
                 color: T.muted,
-                marginBottom: 6,
+                marginBottom: SP.sm,
               }}
             >
               Model
@@ -301,9 +441,10 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               value={model}
               onChange={(e) => setModel(e.target.value)}
               disabled={isRunning}
+              aria-label="AXIOM model"
               className="w-full rounded border outline-none"
               style={{
-                padding: "8px 10px",
+                padding: PAD.default,
                 fontSize: FS.sm,
                 background: T.bg,
                 border: `1px solid ${T.border}`,
@@ -312,16 +453,16 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             >
               {provider === "anthropic" && (
                 <>
+                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
                   <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
                   <option value="claude-3-opus">Claude 3 Opus</option>
-                  <option value="claude-3-haiku">Claude 3 Haiku</option>
                 </>
               )}
               {provider === "openai" && (
                 <>
+                  <option value="gpt-4.1">GPT-4.1</option>
+                  <option value="gpt-4o">GPT-4o</option>
                   <option value="gpt-4">GPT-4</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
                 </>
               )}
             </select>
@@ -329,92 +470,103 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         </div>
       </div>
 
-      {/* Status display */}
-      {isRunning && (
-        <div className="rounded-lg p-3" style={{ background: T.bg, border: `1px solid ${T.borderActive}` }}>
-          <div style={{ fontSize: FS.sm, color: T.accent, marginBottom: 4 }}>
-            {status}
-          </div>
-          {iteration > 0 && (
-            <div style={{ fontSize: FS.sm, color: T.muted }}>
-              Iteration {iteration}...
-            </div>
-          )}
-          <div className="mt-2" style={{ height: 2, background: T.border, borderRadius: 1, overflow: "hidden" }}>
-            <div
-              style={{
-                height: "100%",
-                background: T.accent,
-                animation: "pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {isRunning ? (
+        <LoadingPanel
+          label={status || "Running AXIOM search"}
+          detail={iteration > 0 ? `Iteration ${iteration} in progress.` : "Collecting structured evidence and evaluating knowledge graph ingest."}
+        />
+      ) : null}
 
-      {/* Error display */}
-      {error && (
-        <div className="rounded-lg p-3 flex gap-2" style={{ background: T.red + "15", border: `1px solid ${T.red}` }}>
-          <AlertCircle size={16} color={T.red} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div style={{ fontSize: FS.sm, color: T.red }}>{error}</div>
-        </div>
-      )}
+      {error ? (
+        <InlineMessage
+          tone="danger"
+          title="AXIOM search failed"
+          message={error}
+          icon={AlertCircle}
+        />
+      ) : null}
 
-      {/* Search button */}
       <button
         onClick={handleSearch}
         disabled={isRunning || !targetEntity.trim()}
-        className="flex items-center justify-center gap-2 rounded px-4 py-2 cursor-pointer font-medium"
+        aria-label="Run AXIOM search"
+        className="flex items-center justify-center gap-2 rounded cursor-pointer font-medium"
         style={{
-          background: isRunning ? T.accent + "60" : T.accent,
-          color: "#000",
+          padding: PAD.default,
+          background: isRunning ? `${T.accent}60` : T.accent,
+          color: T.textInverse,
           fontSize: FS.sm,
           opacity: isRunning || !targetEntity.trim() ? 0.6 : 1,
           cursor: isRunning || !targetEntity.trim() ? "not-allowed" : "pointer",
         }}
       >
-        <Play size={14} />
+        <Play size={SP.md + SP.xs} />
         {isRunning ? "Searching..." : "Run AXIOM Search"}
       </button>
 
-      {/* Results section */}
+      {!isRunning && !results && !error ? (
+        <EmptyPanel
+          title="No search run yet"
+          description="Start with a prime, suspected sub, or target entity. Add vehicle and mission context only when it helps constrain the hunt."
+          icon={Upload}
+        />
+      ) : null}
+
       {results && (
-        <div className="space-y-3 pt-3 border-t" style={{ borderColor: T.border }}>
-          {results.entities && results.entities.length > 0 && (
+        <div className="space-y-3 border-t pt-3" style={{ borderColor: T.border }}>
+          <div
+            className="grid grid-cols-2 gap-3 rounded-lg md:grid-cols-4"
+            style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
+          >
+            {[
+              { label: "Entities", value: results.entities.length },
+              { label: "Relationships", value: results.relationships.length },
+              { label: "Queries", value: results.totalQueries },
+              { label: "Elapsed", value: formatMillis(results.elapsedMs) },
+            ].map((item) => (
+              <div key={item.label}>
+                <div style={{ fontSize: FS.sm, color: T.muted }}>{item.label}</div>
+                <div style={{ fontSize: FS.base, fontWeight: 600, color: T.text, marginTop: SP.xs / 2 }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {results.kgIngestion && (
+            <div className="rounded-lg" style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}>
+              <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
+                Knowledge Graph Ingestion
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.muted }}>
+                {results.kgIngestion.entities_created ?? 0} entities, {results.kgIngestion.relationships_created ?? 0} relationships, {results.kgIngestion.claims_created ?? 0} claims
+              </div>
+              {results.neo4jSync && (
+                <div style={{ fontSize: FS.sm, color: T.muted, marginTop: SP.sm }}>
+                  Neo4j sync: <span style={{ color: T.text }}>{results.neo4jSync.status || "unknown"}</span>
+                  {results.neo4jSync.error ? ` (${results.neo4jSync.error})` : ""}
+                </div>
+              )}
+            </div>
+          )}
+
+          {results.entities.length > 0 && (
             <div>
-              <h4
-                style={{
-                  fontSize: FS.sm,
-                  fontWeight: 600,
-                  color: T.text,
-                  marginBottom: 8,
-                }}
-              >
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
                 Discovered Entities ({results.entities.length})
               </h4>
               <div className="space-y-2">
-                {results.entities.slice(0, 5).map((entity, idx) => (
+                {results.entities.slice(0, 5).map((entity, index) => (
                   <div
-                    key={idx}
-                    className="flex items-start justify-between gap-2 p-2 rounded"
-                    style={{ background: T.bg, border: `1px solid ${T.border}` }}
+                    key={`${entity.name}-${index}`}
+                    className="flex items-start justify-between gap-2 rounded"
+                    style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
                   >
                     <div>
-                      <div style={{ fontSize: FS.sm, fontWeight: 500, color: T.text }}>
-                        {entity.name}
-                      </div>
-                      <div style={{ fontSize: FS.sm, color: T.muted }}>
-                        {entity.type}
-                      </div>
+                      <div style={{ fontSize: FS.sm, fontWeight: 500, color: T.text }}>{entity.name}</div>
+                      <div style={{ fontSize: FS.sm, color: T.muted }}>{entity.type}</div>
                     </div>
-                    <div
-                      style={{
-                        fontSize: FS.sm,
-                        fontWeight: 600,
-                        color: T.accent,
-                        flexShrink: 0,
-                      }}
-                    >
+                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.accent, flexShrink: 0 }}>
                       {(entity.confidence * 100).toFixed(0)}%
                     </div>
                   </div>
@@ -423,30 +575,23 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             </div>
           )}
 
-          {results.relationships && results.relationships.length > 0 && (
+          {results.relationships.length > 0 && (
             <div>
-              <h4
-                style={{
-                  fontSize: FS.sm,
-                  fontWeight: 600,
-                  color: T.text,
-                  marginBottom: 8,
-                }}
-              >
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
                 Relationships ({results.relationships.length})
               </h4>
               <div className="space-y-2">
-                {results.relationships.slice(0, 3).map((rel, idx) => (
+                {results.relationships.slice(0, 3).map((relationship, index) => (
                   <div
-                    key={idx}
-                    className="p-2 rounded text-center"
-                    style={{ background: T.bg, border: `1px solid ${T.border}` }}
+                    key={`${relationship.source}-${relationship.relationship_type}-${relationship.target}-${index}`}
+                    className="rounded text-center"
+                    style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
                   >
                     <div style={{ fontSize: FS.sm, color: T.muted }}>
-                      {rel.source} <span style={{ color: T.accent }}>→</span> {rel.target}
+                      {relationship.source} <span style={{ color: T.accent }}>→</span> {relationship.target}
                     </div>
-                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4 }}>
-                      {rel.relationship_type}
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
+                      {relationship.relationship_type}
                     </div>
                   </div>
                 ))}
@@ -454,75 +599,23 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             </div>
           )}
 
-          {results.signals && results.signals.length > 0 && (
+          {results.intelligenceGaps.length > 0 && (
             <div>
-              <h4
-                style={{
-                  fontSize: FS.sm,
-                  fontWeight: 600,
-                  color: T.text,
-                  marginBottom: 8,
-                }}
-              >
-                Signals ({results.signals.length})
-              </h4>
-              <div className="space-y-1">
-                {results.signals.slice(0, 4).map((signal, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      fontSize: FS.sm,
-                      color: T.dim,
-                      padding: "6px 0",
-                      borderBottom: `1px solid ${T.border}`,
-                    }}
-                  >
-                    <span style={{ color: T.text, fontWeight: 500 }}>
-                      {signal.type}
-                    </span>
-                    : {signal.value}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {results.advisory && results.advisory.length > 0 && (
-            <div>
-              <h4
-                style={{
-                  fontSize: FS.sm,
-                  fontWeight: 600,
-                  color: T.text,
-                  marginBottom: 8,
-                }}
-              >
-                Advisory Opportunities
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
+                Intelligence Gaps ({results.intelligenceGaps.length})
               </h4>
               <div className="space-y-2">
-                {results.advisory.map((adv, idx) => (
+                {results.intelligenceGaps.slice(0, 4).map((gap, index) => (
                   <div
-                    key={idx}
-                    className="p-2 rounded"
-                    style={{ background: T.bg, border: `1px solid ${T.border}` }}
+                    key={`${gap.gap_type}-${index}`}
+                    className="rounded"
+                    style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
                   >
-                    <div
-                      style={{
-                        fontSize: FS.sm,
-                        fontWeight: 500,
-                        color: T.accent,
-                      }}
-                    >
-                      {adv.opportunity_type}
+                    <div style={{ fontSize: FS.sm, fontWeight: 500, color: T.accent }}>
+                      {gap.gap_type}
                     </div>
-                    <div
-                      style={{
-                        fontSize: FS.sm,
-                        color: T.dim,
-                        marginTop: 4,
-                      }}
-                    >
-                      {adv.description}
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
+                      {gap.description}
                     </div>
                   </div>
                 ))}
@@ -530,23 +623,50 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             </div>
           )}
 
-          {/* Ingest button */}
-          <button
-            onClick={handleIngestToKG}
-            disabled={isIngesting}
-            className="w-full flex items-center justify-center gap-2 rounded px-4 py-2 cursor-pointer font-medium mt-4"
-            style={{
-              background: T.accent + "20",
-              border: `1px solid ${T.accent}`,
-              color: T.accent,
-              fontSize: FS.sm,
-              opacity: isIngesting ? 0.6 : 1,
-              cursor: isIngesting ? "not-allowed" : "pointer",
-            }}
-          >
-            <Upload size={14} />
-            {isIngesting ? "Ingesting..." : "Ingest to Knowledge Graph"}
-          </button>
+          {results.advisory.length > 0 && (
+            <div>
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
+                Advisory Opportunities ({results.advisory.length})
+              </h4>
+              <div className="space-y-2">
+                {results.advisory.map((advisory, index) => (
+                  <div
+                    key={`${advisory.opportunity_type}-${index}`}
+                    className="rounded"
+                    style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
+                  >
+                    <div style={{ fontSize: FS.sm, fontWeight: 500, color: T.accent }}>
+                      {advisory.opportunity_type}
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
+                      {advisory.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!autoIngest && (
+            <button
+              onClick={handleIngestToKG}
+              disabled={isIngesting}
+              aria-label="Rerun AXIOM search and ingest to knowledge graph"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded cursor-pointer font-medium"
+              style={{
+                padding: PAD.default,
+                background: `${T.accent}20`,
+                border: `1px solid ${T.accent}`,
+                color: T.accent,
+                fontSize: FS.sm,
+                opacity: isIngesting ? 0.6 : 1,
+                cursor: isIngesting ? "not-allowed" : "pointer",
+              }}
+            >
+              <Upload size={SP.md + SP.xs} />
+              {isIngesting ? "Ingesting..." : "Rerun and Ingest to Knowledge Graph"}
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -15,6 +15,7 @@ import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSqua
 import { T, FS } from "@/lib/tokens";
 import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
 import type { GraphEdge as ApiGraphEdge, GraphWorkspace } from "@/lib/api";
+import { InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
 
 // ============================================================================
 // Type Definitions
@@ -453,7 +454,6 @@ export function GraphIntelligenceDashboard() {
       elements,
       style: buildCytoscapeStyle(),
       layout: layoutConfig,
-      wheelSensitivity: 0.1,
       pixelRatio: "auto",
     });
 
@@ -470,9 +470,9 @@ export function GraphIntelligenceDashboard() {
     const onZoom = () => {
       // Auto-hide labels when zoomed out
       if (cy.zoom() < 1.5) {
-        cy.elements("node").style("label", "");
+        cy.elements("node").style("content", "");
       } else {
-        cy.elements("node").style("label", "data(label)");
+        cy.elements("node").style("content", (ele: NodeSingular) => String(ele.data("label") ?? ""));
       }
     };
 
@@ -878,104 +878,46 @@ export function GraphIntelligenceDashboard() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: GRAPH_BG, gap: 16 }}>
-        {/* Skeleton pulse animation */}
-        <div style={{ display: "flex", gap: 12 }}>
-          {[80, 60, 100, 70].map((w, i) => (
-            <div
-              key={i}
-              style={{
-                width: w,
-                height: 12,
-                borderRadius: 6,
-                background: `${T.text}10`,
-                animation: "pulse 1.5s ease-in-out infinite",
-                animationDelay: `${i * 0.15}s`,
-              }}
-            />
-          ))}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              width: 20,
-              height: 20,
-              border: `2px solid ${T.accent}`,
-              borderTopColor: "transparent",
-              borderRadius: "50%",
-              animation: "spin 0.8s linear infinite",
-            }}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", background: GRAPH_BG, padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 520 }}>
+          <LoadingPanel
+            label="Loading graph intelligence"
+            detail="Rebuilding the filtered network, analytics, and workspace overlays."
           />
-          <span style={{ color: T.textSecondary, fontSize: `${FS.base}px` }}>Loading graph data...</span>
         </div>
-        <style>{`
-          @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.7; } }
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: GRAPH_BG }}>
-        <div
-          style={{
-            maxWidth: 420,
-            padding: 32,
-            borderRadius: 12,
-            background: T.surface,
-            border: `1px solid ${T.border}`,
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              background: `${T.statusBlocked}18`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 16px",
-            }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={T.statusBlocked} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="15" y1="9" x2="9" y2="15" />
-              <line x1="9" y1="9" x2="15" y2="15" />
-            </svg>
-          </div>
-          <div style={{ fontSize: `${FS.md}px`, fontWeight: 700, color: T.text, marginBottom: 8 }}>
-            Graph Intelligence Unavailable
-          </div>
-          <div style={{ fontSize: `${FS.base}px`, color: T.textSecondary, marginBottom: 20, lineHeight: 1.5 }}>
-            {error}
-          </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", background: GRAPH_BG, padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 520, display: "flex", flexDirection: "column", gap: 12 }}>
+          <InlineMessage tone="danger" title="Graph intelligence unavailable" message={error} />
           {retryCount < MAX_RETRIES ? (
             <button
+              type="button"
               onClick={() => {
-                setRetryCount((c) => c + 1);
+                setRetryCount((count) => count + 1);
                 loadGraphData();
               }}
+              className="helios-focus-ring"
               style={{
-                padding: "10px 24px",
-                borderRadius: 8,
+                padding: "10px 16px",
+                borderRadius: 12,
                 background: T.accent,
                 color: "#fff",
                 border: "none",
                 fontSize: `${FS.base}px`,
                 fontWeight: 700,
                 cursor: "pointer",
+                alignSelf: "flex-start",
               }}
             >
               Retry ({MAX_RETRIES - retryCount} attempts remaining)
             </button>
           ) : (
-            <div style={{ fontSize: `${FS.sm}px`, color: T.textTertiary }}>
-              Max retries reached. Check your network connection and refresh the page.
-            </div>
+            <InlineMessage tone="warning" message="Max retries reached. Check the graph service and refresh the page." />
           )}
         </div>
       </div>
@@ -991,7 +933,7 @@ export function GraphIntelligenceDashboard() {
       style={{
         display: "flex",
         flexDirection: "row",
-        height: "100vh",
+        height: "100%",
         width: "100%",
         background: GRAPH_BG,
         fontFamily: "'Inter', -apple-system, sans-serif",
@@ -1031,13 +973,21 @@ export function GraphIntelligenceDashboard() {
             zIndex: 10,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", flex: 1, minWidth: 0 }}>
+            <div>
+              <SectionEyebrow>Graph intelligence</SectionEyebrow>
+              <h1 style={{ margin: "4px 0 0", fontSize: `${FS.md}px`, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>
+                Relationship fabric and provenance pathing
+              </h1>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
             <Search size={16} color={T.textSecondary} />
             <input
               type="text"
               placeholder="Search entities..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search graph entities"
               style={{
                 flex: 1,
                 background: T.bg,
@@ -1054,6 +1004,7 @@ export function GraphIntelligenceDashboard() {
                 {searchMatchCount} match{searchMatchCount !== 1 ? "es" : ""}
               </div>
             )}
+          </div>
           </div>
 
           <div style={{ display: "flex", gap: "8px" }}>
@@ -1274,7 +1225,7 @@ export function GraphIntelligenceDashboard() {
                 top: "60px",
                 right: "12px",
                 width: "320px",
-                maxHeight: "calc(100vh - 200px)",
+                maxHeight: "calc(100% - 96px)",
                 background: "rgba(15, 23, 42, 0.97)",
                 border: `1px solid ${T.border}`,
                 borderRadius: "8px",
@@ -2272,7 +2223,7 @@ function buildCytoscapeStyle(): cytoscape.StylesheetJsonBlock[] {
         "background-color": "data(fillColor)",
         "border-color": "data(strokeColor)",
         "border-width": 2,
-        label: "data(label)",
+        content: (ele: NodeSingular) => String(ele.data("label") ?? ""),
         width: "data(size)",
         height: "data(size)",
         shape: "data(shape)",
@@ -2287,25 +2238,18 @@ function buildCytoscapeStyle(): cytoscape.StylesheetJsonBlock[] {
     {
       selector: 'node[riskLevel="HIGH"]',
       style: {
-        "shadow-blur": 12,
-        "shadow-color": "#ef4444",
-        "shadow-opacity": 0.6,
+        "border-width": 3,
       },
     },
     {
       selector: 'node[riskLevel="CRITICAL"]',
       style: {
-        "shadow-blur": 20,
-        "shadow-color": "#dc2626",
-        "shadow-opacity": 0.8,
         "border-width": 3,
       },
     },
     {
       selector: "node.risk-pulse",
       style: {
-        "shadow-blur": 30,
-        "shadow-opacity": 1.0,
         "border-width": 4,
       },
     },
@@ -2362,9 +2306,6 @@ function buildCytoscapeStyle(): cytoscape.StylesheetJsonBlock[] {
       style: {
         "border-width": 4,
         "border-color": "#0ea5e9",
-        "shadow-blur": 15,
-        "shadow-color": "#0ea5e9",
-        "shadow-opacity": 0.8,
       },
     },
     {
@@ -2382,9 +2323,6 @@ function buildCytoscapeStyle(): cytoscape.StylesheetJsonBlock[] {
       style: {
         "border-width": 5,
         "border-color": "#f43f5e",
-        "shadow-blur": 25,
-        "shadow-color": "#f43f5e",
-        "shadow-opacity": 1.0,
       },
     },
     {
@@ -2392,9 +2330,6 @@ function buildCytoscapeStyle(): cytoscape.StylesheetJsonBlock[] {
       style: {
         "border-width": 3,
         "border-color": "#fb923c",
-        "shadow-blur": 12,
-        "shadow-color": "#fb923c",
-        "shadow-opacity": 0.7,
       },
     },
   ] as unknown) as cytoscape.StylesheetJsonBlock[];

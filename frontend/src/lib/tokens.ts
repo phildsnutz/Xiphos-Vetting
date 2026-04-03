@@ -20,6 +20,7 @@ export const T = {
   text: "#e8e8ed",
   textSecondary: "#9898a8",
   textTertiary: "#8a8a9a",
+  textInverse: "#05070a",
 
   // Primary action (ONE accent, cyan)
   accent: "#0ea5e9",
@@ -62,6 +63,48 @@ export const T = {
   hardStopBorder: "rgba(239, 68, 68, 0.3)",
 } as const;
 
+/**
+ * Opacity scale v3.1
+ *
+ * Named opacity values to replace fragile hex-append pattern (T.accent + "12").
+ * Use with: `${T.accent}${O.subtle}` or build rgba manually.
+ */
+export const O = {
+  "05": "0D",   // 5% - barely visible hover hints
+  "08": "14",   // 8% - soft background tints
+  "12": "1F",   // 12% - standard bg tints (badges, cards)
+  "15": "26",   // 15% - active bg tints
+  "20": "33",   // 20% - emphasis bg
+  "30": "4D",   // 30% - strong bg, borders
+  "50": "80",   // 50% - half opacity overlays
+} as const;
+
+/**
+ * Padding presets v3.1
+ *
+ * Standardized padding patterns to replace magic number sprawl.
+ * Usage: style={{ padding: PAD.default }}
+ */
+export const PAD = {
+  tight: "4px 8px",         // badges, tags, inline chips
+  default: "8px 12px",      // cards, inputs, form controls
+  comfortable: "12px 16px", // panels, sections, dialogs
+  spacious: "16px 24px",    // page containers, hero areas
+} as const;
+
+/**
+ * Motion tokens v3.1
+ *
+ * Consistent animation timing across all components.
+ */
+export const MOTION = {
+  fast: "150ms",
+  normal: "300ms",
+  slow: "500ms",
+  easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+  spring: "cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+} as const;
+
 // FX object for backward compat (gradients stripped down)
 export const FX = {
   glassCard: `background: #111118; border: 1px solid #1e1e2a; border-radius: 8px;`,
@@ -93,9 +136,11 @@ export const FONTS = {
  * Font stack: Inter, system fonts
  */
 export const FS = {
+  xxs: 10,      // micro labels (gauge thresholds, axis ticks)
+  xs: 11,       // compact metadata, tertiary labels
   caption: 12,  // captions, timestamps, disabled text
-  base: 14,     // body text, descriptions
   sm: 13,       // body secondary (metadata, labels)
+  base: 14,     // body text, descriptions
   md: 18,       // heading medium, subheadings
   lg: 24,       // heading large, section titles
   xl: 32,       // hero / display

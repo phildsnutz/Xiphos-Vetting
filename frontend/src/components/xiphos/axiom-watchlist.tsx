@@ -1,20 +1,78 @@
-import { useEffect, useState } from "react";
-import { T, FS } from "@/lib/tokens";
-import { Plus, Play, Loader, AlertCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { T, FS, PAD, SP } from "@/lib/tokens";
+import { Plus, Play, Loader, AlertCircle, Square } from "lucide-react";
 import { getToken } from "@/lib/auth";
+import { EmptyPanel, InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+
+type WatchlistPriority = "critical" | "high" | "standard" | "low";
+type WatchlistStatus = "idle" | "scanning" | "inactive" | "error";
+
+interface RawWatchlistEntry {
+  id: string;
+  target?: string;
+  prime_contractor?: string;
+  vehicle?: string;
+  vehicle_name?: string;
+  priority?: WatchlistPriority | "medium";
+  last_scan?: string;
+  last_scan_at?: string;
+  next_scan_at?: string;
+  status?: WatchlistStatus;
+  active?: boolean;
+  created_at?: string;
+}
 
 interface WatchlistEntry {
   id: string;
   target: string;
   vehicle?: string;
-  priority: "critical" | "high" | "medium" | "low";
+  priority: WatchlistPriority;
   last_scan?: string;
-  status: "idle" | "scanning" | "error";
+  next_scan_at?: string;
+  status: WatchlistStatus;
+  active: boolean;
   created_at: string;
+}
+
+interface WatchlistResponse {
+  entries?: RawWatchlistEntry[];
+  watchlist?: RawWatchlistEntry[];
 }
 
 interface AxiomWatchlistProps {
   onEntriesChange?: (entries: WatchlistEntry[]) => void;
+}
+
+function normalizePriority(value?: string): WatchlistPriority {
+  if (value === "critical" || value === "high" || value === "standard" || value === "low") {
+    return value;
+  }
+  if (value === "medium") {
+    return "standard";
+  }
+  return "standard";
+}
+
+function normalizeEntry(entry: RawWatchlistEntry): WatchlistEntry {
+  const active = entry.active ?? true;
+  return {
+    id: entry.id,
+    target: entry.target || entry.prime_contractor || "Unknown target",
+    vehicle: entry.vehicle || entry.vehicle_name || "",
+    priority: normalizePriority(entry.priority),
+    last_scan: entry.last_scan || entry.last_scan_at || "",
+    next_scan_at: entry.next_scan_at || "",
+    status: entry.status || (active ? "idle" : "inactive"),
+    active,
+    created_at: entry.created_at || "",
+  };
+}
+
+function formatTimestamp(timestamp?: string): string {
+  if (!timestamp) return "-";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return date.toLocaleString();
 }
 
 export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
@@ -23,19 +81,14 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
   const [error, setError] = useState<string>("");
   const [daemonRunning, setDaemonRunning] = useState(false);
   const [daemonStarting, setDaemonStarting] = useState(false);
-
-  // Add watchlist form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [formTarget, setFormTarget] = useState("");
   const [formVehicle, setFormVehicle] = useState("");
-  const [formPriority, setFormPriority] = useState<"high" | "medium" | "low">("high");
+  const [formPriority, setFormPriority] = useState<WatchlistPriority>("high");
   const [isAddingEntry, setIsAddingEntry] = useState(false);
-
-  // Scan state
   const [scanningIds, setScanningIds] = useState<Set<string>>(new Set());
 
-  // Load watchlist entries
-  const loadEntries = async () => {
+  const loadEntries = useCallback(async () => {
     setIsLoading(true);
     setError("");
 
@@ -51,20 +104,21 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
         throw new Error(`Failed to load watchlist: ${response.status}`);
       }
 
-      const data = (await response.json()) as { entries: WatchlistEntry[] };
-      setEntries(data.entries || []);
-      onEntriesChange?.(data.entries || []);
+      const data = (await response.json()) as WatchlistResponse;
+      const normalized = (data.entries || data.watchlist || []).map(normalizeEntry);
+      setEntries(normalized);
+      onEntriesChange?.(normalized);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [onEntriesChange]);
 
   useEffect(() => {
-    loadEntries();
-  }, []);
+    void loadEntries();
+  }, [loadEntries]);
 
   const handleAddEntry = async () => {
     if (!formTarget.trim()) {
@@ -84,8 +138,8 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
           ...(token && { Authorization: `Bearer ${token}` }),
         },
         body: JSON.stringify({
-          target: formTarget,
-          vehicle: formVehicle || undefined,
+          prime_contractor: formTarget,
+          vehicle_name: formVehicle || undefined,
           priority: formPriority,
         }),
       });
@@ -193,13 +247,13 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
     }
   };
 
-  const priorityColor = (priority: string) => {
+  const priorityColor = (priority: WatchlistPriority) => {
     switch (priority) {
       case "critical":
         return T.red;
       case "high":
         return T.amber;
-      case "medium":
+      case "standard":
         return T.accent;
       default:
         return T.muted;
@@ -208,43 +262,40 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
 
   return (
     <div
-      className="flex flex-col gap-4 p-4 rounded-lg"
-      style={{ background: T.surface, border: `1px solid ${T.border}` }}
+      className="flex flex-col gap-4 rounded-lg"
+      style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
       <div className="flex items-center justify-between">
-        <h3 style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>
-          AXIOM Watchlist
-        </h3>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center gap-1.5 rounded px-3 py-1.5 cursor-pointer font-medium"
-            style={{
-              background: T.accent + "20",
-              border: `1px solid ${T.accent}`,
-              color: T.accent,
-              fontSize: FS.sm,
-            }}
-          >
-            <Plus size={14} />
-            Add Target
-          </button>
+        <div>
+          <SectionEyebrow>Watchlist</SectionEyebrow>
+          <h2 style={{ fontSize: FS.base, fontWeight: 700, color: T.text, margin: `${SP.xs}px 0 0` }}>Persistent collection targets</h2>
         </div>
+        <button
+          type="button"
+          aria-label={showAddForm ? "Hide add watchlist target form" : "Show add watchlist target form"}
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="helios-focus-ring flex items-center gap-1.5 rounded cursor-pointer font-medium"
+          style={{
+            padding: PAD.default,
+            background: `${T.accent}20`,
+            border: `1px solid ${T.accent}`,
+            color: T.accent,
+            fontSize: FS.sm,
+          }}
+        >
+          <Plus size={SP.md + SP.xs} />
+          Add Target
+        </button>
       </div>
 
-      {/* Error display */}
-      {error && (
-        <div className="rounded-lg p-3 flex gap-2" style={{ background: T.red + "15", border: `1px solid ${T.red}` }}>
-          <AlertCircle size={16} color={T.red} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div style={{ fontSize: FS.sm, color: T.red }}>{error}</div>
-        </div>
-      )}
+      {error ? (
+        <InlineMessage tone="danger" title="Watchlist error" message={error} icon={AlertCircle} />
+      ) : null}
 
-      {/* Add form */}
       {showAddForm && (
         <div
-          className="p-3 rounded-lg space-y-3"
-          style={{ background: T.bg, border: `1px solid ${T.border}` }}
+          className="rounded-lg space-y-3"
+          style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
         >
           <div>
             <label
@@ -253,7 +304,7 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
                 fontSize: FS.sm,
                 fontWeight: 500,
                 color: T.muted,
-                marginBottom: 6,
+                marginBottom: SP.sm,
               }}
             >
               Target Name *
@@ -262,11 +313,12 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
               type="text"
               value={formTarget}
               onChange={(e) => setFormTarget(e.target.value)}
-              placeholder="e.g., Acme Corp"
+              placeholder="e.g., SMX Technologies"
               disabled={isAddingEntry}
+              aria-label="AXIOM watchlist target"
               className="w-full rounded border outline-none"
               style={{
-                padding: "8px 10px",
+                padding: PAD.default,
                 fontSize: FS.sm,
                 background: T.surface,
                 border: `1px solid ${T.border}`,
@@ -283,7 +335,7 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
                   fontSize: FS.sm,
                   fontWeight: 500,
                   color: T.muted,
-                  marginBottom: 6,
+                  marginBottom: SP.sm,
                 }}
               >
                 Vehicle Name
@@ -294,9 +346,10 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
                 onChange={(e) => setFormVehicle(e.target.value)}
                 placeholder="Optional"
                 disabled={isAddingEntry}
+                aria-label="AXIOM watchlist vehicle"
                 className="w-full rounded border outline-none"
                 style={{
-                  padding: "8px 10px",
+                  padding: PAD.default,
                   fontSize: FS.sm,
                   background: T.surface,
                   border: `1px solid ${T.border}`,
@@ -312,26 +365,28 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
                   fontSize: FS.sm,
                   fontWeight: 500,
                   color: T.muted,
-                  marginBottom: 6,
+                  marginBottom: SP.sm,
                 }}
               >
                 Priority
               </label>
               <select
                 value={formPriority}
-                onChange={(e) => setFormPriority(e.target.value as "high" | "medium" | "low")}
+                onChange={(e) => setFormPriority(e.target.value as WatchlistPriority)}
                 disabled={isAddingEntry}
+                aria-label="AXIOM watchlist priority"
                 className="w-full rounded border outline-none"
                 style={{
-                  padding: "8px 10px",
+                  padding: PAD.default,
                   fontSize: FS.sm,
                   background: T.surface,
                   border: `1px solid ${T.border}`,
                   color: T.text,
                 }}
               >
+                <option value="critical">Critical</option>
                 <option value="high">High</option>
-                <option value="medium">Medium</option>
+                <option value="standard">Standard</option>
                 <option value="low">Low</option>
               </select>
             </div>
@@ -339,12 +394,15 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
 
           <div className="flex gap-2 pt-2">
             <button
+              type="button"
+              aria-label="Add watchlist entry"
               onClick={handleAddEntry}
               disabled={isAddingEntry || !formTarget.trim()}
-              className="flex-1 rounded px-3 py-2 cursor-pointer font-medium"
+              className="flex-1 rounded cursor-pointer font-medium"
               style={{
+                padding: PAD.default,
                 background: T.accent,
-                color: "#000",
+                color: T.textInverse,
                 fontSize: FS.sm,
                 opacity: isAddingEntry || !formTarget.trim() ? 0.6 : 1,
                 cursor: isAddingEntry || !formTarget.trim() ? "not-allowed" : "pointer",
@@ -353,10 +411,13 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
               {isAddingEntry ? "Adding..." : "Add Entry"}
             </button>
             <button
+              type="button"
+              aria-label="Cancel add watchlist entry"
               onClick={() => setShowAddForm(false)}
               disabled={isAddingEntry}
-              className="flex-1 rounded px-3 py-2 cursor-pointer font-medium"
+              className="flex-1 rounded cursor-pointer font-medium"
               style={{
+                padding: PAD.default,
                 background: "transparent",
                 border: `1px solid ${T.border}`,
                 color: T.muted,
@@ -369,14 +430,16 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
         </div>
       )}
 
-      {/* Daemon controls */}
-      <div className="flex gap-2 pb-2 border-b" style={{ borderColor: T.border }}>
+      <div className="flex gap-2 border-b pb-2" style={{ borderColor: T.border }}>
         <button
+          type="button"
+          aria-label={daemonRunning ? "Stop AXIOM watchlist daemon" : "Start AXIOM watchlist daemon"}
           onClick={daemonRunning ? handleDaemonStop : handleDaemonStart}
           disabled={daemonStarting}
-          className="flex items-center gap-1.5 rounded px-3 py-1.5 cursor-pointer font-medium"
+          className="flex items-center gap-1.5 rounded cursor-pointer font-medium"
           style={{
-            background: daemonRunning ? T.red + "20" : T.green + "20",
+            padding: PAD.default,
+            background: daemonRunning ? `${T.red}20` : `${T.green}20`,
             border: `1px solid ${daemonRunning ? T.red : T.green}`,
             color: daemonRunning ? T.red : T.green,
             fontSize: FS.sm,
@@ -384,7 +447,7 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
             cursor: daemonStarting ? "not-allowed" : "pointer",
           }}
         >
-          {daemonStarting ? <Loader size={14} /> : <Play size={14} />}
+          {daemonStarting ? <Loader size={SP.md + SP.xs} /> : daemonRunning ? <Square size={SP.md + SP.xs} /> : <Play size={SP.md + SP.xs} />}
           {daemonStarting ? "Updating..." : daemonRunning ? "Stop Daemon" : "Start Daemon"}
         </button>
         <div
@@ -392,159 +455,106 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
             flex: 1,
             display: "flex",
             alignItems: "center",
-            paddingLeft: 12,
-            borderRadius: 6,
+            paddingLeft: SP.md,
+            borderRadius: SP.sm,
             fontSize: FS.sm,
             color: daemonRunning ? T.green : T.muted,
-            background: daemonRunning ? T.green + "10" : "transparent",
+            background: daemonRunning ? `${T.green}10` : "transparent",
           }}
         >
           {daemonRunning ? "Daemon is running" : "Daemon is stopped"}
         </div>
       </div>
 
-      {/* Loading state */}
-      {isLoading && (
-        <div style={{ textAlign: "center", padding: "20px", color: T.muted }}>
-          <Loader size={16} style={{ display: "inline-block", animation: "spin 2s linear infinite" }} />
-          <div style={{ fontSize: FS.sm, marginTop: 8 }}>Loading watchlist...</div>
-        </div>
-      )}
+      {isLoading ? <LoadingPanel label="Loading watchlist" detail="Pulling saved AXIOM monitoring targets and daemon state." /> : null}
 
-      {/* Empty state */}
-      {!isLoading && entries.length === 0 && (
-        <div style={{ textAlign: "center", padding: "20px", color: T.muted }}>
-          <div style={{ fontSize: FS.sm }}>No watchlist entries yet</div>
-          <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4 }}>
-            Add a target to begin monitoring
-          </div>
-        </div>
-      )}
+      {!isLoading && entries.length === 0 ? (
+        <EmptyPanel
+          title="No watchlist entries yet"
+          description="Add a target to begin monitoring vendors, vehicles, and the changes AXIOM should revisit automatically."
+          action={
+            <button
+              type="button"
+              onClick={() => setShowAddForm(true)}
+              className="helios-focus-ring"
+              style={{
+                borderRadius: 999,
+                border: "none",
+                background: T.accent,
+                color: T.textInverse,
+                padding: "10px 14px",
+                fontSize: FS.sm,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Add target
+            </button>
+          }
+        />
+      ) : null}
 
-      {/* Entries table */}
       {!isLoading && entries.length > 0 && (
         <div className="overflow-x-auto">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS.sm }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                <th
-                  style={{
-                    textAlign: "left",
-                    padding: "8px",
-                    color: T.muted,
-                    fontWeight: 500,
-                  }}
-                >
-                  Target
-                </th>
-                <th
-                  style={{
-                    textAlign: "left",
-                    padding: "8px",
-                    color: T.muted,
-                    fontWeight: 500,
-                  }}
-                >
-                  Vehicle
-                </th>
-                <th
-                  style={{
-                    textAlign: "center",
-                    padding: "8px",
-                    color: T.muted,
-                    fontWeight: 500,
-                  }}
-                >
-                  Priority
-                </th>
-                <th
-                  style={{
-                    textAlign: "left",
-                    padding: "8px",
-                    color: T.muted,
-                    fontWeight: 500,
-                  }}
-                >
-                  Last Scan
-                </th>
-                <th
-                  style={{
-                    textAlign: "center",
-                    padding: "8px",
-                    color: T.muted,
-                    fontWeight: 500,
-                  }}
-                >
-                  Status
-                </th>
-                <th
-                  style={{
-                    textAlign: "center",
-                    padding: "8px",
-                    color: T.muted,
-                    fontWeight: 500,
-                  }}
-                >
-                  Action
-                </th>
+                {["Target", "Vehicle", "Priority", "Last Scan", "Next Scan", "Action"].map((header) => (
+                  <th
+                    key={header}
+                    style={{
+                      textAlign: header === "Priority" || header === "Action" ? "center" : "left",
+                      padding: PAD.default,
+                      color: T.muted,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {header}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
-                <tr
-                  key={entry.id}
-                  style={{
-                    borderBottom: `1px solid ${T.border}`,
-                    background: entry.status === "error" ? T.red + "08" : "transparent",
-                  }}
-                >
-                  <td style={{ padding: "8px", color: T.text }}>
-                    {entry.target}
-                  </td>
-                  <td style={{ padding: "8px", color: T.muted }}>
-                    {entry.vehicle || "-"}
-                  </td>
-                  <td
+              {entries.map((entry) => {
+                const scanning = scanningIds.has(entry.id);
+                return (
+                  <tr
+                    key={entry.id}
                     style={{
-                      padding: "8px",
-                      textAlign: "center",
-                      color: priorityColor(entry.priority),
-                      fontWeight: 600,
+                      borderBottom: `1px solid ${T.border}`,
+                      background: entry.status === "error" ? `${T.red}08` : "transparent",
                     }}
                   >
-                    {entry.priority}
-                  </td>
-                  <td style={{ padding: "8px", color: T.dim }}>
-                    {entry.last_scan ? new Date(entry.last_scan).toLocaleDateString() : "Never"}
-                  </td>
-                  <td
-                    style={{
-                      padding: "8px",
-                      textAlign: "center",
-                      color: entry.status === "error" ? T.red : entry.status === "scanning" ? T.accent : T.green,
-                    }}
-                  >
-                    {entry.status}
-                  </td>
-                  <td style={{ padding: "8px", textAlign: "center" }}>
-                    <button
-                      onClick={() => handleScan(entry.id)}
-                      disabled={scanningIds.has(entry.id)}
-                      className="rounded px-2 py-1 cursor-pointer"
-                      style={{
-                        background: T.accent + "20",
-                        border: `1px solid ${T.accent}`,
-                        color: T.accent,
-                        fontSize: FS.sm,
-                        opacity: scanningIds.has(entry.id) ? 0.6 : 1,
-                        cursor: scanningIds.has(entry.id) ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {scanningIds.has(entry.id) ? "Scanning" : "Scan"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    <td style={{ padding: PAD.default, color: T.text }}>{entry.target}</td>
+                    <td style={{ padding: PAD.default, color: T.muted }}>{entry.vehicle || "-"}</td>
+                    <td style={{ padding: PAD.default, textAlign: "center", color: priorityColor(entry.priority), fontWeight: 600 }}>
+                      {entry.priority}
+                    </td>
+                    <td style={{ padding: PAD.default, color: T.muted }}>{formatTimestamp(entry.last_scan)}</td>
+                    <td style={{ padding: PAD.default, color: T.muted }}>{formatTimestamp(entry.next_scan_at)}</td>
+                    <td style={{ padding: PAD.default, textAlign: "center" }}>
+                      <button
+                        type="button"
+                        aria-label={`Run AXIOM scan for ${entry.target}`}
+                        onClick={() => void handleScan(entry.id)}
+                        disabled={scanning}
+                        className="rounded cursor-pointer font-medium"
+                        style={{
+                          padding: PAD.default,
+                          background: `${T.accent}20`,
+                          border: `1px solid ${T.accent}`,
+                          color: T.accent,
+                          fontSize: FS.sm,
+                          opacity: scanning ? 0.6 : 1,
+                          cursor: scanning ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {scanning ? "Scanning..." : "Scan Now"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

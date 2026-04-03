@@ -857,7 +857,7 @@ function buildStyles(): cytoscape.StylesheetJson {
         "overlay-padding": 8,
         "overlay-color": "data(strokeColor)",
         "overlay-opacity": 0,
-        label: "data(label)",
+        content: (ele: NodeSingular) => String(ele.data("label") ?? ""),
         color: "#e2e8f0",
         "font-size": (ele: NodeSingular) => (ele.data("isRoot") ? 13 : 11),
         "font-weight": (ele: NodeSingular) => (ele.data("isRoot") ? 700 : 600),

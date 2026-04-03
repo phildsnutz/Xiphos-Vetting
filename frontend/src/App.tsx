@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard, Network, Radar } from "lucide-react";
-import { T, FS, FX } from "@/lib/tokens";
+import { Shield, Search, Wifi, WifiOff, LogOut, User, Settings, MessageSquare, Grid3X3, LayoutDashboard, Network, Radar, ArrowLeft, ChevronRight, HelpCircle, Command } from "lucide-react";
+import { T, FS, FX, PAD, SP, O } from "@/lib/tokens";
 import { CaseDetail } from "@/components/xiphos/case-detail";
+import { CommandPalette } from "@/components/xiphos/command-palette";
+import { useHotkey } from "@/lib/use-hotkeys";
 import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { HeliosLanding } from "@/components/xiphos/helios-landing";
@@ -12,6 +14,7 @@ import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligen
 import ComplianceDashboard from "@/components/xiphos/compliance-dashboard";
 import { ErrorBoundary } from "@/components/xiphos/error-boundary";
 import { AxiomDashboard } from "@/components/xiphos/axiom-dashboard";
+import { PortfolioSkeleton } from "@/components/xiphos/skeletons";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
@@ -21,6 +24,7 @@ import { parseTier, tierToRisk } from "@/lib/tokens";
 import { WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "@/components/xiphos/portfolio-utils";
 import type { WorkflowLane } from "@/components/xiphos/portfolio-utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { InlineMessage, ShortcutBadge } from "@/components/xiphos/shell-primitives";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -170,6 +174,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("portfolio");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
   const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [casesLoading, setCasesLoading] = useState(!isFileMode);
+  const [showShortcutDialog, setShowShortcutDialog] = useState(false);
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [feedbackCategory, setFeedbackCategory] = useState<"bug" | "confusion" | "request" | "general">("bug");
   const [feedbackSeverity, setFeedbackSeverity] = useState<"low" | "medium" | "high">("medium");
@@ -183,13 +190,21 @@ export default function App() {
   const homeTabInitializedRef = useRef(false);
   // onboarding dismissed state removed in UI redesign
 
+  // Global hotkey to open command palette
+  useHotkey("cmd+k", () => setCmdPaletteOpen(true), { ignoreInputs: false });
+
   const refreshCases = useCallback(async (limit = 200) => {
-    const apiCases = await fetchCases(limit);
-    const converted = apiCases
-      .map((ac) => apiCaseToVetting(ac as unknown as Parameters<typeof apiCaseToVetting>[0]))
-      .filter((c): c is VettingCase => c !== null);
-    setCases(converted);
-    return converted;
+    setCasesLoading(true);
+    try {
+      const apiCases = await fetchCases(limit);
+      const converted = apiCases
+        .map((ac) => apiCaseToVetting(ac as unknown as Parameters<typeof apiCaseToVetting>[0]))
+        .filter((c): c is VettingCase => c !== null);
+      setCases(converted);
+      return converted;
+    } finally {
+      setCasesLoading(false);
+    }
   }, []);
 
   const loadCases = useCallback(() => {
@@ -358,42 +373,6 @@ export default function App() {
     });
   }, [apiAvailable, emitBetaEvent, selected, tab, workflowMode]);
 
-  // Demo mode: /demo or /#demo path renders public comparison page
-  const isDemo = demoEnabled && (window.location.pathname === "/demo"
-    || window.location.hash === "#demo"
-    || window.location.hash === "#/demo");
-
-  if (isDemo) {
-    return (
-      <ErrorBoundary>
-        <div className="min-h-screen" style={{ background: T.bg, color: T.text }}>
-          <DemoCompare />
-        </div>
-      </ErrorBoundary>
-    );
-  }
-
-  // If auth is required and no user, show login
-  if (authRequired === null) {
-    // Still checking
-    return (
-      <div className="h-screen flex items-center justify-center" style={{ background: T.bg }}>
-        <div className="flex flex-col items-center gap-3">
-          <Shield size={24} color={T.accent} className="animate-pulse" />
-          <span style={{ fontSize: FS.sm, color: T.muted }}>Connecting to Xiphos...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (authRequired && !user) {
-    return (
-      <ErrorBoundary>
-        <LoginScreen onLogin={handleLogin} needsSetup={false} />
-      </ErrorBoundary>
-    );
-  }
-
   const handleRescore = async (caseId: string) => {
     emitBetaEvent("rescore_requested", {
       workflow_lane: selected ? workflowLaneForCase(selected) : workflowMode,
@@ -485,304 +464,889 @@ export default function App() {
       c.cc.toLowerCase().includes(query.toLowerCase()),
   );
 
+  const screenTitle = selected
+    ? selected.name
+    : tab === "portfolio"
+      ? "Workbench"
+      : tab === "helios"
+        ? "Intake"
+        : tab === "dashboard"
+          ? "Overview"
+          : tab === "threads"
+            ? "Mission Threads"
+            : tab === "graph"
+              ? "Graph Intelligence"
+              : tab === "axiom"
+                ? "AXIOM"
+                : "Admin";
+
+  const screenSubtitle = selected
+    ? `${WORKFLOW_LANE_META[workflowLaneForCase(selected)].shortLabel} case review`
+    : tab === "portfolio"
+      ? shellSummary
+      : tab === "helios"
+        ? "Start a new case, pivot to vehicle search, or resume the queue."
+        : tab === "dashboard"
+          ? "Status, drift, and operator pressure across the workspace."
+          : tab === "threads"
+            ? "Model contested sustainment as a mission problem, not a single-vendor problem."
+            : tab === "graph"
+              ? "Interrogate the relationship map, not just the case in front of you."
+              : tab === "axiom"
+                ? "Grow the collection picture, close dossier gaps, and monitor what changes."
+                : "Workspace administration, access, AI configuration, and beta review.";
+
+  const relevantCaseList = query ? filtered : cases;
+
+  const cycleSelectedCase = useCallback((delta: number) => {
+    if (!selected || relevantCaseList.length === 0) return;
+    const currentIndex = relevantCaseList.findIndex((item) => item.id === selected.id);
+    if (currentIndex === -1) return;
+    const nextIndex = (currentIndex + delta + relevantCaseList.length) % relevantCaseList.length;
+    setSelected(relevantCaseList[nextIndex]);
+  }, [relevantCaseList, selected]);
+
+  const movePortfolioFocus = useCallback((delta: number) => {
+    if (typeof document === "undefined") return;
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-case-row="true"]'));
+    if (rows.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const currentIndex = rows.findIndex((row) => row === active || row.contains(active));
+    const fallbackIndex = delta > 0 ? 0 : rows.length - 1;
+    const nextIndex = currentIndex === -1 ? fallbackIndex : (currentIndex + delta + rows.length) % rows.length;
+    const next = rows[nextIndex];
+    next.focus();
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, []);
+
+  const activateFocusedCase = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const active = document.activeElement as HTMLElement | null;
+    const row = active?.closest?.('[data-case-row="true"]') as HTMLElement | null;
+    row?.click();
+  }, []);
+
+  const triggerCaseWorkspace = useCallback((view: "decision" | "evidence" | "graph") => {
+    if (typeof document === "undefined") return;
+    const target = document.querySelector<HTMLElement>(`[data-case-view="${view}"]`);
+    target?.click();
+    target?.focus();
+  }, []);
+
+  const handleGlobalEscape = useCallback(() => {
+    if (showUserMenu) {
+      setShowUserMenu(false);
+      return;
+    }
+    if (showFeedbackDialog) {
+      setShowFeedbackDialog(false);
+      return;
+    }
+    if (showShortcutDialog) {
+      setShowShortcutDialog(false);
+      return;
+    }
+    if (cmdPaletteOpen) {
+      setCmdPaletteOpen(false);
+      return;
+    }
+    if (selected) {
+      setSelected(null);
+    }
+  }, [cmdPaletteOpen, selected, showFeedbackDialog, showShortcutDialog, showUserMenu]);
+
+  useHotkey("?", () => setShowShortcutDialog((current) => !current));
+  useHotkey("escape", handleGlobalEscape);
+  useHotkey("j", () => {
+    if (selected) {
+      cycleSelectedCase(1);
+      return;
+    }
+    if (tab === "portfolio") {
+      movePortfolioFocus(1);
+    }
+  });
+  useHotkey("k", () => {
+    if (selected) {
+      cycleSelectedCase(-1);
+      return;
+    }
+    if (tab === "portfolio") {
+      movePortfolioFocus(-1);
+    }
+  });
+  useHotkey("enter", () => {
+    if (!selected && tab === "portfolio") {
+      activateFocusedCase();
+    }
+  });
+  useHotkey("d", () => {
+    if (selected) triggerCaseWorkspace("decision");
+  });
+  useHotkey("e", () => {
+    if (selected) triggerCaseWorkspace("evidence");
+  });
+  useHotkey("g", () => {
+    if (selected) {
+      triggerCaseWorkspace("graph");
+      return;
+    }
+    setSelected(null);
+    setTab("graph");
+  });
+
+  const shellTabs: Array<{
+    id: Tab;
+    label: string;
+    description: string;
+    icon: typeof Shield;
+    badge?: string;
+  }> = [
+    {
+      id: "portfolio",
+      label: "Workbench",
+      description: "Work the queue and close decisions.",
+      icon: Shield,
+      badge: shellLaneBlocked + shellLaneReview > 0 ? String(shellLaneBlocked + shellLaneReview) : undefined,
+    },
+    {
+      id: "helios",
+      label: "Intake",
+      description: "Open new cases and pivot into vehicle search.",
+      icon: Shield,
+    },
+    {
+      id: "dashboard",
+      label: "Overview",
+      description: "Read posture, drift, and cross-lane pressure.",
+      icon: LayoutDashboard,
+    },
+    {
+      id: "threads",
+      label: "Threads",
+      description: "Model mission brittleness and alternates.",
+      icon: Network,
+    },
+    {
+      id: "graph",
+      label: "Graph Intel",
+      description: "Interrogate the relationship fabric.",
+      icon: Grid3X3,
+    },
+    {
+      id: "axiom",
+      label: "AXIOM",
+      description: "Run collection, close intel gaps, and monitor change.",
+      icon: Radar,
+    },
+    ...(user && hasPermission(user, "auditor")
+      ? [{
+          id: "admin" as const,
+          label: "Admin",
+          description: "Access, feedback, and operator settings.",
+          icon: Settings,
+        }]
+      : []),
+  ];
+
   // User initials for avatar
   const initials = user
     ? (user.name || user.email).split(/\s+/).map((w) => w[0]).join("").toUpperCase().slice(0, 2)
     : "TG";
 
+  const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
+  const showLaneControls = !selected && tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads";
+  const shellContent = selected ? (
+    <CaseDetail
+      c={selected}
+      onBack={() => setSelected(null)}
+      onRescore={apiAvailable ? handleRescore : undefined}
+      onDossier={handleDossier}
+      onCaseRefresh={handleCaseCreated}
+      globalLane={workflowMode}
+      laneSummary={shellLaneSummary}
+    />
+  ) : tab === "dashboard" ? (
+    <ComplianceDashboard />
+  ) : tab === "helios" ? (
+    <HeliosLanding
+      onCaseCreated={handleCaseCreated}
+      onNavigate={(t) => setTab(t as Tab)}
+      onCasesRefresh={async () => { await refreshCases(); }}
+      cases={cases}
+      preferredLane={workflowMode}
+      onPreferredLaneChange={setWorkflowMode}
+    />
+  ) : tab === "portfolio" ? (
+    casesLoading ? (
+      <PortfolioSkeleton />
+    ) : (
+      <PortfolioScreen
+        key={`portfolio-${workflowMode}`}
+        allCases={cases}
+        cases={filtered}
+        query={query}
+        onSelect={setSelected}
+        globalLane={workflowMode}
+        onGlobalLaneChange={setWorkflowMode}
+        onNavigate={(t) => setTab(t as Tab)}
+        laneSummary={shellLaneSummary}
+      />
+    )
+  ) : tab === "threads" ? (
+    <MissionThreadsScreen onNavigate={(t) => setTab(t as Tab)} />
+  ) : tab === "graph" ? (
+    <GraphIntelligenceDashboard />
+  ) : tab === "axiom" ? (
+    <AxiomDashboard />
+  ) : tab === "admin" && user && hasPermission(user, "auditor") ? (
+    <AdminPanel currentUser={user} />
+  ) : (
+    <HeliosLanding
+      onCaseCreated={handleCaseCreated}
+      onNavigate={(t) => setTab(t as Tab)}
+      onCasesRefresh={async () => { await refreshCases(); }}
+      cases={cases}
+      preferredLane={workflowMode}
+      onPreferredLaneChange={setWorkflowMode}
+    />
+  );
+
+  // Demo mode: /demo or /#demo path renders public comparison page
+  const isDemo = demoEnabled && (window.location.pathname === "/demo"
+    || window.location.hash === "#demo"
+    || window.location.hash === "#/demo");
+
+  if (isDemo) {
+    return (
+      <ErrorBoundary>
+        <div className="min-h-screen" style={{ background: T.bg, color: T.text }}>
+          <DemoCompare />
+        </div>
+      </ErrorBoundary>
+    );
+  }
+
+  if (authRequired === null) {
+    return (
+      <div className="h-screen flex items-center justify-center" style={{ background: T.bg }}>
+        <div className="flex flex-col items-center gap-3">
+          <Shield size={24} color={T.accent} className="animate-pulse" />
+          <span style={{ fontSize: FS.sm, color: T.muted }}>Connecting to Xiphos...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (authRequired && !user) {
+    return (
+      <ErrorBoundary>
+        <LoginScreen onLogin={handleLogin} needsSetup={false} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
-      <div className="h-screen flex flex-col overflow-hidden" style={{ background: T.bg, color: T.text }}>
-        {/* Header */}
-        <header
-          className="px-4 lg:px-6 shrink-0 helios-glass"
+      <div className="h-screen flex overflow-hidden" style={{ background: T.bg, color: T.text }}>
+        <aside
+          className="hidden lg:flex lg:flex-col shrink-0"
           style={{
-            height: 52,
-            borderBottom: `1px solid ${T.borderStrong}`,
+            width: 288,
+            borderRight: `1px solid ${T.borderStrong}`,
             background: FX.shell,
-            display: "flex",
-            alignItems: "center",
+            padding: PAD.comfortable,
+            gap: SP.lg,
           }}
         >
-          <div className="flex items-center justify-between gap-3 w-full">
-            {/* Left: Brand + Nav tabs in single row */}
-            <div className="flex items-center gap-3 min-w-0 overflow-x-auto">
-              <div
-                className="inline-flex items-center gap-1.5 shrink-0"
-                style={{ cursor: "default" }}
-              >
-                <Shield size={16} color={shellLaneMeta.accent} />
-                <span className="font-bold" style={{ fontSize: FS.base, color: T.text, letterSpacing: "-0.02em" }}>
-                  Helios
-                </span>
+          <div
+            className="glass-card"
+            style={{
+              padding: PAD.comfortable,
+              borderRadius: 18,
+              display: "flex",
+              flexDirection: "column",
+              gap: SP.sm,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.sm }}>
+              <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: shellLaneMeta.softBackground,
+                    border: `1px solid ${shellLaneMeta.accent}${O["20"]}`,
+                  }}
+                >
+                  <Shield size={18} color={shellLaneMeta.accent} />
+                </div>
+                <div>
+                  <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em" }}>Helios</div>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assurance + vehicle intelligence</div>
+                </div>
               </div>
+              <ShortcutBadge>⌘K</ShortcutBadge>
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{shellSummary}</div>
+            <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("helios");
+                  setSelected(null);
+                }}
+                className="helios-focus-ring"
+                style={{
+                  border: `1px solid ${T.border}`,
+                  background: T.surface,
+                  color: T.text,
+                  borderRadius: 999,
+                  padding: "8px 12px",
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                New case
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowShortcutDialog(true)}
+                className="helios-focus-ring"
+                style={{
+                  border: `1px solid ${T.border}`,
+                  background: "transparent",
+                  color: T.textSecondary,
+                  borderRadius: 999,
+                  padding: "8px 12px",
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Shortcuts
+              </button>
+            </div>
+          </div>
 
-              <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
-
-              {/* Nav tab pills (inline with brand) */}
-              <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
-                {([
-                  { id: "portfolio" as const, label: "Workbench", icon: Shield },
-                  { id: "helios" as const, label: "Intake", icon: Shield },
-                  { id: "dashboard" as const, label: "Overview", icon: LayoutDashboard },
-                  { id: "threads" as const, label: "Threads", icon: Network },
-                  { id: "graph" as const, label: "Graph Intel", icon: Grid3X3 },
-                  { id: "axiom" as const, label: "AXIOM", icon: Radar },
-                ] as const).map((t) => {
-                  const isActive = tab === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => { setTab(t.id); setSelected(null); }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 border-none cursor-pointer helios-focus-ring shrink-0 rounded"
-                      style={{
-                        fontSize: FS.sm,
-                        fontWeight: isActive ? 700 : 500,
-                        background: isActive ? T.accentSoft : "transparent",
-                        color: isActive ? T.accent : T.muted,
-                      }}
-                    >
-                      <t.icon size={12} />
-                      {t.label}
-                    </button>
-                  );
-                })}
-                {hasPermission(user, "auditor") && (
-                  <button
-                    onClick={() => { setTab("admin"); setSelected(null); }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 border-none cursor-pointer helios-focus-ring shrink-0 rounded"
+          <nav style={{ display: "flex", flexDirection: "column", gap: SP.xs }}>
+            {shellTabs.map((item) => {
+              const Icon = item.icon;
+              const active = item.id === tab;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setSelected(null);
+                    setTab(item.id);
+                  }}
+                  className="helios-focus-ring"
+                  style={{
+                    border: `1px solid ${active ? `${shellLaneMeta.accent}${O["20"]}` : "transparent"}`,
+                    background: active ? shellLaneMeta.softBackground : "transparent",
+                    color: active ? T.text : T.textSecondary,
+                    borderRadius: 16,
+                    padding: PAD.default,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: SP.sm,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  aria-current={active ? "page" : undefined}
+                >
+                  <div
                     style={{
-                      fontSize: FS.sm,
-                      fontWeight: tab === "admin" ? 700 : 500,
-                      background: tab === "admin" ? T.accentSoft : "transparent",
-                      color: tab === "admin" ? T.accent : T.muted,
+                      width: 30,
+                      height: 30,
+                      borderRadius: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: active ? `${shellLaneMeta.accent}${O["12"]}` : T.surface,
+                      border: `1px solid ${active ? `${shellLaneMeta.accent}${O["20"]}` : T.border}`,
+                      flexShrink: 0,
                     }}
                   >
-                    <Settings size={12} />
-                    Admin
+                    <Icon size={15} color={active ? shellLaneMeta.accent : T.textTertiary} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: FS.sm, fontWeight: 700, color: active ? T.text : T.textSecondary }}>
+                      {item.label}
+                    </div>
+                    <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
+                      {item.description}
+                    </div>
+                  </div>
+                  {item.badge ? (
+                    <span
+                      style={{
+                        minWidth: 24,
+                        height: 24,
+                        borderRadius: 999,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: `${T.red}${O["12"]}`,
+                        color: T.red,
+                        fontSize: FS.xs,
+                        fontWeight: 800,
+                        padding: "0 6px",
+                      }}
+                    >
+                      {item.badge}
+                    </span>
+                  ) : (
+                    <ChevronRight size={14} color={active ? shellLaneMeta.accent : T.textTertiary} />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: SP.sm }}>
+            {showLaneControls ? (
+              <div
+                className="glass-card"
+                style={{
+                  padding: PAD.default,
+                  borderRadius: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: SP.sm,
+                }}
+              >
+                <div style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textTertiary }}>
+                  Focus lane
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
+                  {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
+                    const meta = WORKFLOW_LANE_META[lane];
+                    const active = workflowMode === lane;
+                    return (
+                      <button
+                        key={lane}
+                        type="button"
+                        onClick={() => setWorkflowMode(lane)}
+                        className="helios-focus-ring"
+                        style={{
+                          border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
+                          background: active ? meta.softBackground : T.surface,
+                          color: active ? meta.accent : T.textSecondary,
+                          borderRadius: 999,
+                          padding: "8px 12px",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                        title={meta.description}
+                      >
+                        {meta.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <InlineMessage
+              tone={apiAvailable ? "success" : "warning"}
+              title={apiAvailable ? "System live" : "Local mode"}
+              message={
+                apiAvailable
+                  ? "API, monitoring, and dossier actions are available."
+                  : "Running in local mode. Some production-linked actions may degrade."
+              }
+            />
+          </div>
+        </aside>
+
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <header
+            className="shrink-0"
+            style={{
+              borderBottom: `1px solid ${T.borderStrong}`,
+              background: FX.shell,
+              padding: PAD.default,
+            }}
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: SP.xs }}>
+                    <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textTertiary }}>
+                      {selected ? "Case workspace" : activeShellTab.label}
+                    </span>
+                    {selected ? <ChevronRight size={14} color={T.textTertiary} /> : null}
+                    {selected ? (
+                      <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: shellLaneMeta.accent }}>
+                        {WORKFLOW_LANE_META[workflowLaneForCase(selected)].shortLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {selected ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelected(null)}
+                        className="helios-focus-ring"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: SP.xs,
+                          border: `1px solid ${T.border}`,
+                          background: T.surface,
+                          color: T.textSecondary,
+                          borderRadius: 999,
+                          padding: "6px 10px",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <ArrowLeft size={14} />
+                        Back
+                      </button>
+                    ) : null}
+                    <h1 style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text, margin: 0 }}>
+                      {screenTitle}
+                    </h1>
+                  </div>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.sm, maxWidth: 860 }}>
+                    {screenSubtitle}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowShortcutDialog(true)}
+                    className="helios-focus-ring hidden sm:inline-flex"
+                    aria-label="Open keyboard shortcuts"
+                    style={{
+                      alignItems: "center",
+                      gap: SP.xs,
+                      border: `1px solid ${T.border}`,
+                      background: T.surface,
+                      color: T.textSecondary,
+                      borderRadius: 999,
+                      padding: "8px 12px",
+                      fontSize: FS.sm,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <HelpCircle size={14} />
+                    <ShortcutBadge>?</ShortcutBadge>
                   </button>
-                )}
+                  {apiAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowFeedbackDialog(true);
+                        setFeedbackError(null);
+                        setFeedbackSuccess(null);
+                      }}
+                      className="helios-focus-ring inline-flex"
+                      aria-label="Open beta feedback dialog"
+                      style={{
+                        alignItems: "center",
+                        gap: SP.xs,
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        color: T.textSecondary,
+                        borderRadius: 999,
+                        padding: "8px 12px",
+                        fontSize: FS.sm,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <MessageSquare size={14} color={T.accent} />
+                      <span className="hidden sm:inline">Feedback</span>
+                    </button>
+                  )}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowUserMenu((current) => !current)}
+                      className="helios-focus-ring"
+                      aria-label="Open user menu"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 36,
+                        height: 36,
+                        borderRadius: 999,
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        color: T.accent,
+                        fontSize: FS.xs,
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {initials}
+                    </button>
+
+                    {showUserMenu && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+                        <div
+                          className="absolute right-0 top-full mt-2 rounded-xl z-50 overflow-hidden"
+                          style={{
+                            width: 240,
+                            background: T.surface,
+                            border: `1px solid ${T.border}`,
+                            boxShadow: "0 18px 48px rgba(0,0,0,0.38)",
+                          }}
+                        >
+                          {user ? (
+                            <div style={{ padding: PAD.default, borderBottom: `1px solid ${T.border}` }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.xs }}>
+                                <User size={14} color={T.accent} />
+                                <span style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{user.name || user.email}</span>
+                              </div>
+                              <div style={{ fontSize: FS.sm, color: T.textSecondary }}>{user.email}</div>
+                              <div
+                                style={{
+                                  marginTop: SP.sm,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  borderRadius: 999,
+                                  background: `${T.accent}${O["12"]}`,
+                                  color: T.accent,
+                                  fontSize: FS.xs,
+                                  fontWeight: 800,
+                                  padding: "4px 8px",
+                                }}
+                              >
+                                {roleLabel(user.role)}
+                              </div>
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowUserMenu(false);
+                              setShowShortcutDialog(true);
+                            }}
+                            className="helios-focus-ring"
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: SP.sm,
+                              padding: PAD.default,
+                              background: "transparent",
+                              border: "none",
+                              color: T.textSecondary,
+                              fontSize: FS.sm,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: SP.sm }}>
+                              <Command size={14} />
+                              Keyboard shortcuts
+                            </span>
+                            <ShortcutBadge>?</ShortcutBadge>
+                          </button>
+                          {authRequired ? (
+                            <button
+                              type="button"
+                              onClick={handleLogout}
+                              className="helios-focus-ring"
+                              style={{
+                                width: "100%",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: SP.sm,
+                                padding: PAD.default,
+                                background: "transparent",
+                                border: "none",
+                                color: T.red,
+                                fontSize: FS.sm,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                textAlign: "left",
+                              }}
+                            >
+                              <LogOut size={14} />
+                              Sign out
+                            </button>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Lane selector (inline, only for relevant tabs) */}
-              {tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads" && (
-                <>
-                  <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
-                      const meta = WORKFLOW_LANE_META[lane];
-                      const isActive = workflowMode === lane;
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex lg:hidden items-center gap-2 overflow-x-auto pb-1">
+                    {shellTabs.map((item) => {
+                      const Icon = item.icon;
+                      const active = item.id === tab;
                       return (
                         <button
-                          key={lane}
-                          onClick={() => setWorkflowMode(lane)}
-                          className="inline-flex items-center rounded px-2.5 py-1 border-none cursor-pointer helios-focus-ring shrink-0"
-                          style={{
-                            fontSize: FS.sm,
-                            fontWeight: isActive ? 700 : 500,
-                            background: isActive ? meta.softBackground : "transparent",
-                            color: isActive ? meta.accent : T.muted,
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setSelected(null);
+                            setTab(item.id);
                           }}
-                          title={meta.description}
+                          className="helios-focus-ring shrink-0"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: SP.xs,
+                            border: `1px solid ${active ? `${shellLaneMeta.accent}${O["20"]}` : T.border}`,
+                            background: active ? shellLaneMeta.softBackground : T.surface,
+                            color: active ? shellLaneMeta.accent : T.textSecondary,
+                            borderRadius: 999,
+                            padding: "8px 12px",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
                         >
-                          {meta.shortLabel}
+                          <Icon size={14} />
+                          {item.label}
                         </button>
                       );
                     })}
                   </div>
-                </>
-              )}
-            </div>
 
-            {/* Right: Search + Status + User (compact) */}
-            <div className="flex items-center gap-2 shrink-0">
-              {tab === "portfolio" && !selected && (
-                <div className="relative hidden sm:block">
-                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" color={T.muted} />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search..."
-                    className="rounded-full outline-none helios-focus-ring w-44"
-                    style={{
-                      paddingLeft: 28,
-                      paddingRight: 10,
-                      paddingTop: 5,
-                      paddingBottom: 5,
-                      fontSize: FS.sm,
-                      background: T.surface,
-                      border: `1px solid ${T.border}`,
-                      color: T.text,
-                    }}
-                  />
+                  {showLaneControls ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
+                        const meta = WORKFLOW_LANE_META[lane];
+                        const active = workflowMode === lane;
+                        return (
+                          <button
+                            key={lane}
+                            type="button"
+                            onClick={() => setWorkflowMode(lane)}
+                            className="helios-focus-ring"
+                            style={{
+                              border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
+                              background: active ? meta.softBackground : T.surface,
+                              color: active ? meta.accent : T.textSecondary,
+                              borderRadius: 999,
+                              padding: "8px 12px",
+                              fontSize: FS.sm,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                            title={meta.description}
+                          >
+                            {meta.shortLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
-              )}
-              {apiAvailable !== null && (
-                <div className="flex items-center gap-1 px-2 py-1 rounded-full" title={apiAvailable ? "API connected" : "Offline"} style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                  {apiAvailable ? <Wifi size={10} color={T.green} /> : <WifiOff size={10} color={T.muted} />}
-                  <span className="hidden lg:inline" style={{ fontSize: 11, fontWeight: 600, color: apiAvailable ? T.green : T.muted }}>
-                    {apiAvailable ? "Live" : "Offline"}
-                  </span>
-                </div>
-              )}
-              {apiAvailable && (
-                <button
-                  onClick={() => {
-                    setShowFeedbackDialog(true);
-                    setFeedbackError(null);
-                    setFeedbackSuccess(null);
-                  }}
-                  className="inline-flex items-center rounded-full p-1.5 cursor-pointer helios-focus-ring"
-                  style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.muted }}
-                  title="Beta feedback"
-                >
-                  <MessageSquare size={14} color={T.accent} />
-                </button>
-              )}
-              <div className="relative">
-                <button
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-1 rounded cursor-pointer"
-                  style={{ background: "transparent", border: "none", padding: "2px" }}
-                >
-                  <div
-                    className="flex items-center justify-center rounded-full font-bold"
-                    style={{ width: 26, height: 26, fontSize: 11, background: T.accent + "22", color: T.accent }}
-                  >
-                    {initials}
-                  </div>
-                </button>
 
-                {showUserMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setShowUserMenu(false)}
-                    />
-                    <div
-                      className="absolute right-0 top-full mt-1 rounded-lg z-50 overflow-hidden"
+                <div className="flex flex-wrap items-center gap-2">
+                  {tab === "portfolio" && !selected ? (
+                    <label
+                      className="helios-focus-ring"
                       style={{
-                        width: 220,
-                        background: T.surface,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: SP.xs,
+                        borderRadius: 999,
                         border: `1px solid ${T.border}`,
-                        boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                        background: T.surface,
+                        padding: "0 12px",
+                        minWidth: 240,
                       }}
                     >
-                      {user && (
-                        <div className="p-3" style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <User size={12} color={T.accent} />
-                            <span style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>
-                              {user.name || user.email}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: FS.sm, color: T.muted }}>{user.email}</div>
-                          <div
-                            className="inline-block rounded mt-1.5 font-mono"
-                            style={{
-                              fontSize: FS.sm,
-                              padding: "2px 6px",
-                              background: T.accent + "18",
-                              color: T.accent,
-                            }}
-                          >
-                            {roleLabel(user.role)}
-                          </div>
-                        </div>
-                      )}
-                      {authRequired && (
-                        <button
-                          onClick={handleLogout}
-                          className="w-full flex items-center gap-2 px-3 py-2.5 cursor-pointer"
-                          style={{
-                            fontSize: FS.sm,
-                            color: T.red,
-                            background: "transparent",
-                            border: "none",
-                            textAlign: "left",
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <LogOut size={12} />
-                          Sign Out
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
+                      <Search size={14} color={T.textTertiary} />
+                      <input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search cases, vendors, or countries"
+                        aria-label="Search cases"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          background: "transparent",
+                          border: "none",
+                          outline: "none",
+                          color: T.text,
+                          fontSize: FS.sm,
+                          padding: "10px 0",
+                        }}
+                      />
+                    </label>
+                  ) : null}
+
+                  <div
+                    title={apiAvailable ? "API connected" : "Offline"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: SP.xs,
+                      borderRadius: 999,
+                      border: `1px solid ${apiAvailable ? `${T.green}${O["20"]}` : T.border}`,
+                      background: apiAvailable ? `${T.green}${O["08"]}` : T.surface,
+                      color: apiAvailable ? T.green : T.textSecondary,
+                      padding: "8px 12px",
+                      fontSize: FS.sm,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {apiAvailable ? <Wifi size={14} /> : <WifiOff size={14} />}
+                    {apiAvailable ? "Live" : "Offline"}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-      {/* Main content */}
-      <main className={`flex-1 overflow-auto ${tab === "graph" || tab === "dashboard" || tab === "axiom" ? "p-0" : "p-4 lg:p-6"}`}>
-        <div className={`${tab === "graph" || tab === "dashboard" || tab === "axiom" ? "w-full h-full" : "max-w-[1400px] mx-auto"} h-full`}>
-          {selected ? (
-            <CaseDetail
-              c={selected}
-              onBack={() => setSelected(null)}
-              onRescore={apiAvailable ? handleRescore : undefined}
-              onDossier={handleDossier}
-              onCaseRefresh={handleCaseCreated}
-              globalLane={workflowMode}
-              laneSummary={shellLaneSummary}
-            />
-          ) : tab === "dashboard" ? (
-            <ComplianceDashboard />
-          ) : tab === "helios" ? (
-            <HeliosLanding
-              onCaseCreated={handleCaseCreated}
-              onNavigate={(t) => setTab(t as Tab)}
-              onCasesRefresh={async () => { await refreshCases(); }}
-              cases={cases}
-              preferredLane={workflowMode}
-              onPreferredLaneChange={setWorkflowMode}
-            />
-          ) : tab === "portfolio" ? (
-            <PortfolioScreen
-              key={`portfolio-${workflowMode}`}
-              allCases={cases}
-              cases={filtered}
-              query={query}
-              onSelect={setSelected}
-              globalLane={workflowMode}
-              onGlobalLaneChange={setWorkflowMode}
-              onNavigate={(t) => setTab(t as Tab)}
-              laneSummary={shellLaneSummary}
-            />
-          ) : tab === "threads" ? (
-            <MissionThreadsScreen onNavigate={(t) => setTab(t as Tab)} />
-          ) : tab === "graph" ? (
-            <GraphIntelligenceDashboard />
-          ) : tab === "axiom" ? (
-            <AxiomDashboard />
-          ) : tab === "admin" && user && hasPermission(user, "auditor") ? (
-            <AdminPanel currentUser={user} />
-          ) : (
-            <HeliosLanding
-              onCaseCreated={handleCaseCreated}
-              onNavigate={(t) => setTab(t as Tab)}
-              onCasesRefresh={async () => { await refreshCases(); }}
-              cases={cases}
-              preferredLane={workflowMode}
-              onPreferredLaneChange={setWorkflowMode}
-            />
-          )}
+          <main className="flex-1 min-h-0 overflow-auto" style={{ padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : PAD.default }}>
+            <div
+              style={{
+                minHeight: "100%",
+                padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : 0,
+              }}
+            >
+              {shellContent}
+            </div>
+          </main>
+
+          <footer
+            className="shrink-0"
+            style={{
+              borderTop: `1px solid ${T.borderStrong}`,
+              background: FX.shell,
+              padding: `${SP.sm}px ${PAD.default}`,
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div style={{ fontSize: FS.sm, color: T.textSecondary }}>
+                Helios v5.2.1 · {cases.length} cases in memory
+                {user ? ` · ${user.email}` : ""}
+              </div>
+              <div style={{ fontSize: FS.xs, color: T.textTertiary }}>
+                AXIOM closes collection gaps. The graph keeps the evidence relationships visible.
+              </div>
+            </div>
+          </footer>
         </div>
-      </main>
-
-        {/* Footer */}
-        <footer
-          className="text-center shrink-0"
-          style={{ padding: "8px 0", fontSize: FS.sm, color: T.muted, borderTop: `1px solid ${T.border}` }}
-        >
-          Helios v5.2 · {cases.length} vendors in portfolio
-          {user && <> · {user.email}</>}
-          {" · "}
-          <span style={{ color: T.dim }}>{apiAvailable ? "System live" : "Local mode"}</span>
-        </footer>
 
         <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
           <DialogContent style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, maxWidth: 640 }}>
@@ -881,6 +1445,76 @@ export default function App() {
             </form>
           </DialogContent>
         </Dialog>
+
+        <Dialog open={showShortcutDialog} onOpenChange={setShowShortcutDialog}>
+          <DialogContent style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, maxWidth: 720 }}>
+            <DialogHeader>
+              <DialogTitle style={{ color: T.text }}>Keyboard shortcuts</DialogTitle>
+              <DialogDescription style={{ color: T.muted }}>
+                Helios is moving toward a queue-first operator workflow. These shortcuts keep the shell and case workspace fast.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[
+                { keys: ["⌘K"], label: "Open command palette" },
+                { keys: ["J", "K"], label: "Move through the queue or cycle the active case" },
+                { keys: ["Enter"], label: "Open the focused case from Workbench" },
+                { keys: ["D"], label: "Jump to decision workspace in case detail" },
+                { keys: ["E"], label: "Jump to evidence workspace in case detail" },
+                { keys: ["G"], label: "Jump to graph view or open Graph Intel" },
+                { keys: ["Esc"], label: "Close overlays or return to the previous shell state" },
+                { keys: ["?"], label: "Open this shortcuts overlay" },
+              ].map((shortcut) => (
+                <div
+                  key={shortcut.label}
+                  className="rounded-xl"
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: SP.sm,
+                    padding: PAD.default,
+                    border: `1px solid ${T.border}`,
+                    background: T.bg,
+                  }}
+                >
+                  <div style={{ fontSize: FS.sm, color: T.text, lineHeight: 1.5 }}>{shortcut.label}</div>
+                  <div style={{ display: "inline-flex", gap: SP.xs, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {shortcut.keys.map((key) => (
+                      <ShortcutBadge key={`${shortcut.label}-${key}`}>{key}</ShortcutBadge>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Global Command Palette */}
+        <CommandPalette
+          isOpen={cmdPaletteOpen}
+          onClose={() => setCmdPaletteOpen(false)}
+          onNavigate={(tabId) => {
+            setTab(tabId as Tab);
+            setSelected(null);
+            setCmdPaletteOpen(false);
+          }}
+          onSelectCase={(caseId) => {
+            const c = cases.find(cs => cs.id === caseId);
+            if (c) {
+              setSelected(c);
+              setTab("portfolio");
+              setCmdPaletteOpen(false);
+            }
+          }}
+          cases={cases.map(c => ({
+            id: c.id,
+            name: c.name || "",
+            vendor: c.name || "",
+            tier: parseTier(c.cal?.tier).toUpperCase(),
+          }))}
+          currentCaseId={selected?.id}
+        />
       </div>
     </ErrorBoundary>
   );

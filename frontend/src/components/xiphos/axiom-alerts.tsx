@@ -1,14 +1,34 @@
-import { useEffect, useState } from "react";
-import { T, FS } from "@/lib/tokens";
-import { AlertCircle, TrendingUp, TrendingDown, Users, Loader } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { T, FS, PAD, SP } from "@/lib/tokens";
+import { AlertCircle, TrendingUp, TrendingDown, Users, Info } from "lucide-react";
 import { getToken } from "@/lib/auth";
+import { EmptyPanel, InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+
+type AlertType = "new_sub" | "departed_sub" | "hiring_surge" | "position_drop" | "activity_change" | "initial_scan";
+type AlertPriority = "critical" | "high" | "medium" | "low";
+
+interface RawAlertItem {
+  id: string;
+  type?: AlertType;
+  alert_type?: AlertType;
+  severity?: string;
+  priority?: AlertPriority;
+  target?: string;
+  title?: string;
+  details?: string;
+  description?: string;
+  timestamp?: string;
+  created_at?: string;
+  watchlist_entry_id?: string;
+  watchlist_id?: string;
+}
 
 interface AlertItem {
   id: string;
-  type: "new_sub" | "departed_sub" | "hiring_surge" | "position_drop" | "activity_change";
-  severity: "critical" | "high" | "medium" | "low";
+  type: AlertType;
+  priority: AlertPriority;
   target: string;
-  priority: "critical" | "high" | "medium" | "low";
+  title: string;
   details: string;
   timestamp: string;
   watchlist_entry_id?: string;
@@ -18,15 +38,57 @@ interface AxiomAlertsProps {
   onAlertsChange?: (alerts: AlertItem[]) => void;
 }
 
+function normalizePriority(value?: string): AlertPriority {
+  if (value === "critical" || value === "high" || value === "medium" || value === "low") {
+    return value;
+  }
+  if (value === "info") {
+    return "low";
+  }
+  return "low";
+}
+
+function normalizeAlertType(value?: string): AlertType {
+  if (
+    value === "new_sub" ||
+    value === "departed_sub" ||
+    value === "hiring_surge" ||
+    value === "position_drop" ||
+    value === "activity_change" ||
+    value === "initial_scan"
+  ) {
+    return value;
+  }
+  return "activity_change";
+}
+
+function normalizeAlert(raw: RawAlertItem): AlertItem {
+  return {
+    id: raw.id,
+    type: normalizeAlertType(raw.type || raw.alert_type),
+    priority: normalizePriority(raw.priority || raw.severity),
+    target: raw.target || "Unknown target",
+    title: raw.title || "Alert",
+    details: raw.details || raw.description || "No details available",
+    timestamp: raw.timestamp || raw.created_at || "",
+    watchlist_entry_id: raw.watchlist_entry_id || raw.watchlist_id,
+  };
+}
+
 export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>("");
-  const [selectedTypes, setSelectedTypes] = useState<string[]>(["new_sub", "departed_sub", "hiring_surge", "position_drop"]);
-  const [selectedPriorities, setSelectedPriorities] = useState<string[]>(["critical", "high", "medium", "low"]);
+  const [selectedTypes, setSelectedTypes] = useState<AlertType[]>([
+    "new_sub",
+    "departed_sub",
+    "hiring_surge",
+    "position_drop",
+    "initial_scan",
+  ]);
+  const [selectedPriorities, setSelectedPriorities] = useState<AlertPriority[]>(["critical", "high", "medium", "low"]);
 
-  // Load alerts
-  const loadAlerts = async () => {
+  const loadAlerts = useCallback(async () => {
     setIsLoading(true);
     setError("");
 
@@ -42,46 +104,46 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
         throw new Error(`Failed to load alerts: ${response.status}`);
       }
 
-      const data = (await response.json()) as { alerts: AlertItem[] };
-      setAlerts(data.alerts || []);
-      onAlertsChange?.(data.alerts || []);
+      const data = (await response.json()) as { alerts?: RawAlertItem[] };
+      const normalized = (data.alerts || []).map(normalizeAlert);
+      setAlerts(normalized);
+      onAlertsChange?.(normalized);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [onAlertsChange]);
 
   useEffect(() => {
-    loadAlerts();
-    // Poll for new alerts every 30 seconds
+    void loadAlerts();
     const interval = setInterval(loadAlerts, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadAlerts]);
 
   const filteredAlerts = alerts.filter(
-    (alert) =>
-      selectedTypes.includes(alert.type) &&
-      selectedPriorities.includes(alert.priority)
+    (alert) => selectedTypes.includes(alert.type) && selectedPriorities.includes(alert.priority),
   );
 
-  const getAlertColor = (type: string) => {
+  const getAlertColor = (type: AlertType) => {
     switch (type) {
       case "new_sub":
-        return { icon: Users, color: T.green, bg: T.green + "15" };
+        return { icon: Users, color: T.green, bg: `${T.green}15` };
       case "departed_sub":
-        return { icon: TrendingDown, color: T.amber, bg: T.amber + "15" };
+        return { icon: TrendingDown, color: T.amber, bg: `${T.amber}15` };
       case "hiring_surge":
-        return { icon: TrendingUp, color: T.accent, bg: T.accent + "15" };
+        return { icon: TrendingUp, color: T.accent, bg: `${T.accent}15` };
       case "position_drop":
-        return { icon: TrendingDown, color: T.red, bg: T.red + "15" };
+        return { icon: TrendingDown, color: T.red, bg: `${T.red}15` };
+      case "initial_scan":
+        return { icon: Info, color: T.accent, bg: `${T.accent}15` };
       default:
-        return { icon: AlertCircle, color: T.muted, bg: T.muted + "15" };
+        return { icon: AlertCircle, color: T.muted, bg: `${T.muted}15` };
     }
   };
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority: AlertPriority) => {
     switch (priority) {
       case "critical":
         return T.red;
@@ -102,6 +164,7 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
+    if (Number.isNaN(date.getTime())) return timestamp || "unknown";
     if (minutes < 1) return "just now";
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
@@ -109,71 +172,70 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
     return date.toLocaleDateString();
   };
 
-  const alertTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      new_sub: "New Subsidiary",
-      departed_sub: "Departed Subsidiary",
+  const alertTypeLabel = (type: AlertType) => {
+    const labels: Record<AlertType, string> = {
+      new_sub: "New Entity",
+      departed_sub: "Departed Entity",
       hiring_surge: "Hiring Surge",
       position_drop: "Position Drop",
       activity_change: "Activity Change",
+      initial_scan: "Initial Scan",
     };
-    return labels[type] || type;
+    return labels[type];
   };
 
   return (
     <div
-      className="flex flex-col gap-4 p-4 rounded-lg"
-      style={{ background: T.surface, border: `1px solid ${T.border}` }}
+      className="flex flex-col gap-4 rounded-lg"
+      style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
       <div className="flex items-center justify-between">
-        <h3 style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>
-          AXIOM Alerts
-        </h3>
+        <div>
+          <SectionEyebrow>Alerts</SectionEyebrow>
+          <h2 style={{ fontSize: FS.base, fontWeight: 700, color: T.text, margin: `${SP.xs}px 0 0` }}>Monitoring signals that changed</h2>
+        </div>
         <div
           style={{
             fontSize: FS.sm,
             fontWeight: 600,
             color: T.accent,
-            background: T.accent + "20",
-            padding: "4px 10px",
-            borderRadius: 4,
+            background: `${T.accent}20`,
+            padding: PAD.tight,
+            borderRadius: SP.xs,
           }}
         >
           {filteredAlerts.length}
         </div>
       </div>
 
-      {/* Error display */}
-      {error && (
-        <div className="rounded-lg p-3 flex gap-2" style={{ background: T.red + "15", border: `1px solid ${T.red}` }}>
-          <AlertCircle size={16} color={T.red} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div style={{ fontSize: FS.sm, color: T.red }}>{error}</div>
-        </div>
-      )}
+      {error ? <InlineMessage tone="danger" title="Alert load failed" message={error} icon={AlertCircle} /> : null}
 
-      {/* Filters */}
-      <div className="space-y-3 p-3 rounded-lg" style={{ background: T.bg, border: `1px solid ${T.border}` }}>
+      <div className="space-y-3 rounded-lg" style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}>
         <div>
-          <label style={{ fontSize: FS.sm, fontWeight: 500, color: T.muted, marginBottom: 8, display: "block" }}>
+          <label style={{ fontSize: FS.sm, fontWeight: 500, color: T.muted, marginBottom: SP.sm, display: "block" }}>
             Alert Types
           </label>
           <div className="flex flex-wrap gap-2">
-            {["new_sub", "departed_sub", "hiring_surge", "position_drop"].map((type) => (
+            {(["new_sub", "departed_sub", "hiring_surge", "position_drop", "initial_scan"] as AlertType[]).map((type) => (
               <button
                 key={type}
+                type="button"
+                aria-label={`Toggle ${alertTypeLabel(type)} alerts`}
+                aria-pressed={selectedTypes.includes(type)}
                 onClick={() => {
                   if (selectedTypes.includes(type)) {
-                    setSelectedTypes(selectedTypes.filter((t) => t !== type));
+                    setSelectedTypes(selectedTypes.filter((selected) => selected !== type));
                   } else {
                     setSelectedTypes([...selectedTypes, type]);
                   }
                 }}
-                className="rounded px-2.5 py-1 cursor-pointer font-medium"
+                className="rounded cursor-pointer font-medium"
                 style={{
+                  padding: PAD.tight,
                   fontSize: FS.sm,
                   background: selectedTypes.includes(type) ? T.accent : T.surface,
                   border: `1px solid ${selectedTypes.includes(type) ? T.accent : T.border}`,
-                  color: selectedTypes.includes(type) ? "#000" : T.muted,
+                  color: selectedTypes.includes(type) ? T.textInverse : T.muted,
                 }}
               >
                 {alertTypeLabel(type)}
@@ -183,28 +245,30 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
         </div>
 
         <div>
-          <label style={{ fontSize: FS.sm, fontWeight: 500, color: T.muted, marginBottom: 8, display: "block" }}>
+          <label style={{ fontSize: FS.sm, fontWeight: 500, color: T.muted, marginBottom: SP.sm, display: "block" }}>
             Priority
           </label>
           <div className="flex flex-wrap gap-2">
-            {["critical", "high", "medium", "low"].map((priority) => (
+            {(["critical", "high", "medium", "low"] as AlertPriority[]).map((priority) => (
               <button
                 key={priority}
+                type="button"
+                aria-label={`Toggle ${priority} priority alerts`}
+                aria-pressed={selectedPriorities.includes(priority)}
                 onClick={() => {
                   if (selectedPriorities.includes(priority)) {
-                    setSelectedPriorities(selectedPriorities.filter((p) => p !== priority));
+                    setSelectedPriorities(selectedPriorities.filter((selected) => selected !== priority));
                   } else {
                     setSelectedPriorities([...selectedPriorities, priority]);
                   }
                 }}
-                className="rounded px-2.5 py-1 cursor-pointer font-medium"
+                className="rounded cursor-pointer font-medium"
                 style={{
+                  padding: PAD.tight,
                   fontSize: FS.sm,
-                  background: selectedPriorities.includes(priority)
-                    ? getPriorityColor(priority)
-                    : T.surface,
+                  background: selectedPriorities.includes(priority) ? getPriorityColor(priority) : T.surface,
                   border: `1px solid ${selectedPriorities.includes(priority) ? getPriorityColor(priority) : T.border}`,
-                  color: selectedPriorities.includes(priority) ? "#000" : T.muted,
+                  color: selectedPriorities.includes(priority) ? T.textInverse : T.muted,
                 }}
               >
                 {priority}
@@ -214,25 +278,16 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
         </div>
       </div>
 
-      {/* Loading state */}
-      {isLoading && (
-        <div style={{ textAlign: "center", padding: "20px", color: T.muted }}>
-          <Loader size={16} style={{ display: "inline-block", animation: "spin 2s linear infinite" }} />
-          <div style={{ fontSize: FS.sm, marginTop: 8 }}>Loading alerts...</div>
-        </div>
-      )}
+      {isLoading ? <LoadingPanel label="Loading alerts" detail="Refreshing AXIOM monitoring output for the current watchlist." /> : null}
 
-      {/* Empty state */}
-      {!isLoading && filteredAlerts.length === 0 && (
-        <div style={{ textAlign: "center", padding: "20px", color: T.muted }}>
-          <div style={{ fontSize: FS.sm }}>No alerts match your filters</div>
-          <div style={{ fontSize: FS.sm, color: T.dim, marginTop: 4 }}>
-            {alerts.length === 0 ? "No alerts yet" : "Try adjusting your filters"}
-          </div>
-        </div>
-      )}
+      {!isLoading && filteredAlerts.length === 0 ? (
+        <EmptyPanel
+          title="No alerts match your filters"
+          description={alerts.length === 0 ? "AXIOM has not generated any watchlist alerts yet." : "Try widening the alert-type or priority filters."}
+          icon={Info}
+        />
+      ) : null}
 
-      {/* Alerts feed */}
       {!isLoading && filteredAlerts.length > 0 && (
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {filteredAlerts.map((alert) => {
@@ -240,66 +295,31 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
             return (
               <div
                 key={alert.id}
-                className="p-3 rounded-lg border"
+                className="rounded-lg border"
                 style={{
                   background: bg,
                   border: `1px solid ${color}`,
+                  padding: PAD.default,
                 }}
               >
                 <div className="flex gap-3">
-                  <div style={{ flexShrink: 0, marginTop: 2 }}>
-                    <IconComponent size={16} color={color} />
+                  <div style={{ flexShrink: 0, marginTop: SP.xs / 2 }}>
+                    <IconComponent size={SP.md + SP.xs} color={color} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="mb-1 flex items-start justify-between gap-2">
                       <div>
-                        <div
-                          style={{
-                            fontSize: FS.sm,
-                            fontWeight: 600,
-                            color: T.text,
-                          }}
-                        >
-                          {alertTypeLabel(alert.type)}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: FS.sm,
-                            color: T.muted,
-                            marginTop: 2,
-                          }}
-                        >
-                          {alert.target}
-                        </div>
+                        <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>{alert.title}</div>
+                        <div style={{ fontSize: FS.sm, color: T.muted, marginTop: SP.xs / 2 }}>{alert.target}</div>
                       </div>
-                      <div
-                        style={{
-                          fontSize: FS.sm,
-                          color: getPriorityColor(alert.priority),
-                          fontWeight: 600,
-                          flexShrink: 0,
-                        }}
-                      >
+                      <div style={{ fontSize: FS.sm, color: getPriorityColor(alert.priority), fontWeight: 600, flexShrink: 0 }}>
                         {alert.priority}
                       </div>
                     </div>
-                    <div
-                      style={{
-                        fontSize: FS.sm,
-                        color: T.dim,
-                        marginTop: 4,
-                        lineHeight: 1.4,
-                      }}
-                    >
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs, lineHeight: 1.4 }}>
                       {alert.details}
                     </div>
-                    <div
-                      style={{
-                        fontSize: FS.sm,
-                        color: T.muted,
-                        marginTop: 4,
-                      }}
-                    >
+                    <div style={{ fontSize: FS.sm, color: T.muted, marginTop: SP.xs }}>
                       {formatTime(alert.timestamp)}
                     </div>
                   </div>

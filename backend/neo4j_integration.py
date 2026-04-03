@@ -540,7 +540,7 @@ def clear_neo4j_relationships() -> Dict[str, Any]:
 
 def full_sync_from_postgres() -> Dict[str, Any]:
     """
-    Full sync: Read all entities and relationships from PostgreSQL, sync to Neo4j.
+    Full sync: Read all entities and relationships from the provider-neutral KG store, sync to Neo4j.
 
     Returns:
         Dict with keys: entities_synced, relationships_synced, duration_ms
@@ -559,7 +559,7 @@ def full_sync_from_postgres() -> Dict[str, Any]:
             rel_rows = conn.execute("SELECT * FROM kg_relationships").fetchall()
             relationships = [dict(row) for row in rel_rows]
 
-        logger.info(f"Read {len(entities)} entities and {len(relationships)} relationships from PostgreSQL")
+        logger.info(f"Read {len(entities)} entities and {len(relationships)} relationships from knowledge graph store")
 
         # Sync to Neo4j
         entity_result = sync_entities_to_neo4j(entities)
@@ -601,11 +601,15 @@ def incremental_sync(since_timestamp: str) -> Dict[str, Any]:
     error: str | None = None
 
     try:
-        # Read recent entities from the SQLite knowledge graph database.
+        # Read recently created or updated entities from the provider-neutral KG store.
         with get_kg_conn() as conn:
             entity_rows = conn.execute(
-                "SELECT * FROM kg_entities WHERE created_at > ?",
-                (since_timestamp,),
+                """
+                SELECT * FROM kg_entities
+                WHERE COALESCE(last_updated, created_at) > ?
+                   OR created_at > ?
+                """,
+                (since_timestamp, since_timestamp),
             ).fetchall()
             entities = [dict(row) for row in entity_rows]
 
