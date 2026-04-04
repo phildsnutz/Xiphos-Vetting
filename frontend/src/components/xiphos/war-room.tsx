@@ -112,6 +112,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
   const [searchResults, setSearchResults] = useState<SearchResultSnapshot | null>(null);
   const [watchEntries, setWatchEntries] = useState<WatchlistSnapshot[]>([]);
   const [alerts, setAlerts] = useState<AlertSnapshot[]>([]);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 1024);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
@@ -128,6 +129,13 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [menu]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const handleChange = (event: MediaQueryListEvent) => setIsCompactViewport(event.matches);
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, []);
 
   const leadStatement = useMemo(() => {
     if (mode === "watch") {
@@ -219,7 +227,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
       eyebrow: "AXIOM exchange",
       title: "Bring me the knot, not the taxonomy.",
       lead: "Start with the entity, vehicle, incumbent, teammate, or weak point that still feels unresolved. I’ll work outward from there and keep the dark space explicit.",
-      follow: "Reply with a redirect, a harder question, or the thread you want me to pressure first.",
+      follow: "Reply with the redirect, the harder question, or the thread you want pressed first.",
     };
   }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults]);
 
@@ -408,7 +416,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
             position: "sticky",
             top: 0,
             zIndex: 20,
-            padding: `${SP.lg}px ${PAD.spacious}`,
+            padding: `${SP.lg}px ${isCompactViewport ? SP.lg : PAD.spacious}`,
             borderBottom: `1px solid rgba(255,255,255,0.06)`,
             background: headerBackground,
             backdropFilter: "blur(18px)",
@@ -497,8 +505,8 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
                   style={{
                     position: "absolute",
                     top: "calc(100% + 10px)",
-                    right: 96,
-                    width: 320,
+                    right: 0,
+                    width: isCompactViewport ? "min(calc(100vw - 32px), 360px)" : 320,
                     borderRadius: 18,
                     border: `1px solid ${T.borderStrong}`,
                     background: T.surfaceElevated,
@@ -546,11 +554,12 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
           className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)_320px] lg:grid-cols-[220px_minmax(0,1fr)]"
           style={{
             flex: 1,
-            padding: PAD.spacious,
+            padding: isCompactViewport ? SP.lg : PAD.spacious,
             alignItems: "start",
           }}
         >
           <aside
+            className="order-3 lg:order-1"
             style={{
               paddingTop: SP.md,
               display: "grid",
@@ -584,6 +593,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
           </aside>
 
           <section
+            className="order-1"
             style={{
               minWidth: 0,
               display: "grid",
@@ -595,12 +605,12 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
                 borderRadius: 30,
                 border: `1px solid rgba(255,255,255,0.06)`,
                 background: "linear-gradient(180deg, rgba(17,21,30,0.92) 0%, rgba(10,13,20,0.96) 100%)",
-                padding: PAD.spacious,
+                padding: isCompactViewport ? PAD.comfortable : PAD.spacious,
                 display: "grid",
                 gap: SP.lg,
-                position: "sticky",
-                top: PAD.spacious,
-                zIndex: 6,
+                position: isCompactViewport ? "relative" : "sticky",
+                top: isCompactViewport ? undefined : PAD.spacious,
+                zIndex: isCompactViewport ? undefined : 6,
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: SP.md, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -691,11 +701,11 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
           </section>
 
           <aside
-            className="xl:block lg:hidden"
+            className="order-2 xl:order-3"
             style={{
               paddingTop: SP.md,
-              display: "grid",
               gap: SP.lg,
+              display: "grid",
             }}
           >
             {workingArtifact ? (

@@ -113,38 +113,42 @@ export function BriefArtifact({
   const secondaryColor = isLight ? "rgba(7,16,26,0.72)" : T.textSecondary;
   const tertiaryColor = isLight ? "rgba(7,16,26,0.56)" : T.textTertiary;
   const sectionBackground = isLight ? "rgba(7,16,26,0.05)" : "rgba(255,255,255,0.03)";
+  const artifactPadding = "clamp(20px, 3vw, 32px)";
+  const artifactGap = "clamp(16px, 2.2vw, 24px)";
+  const artifactTitleSize = "clamp(1.35rem, 2.9vw, 1.95rem)";
 
   return (
     <div
+      className="w-full"
       style={{
         borderRadius: 28,
         border: `1px solid ${borderColor}`,
         background,
         color: bodyColor,
-        padding: PAD.spacious,
+        padding: artifactPadding,
         display: "grid",
-        gap: SP.lg,
+        gap: artifactGap,
         boxShadow: isLight ? "0 28px 80px rgba(0,0,0,0.28)" : "none",
       }}
     >
       <div style={{ display: "grid", gap: SP.sm }}>
         {eyebrow ? <SectionEyebrow>{eyebrow}</SectionEyebrow> : null}
-        <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.05em" }}>{title}</div>
-        <div style={{ fontSize: FS.base, color: secondaryColor, lineHeight: 1.65 }}>{framing}</div>
+        <div style={{ fontSize: artifactTitleSize, fontWeight: 800, letterSpacing: "-0.05em", maxWidth: 780 }}>{title}</div>
+        <div style={{ fontSize: FS.base, color: secondaryColor, lineHeight: 1.72, maxWidth: 760 }}>{framing}</div>
       </div>
 
       {sections.length > 0 ? (
-        <div className={sections.length > 1 ? "grid gap-3 md:grid-cols-2" : "grid gap-3"}>
+        <div className={sections.length > 1 ? "grid gap-3 lg:grid-cols-2" : "grid gap-3"}>
           {sections.map((section) => {
             const toneMeta = section.tone ? TONE_META[section.tone] : null;
             return (
               <div
                 key={`${section.label}`}
                 style={{
-                  borderRadius: 18,
+                  borderRadius: 20,
                   border: `1px solid ${toneMeta ? toneMeta.border : borderColor}`,
                   background: toneMeta && !isLight ? toneMeta.background : sectionBackground,
-                  padding: PAD.default,
+                  padding: "clamp(14px, 2vw, 18px)",
                   display: "grid",
                   gap: SP.xs,
                 }}
@@ -192,21 +196,18 @@ export function BriefArtifact({
 
       {(note || actions) ? (
         <div
+          className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
             gap: SP.md,
-            flexWrap: "wrap",
           }}
         >
           {note ? (
-            <div style={{ fontSize: FS.caption, color: tertiaryColor, lineHeight: 1.55, maxWidth: 560 }}>
+            <div style={{ fontSize: FS.caption, color: tertiaryColor, lineHeight: 1.6, maxWidth: 620 }}>
               {note}
             </div>
           ) : <div />}
           {actions ? (
-            <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap", alignItems: "center" }}>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end" style={{ gap: SP.sm }}>
               {actions}
             </div>
           ) : null}

@@ -222,7 +222,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const handleSearch = async () => {
     setError("");
     setIsRunning(true);
-    setStatus(autoIngest ? "AXIOM is working the first pass and warming the graph." : "AXIOM is working the first pass.");
+    setStatus(autoIngest ? "AXIOM is working the first public picture and warming the graph." : "AXIOM is working the first public picture.");
     setIteration(0);
     setResults(null);
 
@@ -231,8 +231,8 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
       if (data) {
         setStatus(
           autoIngest
-            ? "AXIOM completed the pass and promoted the accepted picture into the graph."
-            : data.status || "AXIOM completed the first pass.",
+            ? "AXIOM finished the first pass and promoted the accepted picture into the graph."
+            : data.status || "AXIOM finished the first pass.",
         );
       }
     } catch (err) {
@@ -361,7 +361,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             />
           ) : null}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label
                 style={{
@@ -434,7 +434,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 marginBottom: SP.sm,
               }}
             >
-                What matters
+                Why it matters
             </label>
             <input
               type="text"
@@ -688,7 +688,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {!isRunning && !results && !error ? (
             <EmptyPanel
               title="Nothing active yet"
-              description="Bring the entity, vehicle, or weak point that still feels unresolved. AXIOM will work outward from there."
+              description="Bring the entity, vehicle, or weak point that still feels unresolved. AXIOM will work outward from there and keep the thin parts explicit."
               icon={Search}
             />
           ) : null}

@@ -75,9 +75,9 @@ const FRONT_PORCH_EXAMPLES = [
 ];
 
 const PROGRESS_LINES = [
-  "Collecting the first public picture.",
-  "Validating what holds and what still stays thin.",
-  "Building the returned brief.",
+  "Pulling the first public picture.",
+  "Testing what holds and what still stays thin.",
+  "Shaping the returned brief.",
 ];
 
 function nextId(prefix: string) {
@@ -95,6 +95,9 @@ function sortRecentCases(cases: VettingCase[]): VettingCase[] {
 function inferObjectType(value: string): ObjectType | null {
   const lower = value.toLowerCase();
   if (/\b(vehicle|recompete|follow-on|follow on|pre-solicitation|pre solicitation|solicitation|piid|award|task order)\b/.test(lower)) {
+    return "vehicle";
+  }
+  if (/\b[A-Z]{2,}[ -]?\d{1,3}[A-Z0-9-]*\b/.test(value) || /\b[A-Z]\d+[A-Z0-9-]{2,}\b/.test(value)) {
     return "vehicle";
   }
   if (/\b(vendor|supplier|teammate|partner|prime|subcontractor|company)\b/.test(lower)) {
@@ -419,7 +422,7 @@ const INITIAL_MESSAGES: ThreadMessage[] = [
   {
     id: nextId("axiom"),
     role: "axiom",
-    content: "Start anywhere. Are we looking at a contract vehicle, a specific vendor, or something still unclear?",
+    content: "Start anywhere. A vehicle, a vendor, or the knot you cannot quite name yet.",
   },
 ];
 
@@ -458,6 +461,7 @@ export function FrontPorchLanding({
     canScrollDown: false,
     atBottom: true,
   });
+  const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 768);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -479,6 +483,13 @@ export function FrontPorchLanding({
 
   useEffect(() => {
     composerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const handleChange = (event: MediaQueryListEvent) => setIsCompactViewport(event.matches);
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
   }, []);
 
   const syncThreadScrollState = useCallback(() => {
@@ -539,7 +550,7 @@ export function FrontPorchLanding({
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
     setIsWorking(false);
-    appendMessage("axiom", "The returned brief is ready. Read the clean picture here, or step into War Room if you want to pressure the weak parts.");
+    appendMessage("axiom", "The returned brief is ready. Read it here, or step into War Room if you want to challenge the weak edge.");
     setVendorArtifact((current) => buildVendorArtifact(
       null,
       current?.title ? { ...session, vendorName: current.title } : session,
@@ -782,7 +793,7 @@ export function FrontPorchLanding({
     if (!nextSession.objectType) {
       const inferredObject = inferObjectType(text);
       if (!inferredObject) {
-        appendMessage("axiom", "Are we working a contract vehicle or a specific vendor?");
+        appendMessage("axiom", "Are we looking at a contract vehicle or a specific vendor?");
         return;
       }
       nextSession.objectType = inferredObject;
@@ -844,7 +855,7 @@ export function FrontPorchLanding({
         height: "100%",
         background: shellBackground,
         color: T.text,
-        padding: `${SP.xl}px ${PAD.spacious}px ${PAD.spacious}px`,
+        padding: `${isCompactViewport ? SP.lg : SP.xl}px ${isCompactViewport ? SP.lg : PAD.spacious}px ${PAD.spacious}px`,
         overflowY: "auto",
         overflowX: "hidden",
       }}
@@ -865,8 +876,9 @@ export function FrontPorchLanding({
             alignItems: "center",
             justifyContent: "space-between",
             gap: SP.lg,
-            padding: `${SP.sm}px 0 ${SP.xxxl}px`,
+            padding: `${SP.sm}px 0 ${isCompactViewport ? SP.xl : SP.xxxl}px`,
             position: "relative",
+            flexWrap: "wrap",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
@@ -874,7 +886,7 @@ export function FrontPorchLanding({
             <StatusPill tone="info">Front Porch</StatusPill>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: SP.sm, position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: SP.sm, position: "relative", flexWrap: "wrap", justifyContent: isCompactViewport ? "flex-start" : "flex-end" }}>
             {!loginRequired ? (
               <button
                 type="button"
@@ -957,8 +969,8 @@ export function FrontPorchLanding({
                 style={{
                   position: "absolute",
                   top: "calc(100% + 10px)",
-                  right: 124,
-                  width: 320,
+                  right: 0,
+                  width: isCompactViewport ? "min(calc(100vw - 32px), 380px)" : 320,
                   borderRadius: 18,
                   border: `1px solid ${T.borderStrong}`,
                   background: T.surfaceElevated,
@@ -1005,8 +1017,8 @@ export function FrontPorchLanding({
                 style={{
                   position: "absolute",
                   top: "calc(100% + 10px)",
-                  right: 12,
-                  width: 380,
+                  right: 0,
+                  width: isCompactViewport ? "min(calc(100vw - 32px), 420px)" : 380,
                   borderRadius: 18,
                   border: `1px solid ${T.borderStrong}`,
                   background: T.surfaceElevated,
@@ -1068,7 +1080,7 @@ export function FrontPorchLanding({
                   maxWidth: 620,
                 }}
               >
-                Start with whatever you know. A vehicle, a vendor, or the fragment you already have.
+                Start with whatever you know. AXIOM will narrow the problem and ask only what changes the work.
               </p>
             </div>
             <div
@@ -1078,12 +1090,12 @@ export function FrontPorchLanding({
                 border: `1px solid rgba(255,255,255,0.08)`,
                 background: "linear-gradient(180deg, rgba(10,13,20,0.88) 0%, rgba(8,10,16,0.9) 100%)",
                 boxShadow: "0 28px 80px rgba(0,0,0,0.28)",
-                padding: PAD.spacious,
+                padding: isCompactViewport ? PAD.comfortable : PAD.spacious,
                 display: "grid",
                 gap: SP.lg,
-                position: hasThreadDepth ? "sticky" : "relative",
-                top: hasThreadDepth ? SP.lg : undefined,
-                zIndex: hasThreadDepth ? 6 : undefined,
+                position: hasThreadDepth && !isCompactViewport ? "sticky" : "relative",
+                top: hasThreadDepth && !isCompactViewport ? SP.lg : undefined,
+                zIndex: hasThreadDepth && !isCompactViewport ? 6 : undefined,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
@@ -1120,7 +1132,7 @@ export function FrontPorchLanding({
                     display: "flex",
                     flexDirection: "column",
                     gap: SP.md,
-                    maxHeight: "min(46vh, 520px)",
+                    maxHeight: isCompactViewport ? "min(44vh, 400px)" : "min(46vh, 520px)",
                     overflowY: "auto",
                     paddingRight: SP.xs,
                     paddingBottom: SP.sm,
@@ -1132,8 +1144,8 @@ export function FrontPorchLanding({
                       key={message.id}
                       style={{
                         alignSelf: message.role === "user" ? "flex-end" : "stretch",
-                        maxWidth: message.role === "user" ? "82%" : "100%",
-                        marginLeft: message.role === "user" ? 72 : 0,
+                        maxWidth: message.role === "user" ? (isCompactViewport ? "92%" : "82%") : "100%",
+                        marginLeft: message.role === "user" ? (isCompactViewport ? 20 : 72) : 0,
                         borderRadius: 24,
                         border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : "rgba(255,255,255,0.06)"}`,
                         background: message.role === "status"
@@ -1189,7 +1201,7 @@ export function FrontPorchLanding({
                       void submitDraft();
                     }
                   }}
-                  placeholder="ILS 2 follow-on. We think Amentum is the incumbent."
+                  placeholder="ILS 2. Pre-solicitation follow-on. Amentum is the incumbent."
                   aria-label="Brief AXIOM"
                   disabled={isWorking}
                   className="helios-focus-ring"
@@ -1208,12 +1220,12 @@ export function FrontPorchLanding({
                     cursor: isWorking ? "not-allowed" : "text",
                   }}
                 />
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: isCompactViewport ? "column" : "row", alignItems: isCompactViewport ? "stretch" : "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
                     <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
                       {isWorking
                         ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
-                        : "You do not need the right terms. AXIOM will narrow the problem and ask only what changes the work."}
+                        : "You can be messy. AXIOM will narrow it from there and ask only what changes the work."}
                     </div>
                     {threadScrollState.canScrollDown ? (
                       <button
@@ -1251,10 +1263,12 @@ export function FrontPorchLanding({
                       cursor: draft.trim() && !isWorking ? "pointer" : "default",
                       display: "inline-flex",
                       alignItems: "center",
+                      justifyContent: "center",
                       gap: SP.xs,
                       fontSize: FS.sm,
                       fontWeight: 800,
                       transition: `all ${MOTION.fast} ${MOTION.easing}`,
+                      width: isCompactViewport ? "100%" : undefined,
                     }}
                   >
                     {isWorking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquareText size={14} />}
