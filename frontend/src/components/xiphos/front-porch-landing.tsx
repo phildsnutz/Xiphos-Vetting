@@ -19,8 +19,18 @@ import { T, FS, SP, PAD, O, MOTION } from "@/lib/tokens";
 type RoomMenu = "recent" | "examples" | null;
 type ObjectType = "vendor" | "vehicle";
 type SupportLayer = "counterparty" | "cyber" | "export";
-type VendorGoal = "trust" | "partner" | "compete" | "attack";
 type VehicleTiming = "current" | "expired" | "pre_solicitation";
+type PriorityFocus =
+  | "full_picture"
+  | "ownership"
+  | "teammate_network"
+  | "competitive_weakness"
+  | "export_exposure"
+  | "cyber_posture"
+  | "capability_fit"
+  | "adverse_history"
+  | "vehicle_ecosystem"
+  | "incumbent_continuity";
 
 type MessageRole = "axiom" | "user" | "status";
 
@@ -42,11 +52,12 @@ interface IntakeSession {
   objectType: ObjectType | null;
   vendorName: string | null;
   vehicleName: string | null;
-  vendorGoal: VendorGoal | null;
+  priorityFocus: PriorityFocus | null;
   supportLayer: SupportLayer;
   vehicleTiming: VehicleTiming | null;
   followOn: boolean | null;
   incumbentPrime: string | null;
+  followUpCount: number;
 }
 
 interface VendorArtifact {
@@ -80,6 +91,10 @@ const PROGRESS_LINES = [
   "Testing what holds and what still stays thin.",
   "Shaping the returned brief.",
 ];
+
+const FRONT_PORCH_START_CONFIDENCE = 0.72;
+const FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE = 0.42;
+const FRONT_PORCH_MAX_FOLLOW_UPS = 2;
 
 function nextId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -117,12 +132,18 @@ function inferSupportLayer(value: string): SupportLayer | null {
   return null;
 }
 
-function inferVendorGoal(value: string): VendorGoal | null {
+function inferPriorityFocus(value: string): PriorityFocus | null {
   const lower = value.toLowerCase();
-  if (/\b(trust|clear|screen)\b/.test(lower)) return "trust";
-  if (/\b(partner|teammate|team with)\b/.test(lower)) return "partner";
-  if (/\b(compete|competitor|against)\b/.test(lower)) return "compete";
-  if (/\b(attack|vulnerable|weak point|pressure)\b/.test(lower)) return "attack";
+  if (/\b(full picture|whole picture|overall read|everything|broad read)\b/.test(lower)) return "full_picture";
+  if (/\b(owner|ownership|control|behind them|parent company|ultimate parent|beneficial)\b/.test(lower)) return "ownership";
+  if (/\b(teammate|team with|partner with|partner|sub network|likely team|who matters under)\b/.test(lower)) return "teammate_network";
+  if (/\b(compete|competitor|weak point|pressure point|vulnerable|attack)\b/.test(lower)) return "competitive_weakness";
+  if (/\b(export|itar|ear|ddtc|bis|deemed export)\b/.test(lower)) return "export_exposure";
+  if (/\b(cyber|cmmc|sprs|ssp|poam|sbom|vex|software assurance|rmf)\b/.test(lower)) return "cyber_posture";
+  if (/\b(capability fit|fit|belongs in|actually belong|relevant to the vehicle)\b/.test(lower)) return "capability_fit";
+  if (/\b(adverse|litigation|sanction|media|foreign exposure|pep|debar)\b/.test(lower)) return "adverse_history";
+  if (/\b(vehicle ecosystem|ecosystem|incumbent team|team beneath|customer map)\b/.test(lower)) return "vehicle_ecosystem";
+  if (/\b(incumbent continuity|follow-on path|transition path|recompete posture)\b/.test(lower)) return "incumbent_continuity";
   return null;
 }
 
@@ -251,6 +272,43 @@ function humanizeApiError(value: unknown, fallback: string) {
   return cleaned || fallback;
 }
 
+function humanizePriorityFocus(focus: PriorityFocus | null): string | null {
+  if (!focus || focus === "full_picture") return null;
+  const labels: Record<Exclude<PriorityFocus, "full_picture">, string> = {
+    ownership: "ownership and control",
+    teammate_network: "the teammate network",
+    competitive_weakness: "competitive weak points",
+    export_exposure: "export exposure",
+    cyber_posture: "cyber posture",
+    capability_fit: "capability fit",
+    adverse_history: "adverse history",
+    vehicle_ecosystem: "the vehicle ecosystem",
+    incumbent_continuity: "incumbent continuity",
+  };
+  return labels[focus];
+}
+
+function computeIntakeConfidence(session: IntakeSession): number {
+  if (session.objectType === "vehicle") {
+    let score = 0.18;
+    if (session.vehicleName) score += 0.34;
+    if (session.vehicleTiming) score += 0.15;
+    if (session.followOn !== null) score += 0.15;
+    if (session.incumbentPrime) score += 0.18;
+    return Math.min(1, score);
+  }
+
+  if (session.objectType === "vendor") {
+    let score = 0.18;
+    if (session.vendorName) score += 0.4;
+    if (session.priorityFocus) score += session.priorityFocus === "full_picture" ? 0.1 : 0.24;
+    if (session.supportLayer !== "counterparty") score += 0.12;
+    return Math.min(1, score);
+  }
+
+  return 0;
+}
+
 function summarizeVehicle(result: VehicleSearchResult, session: IntakeSession): string {
   const primeText = result.total_primes > 0
     ? `${result.total_primes} prime contractor${result.total_primes === 1 ? "" : "s"}`
@@ -266,12 +324,12 @@ function summarizeVehicle(result: VehicleSearchResult, session: IntakeSession): 
 
 function supportLayerDetail(session: IntakeSession) {
   if (session.supportLayer === "export") {
-    return "Export exposure stays folded into the trust read unless the record forces it into its own issue.";
+    return "Export exposure stays folded into the full entity picture unless the record forces it into its own issue.";
   }
   if (session.supportLayer === "cyber") {
     return "Cyber posture stays in scope as supporting evidence instead of taking over the brief.";
   }
-  return "The first pass stays centered on trust, control, and fit before it widens into supporting layers.";
+  return "AXIOM is building the full entity picture first and only weights one edge ahead of the rest when the brief calls for it.";
 }
 
 function vehiclePressureDetail(result: VehicleSearchResult, session: IntakeSession) {
@@ -318,6 +376,7 @@ function buildVendorArtifact(
   const ownershipDetail = candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name
     ? `Public control signals already run beyond the surface entity toward ${candidate.highest_owner}.`
     : "The visible public record is still surface-level, so the control story will stay under pressure until it holds.";
+  const focusDetail = humanizePriorityFocus(session.priorityFocus);
 
   return {
     caseId,
@@ -330,11 +389,9 @@ function buildVendorArtifact(
     sections: [
       {
         label: "What I found",
-        detail: session.vendorGoal === "partner"
-          ? `This is being worked as a teammate screen with trust and fit ahead of decorative detail.`
-          : session.vendorGoal === "compete" || session.vendorGoal === "attack"
-            ? `This is being worked as a competitive read, with pressure points prioritized over generic background.`
-            : `This is being worked as a trust read first, with the public record forced to answer the real decision.`,
+        detail: focusDetail
+          ? `This is being worked as a full entity picture, with ${focusDetail} weighted first instead of shrinking the scope.`
+          : "This is being worked as a full entity picture, with the public record forced to answer the real decision before AXIOM narrows anything.",
       },
       {
         label: "Where it stays thin",
@@ -368,15 +425,9 @@ function buildVehicleWorkingLead(session: IntakeSession) {
 function buildVendorWorkingLead(session: IntakeSession) {
   const frame = [
     session.vendorName,
-    session.vendorGoal === "partner"
-      ? "partner read"
-      : session.vendorGoal === "compete"
-        ? "competitive read"
-        : session.vendorGoal === "attack"
-          ? "pressure read"
-          : session.vendorGoal === "trust"
-            ? "trust read"
-            : null,
+    humanizePriorityFocus(session.priorityFocus)
+      ? `${humanizePriorityFocus(session.priorityFocus)} first`
+      : null,
     session.supportLayer !== "counterparty" ? `${session.supportLayer} in support` : null,
   ].filter(Boolean).join(", ");
   return frame ? `I have enough: ${frame}.` : "";
@@ -445,11 +496,12 @@ export function FrontPorchLanding({
     objectType: null,
     vendorName: null,
     vehicleName: null,
-    vendorGoal: null,
+    priorityFocus: null,
     supportLayer: "counterparty",
     vehicleTiming: null,
     followOn: null,
     incumbentPrime: null,
+    followUpCount: 0,
   });
   const [isWorking, setIsWorking] = useState(false);
   const [workingCaseId, setWorkingCaseId] = useState<string | null>(null);
@@ -486,6 +538,11 @@ export function FrontPorchLanding({
     setVendorArtifact(null);
     setErrorText(null);
   }, []);
+
+  const askFollowUp = useCallback((nextSession: IntakeSession, message: string) => {
+    setSession({ ...nextSession, followUpCount: nextSession.followUpCount + 1 });
+    appendMessage("axiom", message);
+  }, [appendMessage]);
 
   useEffect(() => {
     composerRef.current?.focus();
@@ -616,17 +673,18 @@ export function FrontPorchLanding({
     setIsWorking(true);
     setProgressIndex(0);
     setErrorText(null);
-    appendMessage("axiom", nextSession.vendorGoal === "partner"
-      ? `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll begin with trust and teammate fit, then bring back the first clean picture.`
-      : nextSession.vendorGoal === "compete" || nextSession.vendorGoal === "attack"
-        ? `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll frame this as a competitive read and bring back the first clean picture.`
-        : `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll begin with trust, ownership, and the public record that could change the decision.`.trim());
+    appendMessage(
+      "axiom",
+      humanizePriorityFocus(nextSession.priorityFocus)
+        ? `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll work the full picture and weight ${humanizePriorityFocus(nextSession.priorityFocus)} first.`
+        : `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll work the full picture and keep the thin parts explicit instead of narrowing too early.`.trim(),
+    );
 
     try {
       const result = await resolveEntity(name, {
         use_ai: true,
         max_candidates: 6,
-        context: nextSession.vendorGoal ? `Goal: ${nextSession.vendorGoal}` : undefined,
+        context: nextSession.priorityFocus ? `Weight first: ${humanizePriorityFocus(nextSession.priorityFocus) || "full picture"}` : undefined,
       });
       setIsWorking(false);
       setResolution(result.resolution || null);
@@ -737,25 +795,40 @@ export function FrontPorchLanding({
 
     setSession(nextSession);
 
+    const confidence = computeIntakeConfidence(nextSession);
+
     if (!nextSession.vehicleName) {
-      appendMessage("axiom", "Which contract vehicle are we looking at?");
+      askFollowUp(nextSession, "Which contract vehicle are we looking at?");
       return;
     }
     if (!nextSession.vehicleTiming) {
-      appendMessage("axiom", "Is this current, expired, or still in pre-solicitation?");
+      askFollowUp(nextSession, "Is this current, expired, or still in pre-solicitation?");
       return;
     }
-    if (nextSession.vehicleTiming === "pre_solicitation" && nextSession.followOn === null) {
-      appendMessage("axiom", "Good. Is it a follow-on, or does it look net-new?");
+    if (
+      nextSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
+      confidence < FRONT_PORCH_START_CONFIDENCE &&
+      nextSession.vehicleTiming === "pre_solicitation" &&
+      (nextSession.followOn === null || !nextSession.incumbentPrime)
+    ) {
+      askFollowUp(
+        nextSession,
+        "Good. If this is a follow-on, do you know the incumbent prime? If not, I can still start from the vehicle.",
+      );
       return;
     }
-    if (nextSession.followOn === true && !nextSession.incumbentPrime) {
-      appendMessage("axiom", "Good. Do you know who holds the current prime position?");
+    if (
+      nextSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
+      confidence < FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE &&
+      nextSession.followOn === true &&
+      !nextSession.incumbentPrime
+    ) {
+      askFollowUp(nextSession, "If you know who holds the prime position now, tell me. If not, I’ll keep the incumbent path open while I work.");
       return;
     }
 
     await startVehicleFlow(nextSession);
-  }, [appendMessage, startVehicleFlow]);
+  }, [askFollowUp, startVehicleFlow]);
 
   const decideVendorNext = useCallback(async (input: string, current: IntakeSession) => {
     const nextSession = { ...current };
@@ -764,9 +837,9 @@ export function FrontPorchLanding({
     if (!nextSession.vendorName && stripped && !looksLikeObjectOnlyAnswer(input)) {
       nextSession.vendorName = extractVendorName(input) || stripped;
     }
-    if (!nextSession.vendorGoal) {
-      const inferredGoal = inferVendorGoal(input);
-      if (inferredGoal) nextSession.vendorGoal = inferredGoal;
+    if (!nextSession.priorityFocus) {
+      const inferredFocus = inferPriorityFocus(input);
+      if (inferredFocus) nextSession.priorityFocus = inferredFocus;
     }
     if (nextSession.supportLayer === "counterparty") {
       const inferredLayer = inferSupportLayer(input);
@@ -775,17 +848,27 @@ export function FrontPorchLanding({
 
     setSession(nextSession);
 
+    const confidence = computeIntakeConfidence(nextSession);
+
     if (!nextSession.vendorName) {
-      appendMessage("axiom", "Which vendor are we looking at?");
+      askFollowUp(nextSession, "Which vendor are we looking at?");
       return;
     }
-    if (!nextSession.vendorGoal) {
-      appendMessage("axiom", "Is this a trust read, a teammate question, or a competitive read?");
+
+    if (
+      nextSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
+      confidence < FRONT_PORCH_START_CONFIDENCE &&
+      !nextSession.priorityFocus
+    ) {
+      askFollowUp(
+        nextSession,
+        "If there’s one edge you want me to weight first, tell me now. Otherwise I’ll work the full picture.",
+      );
       return;
     }
 
     await startVendorFlow(nextSession);
-  }, [appendMessage, startVendorFlow]);
+  }, [askFollowUp, startVendorFlow]);
 
   const handleUserTurn = useCallback(async (raw: string) => {
     const text = compactText(raw);
@@ -799,12 +882,13 @@ export function FrontPorchLanding({
     if (!nextSession.objectType) {
       const inferredObject = inferObjectType(text);
       if (!inferredObject) {
-        appendMessage("axiom", "Are we looking at a contract vehicle or a specific vendor?");
+        askFollowUp(nextSession, "Are we looking at a contract vehicle or a specific vendor?");
         return;
       }
       nextSession.objectType = inferredObject;
       if (inferredObject === "vendor") {
         nextSession.supportLayer = inferSupportLayer(text) || nextSession.supportLayer;
+        nextSession.priorityFocus = inferPriorityFocus(text) || nextSession.priorityFocus;
       }
       setSession(nextSession);
     }
@@ -815,7 +899,7 @@ export function FrontPorchLanding({
     }
 
     await decideVendorNext(text, nextSession);
-  }, [appendMessage, decideVehicleNext, decideVendorNext, isWorking, resetArtifacts, session]);
+  }, [askFollowUp, decideVehicleNext, decideVendorNext, isWorking, resetArtifacts, session]);
 
   const submitDraft = useCallback(async () => {
     const text = draft.trim();
@@ -1388,7 +1472,7 @@ export function FrontPorchLanding({
                               ...session,
                               objectType: "vendor" as const,
                               vendorName: vendor.vendor_name,
-                              vendorGoal: session.vendorGoal || "partner",
+                              priorityFocus: session.priorityFocus || "teammate_network",
                             };
                             setSession(nextSession);
                             appendMessage("user", `Open a vendor assessment on ${vendor.vendor_name}.`);
