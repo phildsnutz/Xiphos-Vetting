@@ -83,3 +83,41 @@ def test_axiom_extract_route_uses_env_fallback_when_ai_config_missing(tmp_path, 
     assert captured["provider"] == "openai"
     assert captured["model"] == "gpt-4o"
     assert captured["api_key"] == "sk-test-openai-route"
+
+
+def test_axiom_search_ingest_uses_dev_fallback_without_provider_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    server = _reload_module("server")
+
+    server.db.init_db()
+    server.init_auth_db()
+    if server.HAS_AI:
+        server.init_ai_tables()
+
+    with server.app.test_client() as client:
+        response = client.post(
+            "/api/axiom/search/ingest",
+            json={
+                "prime_contractor": "SMX",
+                "vehicle_name": "ILS 2",
+                "context": "Pressure ownership first.",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert payload["local_fallback"]["mode"] == "deterministic_dev_pressure"
+    assert payload["entities"][0]["name"] == "SMX"
+    assert payload["intelligence_gaps"]
+    assert payload["kg_ingestion"]["entities_created"] == 0

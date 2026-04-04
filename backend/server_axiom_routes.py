@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from flask import g, jsonify, request
 
@@ -22,6 +23,196 @@ logger = logging.getLogger(__name__)
 
 def register_axiom_routes(*, app, require_auth, db):
     """Register all AXIOM API routes on the Flask app."""
+
+    def _dev_axiom_fallback_allowed(error: str) -> bool:
+        if os.environ.get("XIPHOS_DEV_MODE", "false").lower() != "true":
+            return False
+        lowered = str(error or "").lower()
+        return "no api key available" in lowered or "configure ai provider" in lowered
+
+    def _build_local_axiom_fallback(*, target, vendor_id: str = "", error: str = "", include_ingestion: bool = False):
+        graph_context = {}
+        try:
+            if vendor_id:
+                from ai_analysis import _sanitize_graph_context
+
+                graph_context = _sanitize_graph_context(vendor_id) or {}
+        except Exception:
+            graph_context = {}
+
+        entities = [
+            {
+                "name": target.prime_contractor,
+                "entity_type": "company",
+                "confidence": 0.92,
+            }
+        ]
+        seen_entities = {target.prime_contractor.lower()}
+
+        if target.vehicle_name:
+            entities.append(
+                {
+                    "name": target.vehicle_name,
+                    "entity_type": "contract_vehicle",
+                    "confidence": 0.58,
+                }
+            )
+            seen_entities.add(target.vehicle_name.lower())
+
+        for item in (graph_context.get("top_entities_by_degree") or [])[:3]:
+            name = str(item.get("name") or "").strip()
+            if not name or name.lower() in seen_entities:
+                continue
+            entities.append(
+                {
+                    "name": name,
+                    "entity_type": str(item.get("entity_type") or "entity"),
+                    "confidence": 0.67,
+                }
+            )
+            seen_entities.add(name.lower())
+
+        relationships = []
+        seen_relationships: set[tuple[str, str, str]] = set()
+        if target.vehicle_name:
+            seed_key = (target.prime_contractor.lower(), target.vehicle_name.lower(), "associated_with")
+            relationships.append(
+                {
+                    "source_entity": target.prime_contractor,
+                    "target_entity": target.vehicle_name,
+                    "rel_type": "associated_with",
+                    "confidence": 0.38,
+                    "evidence": [
+                        "Mission brief carried both the entity and vehicle context into the AXIOM pressure fallback.",
+                    ],
+                }
+            )
+            seen_relationships.add(seed_key)
+
+        for rel in (graph_context.get("top_relationships") or [])[:4]:
+            source_name = str(rel.get("source") or "").strip()
+            target_name = str(rel.get("target") or "").strip()
+            rel_type = str(rel.get("type") or "related_entity").strip() or "related_entity"
+            if not source_name or not target_name:
+                continue
+            dedupe_key = (source_name.lower(), target_name.lower(), rel_type.lower())
+            if dedupe_key in seen_relationships:
+                continue
+            relationships.append(
+                {
+                    "source_entity": source_name,
+                    "target_entity": target_name,
+                    "rel_type": rel_type,
+                    "confidence": float(rel.get("confidence") or 0.62),
+                    "evidence": [
+                        "Derived from the current graph context because no external provider key is configured in dev mode.",
+                    ],
+                }
+            )
+            seen_relationships.add(dedupe_key)
+
+        gaps = []
+        for family in (graph_context.get("missing_required_edge_families") or [])[:2]:
+            family_text = str(family or "").replace("_", " ").strip()
+            if not family_text:
+                continue
+            gaps.append(
+                {
+                    "gap_type": "graph_gap",
+                    "description": f"The graph is still missing {family_text} around {target.prime_contractor}.",
+                    "confidence": 0.81,
+                }
+            )
+
+        if graph_context.get("thin_graph") or len(relationships) < 2:
+            gaps.append(
+                {
+                    "gap_type": "relationship_fabric",
+                    "description": f"The relationship fabric around {target.prime_contractor} is still too thin to freeze as stable truth.",
+                    "confidence": 0.76,
+                }
+            )
+
+        if target.vehicle_name:
+            gaps.append(
+                {
+                    "gap_type": "vehicle_lineage",
+                    "description": f"The incumbent and teammate lineage around {target.vehicle_name} still needs direct pressure.",
+                    "confidence": 0.72,
+                }
+            )
+
+        if not gaps:
+            gaps.append(
+                {
+                    "gap_type": "control_path_pressure",
+                    "description": f"Pressure ownership and control around {target.prime_contractor} until the control story either holds or breaks.",
+                    "confidence": 0.61,
+                }
+            )
+
+        advisory = []
+        top_entities = [str(item.get("name") or "").strip() for item in (graph_context.get("top_entities_by_degree") or [])[:3]]
+        top_entities = [item for item in top_entities if item]
+        if top_entities:
+            advisory.append(
+                {
+                    "opportunity_type": "graph_pressure",
+                    "description": f"Use the current graph around {', '.join(top_entities)} to decide which weak edge changes the call fastest.",
+                    "priority": "high",
+                }
+            )
+        if target.vehicle_name:
+            advisory.append(
+                {
+                    "opportunity_type": "vehicle_pressure",
+                    "description": f"Work the incumbent path, teammate network, and likely transition story around {target.vehicle_name}.",
+                    "priority": "high",
+                }
+            )
+        network_risk_level = str(graph_context.get("network_risk_level") or "").lower()
+        if network_risk_level in {"high", "critical"}:
+            advisory.append(
+                {
+                    "opportunity_type": "network_risk",
+                    "description": f"The graph is already carrying {network_risk_level} network risk. Pressure the nodes causing that propagation before trusting the quiet surface story.",
+                    "priority": "high",
+                }
+            )
+        if not advisory:
+            advisory.append(
+                {
+                    "opportunity_type": "pressure_thread",
+                    "description": f"Keep pressure on ownership, control, and teammate structure around {target.prime_contractor} until the weak edge stops moving.",
+                    "priority": "medium",
+                }
+            )
+
+        response = {
+            "status": "completed",
+            "iteration": 1,
+            "entities": entities,
+            "relationships": relationships,
+            "intelligence_gaps": gaps,
+            "advisory_opportunities": advisory,
+            "advisory": advisory,
+            "total_queries": 1,
+            "total_findings": len(entities) + len(relationships),
+            "total_connector_calls": 0,
+            "elapsed_ms": 0,
+            "local_fallback": {
+                "mode": "deterministic_dev_pressure",
+                "reason": error or "No external provider key available in dev mode.",
+            },
+        }
+        if include_ingestion:
+            response["kg_ingestion"] = {
+                "entities_created": 0,
+                "relationships_created": 0,
+                "claims_created": 0,
+                "evidence_created": 0,
+            }
+        return response
 
     def _watchlist_priority(value: str) -> str:
         normalized = str(value or "").strip().lower()
@@ -161,6 +352,8 @@ def register_axiom_routes(*, app, require_auth, db):
             )
 
             if result.error:
+                if _dev_axiom_fallback_allowed(result.error):
+                    return jsonify(_build_local_axiom_fallback(target=target, error=result.error)), 200
                 return jsonify({"error": result.error, "partial_result": result.to_dict()}), 500
 
             response = result.to_dict()
@@ -223,6 +416,15 @@ def register_axiom_routes(*, app, require_auth, db):
             )
 
             if result.error:
+                if _dev_axiom_fallback_allowed(result.error):
+                    return jsonify(
+                        _build_local_axiom_fallback(
+                            target=target,
+                            vendor_id=str(body.get("vendor_id") or ""),
+                            error=result.error,
+                            include_ingestion=True,
+                        )
+                    ), 200
                 return jsonify({"error": result.error, "partial_result": result.to_dict()}), 500
 
             # Ingest into KG

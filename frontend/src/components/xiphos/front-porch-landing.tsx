@@ -956,7 +956,6 @@ function buildReturnedVendorArtifact(
   const weightedFirst = humanizePriorityFocus(session.priorityFocus);
   const findingsTotal = readiness.enrichment?.summary?.findings_total ?? readiness.passport?.identity.findings_total ?? 0;
   const connectorsWithData = readiness.enrichment?.summary?.connectors_with_data ?? readiness.passport?.identity.connectors_with_data ?? 0;
-  const connectorsRun = readiness.enrichment?.summary?.connectors_run ?? 0;
   const relationshipCount = readiness.graph?.relationship_count ?? readiness.passport?.graph.relationship_count ?? 0;
   const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
   const networkRiskLevel = String(readiness.networkRisk?.network_risk_level || "").toUpperCase();
@@ -967,12 +966,12 @@ function buildReturnedVendorArtifact(
   const pressurePasses = gapClosure?.passes ?? 0;
 
   const whatHolds = connectorsWithData > 0 || findingsTotal > 0
-    ? `${connectorsWithData} of ${connectorsRun || connectorsWithData} sources produced data and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} survived into the first picture.`
-    : "The public record stayed unusually thin, so the brief is carrying the strongest visible holds without pretending the surface picture is complete.";
+    ? `The first picture is carrying ${connectorsWithData} live source${connectorsWithData === 1 ? "" : "s"} with data, and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} made it through the first cut.`
+    : "The public record stayed unusually thin, so this brief is holding only the parts that actually stand up instead of pretending the surface story is complete.";
 
   const graphDetail = relationshipCount > 0
-    ? `${relationshipCount} graph relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"} changed the read${dominantEdgeFamily ? `, with ${dominantEdgeFamily} carrying the strongest edge family.` : "."}`
-    : "The graph stayed thin enough that silence should not be treated as comfort.";
+    ? `The graph materially changed the read. It is carrying ${relationshipCount} relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"}${dominantEdgeFamily ? `, with ${dominantEdgeFamily} holding the strongest edge family.` : "."}`
+    : "The graph stayed too thin to soften the call, which means silence still should not be treated as comfort.";
 
   const thinDetails: string[] = [];
   if (connectorsWithData < 2) {
@@ -1003,10 +1002,10 @@ function buildReturnedVendorArtifact(
     : "The weak edge is now explicit, but no material thin spot is being hidden under surface calm.";
 
   const gapDetail = gapClosure?.status === "completed"
-    ? `AXIOM ran ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "a pressure pass"} against the weak edge and surfaced ${gapClosure.entitiesFound} entities, ${gapClosure.relationshipsFound} relationships, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.${gapClosure.gapHighlights?.length ? ` It kept pressure on ${gapClosure.gapHighlights.join("; ")}.` : ""}`
+    ? `AXIOM went back through the weak edge ${pressurePasses > 1 ? `${pressurePasses} times` : "once"} and surfaced ${gapClosure.entitiesFound} additional entit${gapClosure.entitiesFound === 1 ? "y" : "ies"}, ${gapClosure.relationshipsFound} relationship${gapClosure.relationshipsFound === 1 ? "" : "s"}, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.${gapClosure.gapHighlights?.length ? ` It kept pressure on ${gapClosure.gapHighlights.join("; ")}.` : ""}`
     : gapClosure?.status === "failed"
       ? gapClosure.note
-      : "AXIOM did not need a pressure pass because the first picture already had enough structure to freeze the brief honestly.";
+      : "AXIOM did not need a second pressure pass because the first picture already had enough structure to freeze honestly.";
 
   return {
     caseId,
@@ -1014,8 +1013,8 @@ function buildReturnedVendorArtifact(
     title: subject,
     eyebrow: "Returned brief",
     framing: gapClosure?.status === "completed"
-      ? `The returned brief is ready. AXIOM used enrichment, graph relationships, and ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "a pressure pass"} before freezing the picture.`
-      : "The returned brief is ready. AXIOM used enrichment and the current graph relationships before freezing the picture.",
+      ? `AXIOM’s first judgment is ready. It uses enrichment, the visible relationship fabric, and ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "one pressure pass"} before freezing the picture.`
+      : "AXIOM’s first judgment is ready. It uses enrichment and the current relationship fabric before freezing the picture.",
     sections: [
       {
         label: "What holds",
@@ -1041,8 +1040,8 @@ function buildReturnedVendorArtifact(
       },
     ],
     note: gapClosure?.status === "completed"
-      ? "Read the clean narrative here. Step into War Room when you want to challenge what still stayed thin after AXIOM pressured the weak edge."
-      : "Read the clean narrative here. Step into War Room when you want to challenge the weak edge directly.",
+      ? "Read the clean judgment here. Step into War Room when you want to challenge what still stayed thin after AXIOM pressed the weak edge."
+      : "Read the clean judgment here. Step into War Room when you want to challenge the weak edge directly.",
     provenance: [
       `${connectorsWithData} sources with data`,
       relationshipCount > 0 ? `${relationshipCount} graph relationships` : "Graph still thin",
