@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helios Front Porch Static Comp</title>
+  <style>
+    :root {
+      --bg: #06070b;
+      --bg-soft: #0d1118;
+      --panel: rgba(10, 13, 20, 0.68);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f3f4f8;
+      --muted: rgba(243, 244, 248, 0.68);
+      --dim: rgba(243, 244, 248, 0.46);
+      --accent: #8fd0ff;
+      --accent-strong: #dff5ff;
+      --shadow: 0 40px 120px rgba(0, 0, 0, 0.42);
+      --radius-xl: 36px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font);
+      background:
+        radial-gradient(circle at 18% 22%, rgba(91, 148, 255, 0.22), transparent 30%),
+        radial-gradient(circle at 82% 18%, rgba(147, 103, 255, 0.16), transparent 26%),
+        radial-gradient(circle at 50% 70%, rgba(116, 169, 255, 0.10), transparent 38%),
+        linear-gradient(180deg, #090b10 0%, #05070a 100%);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .canvas {
+      min-height: 100%;
+      padding: 28px;
+      position: relative;
+    }
+
+    .shell {
+      width: min(1540px, calc(100vw - 56px));
+      height: calc(100vh - 56px);
+      margin: 0 auto;
+      border-radius: var(--radius-xl);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background:
+        linear-gradient(180deg, rgba(11, 14, 22, 0.92) 0%, rgba(6, 9, 14, 0.96) 100%);
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 28% 78%, rgba(88, 147, 255, 0.18), transparent 24%),
+        radial-gradient(circle at 66% 34%, rgba(143, 208, 255, 0.08), transparent 28%);
+      pointer-events: none;
+    }
+
+    .topbar {
+      height: 84px;
+      padding: 0 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      z-index: 2;
+    }
+
+    .brand {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav a,
+    .nav span {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+
+    .nav .war-room {
+      border-color: rgba(143, 208, 255, 0.2);
+      background: rgba(143, 208, 255, 0.08);
+      color: var(--accent-strong);
+    }
+
+    .hero {
+      height: calc(100% - 84px);
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .stack {
+      width: min(920px, 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 18px;
+    }
+
+    .eyebrow {
+      color: rgba(243, 244, 248, 0.5);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(48px, 7vw, 86px);
+      line-height: 0.98;
+      letter-spacing: -0.06em;
+      max-width: 11ch;
+    }
+
+    .sub {
+      max-width: 680px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.6;
+    }
+
+    .composer {
+      width: min(860px, 100%);
+      border-radius: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: linear-gradient(180deg, rgba(15, 18, 26, 0.88) 0%, rgba(10, 12, 18, 0.9) 100%);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+      padding: 22px 24px 18px;
+      text-align: left;
+    }
+
+    .composer .label {
+      color: rgba(243, 244, 248, 0.45);
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .composer .input {
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1.45;
+      min-height: 88px;
+      letter-spacing: -0.03em;
+    }
+
+    .composer .actions {
+      margin-top: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .progress {
+      color: rgba(143, 208, 255, 0.88);
+      font-size: 13px;
+    }
+
+    .send {
+      border: 0;
+      background: #f4f7fb;
+      color: #05070a;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 12px 18px;
+    }
+
+    .examples {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      max-width: 900px;
+    }
+
+    .examples span {
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+    }
+
+    .thread {
+      width: min(760px, 100%);
+      display: grid;
+      gap: 14px;
+      margin-top: 8px;
+    }
+
+    .bubble {
+      padding: 18px 20px;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.6;
+      text-align: left;
+    }
+
+    .bubble.user {
+      margin-left: 74px;
+      background: rgba(143, 208, 255, 0.08);
+      border-color: rgba(143, 208, 255, 0.18);
+    }
+
+    .bubble.status {
+      background: transparent;
+      border-color: transparent;
+      padding: 4px 0;
+      color: var(--accent);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .artifact {
+      width: min(760px, 100%);
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(245, 247, 251, 0.96) 0%, rgba(230, 237, 245, 0.92) 100%);
+      color: #07101a;
+      padding: 24px 26px;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+      display: grid;
+      gap: 12px;
+      text-align: left;
+    }
+
+    .artifact .title {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+    }
+
+    .artifact .summary {
+      color: rgba(7, 16, 26, 0.74);
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    .artifact .anchors {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .artifact .anchors span {
+      border-radius: 999px;
+      background: rgba(7, 16, 26, 0.08);
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: rgba(7, 16, 26, 0.72);
+    }
+
+    .artifact .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-top: 4px;
+    }
+
+    .artifact .footer .note {
+      color: rgba(7, 16, 26, 0.52);
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+
+    .artifact .footer .cta {
+      display: flex;
+      gap: 10px;
+    }
+
+    .artifact button {
+      border-radius: 999px;
+      padding: 11px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      border: 0;
+    }
+
+    .artifact .primary {
+      background: #07101a;
+      color: #f3f4f8;
+    }
+
+    .artifact .secondary {
+      background: rgba(7, 16, 26, 0.08);
+      color: #07101a;
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="shell">
+      <div class="topbar">
+        <div class="brand">Helios</div>
+        <div class="nav">
+          <span>Recent</span>
+          <span>Examples</span>
+          <a class="war-room" href="#">War Room</a>
+          <span>Workspace</span>
+        </div>
+      </div>
+      <div class="hero">
+        <div class="stack">
+          <div class="eyebrow">Front Porch</div>
+          <h1>Tell me what you are trying to understand.</h1>
+          <p class="sub">A vehicle, a vendor, or a live pursuit problem. Start with whatever you know. AXIOM will figure out the right questions and take it from there.</p>
+
+          <div class="composer">
+            <div class="label">AXIOM is listening</div>
+            <div class="input">ILS 2 follow-on. We think Amentum is the incumbent and need to know where the structure is vulnerable.</div>
+            <div class="actions">
+              <div class="progress">Working from incumbent lineage and likely transition path.</div>
+              <button class="send">Send to AXIOM</button>
+            </div>
+          </div>
+
+          <div class="examples">
+            <span>Amentum on ILS 2</span>
+            <span>Need a quick read on SMX as a teammate</span>
+            <span>Who matters under LEIA?</span>
+            <span>Thin-data vendor with suspicious ownership trail</span>
+          </div>
+
+          <div class="thread">
+            <div class="bubble">Are we looking at a current vehicle, an expired vehicle, or something still in pre-solicitation?</div>
+            <div class="bubble user">Pre-solicitation. It is a follow-on.</div>
+            <div class="bubble">Good. Do you know who holds the current prime position?</div>
+            <div class="bubble user">Amentum.</div>
+            <div class="bubble status">Collecting the public picture and checking for gaps.</div>
+          </div>
+
+          <div class="artifact">
+            <div class="title">ILS 2 Preliminary Picture</div>
+            <div class="summary">Amentum appears structurally strong on incumbent lineage and customer continuity, but the teammate layer is still thin enough to keep the real attack surface unresolved.</div>
+            <div class="anchors">
+              <span>Incumbent lineage</span>
+              <span>Customer map</span>
+              <span>Teammate gaps</span>
+              <span>Legal history</span>
+            </div>
+            <div class="footer">
+              <div class="note">Tier A and B trail available on open</div>
+              <div class="cta">
+                <button class="secondary">Open in War Room</button>
+                <button class="primary">Open dossier</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

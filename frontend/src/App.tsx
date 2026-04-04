@@ -6,7 +6,7 @@ import { CommandPalette } from "@/components/xiphos/command-palette";
 import { useHotkey } from "@/lib/use-hotkeys";
 import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
-import { HeliosLanding } from "@/components/xiphos/helios-landing";
+import { FrontPorchLanding } from "@/components/xiphos/front-porch-landing";
 import { MissionThreadsScreen } from "@/components/xiphos/mission-threads-screen";
 import { PortfolioScreen } from "@/components/xiphos/portfolio-screen";
 import { DemoCompare } from "@/components/xiphos/demo-compare";
@@ -667,6 +667,7 @@ export default function App() {
 
   const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
   const showSupportingLayerControls = !selected && tab === "helios" && productFocus === "vendor_assessment";
+  const frontPorchMode = !selected && tab === "helios";
   const shellContent = selected ? (
     <CaseDetail
       c={selected}
@@ -678,17 +679,6 @@ export default function App() {
     />
   ) : tab === "dashboard" ? (
     <ComplianceDashboard />
-  ) : tab === "helios" ? (
-    <HeliosLanding
-      onCaseCreated={handleCaseCreated}
-      onNavigate={(t) => setTab(t as Tab)}
-      onCasesRefresh={async () => { await refreshCases(); }}
-      cases={cases}
-      preferredLane={workflowMode}
-      preferredPillar={productFocus}
-      onPreferredLaneChange={setWorkflowMode}
-      onPreferredPillarChange={setProductFocus}
-    />
   ) : tab === "portfolio" ? (
     casesLoading ? (
       <PortfolioSkeleton />
@@ -712,15 +702,18 @@ export default function App() {
   ) : tab === "admin" && user && hasPermission(user, "auditor") ? (
     <AdminPanel currentUser={user} />
   ) : (
-    <HeliosLanding
-      onCaseCreated={handleCaseCreated}
-      onNavigate={(t) => setTab(t as Tab)}
-      onCasesRefresh={async () => { await refreshCases(); }}
+    <FrontPorchLanding
       cases={cases}
-      preferredLane={workflowMode}
-      preferredPillar={productFocus}
-      onPreferredLaneChange={setWorkflowMode}
-      onPreferredPillarChange={setProductFocus}
+      onNavigate={(nextTab) => setTab(nextTab as Tab)}
+      onOpenCase={(caseId) => {
+        const found = cases.find((item) => item.id === caseId);
+        if (found) {
+          setSelected(found);
+          setTab("portfolio");
+          return;
+        }
+        void handleCaseCreated(caseId);
+      }}
     />
   );
 
@@ -760,251 +753,88 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="h-screen flex overflow-hidden" style={{ background: T.bg, color: T.text }}>
-        <aside
-          className="hidden lg:flex lg:flex-col shrink-0"
-          style={{
-            width: 288,
-            borderRight: `1px solid ${T.borderStrong}`,
-            background: FX.shell,
-            padding: PAD.comfortable,
-            gap: SP.lg,
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: SP.md }}>
-            <div style={{ display: "flex", alignItems: "center", gap: SP.sm, minWidth: 0 }}>
-              <div
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: shellPillarMeta.softBackground,
-                  border: `1px solid ${shellPillarMeta.accent}${O["20"]}`,
-                  flexShrink: 0,
-                }}
-              >
-                <Shield size={18} color={shellPillarMeta.accent} />
-              </div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>Helios</div>
-                <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assessment and contract vehicle intelligence</div>
-              </div>
-              <ShortcutBadge>⌘K</ShortcutBadge>
-            </div>
-
-            <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setTab("helios");
-                  setSelected(null);
-                }}
-                className="helios-focus-ring"
-                aria-label="Open intake"
-                style={{
-                  border: "none",
-                  background: shellPillarMeta.accent,
-                  color: "#04101f",
-                  borderRadius: 999,
-                  padding: "8px 12px",
-                  fontSize: FS.sm,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                New intake
-              </button>
-              <button
-                type="button"
-                onClick={() => setCmdPaletteOpen(true)}
-                className="helios-focus-ring"
-                aria-label="Open command palette"
-                style={{
-                  border: `1px solid ${T.border}`,
-                  background: T.surface,
-                  color: T.textSecondary,
-                  borderRadius: 999,
-                  padding: "8px 12px",
-                  fontSize: FS.sm,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                Command menu
-              </button>
-            </div>
-          </div>
-
-          <nav style={{ display: "flex", flexDirection: "column", gap: SP.xs }}>
-            {shellTabs.map((item) => {
-              const Icon = item.icon;
-              const active = item.id === tab;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setSelected(null);
-                    setTab(item.id);
-                  }}
-                  className="helios-focus-ring"
-                  aria-label={`${item.label}. ${item.description}`}
-                  style={{
-                    border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : "transparent"}`,
-                    background: active ? shellPillarMeta.softBackground : "transparent",
-                    color: active ? T.text : T.textSecondary,
-                    borderRadius: 16,
-                    padding: PAD.default,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: SP.sm,
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                  aria-current={active ? "page" : undefined}
-                  title={item.description}
-                >
+      <div className="h-screen overflow-hidden" style={{ background: T.bg, color: T.text }}>
+        {frontPorchMode ? (
+          <FrontPorchLanding
+            cases={cases}
+            onNavigate={(nextTab) => {
+              setSelected(null);
+              setTab(nextTab as Tab);
+            }}
+            onOpenCase={(caseId) => {
+              const found = cases.find((item) => item.id === caseId);
+              if (found) {
+                setSelected(found);
+                setTab("portfolio");
+                return;
+              }
+              void handleCaseCreated(caseId);
+            }}
+          />
+        ) : (
+          <div className="h-screen flex overflow-hidden">
+            <aside
+              className="hidden lg:flex lg:flex-col shrink-0"
+              style={{
+                width: 288,
+                borderRight: `1px solid ${T.borderStrong}`,
+                background: FX.shell,
+                padding: PAD.comfortable,
+                gap: SP.lg,
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: SP.md }}>
+                <div style={{ display: "flex", alignItems: "center", gap: SP.sm, minWidth: 0 }}>
                   <div
                     style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 10,
+                      width: 34,
+                      height: 34,
+                      borderRadius: 12,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: active ? `${shellPillarMeta.accent}${O["12"]}` : T.surface,
-                      border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : T.border}`,
+                      background: shellPillarMeta.softBackground,
+                      border: `1px solid ${shellPillarMeta.accent}${O["20"]}`,
                       flexShrink: 0,
                     }}
                   >
-                    <Icon size={15} color={active ? shellPillarMeta.accent : T.textTertiary} />
+                    <Shield size={18} color={shellPillarMeta.accent} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: FS.sm, fontWeight: 700, color: active ? T.text : T.textSecondary }}>
-                      {item.label}
-                    </div>
+                    <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>Helios</div>
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assessment and contract vehicle intelligence</div>
                   </div>
-                  {item.badge ? (
-                    <span
-                      style={{
-                        minWidth: 24,
-                        height: 24,
-                        borderRadius: 999,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: `${T.red}${O["12"]}`,
-                        color: T.red,
-                        fontSize: FS.xs,
-                        fontWeight: 800,
-                        padding: "0 6px",
-                      }}
-                    >
-                      {item.badge}
-                    </span>
-                  ) : active ? <ChevronRight size={14} color={shellPillarMeta.accent} /> : null}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: SP.sm }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
-              <StatusPill tone="info">{shellPillarMeta.label}</StatusPill>
-              {selected ? (
-                <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}</StatusPill>
-              ) : productFocus === "vendor_assessment" ? (
-                <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowMode].label}</StatusPill>
-              ) : (
-                <StatusPill tone="neutral">Vehicle-first</StatusPill>
-              )}
-            </div>
-
-            <InlineMessage
-              tone={apiAvailable ? "success" : "warning"}
-              title={apiAvailable ? "System live" : "Local mode"}
-              message={
-                apiAvailable
-                  ? "API, monitoring, and dossier actions are available."
-                  : "Running in local mode. Some production-linked actions may degrade."
-              }
-            />
-          </div>
-        </aside>
-
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <header
-            className="shrink-0"
-            style={{
-              borderBottom: `1px solid ${T.borderStrong}`,
-              background: FX.shell,
-              padding: PAD.default,
-            }}
-          >
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: SP.xs }}>
-                    <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textTertiary }}>
-                      {selected ? "Case workspace" : activeShellTab.label}
-                    </span>
-                    {selected ? <ChevronRight size={14} color={T.textTertiary} /> : null}
-                    {selected ? (
-                      <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: PRODUCT_PILLAR_META.vendor_assessment.accent }}>
-                        {PRODUCT_PILLAR_META.vendor_assessment.label}
-                      </span>
-                    ) : null}
-                    {selected ? (
-                      <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: WORKFLOW_LANE_META[workflowLaneForCase(selected)].accent }}>
-                        {WORKFLOW_LANE_META[workflowLaneForCase(selected)].shortLabel}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {selected ? (
-                      <button
-                        type="button"
-                        onClick={() => setSelected(null)}
-                        className="helios-focus-ring"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: SP.xs,
-                          border: `1px solid ${T.border}`,
-                          background: T.surface,
-                          color: T.textSecondary,
-                          borderRadius: 999,
-                          padding: "6px 10px",
-                          fontSize: FS.sm,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        <ArrowLeft size={14} />
-                        Back
-                      </button>
-                    ) : null}
-                    <h1 style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text, margin: 0 }}>
-                      {screenTitle}
-                    </h1>
-                  </div>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.sm, maxWidth: 860 }}>
-                    {screenSubtitle}
-                  </div>
+                  <ShortcutBadge>⌘K</ShortcutBadge>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
                   <button
                     type="button"
-                    onClick={() => setShowShortcutDialog(true)}
-                    className="helios-focus-ring hidden sm:inline-flex"
-                    aria-label="Open keyboard shortcuts"
+                    onClick={() => {
+                      setTab("helios");
+                      setSelected(null);
+                    }}
+                    className="helios-focus-ring"
+                    aria-label="Open intake"
                     style={{
-                      alignItems: "center",
-                      gap: SP.xs,
+                      border: "none",
+                      background: shellPillarMeta.accent,
+                      color: "#04101f",
+                      borderRadius: 999,
+                      padding: "8px 12px",
+                      fontSize: FS.sm,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    New intake
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCmdPaletteOpen(true)}
+                    className="helios-focus-ring"
+                    aria-label="Open command palette"
+                    style={{
                       border: `1px solid ${T.border}`,
                       background: T.surface,
                       color: T.textSecondary,
@@ -1015,178 +845,207 @@ export default function App() {
                       cursor: "pointer",
                     }}
                   >
-                    <HelpCircle size={14} />
-                    <ShortcutBadge>?</ShortcutBadge>
+                    Command menu
                   </button>
-                  {apiAvailable && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowFeedbackDialog(true);
-                        setFeedbackError(null);
-                        setFeedbackSuccess(null);
-                      }}
-                      className="helios-focus-ring inline-flex"
-                      aria-label="Open beta feedback dialog"
-                      style={{
-                        alignItems: "center",
-                        gap: SP.xs,
-                        border: `1px solid ${T.border}`,
-                        background: T.surface,
-                        color: T.textSecondary,
-                        borderRadius: 999,
-                        padding: "8px 12px",
-                        fontSize: FS.sm,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <MessageSquare size={14} color={T.accent} />
-                      <span className="hidden sm:inline">Feedback</span>
-                    </button>
-                  )}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setShowUserMenu((current) => !current)}
-                      className="helios-focus-ring"
-                      aria-label="Open user menu"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 36,
-                        height: 36,
-                        borderRadius: 999,
-                        border: `1px solid ${T.border}`,
-                        background: T.surface,
-                        color: T.accent,
-                        fontSize: FS.xs,
-                        fontWeight: 800,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {initials}
-                    </button>
-
-                    {showUserMenu && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-                        <div
-                          className="absolute right-0 top-full mt-2 rounded-xl z-50 overflow-hidden"
-                          style={{
-                            width: 240,
-                            background: T.surface,
-                            border: `1px solid ${T.border}`,
-                            boxShadow: "0 18px 48px rgba(0,0,0,0.38)",
-                          }}
-                        >
-                          {user ? (
-                            <div style={{ padding: PAD.default, borderBottom: `1px solid ${T.border}` }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.xs }}>
-                                <User size={14} color={T.accent} />
-                                <span style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{user.name || user.email}</span>
-                              </div>
-                              <div style={{ fontSize: FS.sm, color: T.textSecondary }}>{user.email}</div>
-                              <div
-                                style={{
-                                  marginTop: SP.sm,
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  borderRadius: 999,
-                                  background: `${T.accent}${O["12"]}`,
-                                  color: T.accent,
-                                  fontSize: FS.xs,
-                                  fontWeight: 800,
-                                  padding: "4px 8px",
-                                }}
-                              >
-                                {roleLabel(user.role)}
-                              </div>
-                            </div>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowUserMenu(false);
-                              setShowShortcutDialog(true);
-                            }}
-                            className="helios-focus-ring"
-                            style={{
-                              width: "100%",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: SP.sm,
-                              padding: PAD.default,
-                              background: "transparent",
-                              border: "none",
-                              color: T.textSecondary,
-                              fontSize: FS.sm,
-                              fontWeight: 600,
-                              cursor: "pointer",
-                              textAlign: "left",
-                            }}
-                          >
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: SP.sm }}>
-                              <Command size={14} />
-                              Keyboard shortcuts
-                            </span>
-                            <ShortcutBadge>?</ShortcutBadge>
-                          </button>
-                          {authRequired ? (
-                            <button
-                              type="button"
-                              onClick={handleLogout}
-                              className="helios-focus-ring"
-                              style={{
-                                width: "100%",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: SP.sm,
-                                padding: PAD.default,
-                                background: "transparent",
-                                border: "none",
-                                color: T.red,
-                                fontSize: FS.sm,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                textAlign: "left",
-                              }}
-                            >
-                              <LogOut size={14} />
-                              Sign out
-                            </button>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
-                  </div>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex lg:hidden items-center gap-2 overflow-x-auto pb-1">
-                    {shellTabs.map((item) => {
-                      const Icon = item.icon;
-                      const active = item.id === tab;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            setSelected(null);
-                            setTab(item.id);
-                          }}
-                          className="helios-focus-ring shrink-0"
+              <nav style={{ display: "flex", flexDirection: "column", gap: SP.xs }}>
+                {shellTabs.map((item) => {
+                  const Icon = item.icon;
+                  const active = item.id === tab;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setSelected(null);
+                        setTab(item.id);
+                      }}
+                      className="helios-focus-ring"
+                      aria-label={`${item.label}. ${item.description}`}
+                      style={{
+                        border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : "transparent"}`,
+                        background: active ? shellPillarMeta.softBackground : "transparent",
+                        color: active ? T.text : T.textSecondary,
+                        borderRadius: 16,
+                        padding: PAD.default,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: SP.sm,
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                      aria-current={active ? "page" : undefined}
+                      title={item.description}
+                    >
+                      <div
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: active ? `${shellPillarMeta.accent}${O["12"]}` : T.surface,
+                          border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : T.border}`,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon size={15} color={active ? shellPillarMeta.accent : T.textTertiary} />
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: FS.sm, fontWeight: 700, color: active ? T.text : T.textSecondary }}>
+                          {item.label}
+                        </div>
+                      </div>
+                      {item.badge ? (
+                        <span
                           style={{
+                            minWidth: 24,
+                            height: 24,
+                            borderRadius: 999,
                             display: "inline-flex",
                             alignItems: "center",
+                            justifyContent: "center",
+                            background: `${T.red}${O["12"]}`,
+                            color: T.red,
+                            fontSize: FS.xs,
+                            fontWeight: 800,
+                            padding: "0 6px",
+                          }}
+                        >
+                          {item.badge}
+                        </span>
+                      ) : active ? <ChevronRight size={14} color={shellPillarMeta.accent} /> : null}
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: SP.sm }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
+                  <StatusPill tone="info">{shellPillarMeta.label}</StatusPill>
+                  {selected ? (
+                    <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}</StatusPill>
+                  ) : productFocus === "vendor_assessment" ? (
+                    <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowMode].label}</StatusPill>
+                  ) : (
+                    <StatusPill tone="neutral">Vehicle-first</StatusPill>
+                  )}
+                </div>
+
+                <InlineMessage
+                  tone={apiAvailable ? "success" : "warning"}
+                  title={apiAvailable ? "System live" : "Local mode"}
+                  message={
+                    apiAvailable
+                      ? "API, monitoring, and dossier actions are available."
+                      : "Running in local mode. Some production-linked actions may degrade."
+                  }
+                />
+              </div>
+            </aside>
+
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+              <header
+                className="shrink-0"
+                style={{
+                  borderBottom: `1px solid ${T.borderStrong}`,
+                  background: FX.shell,
+                  padding: PAD.default,
+                }}
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: SP.xs }}>
+                        <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textTertiary }}>
+                          {selected ? "Case workspace" : activeShellTab.label}
+                        </span>
+                        {selected ? <ChevronRight size={14} color={T.textTertiary} /> : null}
+                        {selected ? (
+                          <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: PRODUCT_PILLAR_META.vendor_assessment.accent }}>
+                            {PRODUCT_PILLAR_META.vendor_assessment.label}
+                          </span>
+                        ) : null}
+                        {selected ? (
+                          <span style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: WORKFLOW_LANE_META[workflowLaneForCase(selected)].accent }}>
+                            {WORKFLOW_LANE_META[workflowLaneForCase(selected)].shortLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {selected ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelected(null)}
+                            className="helios-focus-ring"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: SP.xs,
+                              border: `1px solid ${T.border}`,
+                              background: T.surface,
+                              color: T.textSecondary,
+                              borderRadius: 999,
+                              padding: "6px 10px",
+                              fontSize: FS.sm,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <ArrowLeft size={14} />
+                            Back
+                          </button>
+                        ) : null}
+                        <h1 style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text, margin: 0 }}>
+                          {screenTitle}
+                        </h1>
+                      </div>
+                      <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.sm, maxWidth: 860 }}>
+                        {screenSubtitle}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowShortcutDialog(true)}
+                        className="helios-focus-ring hidden sm:inline-flex"
+                        aria-label="Open keyboard shortcuts"
+                        style={{
+                          alignItems: "center",
+                          gap: SP.xs,
+                          border: `1px solid ${T.border}`,
+                          background: T.surface,
+                          color: T.textSecondary,
+                          borderRadius: 999,
+                          padding: "8px 12px",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <HelpCircle size={14} />
+                        <ShortcutBadge>?</ShortcutBadge>
+                      </button>
+                      {apiAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowFeedbackDialog(true);
+                            setFeedbackError(null);
+                            setFeedbackSuccess(null);
+                          }}
+                          className="helios-focus-ring inline-flex"
+                          aria-label="Open beta feedback dialog"
+                          style={{
+                            alignItems: "center",
                             gap: SP.xs,
-                            border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : T.border}`,
-                            background: active ? shellPillarMeta.softBackground : T.surface,
-                            color: active ? shellPillarMeta.accent : T.textSecondary,
+                            border: `1px solid ${T.border}`,
+                            background: T.surface,
+                            color: T.textSecondary,
                             borderRadius: 999,
                             padding: "8px 12px",
                             fontSize: FS.sm,
@@ -1194,160 +1053,315 @@ export default function App() {
                             cursor: "pointer",
                           }}
                         >
-                          <Icon size={14} />
-                          {item.label}
+                          <MessageSquare size={14} color={T.accent} />
+                          <span className="hidden sm:inline">Feedback</span>
                         </button>
-                      );
-                    })}
-                  </div>
+                      )}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setShowUserMenu((current) => !current)}
+                          className="helios-focus-ring"
+                          aria-label="Open user menu"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 36,
+                            height: 36,
+                            borderRadius: 999,
+                            border: `1px solid ${T.border}`,
+                            background: T.surface,
+                            color: T.accent,
+                            fontSize: FS.xs,
+                            fontWeight: 800,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {initials}
+                        </button>
 
-                  {showSupportingLayerControls ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
-                        const meta = WORKFLOW_LANE_META[lane];
-                        const active = workflowMode === lane;
-                        return (
-                          <button
-                            key={lane}
-                            type="button"
-                            onClick={() => setWorkflowMode(lane)}
-                            className="helios-focus-ring"
-                            style={{
-                              border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
-                              background: active ? meta.softBackground : T.surface,
-                              color: active ? meta.accent : T.textSecondary,
-                              borderRadius: 999,
-                              padding: "8px 12px",
-                              fontSize: FS.sm,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                            title={meta.description}
-                          >
-                            {meta.shortLabel}
-                          </button>
-                        );
-                      })}
+                        {showUserMenu && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+                            <div
+                              className="absolute right-0 top-full mt-2 rounded-xl z-50 overflow-hidden"
+                              style={{
+                                width: 240,
+                                background: T.surface,
+                                border: `1px solid ${T.border}`,
+                                boxShadow: "0 18px 48px rgba(0,0,0,0.38)",
+                              }}
+                            >
+                              {user ? (
+                                <div style={{ padding: PAD.default, borderBottom: `1px solid ${T.border}` }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.xs }}>
+                                    <User size={14} color={T.accent} />
+                                    <span style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{user.name || user.email}</span>
+                                  </div>
+                                  <div style={{ fontSize: FS.sm, color: T.textSecondary }}>{user.email}</div>
+                                  <div
+                                    style={{
+                                      marginTop: SP.sm,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      borderRadius: 999,
+                                      background: `${T.accent}${O["12"]}`,
+                                      color: T.accent,
+                                      fontSize: FS.xs,
+                                      fontWeight: 800,
+                                      padding: "4px 8px",
+                                    }}
+                                  >
+                                    {roleLabel(user.role)}
+                                  </div>
+                                </div>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowUserMenu(false);
+                                  setShowShortcutDialog(true);
+                                }}
+                                className="helios-focus-ring"
+                                style={{
+                                  width: "100%",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: SP.sm,
+                                  padding: PAD.default,
+                                  background: "transparent",
+                                  border: "none",
+                                  color: T.textSecondary,
+                                  fontSize: FS.sm,
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                              >
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: SP.sm }}>
+                                  <Command size={14} />
+                                  Keyboard shortcuts
+                                </span>
+                                <ShortcutBadge>?</ShortcutBadge>
+                              </button>
+                              {authRequired ? (
+                                <button
+                                  type="button"
+                                  onClick={handleLogout}
+                                  className="helios-focus-ring"
+                                  style={{
+                                    width: "100%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: SP.sm,
+                                    padding: PAD.default,
+                                    background: "transparent",
+                                    border: "none",
+                                    color: T.red,
+                                    fontSize: FS.sm,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                  }}
+                                >
+                                  <LogOut size={14} />
+                                  Sign out
+                                </button>
+                              ) : null}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  {tab === "portfolio" && !selected ? (
-                    <label
-                      className="helios-focus-ring"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: SP.xs,
-                        borderRadius: 999,
-                        border: `1px solid ${T.border}`,
-                        background: T.surface,
-                        padding: "0 12px",
-                        minWidth: 240,
-                      }}
-                    >
-                      <Search size={14} color={T.textTertiary} />
-                      <input
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search cases, vendors, or countries"
-                        aria-label="Search cases"
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex lg:hidden items-center gap-2 overflow-x-auto pb-1">
+                        {shellTabs.map((item) => {
+                          const Icon = item.icon;
+                          const active = item.id === tab;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setSelected(null);
+                                setTab(item.id);
+                              }}
+                              className="helios-focus-ring shrink-0"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: SP.xs,
+                                border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : T.border}`,
+                                background: active ? shellPillarMeta.softBackground : T.surface,
+                                color: active ? shellPillarMeta.accent : T.textSecondary,
+                                borderRadius: 999,
+                                padding: "8px 12px",
+                                fontSize: FS.sm,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <Icon size={14} />
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {showSupportingLayerControls ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {(Object.keys(WORKFLOW_LANE_META) as WorkflowLane[]).map((lane) => {
+                            const meta = WORKFLOW_LANE_META[lane];
+                            const active = workflowMode === lane;
+                            return (
+                              <button
+                                key={lane}
+                                type="button"
+                                onClick={() => setWorkflowMode(lane)}
+                                className="helios-focus-ring"
+                                style={{
+                                  border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
+                                  background: active ? meta.softBackground : T.surface,
+                                  color: active ? meta.accent : T.textSecondary,
+                                  borderRadius: 999,
+                                  padding: "8px 12px",
+                                  fontSize: FS.sm,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                                title={meta.description}
+                              >
+                                {meta.shortLabel}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {tab === "portfolio" && !selected ? (
+                        <label
+                          className="helios-focus-ring"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: SP.xs,
+                            borderRadius: 999,
+                            border: `1px solid ${T.border}`,
+                            background: T.surface,
+                            padding: "0 12px",
+                            minWidth: 240,
+                          }}
+                        >
+                          <Search size={14} color={T.textTertiary} />
+                          <input
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Search cases, vendors, or countries"
+                            aria-label="Search cases"
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              background: "transparent",
+                              border: "none",
+                              outline: "none",
+                              color: T.text,
+                              fontSize: FS.sm,
+                              padding: "10px 0",
+                            }}
+                          />
+                        </label>
+                      ) : null}
+
+                      {!selected && tab === "portfolio" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelected(null);
+                            setTab("helios");
+                          }}
+                          className="helios-focus-ring"
+                          aria-label="Open intake"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: SP.xs,
+                            border: `1px solid ${T.border}`,
+                            background: T.surface,
+                            color: T.textSecondary,
+                            borderRadius: 999,
+                            padding: "8px 12px",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <Shield size={14} />
+                          Intake
+                        </button>
+                      ) : null}
+
+                      <div
+                        title={apiAvailable ? "API connected" : "Offline"}
                         style={{
-                          flex: 1,
-                          minWidth: 0,
-                          background: "transparent",
-                          border: "none",
-                          outline: "none",
-                          color: T.text,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: SP.xs,
+                          borderRadius: 999,
+                          border: `1px solid ${apiAvailable ? `${T.green}${O["20"]}` : T.border}`,
+                          background: apiAvailable ? `${T.green}${O["08"]}` : T.surface,
+                          color: apiAvailable ? T.green : T.textSecondary,
+                          padding: "8px 12px",
                           fontSize: FS.sm,
-                          padding: "10px 0",
+                          fontWeight: 700,
                         }}
-                      />
-                    </label>
-                  ) : null}
-
-                  {!selected && (tab === "portfolio" || tab === "helios") ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelected(null);
-                        setTab("helios");
-                      }}
-                      className="helios-focus-ring"
-                      aria-label="Open intake"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: SP.xs,
-                        border: `1px solid ${T.border}`,
-                        background: T.surface,
-                        color: T.textSecondary,
-                        borderRadius: 999,
-                        padding: "8px 12px",
-                        fontSize: FS.sm,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Shield size={14} />
-                      Intake
-                    </button>
-                  ) : null}
-
-                  <div
-                    title={apiAvailable ? "API connected" : "Offline"}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: SP.xs,
-                      borderRadius: 999,
-                      border: `1px solid ${apiAvailable ? `${T.green}${O["20"]}` : T.border}`,
-                      background: apiAvailable ? `${T.green}${O["08"]}` : T.surface,
-                      color: apiAvailable ? T.green : T.textSecondary,
-                      padding: "8px 12px",
-                      fontSize: FS.sm,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {apiAvailable ? <Wifi size={14} /> : <WifiOff size={14} />}
-                    {apiAvailable ? "Live" : "Offline"}
+                      >
+                        {apiAvailable ? <Wifi size={14} /> : <WifiOff size={14} />}
+                        {apiAvailable ? "Live" : "Offline"}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </header>
+              </header>
 
-          <main className="flex-1 min-h-0 overflow-auto" style={{ padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : PAD.default }}>
-            <div
-              style={{
-                minHeight: "100%",
-                padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : 0,
-              }}
-            >
-              {shellContent}
-            </div>
-          </main>
+              <main className="flex-1 min-h-0 overflow-auto" style={{ padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : PAD.default }}>
+                <div
+                  style={{
+                    minHeight: "100%",
+                    padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : 0,
+                  }}
+                >
+                  {shellContent}
+                </div>
+              </main>
 
-          <footer
-            className="shrink-0"
-            style={{
-              borderTop: `1px solid ${T.borderStrong}`,
-              background: FX.shell,
-              padding: `${SP.sm}px ${PAD.default}`,
-            }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div style={{ fontSize: FS.sm, color: T.textSecondary }}>
-                Helios v5.2.1 · {cases.length} cases in memory
-                {user ? ` · ${user.email}` : ""}
-              </div>
-              <div style={{ fontSize: FS.xs, color: T.textTertiary }}>
-                AXIOM closes collection gaps. The graph keeps the evidence relationships visible.
-              </div>
+              <footer
+                className="shrink-0"
+                style={{
+                  borderTop: `1px solid ${T.borderStrong}`,
+                  background: FX.shell,
+                  padding: `${SP.sm}px ${PAD.default}`,
+                }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary }}>
+                    Helios v5.2.1 · {cases.length} cases in memory
+                    {user ? ` · ${user.email}` : ""}
+                  </div>
+                  <div style={{ fontSize: FS.xs, color: T.textTertiary }}>
+                    AXIOM closes collection gaps. The graph keeps the evidence relationships visible.
+                  </div>
+                </div>
+              </footer>
             </div>
-          </footer>
-        </div>
+          </div>
+        )}
 
         <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
           <DialogContent style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, maxWidth: 640 }}>
