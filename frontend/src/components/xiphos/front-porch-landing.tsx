@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown, ExternalLink, Loader2, MessageSquareText } from "lucide-react";
 import {
+  createMissionBrief,
   fetchCaseGraph,
   fetchCaseNetworkRisk,
   fetchEnrichment,
@@ -12,9 +13,12 @@ import {
   runAxiomSearchIngest,
   searchContractVehicle,
   submitResolveFeedback,
+  updateMissionBrief,
   type EnrichmentReport,
   type EntityCandidate,
   type EntityResolution,
+  type MissionBriefPayload,
+  type MissionBriefRecord,
   type NetworkRiskResult,
   type SupplierPassport,
   type VehicleSearchResult,
@@ -334,6 +338,19 @@ function humanizePriorityFocus(focus: PriorityFocus | null): string | null {
   return labels[focus];
 }
 
+function vendorSeedStrength(name: string | null): number {
+  const cleaned = compactText(name || "").replace(/[?!.]+$/g, "");
+  if (!cleaned) return 0;
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const hasCorporateSuffix = /\b(inc|corp|corporation|llc|ltd|plc|lp|llp|co|company|gmbh|ag|sa|srl|bv|nv)\b/i.test(cleaned);
+  const isCompactAcronym = tokens.length === 1 && /^[A-Z0-9&-]{2,8}$/.test(cleaned);
+  const looksLikeNamedEntity = tokens.length <= 5 && /[A-Za-z]/.test(cleaned);
+
+  if (isCompactAcronym || hasCorporateSuffix) return 0.58;
+  if (looksLikeNamedEntity) return 0.52;
+  return 0.4;
+}
+
 function computeIntakeConfidence(session: IntakeSession): number {
   if (session.objectType === "vehicle") {
     let score = 0.18;
@@ -345,14 +362,138 @@ function computeIntakeConfidence(session: IntakeSession): number {
   }
 
   if (session.objectType === "vendor") {
-    let score = 0.18;
-    if (session.vendorName) score += 0.4;
-    if (session.priorityFocus) score += session.priorityFocus === "full_picture" ? 0.1 : 0.24;
-    if (session.supportLayer !== "counterparty") score += 0.12;
+    let score = 0.22;
+    if (session.vendorName) score += vendorSeedStrength(session.vendorName);
+    if (session.priorityFocus) score += session.priorityFocus === "full_picture" ? 0.06 : 0.14;
+    if (session.supportLayer !== "counterparty") score += 0.08;
+    if (session.vehicleName) score += 0.06;
     return Math.min(1, score);
   }
 
   return 0;
+}
+
+function missionBriefSummary(session: IntakeSession): string {
+  if (session.objectType === "vehicle") {
+    const details = [
+      session.vehicleName,
+      session.vehicleTiming ? session.vehicleTiming.replace(/_/g, " ") : null,
+      session.followOn === true ? "follow-on" : session.followOn === false ? "net-new" : null,
+      session.incumbentPrime ? `${session.incumbentPrime} incumbent` : null,
+    ].filter(Boolean).join(", ");
+    return details
+      ? `Contract vehicle intelligence on ${details}.`
+      : "Contract vehicle intelligence scoped from Front Porch.";
+  }
+
+  const weightedFirst = humanizePriorityFocus(session.priorityFocus) || "the full picture";
+  return session.vendorName
+    ? `Vendor assessment on ${session.vendorName}. Weight ${weightedFirst} first without shrinking the scope.`
+    : "Vendor assessment scoped from Front Porch.";
+}
+
+function missionBriefPriorityRequirements(session: IntakeSession): string[] {
+  const requirements = ["Work the full picture first."];
+  const weightedFirst = humanizePriorityFocus(session.priorityFocus);
+  if (weightedFirst) {
+    requirements.push(`Weight ${weightedFirst} first.`);
+  }
+  if (session.objectType === "vehicle" && session.vehicleTiming === "pre_solicitation") {
+    requirements.push("Treat timing as pre-solicitation and pressure continuity.");
+  }
+  if (session.objectType === "vehicle" && session.followOn === true && session.incumbentPrime) {
+    requirements.push(`Start from incumbent continuity through ${session.incumbentPrime}.`);
+  }
+  if (session.supportLayer !== "counterparty") {
+    requirements.push(`${session.supportLayer} stays folded in as a supporting layer, not a separate product lane.`);
+  }
+  return requirements;
+}
+
+function missionBriefNotesFromReadiness(readiness: VendorBriefReadiness): string[] {
+  const findingsTotal = readiness.enrichment?.summary?.findings_total ?? readiness.passport?.identity.findings_total ?? 0;
+  const connectorsWithData = readiness.enrichment?.summary?.connectors_with_data ?? readiness.passport?.identity.connectors_with_data ?? 0;
+  const relationshipCount = readiness.graph?.relationship_count ?? readiness.passport?.graph.relationship_count ?? 0;
+  const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
+  const notes: string[] = [];
+
+  notes.push(
+    connectorsWithData > 0 || findingsTotal > 0
+      ? `${connectorsWithData} sources with data produced ${findingsTotal} surviving findings in the returned brief.`
+      : "The public record stayed thin enough that the returned brief is explicitly carrying ambiguity.",
+  );
+
+  if (relationshipCount > 0 || controlPathCount > 0) {
+    notes.push(`The graph changed the read with ${relationshipCount} relationships and ${controlPathCount} visible control paths.`);
+  } else {
+    notes.push("The graph remained thin and could not carry the brief on its own.");
+  }
+
+  if (readiness.axiomGapClosure?.status === "completed") {
+    notes.push(
+      `AXIOM ran a second pass and surfaced ${readiness.axiomGapClosure.entitiesFound} entities, ${readiness.axiomGapClosure.relationshipsFound} relationships, and ${readiness.axiomGapClosure.gapCount} residual gaps.`,
+    );
+  } else if (readiness.axiomGapClosure?.status === "failed") {
+    notes.push(readiness.axiomGapClosure.note);
+  } else {
+    notes.push("AXIOM did not need a second pass before the returned brief froze.");
+  }
+
+  return notes;
+}
+
+function buildMissionBriefPayload(
+  session: IntakeSession,
+  inputSeed: string,
+  options: {
+    caseId?: string | null;
+    status?: string;
+    room?: "front_porch" | "war_room";
+    readiness?: VendorBriefReadiness | null;
+  } = {},
+): MissionBriefPayload {
+  const weightedFirst = humanizePriorityFocus(session.priorityFocus);
+  const isVehicle = session.objectType === "vehicle";
+  const primaryTargets: Record<string, unknown> = isVehicle
+    ? {
+      vehicle_name: session.vehicleName,
+      incumbent_prime: session.incumbentPrime,
+      vendor_name: session.vendorName,
+    }
+    : {
+      vendor_name: session.vendorName,
+      vehicle_name: session.vehicleName,
+    };
+
+  const knownContext: Record<string, unknown> = {
+    opening_input: inputSeed,
+    weighted_first: weightedFirst || "full picture",
+    support_layer: session.supportLayer,
+  };
+  if (session.vehicleTiming) knownContext.vehicle_timing = session.vehicleTiming.replace(/_/g, " ");
+  if (session.followOn !== null) knownContext.follow_on = session.followOn;
+  if (session.incumbentPrime) knownContext.incumbent_prime = session.incumbentPrime;
+  if (options.readiness?.networkRisk?.network_risk_level) {
+    knownContext.network_risk_level = options.readiness.networkRisk.network_risk_level;
+  }
+
+  return {
+    room: options.room || "front_porch",
+    case_id: options.caseId || null,
+    object_type: session.objectType,
+    engagement_type: isVehicle ? "contract_vehicle_intelligence" : "vendor_assessment",
+    collection_depth: "full_picture",
+    timeline: isVehicle ? (session.vehicleTiming || "current") : "preliminary_returned_brief",
+    status: options.status || "scoped",
+    question_count: session.followUpCount,
+    confidence_score: computeIntakeConfidence(session),
+    primary_targets: primaryTargets,
+    known_context: knownContext,
+    priority_requirements: missionBriefPriorityRequirements(session),
+    authorized_tiers: ["public_record", "graph_context", "axiom_gap_closure"],
+    summary: missionBriefSummary(session),
+    notes: options.readiness ? missionBriefNotesFromReadiness(options.readiness) : [],
+  };
 }
 
 function summarizeVehicle(result: VehicleSearchResult, session: IntakeSession): string {
@@ -534,8 +675,25 @@ function buildReturnedVendorArtifact(
     : "The public record stayed unusually thin, so the brief is carrying the strongest visible holds without pretending the surface picture is complete.";
 
   const graphDetail = relationshipCount > 0
-    ? `${relationshipCount} graph relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"} are now informing the brief${dominantEdgeFamily ? `, with ${dominantEdgeFamily} as the dominant edge family.` : "."}`
-    : "The graph is still thin enough that silence should not be treated as comfort.";
+    ? `${relationshipCount} graph relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"} changed the read${dominantEdgeFamily ? `, with ${dominantEdgeFamily} carrying the strongest edge family.` : "."}`
+    : "The graph stayed thin enough that silence should not be treated as comfort.";
+
+  const thinDetails: string[] = [];
+  if (connectorsWithData < 2) {
+    thinDetails.push("Connector coverage is still thin.");
+  }
+  if (relationshipCount < 2) {
+    thinDetails.push("Relationship depth is still shallow.");
+  }
+  if (controlPathCount === 0) {
+    thinDetails.push("No control path has held cleanly yet.");
+  }
+  if (gapClosure?.gapCount && gapClosure.gapCount > 0) {
+    thinDetails.push(`${gapClosure.gapCount} gap${gapClosure.gapCount === 1 ? "" : "s"} remain open after the second pass.`);
+  }
+  const thinDetail = thinDetails.length > 0
+    ? thinDetails.join(" ")
+    : "The weak edge is now explicit, but no material thin spot is being hidden under surface calm.";
 
   const gapDetail = gapClosure?.status === "completed"
     ? `AXIOM ran a second pass against the weak edge and surfaced ${gapClosure.entitiesFound} entities, ${gapClosure.relationshipsFound} relationships, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.`
@@ -558,16 +716,21 @@ function buildReturnedVendorArtifact(
         tone: findingsTotal > 0 ? "success" : "warning",
       },
       {
-        label: "Graph pressure",
+        label: "What stayed thin",
+        detail: thinDetail,
+        tone: thinDetails.length > 0 ? "warning" : "neutral",
+      },
+      {
+        label: "What AXIOM did",
+        detail: gapDetail,
+        tone: gapClosure?.status === "failed" ? "warning" : "neutral",
+      },
+      {
+        label: "What the graph changed",
         detail: networkRiskLevel && networkRiskLevel !== "NONE"
           ? `${graphDetail} Network risk is currently ${networkRiskLevel.toLowerCase().replace(/_/g, " ")}.`
           : graphDetail,
         tone: relationshipCount > 0 ? "info" : "warning",
-      },
-      {
-        label: "Gap closure",
-        detail: gapDetail,
-        tone: gapClosure?.status === "failed" ? "warning" : "neutral",
       },
     ],
     note: gapClosure?.status === "completed"
@@ -735,6 +898,8 @@ export function FrontPorchLanding({
   const [errorText, setErrorText] = useState<string | null>(null);
   const [openingDossierFor, setOpeningDossierFor] = useState<string | null>(null);
   const [resumeIntent, setResumeIntent] = useState<ResumeIntent | null>(null);
+  const [missionBrief, setMissionBrief] = useState<MissionBriefRecord | null>(null);
+  const [lastUserInput, setLastUserInput] = useState("");
   const [pressureThreadVisible, setPressureThreadVisible] = useState(false);
   const [pressureThreadDismissed, setPressureThreadDismissed] = useState(false);
   const [threadScrollState, setThreadScrollState] = useState({
@@ -880,6 +1045,27 @@ export function FrontPorchLanding({
     return null;
   }, [isWorking, session, vendorArtifact, workingCaseId]);
 
+  const persistMissionBrief = useCallback(async (
+    nextSession: IntakeSession,
+    options: {
+      caseId?: string | null;
+      status?: string;
+      readiness?: VendorBriefReadiness | null;
+      room?: "front_porch" | "war_room";
+    } = {},
+  ) => {
+    const payload = buildMissionBriefPayload(nextSession, lastUserInput, options);
+    try {
+      const saved = missionBrief?.id
+        ? await updateMissionBrief(missionBrief.id, payload)
+        : await createMissionBrief(payload);
+      setMissionBrief(saved);
+      return saved;
+    } catch {
+      return null;
+    }
+  }, [lastUserInput, missionBrief?.id]);
+
   const openWarRoom = useCallback(() => {
     if (loginRequired) {
       onRequestLogin?.();
@@ -889,8 +1075,11 @@ export function FrontPorchLanding({
     if (intent) {
       onOpenWarRoomIntent?.(intent);
     }
+    if (missionBrief) {
+      void persistMissionBrief(session, { room: "war_room", status: missionBrief.case_id ? "working" : "scoped" });
+    }
     onNavigate("axiom");
-  }, [buildWarRoomIntent, loginRequired, onNavigate, onOpenWarRoomIntent, onRequestLogin]);
+  }, [buildWarRoomIntent, loginRequired, missionBrief, onNavigate, onOpenWarRoomIntent, onRequestLogin, persistMissionBrief, session]);
 
   const handoffToLogin = useCallback((kind: ResumeIntent["kind"], nextSession: IntakeSession, message: string) => {
     setResumeIntent({ kind, session: nextSession });
@@ -903,6 +1092,7 @@ export function FrontPorchLanding({
   const handlePressureThread = useCallback((focus: PriorityFocus) => {
     const nextSession = { ...session, priorityFocus: focus };
     setSession(nextSession);
+    void persistMissionBrief(nextSession, { status: isWorking ? "working" : "scoped" });
     setPressureThreadDismissed(true);
     setPressureThreadVisible(false);
     if (vendorArtifact?.phase === "warming") {
@@ -910,7 +1100,7 @@ export function FrontPorchLanding({
     }
     const lead = humanizePriorityFocus(focus) || "that thread";
     appendMessage("axiom", `Understood. I’ll weight ${lead} first while I work the full picture.`);
-  }, [appendMessage, session, vendorArtifact]);
+  }, [appendMessage, isWorking, persistMissionBrief, session, vendorArtifact]);
 
   const loadVendorReadiness = useCallback(async (caseId: string): Promise<VendorBriefReadiness> => {
     const [enrichmentResult, passportResult, graphResult, networkRiskResult] = await Promise.allSettled([
@@ -985,13 +1175,18 @@ export function FrontPorchLanding({
 
     setIsWorking(false);
     setVendorArtifact(buildReturnedVendorArtifact(nextSession, caseId, subject, readiness));
+    void persistMissionBrief(nextSession, {
+      caseId,
+      status: "brief_ready",
+      readiness,
+    });
     appendMessage(
       "axiom",
       gapClosureMessageSent && readiness.axiomGapClosure?.status === "completed"
         ? "The returned brief is ready. I used the graph and a second AXIOM pass to tighten the weak edge before freezing it."
         : "The returned brief is ready. Open it here, or step into War Room if you want to challenge the weak edge.",
     );
-  }, [appendMessage, loadVendorReadiness, runVendorGapClosure]);
+  }, [appendMessage, loadVendorReadiness, persistMissionBrief, runVendorGapClosure]);
 
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
@@ -1002,8 +1197,8 @@ export function FrontPorchLanding({
     );
   }, [hydrateReturnedVendorBrief, session, vendorArtifact, workingCaseId]);
 
-  const startCaseCreation = useCallback(async (candidate: EntityCandidate | null) => {
-    const payload = buildCasePayload(candidate, session);
+  const startCaseCreation = useCallback(async (candidate: EntityCandidate | null, nextSession: IntakeSession) => {
+    const payload = buildCasePayload(candidate, nextSession);
     setIsWorking(true);
     setProgressIndex(0);
     setErrorText(null);
@@ -1011,14 +1206,18 @@ export function FrontPorchLanding({
     try {
       const created = await createCase(payload);
       setWorkingCaseId(created.case_id);
-      setVendorArtifact(buildVendorArtifact(candidate, session, "warming", created.case_id));
+      setVendorArtifact(buildVendorArtifact(candidate, nextSession, "warming", created.case_id));
+      void persistMissionBrief(nextSession, {
+        caseId: created.case_id,
+        status: "working",
+      });
     } catch (error) {
       setIsWorking(false);
       const message = humanizeApiError(error, "Unable to open the vendor assessment.");
       setErrorText(message);
       appendMessage("axiom", "I could not open the assessment cleanly. Stay here and I will let you retry without losing the thread.");
     }
-  }, [appendMessage, session]);
+  }, [appendMessage, persistMissionBrief]);
 
   const handleCandidateChoice = useCallback(async (candidate: EntityCandidate) => {
     setCandidateChoices([]);
@@ -1030,8 +1229,8 @@ export function FrontPorchLanding({
       ).catch(() => undefined);
     }
     appendMessage("axiom", `Good. I’m taking ${candidate.legal_name} as the working entity unless you redirect me.`);
-    await startCaseCreation(candidate);
-  }, [appendMessage, resolution, startCaseCreation]);
+    await startCaseCreation(candidate, session);
+  }, [appendMessage, resolution, session, startCaseCreation]);
 
   const startVendorFlow = useCallback(async (nextSession: IntakeSession) => {
     const name = compactText(nextSession.vendorName || "");
@@ -1039,6 +1238,8 @@ export function FrontPorchLanding({
       appendMessage("axiom", "Which vendor are we looking at?");
       return;
     }
+
+    void persistMissionBrief(nextSession, { status: "scoped" });
 
     if (loginRequired) {
       handoffToLogin(
@@ -1075,7 +1276,7 @@ export function FrontPorchLanding({
 
       if (recommendedCandidate) {
         appendMessage("axiom", `I believe you mean ${recommendedCandidate.legal_name}. I’m going to use that entity unless you redirect me.`);
-        await startCaseCreation(recommendedCandidate);
+        await startCaseCreation(recommendedCandidate, nextSession);
         return;
       }
 
@@ -1087,19 +1288,19 @@ export function FrontPorchLanding({
 
       if (result.candidates.length === 1) {
         appendMessage("axiom", `I found a clean entity match on ${result.candidates[0].legal_name}. I’m opening the assessment from there.`);
-        await startCaseCreation(result.candidates[0]);
+        await startCaseCreation(result.candidates[0], nextSession);
         return;
       }
 
       appendMessage("axiom", "The entity resolution is still thin, but that is not a blocker. I’m opening the assessment from the provided name and keeping the ambiguity explicit.");
-      await startCaseCreation(null);
+      await startCaseCreation(null, nextSession);
     } catch (error) {
       setIsWorking(false);
       const message = humanizeApiError(error, "Unable to resolve the vendor cleanly.");
       setErrorText(message);
       appendMessage("axiom", "The clean entity match did not hold. If you still want me to proceed, give me the vendor name again or add one more fact.");
     }
-  }, [appendMessage, handoffToLogin, loginRequired, startCaseCreation]);
+  }, [appendMessage, handoffToLogin, loginRequired, persistMissionBrief, startCaseCreation]);
 
   const startVehicleFlow = useCallback(async (nextSession: IntakeSession) => {
     const vehicleName = compactText(nextSession.vehicleName || "");
@@ -1107,6 +1308,8 @@ export function FrontPorchLanding({
       appendMessage("axiom", "Which vehicle are we looking at?");
       return;
     }
+
+    void persistMissionBrief(nextSession, { status: "scoped" });
 
     if (loginRequired) {
       handoffToLogin(
@@ -1131,6 +1334,9 @@ export function FrontPorchLanding({
       const result = await searchContractVehicle(vehicleName);
       setIsWorking(false);
       setVehicleArtifact(result);
+      void persistMissionBrief(nextSession, {
+        status: "brief_ready",
+      });
       appendMessage("axiom", `The first vehicle picture is in hand. ${summarizeVehicle(result, nextSession)}`);
     } catch (error) {
       setIsWorking(false);
@@ -1138,7 +1344,7 @@ export function FrontPorchLanding({
       setErrorText(message);
       appendMessage("axiom", "The vehicle search did not come back cleanly. Stay here and either refine the vehicle name or send me one more identifying detail.");
     }
-  }, [appendMessage, handoffToLogin, loginRequired]);
+  }, [appendMessage, handoffToLogin, loginRequired, persistMissionBrief]);
 
   useEffect(() => {
     if (loginRequired || !resumeIntent) return;
@@ -1253,6 +1459,7 @@ export function FrontPorchLanding({
     const text = compactText(raw);
     if (!text || isWorking) return;
 
+    setLastUserInput(text);
     appendMessage("user", text);
     resetArtifacts();
 

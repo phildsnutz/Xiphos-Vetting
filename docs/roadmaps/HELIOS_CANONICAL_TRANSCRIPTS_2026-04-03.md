@@ -21,6 +21,7 @@ Front Porch rule:
 - 0 to 2 follow-up questions max
 - ask only if the answer materially changes the work plan
 - once AXIOM has enough, it takes ownership and starts
+- the hidden backend output is a persisted `MissionBrief`, not a visible intake form
 
 ---
 

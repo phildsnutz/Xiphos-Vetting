@@ -823,6 +823,33 @@ export interface CreateCaseResponse {
   calibrated: Record<string, unknown>;
 }
 
+export interface MissionBriefPayload {
+  room?: "front_porch" | "war_room";
+  case_id?: string | null;
+  object_type?: "vendor" | "vehicle" | null;
+  engagement_type?: string | null;
+  collection_depth?: string;
+  timeline?: string | null;
+  status?: string;
+  question_count?: number;
+  confidence_score?: number;
+  primary_targets?: Record<string, unknown>;
+  known_context?: Record<string, unknown>;
+  priority_requirements?: string[];
+  authorized_tiers?: string[];
+  summary?: string | null;
+  notes?: string[];
+}
+
+export interface MissionBriefRecord extends MissionBriefPayload {
+  id: string;
+  created_by?: string;
+  created_by_email?: string;
+  created_by_role?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export async function fetchCases(limit = 100): Promise<ApiCase[]> {
   const data = await json<{ cases: ApiCase[] }>(`/api/cases?limit=${limit}`);
   return data.cases;
@@ -874,6 +901,22 @@ export async function createCase(payload: CreateCasePayload): Promise<CreateCase
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function createMissionBrief(payload: MissionBriefPayload & { id?: string }): Promise<MissionBriefRecord> {
+  const data = await json<{ mission_brief: MissionBriefRecord }>("/api/mission-briefs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return data.mission_brief;
+}
+
+export async function updateMissionBrief(briefId: string, payload: MissionBriefPayload): Promise<MissionBriefRecord> {
+  const data = await json<{ mission_brief: MissionBriefRecord }>(`/api/mission-briefs/${briefId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return data.mission_brief;
 }
 
 export async function listExportArtifacts(caseId: string): Promise<ExportArtifactRecord[]> {

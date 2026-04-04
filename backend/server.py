@@ -775,6 +775,88 @@ def _current_user_role() -> str:
     return g.user.get("role", "system") if getattr(g, "user", None) else "system"
 
 
+def _truncate_text(value, limit: int = 240) -> str:
+    text = str(value or "").strip()
+    return text[:limit]
+
+
+def _sanitize_mission_brief_value(value, *, depth: int = 0):
+    if depth > 2 or value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        text = _truncate_text(value, 320)
+        return text or None
+    if isinstance(value, list):
+        items = []
+        for item in value[:12]:
+            sanitized = _sanitize_mission_brief_value(item, depth=depth + 1)
+            if sanitized not in (None, "", [], {}):
+                items.append(sanitized)
+        return items
+    if isinstance(value, dict):
+        sanitized_dict = {}
+        for key, item in list(value.items())[:16]:
+            sanitized_key = _truncate_text(key, 64)
+            if not sanitized_key:
+                continue
+            sanitized_value = _sanitize_mission_brief_value(item, depth=depth + 1)
+            if sanitized_value not in (None, "", [], {}):
+                sanitized_dict[sanitized_key] = sanitized_value
+        return sanitized_dict
+    return None
+
+
+def _normalize_mission_brief_payload(body: dict) -> dict:
+    room = _truncate_text(body.get("room") or "front_porch", 40).lower() or "front_porch"
+    object_type = _truncate_text(body.get("object_type"), 24).lower() or None
+    engagement_type = _truncate_text(body.get("engagement_type"), 64).lower() or None
+    collection_depth = _truncate_text(body.get("collection_depth") or "full_picture", 64).lower() or "full_picture"
+    timeline = _truncate_text(body.get("timeline"), 80) or None
+    status = _truncate_text(body.get("status") or "scoped", 40).lower() or "scoped"
+    question_count = body.get("question_count") if isinstance(body.get("question_count"), int) else 0
+    confidence_score = body.get("confidence_score") if isinstance(body.get("confidence_score"), (int, float)) else 0.0
+    primary_targets = _sanitize_mission_brief_value(body.get("primary_targets")) or {}
+    known_context = _sanitize_mission_brief_value(body.get("known_context")) or {}
+    priority_requirements = _sanitize_mission_brief_value(body.get("priority_requirements")) or []
+    authorized_tiers = _sanitize_mission_brief_value(body.get("authorized_tiers")) or []
+    notes = _sanitize_mission_brief_value(body.get("notes")) or []
+    summary = _truncate_text(body.get("summary"), 320) or None
+    case_id = _truncate_text(body.get("case_id"), 64) or None
+
+    if not isinstance(primary_targets, dict):
+        primary_targets = {}
+    if not isinstance(known_context, dict):
+        known_context = {}
+    if not isinstance(priority_requirements, list):
+        priority_requirements = []
+    if not isinstance(authorized_tiers, list):
+        authorized_tiers = []
+    if not isinstance(notes, list):
+        notes = []
+
+    return {
+        "room": room,
+        "case_id": case_id,
+        "object_type": object_type,
+        "engagement_type": engagement_type,
+        "collection_depth": collection_depth,
+        "timeline": timeline,
+        "status": status,
+        "question_count": max(0, min(question_count, 8)),
+        "confidence_score": max(0.0, min(float(confidence_score), 1.0)),
+        "primary_targets": primary_targets,
+        "known_context": known_context,
+        "priority_requirements": [str(item)[:120] for item in priority_requirements[:8]],
+        "authorized_tiers": [str(item)[:80] for item in authorized_tiers[:8]],
+        "summary": summary,
+        "notes": [str(item)[:200] for item in notes[:8]],
+    }
+
+
 def _analysis_job_row_to_dict(row) -> dict | None:
     if not row:
         return None
@@ -2159,6 +2241,57 @@ def health():
         "osint_cache": cache_stats,
         "stats": stats,
     })
+
+
+@app.route("/api/mission-briefs", methods=["POST"])
+@rate_limit(max_requests=120, window_seconds=60)
+def api_create_mission_brief():
+    body = request.get_json(silent=True) or {}
+    payload = _normalize_mission_brief_payload(body)
+    if not payload["primary_targets"] and not payload["summary"]:
+        return jsonify({"error": "Mission brief needs a target or summary"}), 400
+    if payload["case_id"] and not db.get_vendor(payload["case_id"]):
+        return jsonify({"error": "Case not found for mission brief linkage"}), 400
+
+    brief_id = _truncate_text(body.get("id"), 64) or f"mb-{uuid.uuid4().hex[:10]}"
+    brief = db.save_mission_brief(
+        brief_id,
+        created_by=_current_user_id(),
+        created_by_email=_current_user_email(),
+        created_by_role=_current_user_role(),
+        **payload,
+    )
+    status_code = 200 if body.get("id") else 201
+    return jsonify({"mission_brief": brief}), status_code
+
+
+@app.route("/api/mission-briefs/<brief_id>", methods=["GET"])
+@rate_limit(max_requests=240, window_seconds=60)
+def api_get_mission_brief(brief_id):
+    brief = db.get_mission_brief(brief_id)
+    if not brief:
+        return jsonify({"error": "Mission brief not found"}), 404
+    return jsonify({"mission_brief": brief})
+
+
+@app.route("/api/mission-briefs/<brief_id>", methods=["PUT"])
+@rate_limit(max_requests=120, window_seconds=60)
+def api_update_mission_brief(brief_id):
+    if not db.get_mission_brief(brief_id):
+        return jsonify({"error": "Mission brief not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    payload = _normalize_mission_brief_payload(body)
+    if payload["case_id"] and not db.get_vendor(payload["case_id"]):
+        return jsonify({"error": "Case not found for mission brief linkage"}), 400
+    brief = db.save_mission_brief(
+        brief_id,
+        created_by=_current_user_id(),
+        created_by_email=_current_user_email(),
+        created_by_role=_current_user_role(),
+        **payload,
+    )
+    return jsonify({"mission_brief": brief})
 
 
 @app.route("/api/ai/providers")

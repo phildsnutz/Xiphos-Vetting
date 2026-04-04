@@ -150,7 +150,7 @@ export function FrontPorchBriefView({
               maxWidth: 720,
             }}
           >
-            This room holds the clean narrative. The thread stays behind it, and War Room stays one move away when you want to challenge the weak edge.
+            This room holds the clean picture: what holds, what stayed thin, what AXIOM did, and what the graph changed. The thread stays behind it, and War Room stays one move away when you want to challenge the weak edge.
           </p>
         </div>
 

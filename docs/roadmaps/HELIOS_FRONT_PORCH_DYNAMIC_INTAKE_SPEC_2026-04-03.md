@@ -195,6 +195,12 @@ It should hide:
 - workflow lane terminology
 - most product taxonomy
 
+Its hidden output should be:
+
+- a persisted `MissionBrief`
+- enough scoped context to start work without restating the problem
+- no more than `0 to 2` follow-up questions before AXIOM takes ownership
+
 ### War Room
 
 War Room is not a separate product.
