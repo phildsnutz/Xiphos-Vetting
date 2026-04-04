@@ -1806,6 +1806,17 @@ export interface EntityCandidate {
   source: string;
   confidence: number;
   candidate_id?: string;
+  graph_entity_id?: string;
+  graph_relationship_count?: number;
+  graph_signal_summary?: string;
+  graph_related_candidates?: Array<{
+    candidate_name: string;
+    relationship_kind: "direct" | "shared_neighbor";
+    summary: string;
+    rel_types?: string[];
+    shared_neighbor_count?: number;
+  }>;
+  aliases?: string[];
   match_features?: MatchFeatures;
   deterministic_score?: number;
   cik?: string;

@@ -63,11 +63,12 @@ _ALPHA3_TO_ALPHA2 = {
 
 _SOURCE_PRIORITY = {
     "local_vendor_memory": 0,
-    "sam_gov": 1,
-    "sec_edgar": 2,
-    "gleif": 3,
-    "opencorporates": 4,
-    "wikidata": 5,
+    "knowledge_graph": 1,
+    "sam_gov": 2,
+    "sec_edgar": 3,
+    "gleif": 4,
+    "opencorporates": 5,
+    "wikidata": 6,
 }
 
 _IDENTIFIER_FIELDS = (
@@ -179,8 +180,11 @@ def compute_match_features(query: str, candidate: dict[str, Any], query_country:
 
     identifier_count = sum(1 for field in _IDENTIFIER_FIELDS if candidate.get(field))
     ownership_signal = bool(candidate.get("highest_owner") or candidate.get("immediate_owner"))
+    graph_relationship_count = int(candidate.get("graph_relationship_count") or 0)
+    graph_anchor = bool(candidate.get("graph_entity_id") or graph_relationship_count > 0)
     source_rank = {
         "local_vendor_memory": 0.98,
+        "knowledge_graph": 0.96,
         "sam_gov": 0.95,
         "sec_edgar": 0.85,
         "gleif": 0.85,
@@ -194,6 +198,8 @@ def compute_match_features(query: str, candidate: dict[str, Any], query_country:
         "country_match": country_match,
         "identifier_count": identifier_count,
         "ownership_signal": ownership_signal,
+        "graph_anchor": graph_anchor,
+        "graph_relationship_count": graph_relationship_count,
         "source_rank": source_rank,
     }
 
@@ -204,6 +210,7 @@ def compute_deterministic_score(features: dict[str, Any]) -> float:
     score += 0.15 if features["country_match"] else 0.0
     score += min(features["identifier_count"] * 0.08, 0.25)
     score += 0.10 if features["ownership_signal"] else 0.0
+    score += min(features.get("graph_relationship_count", 0) * 0.01, 0.08) if features.get("graph_anchor") else 0.0
     score += features["source_rank"] * 0.10
     return round(min(1.0, score), 4)
 

@@ -16,9 +16,13 @@ if BACKEND_DIR not in sys.path:
 @pytest.fixture
 def app_env(tmp_path, monkeypatch):
     db_path = tmp_path / "xiphos-test.db"
+    kg_db_path = tmp_path / "knowledge-graph.db"
     monkeypatch.setenv("XIPHOS_DB_PATH", str(db_path))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(kg_db_path))
     monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
     monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("XIPHOS_DB_ENGINE", "sqlite")
+    monkeypatch.delenv("XIPHOS_PG_URL", raising=False)
 
     if "entity_rerank" in sys.modules:
         importlib.reload(sys.modules["entity_rerank"])
@@ -54,6 +58,28 @@ def entity_rerank(app_env):
     import entity_rerank  # type: ignore
 
     return entity_rerank
+
+
+def _reload_kg():
+    if "knowledge_graph" in sys.modules:
+        return importlib.reload(sys.modules["knowledge_graph"])
+    return importlib.import_module("knowledge_graph")
+
+
+def _kg_entity(entity_id: str, name: str, *, aliases: list[str] | None = None, identifiers: dict | None = None):
+    from entity_resolution import ResolvedEntity
+
+    return ResolvedEntity(
+        id=entity_id,
+        canonical_name=name,
+        entity_type="company",
+        aliases=aliases or [],
+        identifiers=identifiers or {},
+        country="US",
+        sources=["test_fixture"],
+        confidence=0.94,
+        last_updated="2026-04-04T12:00:00Z",
+    )
 
 
 def _close_candidates():
@@ -236,6 +262,91 @@ def test_api_resolve_degrades_when_one_source_times_out(client, monkeypatch):
     assert body["count"] == 1
     assert body["candidates"][0]["legal_name"] == "SMX LLC"
     assert body["resolution"]["status"] in {"recommended", "disabled", "ambiguous"}
+
+
+def test_api_resolve_prefers_graph_anchored_candidate_over_public_symbol(client, monkeypatch):
+    import entity_resolver
+
+    kg = _reload_kg()
+    kg.init_kg_db()
+    kg.save_entity(
+        _kg_entity(
+            "entity:smx-services",
+            "SMX Services & Consulting, Inc.",
+            aliases=["SMX"],
+            identifiers={"uei": "ABC123XYZ789", "cage": "7SMX1"},
+        )
+    )
+    kg.save_entity(_kg_entity("entity:parent", "Ocean Holdings LLC"))
+    kg.save_relationship(
+        "entity:smx-services",
+        "entity:parent",
+        "subsidiary_of",
+        confidence=0.88,
+        data_source="fixture_graph",
+        evidence="Fixture ownership path",
+    )
+
+    monkeypatch.setattr(entity_resolver, "_search_local_vendor_memory", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_sec_edgar", lambda name: [{
+        "legal_name": "Security Matters Public Ltd Co",
+        "source": "sec_edgar",
+        "country": "US",
+        "ticker": "SMX",
+        "confidence": 0.88,
+    }])
+    monkeypatch.setattr(entity_resolver, "_search_gleif", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_opencorporates", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_wikidata", lambda name: [])
+
+    resp = client.post(
+        "/api/resolve",
+        json={"name": "SMX", "country": "US", "use_ai": False, "max_candidates": 6},
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["count"] >= 2
+    first = body["candidates"][0]
+    assert first["legal_name"] == "SMX Services & Consulting, Inc."
+    assert "knowledge_graph" in first["source"]
+    assert first["graph_entity_id"] == "entity:smx-services"
+    assert first["graph_relationship_count"] >= 1
+    assert first["match_features"]["graph_anchor"] is True
+
+
+def test_resolve_entity_returns_graph_relationship_clues_for_ambiguous_candidates(app_env, monkeypatch):
+    import entity_resolver
+
+    kg = _reload_kg()
+    kg.init_kg_db()
+    kg.save_entity(_kg_entity("entity:smx-services", "SMX Services & Consulting, Inc.", aliases=["SMX Services"]))
+    kg.save_entity(_kg_entity("entity:smx-holdings", "SMX Holdings LLC", aliases=["SMX Holdings"]))
+    kg.save_relationship(
+        "entity:smx-services",
+        "entity:smx-holdings",
+        "subsidiary_of",
+        confidence=0.9,
+        data_source="fixture_graph",
+        evidence="Fixture control path",
+    )
+
+    monkeypatch.setattr(entity_resolver, "_search_local_vendor_memory", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_sec_edgar", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_gleif", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_opencorporates", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_wikidata", lambda name: [])
+
+    candidates = entity_resolver.resolve_entity("SMX")
+
+    assert len(candidates) >= 2
+    services = next(candidate for candidate in candidates if candidate["legal_name"] == "SMX Services & Consulting, Inc.")
+    related = services.get("graph_related_candidates") or []
+    assert related
+    assert any(
+        "SMX Holdings LLC" in item["summary"] and "subsidiary of" in item["summary"]
+        for item in related
+    )
 
 
 def test_api_resolve_prefers_exact_local_vendor_memory_for_short_name(client, app_env, monkeypatch):

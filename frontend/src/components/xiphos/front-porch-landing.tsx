@@ -279,6 +279,13 @@ function normalizeCandidateName(value: string) {
     .join(" ");
 }
 
+function candidateHasSource(candidate: EntityCandidate, source: string) {
+  return String(candidate.source || "")
+    .split(",")
+    .map((item) => item.trim())
+    .includes(source);
+}
+
 function candidateChoiceIndexWord(index: number) {
   return ["first", "second", "third", "fourth"][index] || `${index + 1}th`;
 }
@@ -297,8 +304,18 @@ function describeCandidateForDisambiguation(candidate: EntityCandidate) {
   if (candidate.country) {
     details.push(candidate.country === "US" || candidate.country === "USA" ? "US entity" : `${candidate.country} entity`);
   }
-  if (candidate.source === "local_vendor_memory") {
+  if (candidateHasSource(candidate, "local_vendor_memory")) {
     details.push("already in Helios vendor memory");
+  }
+  if (candidateHasSource(candidate, "knowledge_graph") || (candidate.graph_relationship_count ?? 0) > 0) {
+    details.push(
+      candidate.graph_relationship_count
+        ? `anchored in the graph with ${candidate.graph_relationship_count} relationship${candidate.graph_relationship_count === 1 ? "" : "s"}`
+        : "already anchored in the graph",
+    );
+  }
+  if (candidate.graph_related_candidates?.[0]?.summary) {
+    details.push(candidate.graph_related_candidates[0].summary);
   }
   return details.slice(0, 2).join(", ");
 }
@@ -324,10 +341,47 @@ function inferCandidateRelationshipAnswer(candidates: EntityCandidate[]) {
 
   const publicCandidate = candidates.find((candidate) => Boolean(candidate.ticker));
   const servicesCandidate = candidates.find((candidate) => /services|consulting|tech|systems|solutions/i.test(candidate.legal_name || ""));
-  const localMemoryCandidate = candidates.find((candidate) => candidate.source === "local_vendor_memory");
+  const localMemoryCandidate = candidates.find((candidate) => candidateHasSource(candidate, "local_vendor_memory"));
+  const graphCandidate = candidates.find((candidate) => candidateHasSource(candidate, "knowledge_graph") || (candidate.graph_relationship_count ?? 0) > 0);
+
+  const directGraphRelation = candidates
+    .flatMap((candidate) =>
+      (candidate.graph_related_candidates || []).map((related) => ({
+        source: candidate.legal_name,
+        ...related,
+      })),
+    )
+    .find((related) => related.relationship_kind === "direct");
+
+  if (directGraphRelation) {
+    return `${duplicateLine ? `${duplicateLine} ` : ""}${directGraphRelation.summary}`;
+  }
+
+  const sharedGraphRelation = candidates
+    .flatMap((candidate) =>
+      (candidate.graph_related_candidates || []).map((related) => ({
+        source: candidate.legal_name,
+        ...related,
+      })),
+    )
+    .find((related) => related.relationship_kind === "shared_neighbor");
+
+  if (sharedGraphRelation) {
+    return `${duplicateLine ? `${duplicateLine} ` : ""}${sharedGraphRelation.summary}`;
+  }
 
   if (localMemoryCandidate) {
     return `${duplicateLine ? `${duplicateLine} ` : ""}${localMemoryCandidate.legal_name} is the one already anchored in Helios memory, so that is the strongest working candidate unless you meant a different entity.`;
+  }
+
+  if (graphCandidate) {
+    const graphLead = graphCandidate.graph_relationship_count
+      ? `${graphCandidate.legal_name} is already anchored in the Helios graph with ${graphCandidate.graph_relationship_count} relationship${graphCandidate.graph_relationship_count === 1 ? "" : "s"}, so that is the strongest working candidate unless you meant a different entity.`
+      : `${graphCandidate.legal_name} is already anchored in the Helios graph, so that is the strongest working candidate unless you meant a different entity.`;
+    if (graphCandidate.graph_signal_summary) {
+      return `${duplicateLine ? `${duplicateLine} ` : ""}${graphLead} ${graphCandidate.graph_signal_summary}`;
+    }
+    return `${duplicateLine ? `${duplicateLine} ` : ""}${graphLead}`;
   }
 
   if (publicCandidate && servicesCandidate && publicCandidate.legal_name !== servicesCandidate.legal_name) {
@@ -345,11 +399,21 @@ function recommendCandidateFromChoices(
   candidates: EntityCandidate[],
   session: IntakeSession,
 ): { candidate: EntityCandidate | null; rationale: string | null } {
-  const localMemoryCandidate = candidates.find((candidate) => candidate.source === "local_vendor_memory");
+  const localMemoryCandidate = candidates.find((candidate) => candidateHasSource(candidate, "local_vendor_memory"));
   if (localMemoryCandidate) {
     return {
       candidate: localMemoryCandidate,
       rationale: `${localMemoryCandidate.legal_name} is already in Helios vendor memory, so it is the strongest working candidate.`,
+    };
+  }
+
+  const graphCandidate = candidates.find((candidate) => candidateHasSource(candidate, "knowledge_graph") || (candidate.graph_relationship_count ?? 0) > 0);
+  if (graphCandidate) {
+    return {
+      candidate: graphCandidate,
+      rationale: graphCandidate.graph_relationship_count
+        ? `${graphCandidate.legal_name} is already anchored in the Helios graph with ${graphCandidate.graph_relationship_count} relationship${graphCandidate.graph_relationship_count === 1 ? "" : "s"}, so it is the strongest working candidate.`
+        : `${graphCandidate.legal_name} is already anchored in the Helios graph, so it is the strongest working candidate.`,
     };
   }
 
@@ -644,6 +708,27 @@ function missionBriefSummary(session: IntakeSession): string {
   return session.vendorName
     ? `Vendor assessment on ${session.vendorName}. Weight ${weightedFirst} first without shrinking the scope.`
     : "Vendor assessment scoped from Front Porch.";
+}
+
+function clarifyingFollowUpLabel(pendingFollowUp: PendingFollowUp | null): string | null {
+  switch (pendingFollowUp) {
+    case "object_type":
+      return "Clarifying object";
+    case "vendor_name":
+      return "Clarifying vendor";
+    case "vehicle_name":
+      return "Clarifying vehicle";
+    case "vehicle_timing":
+      return "Clarifying timing";
+    case "vehicle_follow_on_or_incumbent":
+      return "Clarifying incumbent";
+    case "vehicle_incumbent_prime":
+      return "Confirming prime";
+    case "vendor_priority_focus":
+      return "Weighting one edge";
+    default:
+      return null;
+  }
 }
 
 function missionBriefPriorityRequirements(session: IntakeSession): string[] {
@@ -1328,6 +1413,7 @@ export function FrontPorchLanding({
     : isWorking
       ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
       : "You can be messy. AXIOM will narrow it from there and ask only what changes the work.";
+  const clarifyingLabel = clarifyingFollowUpLabel(session.pendingFollowUp);
 
   const appendMessage = useCallback((role: MessageRole, content: string) => {
     setMessages((current) => [...current, { id: nextId(role), role, content }]);
@@ -2343,8 +2429,11 @@ export function FrontPorchLanding({
                 <div style={{ fontSize: FS.caption, color: T.textTertiary, letterSpacing: "0.12em", textTransform: "uppercase" }}>
                   AXIOM
                 </div>
-                <div style={{ fontSize: FS.sm, color: isWorking || isDisambiguatingEntity ? T.accent : T.textSecondary }}>
-                  {roomStatusText}
+                <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  {clarifyingLabel ? <StatusPill tone="info">{clarifyingLabel}</StatusPill> : null}
+                  <div style={{ fontSize: FS.sm, color: isWorking || isDisambiguatingEntity || isClarifyingIntake ? T.accent : T.textSecondary }}>
+                    {roomStatusText}
+                  </div>
                 </div>
               </div>
 
@@ -2622,6 +2711,11 @@ export function FrontPorchLanding({
                         <div style={{ fontSize: FS.sm, color: T.textSecondary, marginTop: SP.xs }}>
                           {[candidate.country, candidate.ticker ? `Ticker ${candidate.ticker}` : null, candidate.uei ? `UEI ${candidate.uei}` : null].filter(Boolean).join(" • ")}
                         </div>
+                        {candidate.graph_signal_summary || candidate.graph_related_candidates?.[0]?.summary ? (
+                          <div style={{ fontSize: FS.sm, color: T.accent, marginTop: SP.sm, lineHeight: 1.6 }}>
+                            {candidate.graph_signal_summary || candidate.graph_related_candidates?.[0]?.summary}
+                          </div>
+                        ) : null}
                       </div>
                       <ChevronDown size={14} color={T.textTertiary} style={{ transform: "rotate(-90deg)" }} />
                     </div>

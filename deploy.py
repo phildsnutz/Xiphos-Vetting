@@ -17,6 +17,7 @@ import json
 import os
 import pathlib
 import shlex
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -700,6 +701,30 @@ def verify() -> None:
     except Exception as exc:  # pragma: no cover - deploy helper
         print(f"  FAIL: API health check failed: {exc}")
         issues.append(f"API health failed: {exc}")
+
+    try:
+        regression = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_DIR / "scripts" / "run_front_porch_browser_regression.py"),
+                "--base-url",
+                APP_URL,
+            ],
+            cwd=str(SCRIPT_DIR),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if regression.returncode == 0:
+            print("  PASS: Front Porch browser regression")
+        else:
+            detail = (regression.stderr or regression.stdout or "browser regression failed").strip()
+            print(f"  FAIL: Front Porch browser regression failed: {detail}")
+            issues.append(f"Front Porch browser regression failed: {detail}")
+    except Exception as exc:
+        print(f"  FAIL: Front Porch browser regression failed: {exc}")
+        issues.append(f"Front Porch browser regression failed: {exc}")
 
     if not (ADMIN_EMAIL and ADMIN_PASS):
         print("  WARN: Skipping auth-verified API checks (set XIPHOS_DEPLOY_ADMIN_EMAIL/PASSWORD)")

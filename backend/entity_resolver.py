@@ -34,6 +34,8 @@ _edgar_lock = threading.Lock()
 _edgar_data: dict | None = None
 _edgar_loaded_at: float = 0.0
 _LOCAL_VENDOR_MEMORY_LIMIT = 8
+_GRAPH_MEMORY_LIMIT = 8
+_GRAPH_RELATIONSHIP_SUMMARY_LIMIT = 3
 
 
 def _load_edgar_tickers() -> dict:
@@ -106,14 +108,14 @@ def _normalize_entity_name(name: str) -> str:
     return re.sub(r"\s+", " ", str(name or "").strip().lower())
 
 
-def _safe_json_loads(value: object) -> dict:
-    if isinstance(value, dict):
+def _safe_json_loads(value: object):
+    if isinstance(value, (dict, list)):
         return value
     if value in (None, ""):
         return {}
     try:
         loaded = json.loads(str(value))
-        return loaded if isinstance(loaded, dict) else {}
+        return loaded if isinstance(loaded, (dict, list)) else {}
     except Exception:
         return {}
 
@@ -228,6 +230,240 @@ def _search_local_vendor_memory(name: str) -> list[dict]:
         if ownership:
             candidate["description"] = ownership[:180]
         candidates.append(candidate)
+
+    return candidates
+
+
+def _search_knowledge_graph_memory(name: str) -> list[dict]:
+    """Search graph-anchored entity memory before falling back to thinner public ambiguity."""
+    raw_query = re.sub(r"\s+", " ", str(name or "").strip())
+    if not raw_query:
+        return []
+
+    normalized_query = _normalize_entity_name(raw_query)
+    lowered_query = raw_query.lower()
+    startswith_like = f"{lowered_query}%"
+    contains_like = f"%{lowered_query}%"
+    normalized_contains_like = f"%{normalized_query}%"
+
+    try:
+        from knowledge_graph import get_kg_conn
+    except Exception:
+        return []
+
+    try:
+        with get_kg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    e.*,
+                    (
+                        SELECT COUNT(*)
+                        FROM kg_relationships r
+                        WHERE r.source_entity_id = e.id OR r.target_entity_id = e.id
+                    ) AS relationship_count
+                FROM kg_entities e
+                WHERE LOWER(e.canonical_name) = ?
+                   OR LOWER(e.canonical_name) LIKE ?
+                   OR LOWER(e.canonical_name) LIKE ?
+                   OR LOWER(COALESCE(e.aliases, '[]')) LIKE ?
+                ORDER BY
+                    CASE
+                        WHEN LOWER(e.canonical_name) = ? THEN 0
+                        WHEN LOWER(e.canonical_name) LIKE ? THEN 1
+                        WHEN LOWER(COALESCE(e.aliases, '[]')) LIKE ? THEN 2
+                        ELSE 3
+                    END,
+                    relationship_count DESC,
+                    confidence DESC
+                LIMIT ?
+                """,
+                (
+                    lowered_query,
+                    startswith_like,
+                    contains_like,
+                    normalized_contains_like,
+                    lowered_query,
+                    startswith_like,
+                    normalized_contains_like,
+                    _GRAPH_MEMORY_LIMIT,
+                ),
+            ).fetchall()
+
+            candidates: list[dict] = []
+            for row in rows:
+                legal_name = str(row["canonical_name"] or "").strip()
+                if not legal_name:
+                    continue
+
+                aliases = _safe_json_loads(row["aliases"])
+                alias_values = aliases if isinstance(aliases, list) else []
+                match_names = [legal_name, *[str(alias).strip() for alias in alias_values if str(alias or "").strip()]]
+                best_match = max((_name_match_score(raw_query, candidate_name) for candidate_name in match_names), default=0.0)
+                if best_match < 0.48:
+                    continue
+
+                normalized_aliases = {_normalize_entity_name(alias) for alias in match_names if alias}
+                exact_match = lowered_query == legal_name.lower().strip() or normalized_query in normalized_aliases
+                prefix_match = any(alias.startswith(normalized_query) for alias in normalized_aliases if alias and normalized_query)
+
+                relationship_count = int(row["relationship_count"] or 0)
+                confidence = 0.74 + (best_match * 0.16) + min(0.06, relationship_count * 0.01)
+                if exact_match:
+                    confidence = max(confidence, 0.985)
+                elif prefix_match:
+                    confidence = max(confidence, 0.93)
+
+                rel_rows = conn.execute(
+                    """
+                    SELECT rel_type, COUNT(*) AS cnt
+                    FROM kg_relationships
+                    WHERE source_entity_id = ? OR target_entity_id = ?
+                    GROUP BY rel_type
+                    ORDER BY cnt DESC, rel_type ASC
+                    LIMIT 3
+                    """,
+                    (row["id"], row["id"]),
+                ).fetchall()
+                rel_summaries = [
+                    f"{int(rel_row['cnt'] or 0)} {str(rel_row['rel_type'] or '').replace('_', ' ')}"
+                    for rel_row in rel_rows
+                    if rel_row["rel_type"]
+                ]
+
+                identifiers = _safe_json_loads(row["identifiers"])
+                identifier_payload = identifiers if isinstance(identifiers, dict) else {}
+                candidate = {
+                    "legal_name": legal_name,
+                    "country": str(row["country"] or "") or "US",
+                    "graph_entity_id": str(row["id"] or ""),
+                    "source": "knowledge_graph",
+                    "confidence": round(min(confidence, 0.995), 3),
+                    "entity_type": str(row["entity_type"] or "") or "Graph Memory",
+                    "graph_relationship_count": relationship_count,
+                    "aliases": match_names[1:6],
+                }
+                if rel_summaries:
+                    candidate["graph_signal_summary"] = f"Graph signals already cluster around {', '.join(rel_summaries)}."
+
+                for field in ("uei", "cage", "lei", "cik", "company_number", "wikidata_id", "ticker", "duns"):
+                    if identifier_payload.get(field):
+                        candidate[field] = identifier_payload[field]
+
+                candidates.append(candidate)
+
+            return candidates
+    except Exception:
+        return []
+
+
+def _attach_graph_candidate_relationships(candidates: list[dict]) -> list[dict]:
+    graph_candidates = [
+        candidate for candidate in candidates
+        if str(candidate.get("graph_entity_id") or "").strip()
+    ]
+    if len(graph_candidates) < 2:
+        return candidates
+
+    try:
+        from knowledge_graph import get_kg_conn
+    except Exception:
+        return candidates
+
+    entity_ids = [str(candidate["graph_entity_id"]).strip() for candidate in graph_candidates]
+    placeholders = ",".join("?" for _ in entity_ids)
+
+    try:
+        with get_kg_conn() as conn:
+            rel_rows = conn.execute(
+                f"""
+                SELECT source_entity_id, target_entity_id, rel_type
+                FROM kg_relationships
+                WHERE source_entity_id IN ({placeholders})
+                   OR target_entity_id IN ({placeholders})
+                """,
+                (*entity_ids, *entity_ids),
+            ).fetchall()
+            neighbor_ids = {
+                str(row["source_entity_id"] or "")
+                for row in rel_rows
+            } | {
+                str(row["target_entity_id"] or "")
+                for row in rel_rows
+            }
+            entity_name_map: dict[str, str] = {}
+            if neighbor_ids:
+                neighbor_placeholders = ",".join("?" for _ in neighbor_ids)
+                entity_rows = conn.execute(
+                    f"SELECT id, canonical_name FROM kg_entities WHERE id IN ({neighbor_placeholders})",
+                    tuple(neighbor_ids),
+                ).fetchall()
+                entity_name_map = {
+                    str(row["id"] or ""): str(row["canonical_name"] or "")
+                    for row in entity_rows
+                }
+    except Exception:
+        return candidates
+
+    adjacency: dict[str, dict[str, list[str]]] = {entity_id: {} for entity_id in entity_ids}
+    for row in rel_rows:
+        source_entity_id = str(row["source_entity_id"] or "")
+        target_entity_id = str(row["target_entity_id"] or "")
+        rel_type = str(row["rel_type"] or "")
+        if not source_entity_id or not target_entity_id or not rel_type:
+            continue
+
+        adjacency.setdefault(source_entity_id, {}).setdefault(target_entity_id, []).append(rel_type)
+        adjacency.setdefault(target_entity_id, {}).setdefault(source_entity_id, []).append(rel_type)
+
+    candidate_by_entity_id = {
+        str(candidate["graph_entity_id"]).strip(): candidate
+        for candidate in graph_candidates
+    }
+
+    for entity_id, candidate in candidate_by_entity_id.items():
+        summaries: list[dict] = []
+        candidate_neighbors = adjacency.get(entity_id, {})
+
+        for other_entity_id, other_candidate in candidate_by_entity_id.items():
+            if other_entity_id == entity_id:
+                continue
+
+            direct_rel_types = sorted(set(candidate_neighbors.get(other_entity_id, [])))
+            if direct_rel_types:
+                rel_label = ", ".join(rel_type.replace("_", " ") for rel_type in direct_rel_types[:3])
+                summaries.append({
+                    "candidate_name": other_candidate.get("legal_name", ""),
+                    "relationship_kind": "direct",
+                    "summary": f"Direct graph link to {other_candidate.get('legal_name', 'the other candidate')} via {rel_label}.",
+                    "rel_types": direct_rel_types[:3],
+                })
+                continue
+
+            shared_neighbors = set(candidate_neighbors.keys()) & set(adjacency.get(other_entity_id, {}).keys())
+            shared_neighbors.discard(entity_id)
+            shared_neighbors.discard(other_entity_id)
+            if shared_neighbors:
+                top_shared = sorted(shared_neighbors)[:2]
+                shared_names = [
+                    candidate_by_entity_id.get(shared_neighbor_id, {}).get("legal_name")
+                    or entity_name_map.get(shared_neighbor_id)
+                    or shared_neighbor_id
+                    for shared_neighbor_id in top_shared
+                ]
+                summaries.append({
+                    "candidate_name": other_candidate.get("legal_name", ""),
+                    "relationship_kind": "shared_neighbor",
+                    "summary": (
+                        f"Shares {len(shared_neighbors)} graph counterpart"
+                        f"{'' if len(shared_neighbors) == 1 else 's'} with {other_candidate.get('legal_name', 'the other candidate')}"
+                        f"{': ' + ', '.join(shared_names) if shared_names else ''}."
+                    ),
+                    "shared_neighbor_count": len(shared_neighbors),
+                })
+
+        if summaries:
+            candidate["graph_related_candidates"] = summaries[:_GRAPH_RELATIONSHIP_SUMMARY_LIMIT]
 
     return candidates
 
@@ -534,6 +770,7 @@ def resolve_entity(name: str) -> list[dict]:
     Returns deduplicated candidate list sorted by confidence.
     """
     all_candidates = _search_local_vendor_memory(name)
+    all_candidates.extend(_search_knowledge_graph_memory(name))
 
     # Build a clean core name by stripping entity suffixes (LLC, INC, etc.)
     core_words = _strip_entity_suffixes(name)
@@ -593,9 +830,24 @@ def resolve_entity(name: str) -> list[dict]:
                           "registration_purpose", "sba_certifications", "business_types",
                           "highest_owner", "highest_owner_cage", "highest_owner_country",
                           "immediate_owner", "immediate_owner_cage", "immediate_owner_country",
-                          "predecessors", "has_proceedings"]:
+                          "predecessors", "has_proceedings", "graph_entity_id",
+                          "graph_relationship_count", "graph_signal_summary"]:
                 if c.get(field) and not merged[key].get(field):
                     merged[key][field] = c[field]
+            if c.get("aliases"):
+                existing_aliases = merged[key].get("aliases", []) or []
+                combined_aliases = []
+                for alias in [*existing_aliases, *c.get("aliases", [])]:
+                    alias_text = str(alias or "").strip()
+                    if alias_text and alias_text not in combined_aliases:
+                        combined_aliases.append(alias_text)
+                if combined_aliases:
+                    merged[key]["aliases"] = combined_aliases[:8]
+            if c.get("graph_relationship_count"):
+                merged[key]["graph_relationship_count"] = max(
+                    int(merged[key].get("graph_relationship_count") or 0),
+                    int(c.get("graph_relationship_count") or 0),
+                )
             merged[key]["confidence"] = max(merged[key].get("confidence", 0), c.get("confidence", 0))
             existing_src = merged[key].get("source", "")
             new_src = c.get("source", "")
@@ -605,4 +857,4 @@ def resolve_entity(name: str) -> list[dict]:
                 merged[key]["confidence"] = min(1.0, merged[key]["confidence"] + 0.1)
 
     result = sorted(merged.values(), key=lambda x: -x.get("confidence", 0))
-    return result[:12]
+    return _attach_graph_candidate_relationships(result[:12])
