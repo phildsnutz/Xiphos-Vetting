@@ -493,6 +493,7 @@ def api_cvi_fill_gaps():
     """
     try:
         from axiom_gap_filler import fill_gaps as fill_gaps_with_axiom
+        from validation_gate import validate_gap_fill_result
 
         body = request.get_json(silent=True) or {}
         gaps = body.get("gaps", [])
@@ -521,14 +522,25 @@ def api_cvi_fill_gaps():
             max_attempts_per_gap=body.get("max_attempts_per_gap", 3),
         )
 
-        serialized_results = [_serialize_gap_fill_result(result) for result in results]
-        closed = sum(1 for result in results if getattr(result, "filled", False))
-        partial = sum(
-            1
-            for result in results
-            if not getattr(result, "filled", False) and float(getattr(result, "fill_confidence", 0.0) or 0.0) > 0
-        )
-        failed = len(results) - closed - partial
+        serialized_results = []
+        closed = 0
+        partial = 0
+        failed = 0
+        for result in results:
+            serialized = _serialize_gap_fill_result(result)
+            validation = validate_gap_fill_result(result)
+            if validation.outcome == "accepted":
+                serialized["status"] = "closed"
+                closed += 1
+            elif validation.outcome == "review":
+                serialized["status"] = "partial"
+                partial += 1
+            else:
+                serialized["status"] = "failed"
+                failed += 1
+            serialized["validation"] = validation.to_dict()
+            serialized_results.append(serialized)
+
         average_confidence = (
             sum(float(getattr(result, "fill_confidence", 0.0) or 0.0) for result in results) / len(results)
             if results else 0.0
@@ -541,6 +553,9 @@ def api_cvi_fill_gaps():
                 "closed": closed,
                 "partial": partial,
                 "failed": failed,
+                "accepted": closed,
+                "review": partial,
+                "rejected": failed,
                 "average_confidence": average_confidence,
             },
             "status": "completed",

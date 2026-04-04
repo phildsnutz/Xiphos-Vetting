@@ -45,6 +45,7 @@ from dossier import build_dossier_context
 from knowledge_graph import get_kg_conn
 import db
 import os
+from validation_gate import validate_gap_fill_result
 
 logger = logging.getLogger(__name__)
 
@@ -507,8 +508,13 @@ def attempt_axiom_fill(gaps: list[dict], vendor_id: str, api_key: str = "",
             # Check result
             if isinstance(fill_result, list) and len(fill_result) > 0:
                 result = fill_result[0]
-                if isinstance(result, GapFillResult) and result.filled:
-                    gap["axiom_fill_result"] = asdict(result) if hasattr(result, '__dataclass_fields__') else result
+                validation = validate_gap_fill_result(result)
+                result_payload = asdict(result) if hasattr(result, '__dataclass_fields__') else result
+                if isinstance(result_payload, dict):
+                    result_payload["validation"] = validation.to_dict()
+                gap["axiom_fill_result"] = result_payload
+                gap["axiom_validation"] = validation.to_dict()
+                if isinstance(result, GapFillResult) and result.filled and validation.outcome == "accepted":
                     filled_gaps.append(gap)
                 else:
                     unfilled_gaps.append(gap)
@@ -1513,8 +1519,9 @@ def run_gap_advisory_pipeline(
     axiom_summary = [
         {
             "gap_type": gap.get("gap_type"),
-            "status": "filled",
-            "reasoning": gap.get("axiom_fill_result", {}).get("reasoning", ""),
+            "status": gap.get("axiom_validation", {}).get("outcome", "accepted"),
+            "confidence_label": gap.get("axiom_validation", {}).get("confidence_label", ""),
+            "reasons": list(gap.get("axiom_validation", {}).get("reasons", []) or [])[:3],
         }
         for gap in all_filled_gaps
     ]

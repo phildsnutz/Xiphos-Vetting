@@ -150,9 +150,9 @@ def test_cvi_fill_gaps_route_converts_inputs_and_serializes_results(client, monk
                 fill_confidence=0.84,
                 attempts=[
                     axiom_gap_filler.FillAttempt(
-                        approach_name="proxy_indicator_hunt",
-                        approach_reasoning="Hiring residue exposed the missing teammate.",
-                        findings=[{"source": "careers_scraper", "value": "Mission support engineer role"}],
+                        approach_name="regulatory_filing_mine",
+                        approach_reasoning="Official award data exposed the missing teammate.",
+                        findings=[{"source": "sam_gov", "value": "Named mission support subcontractor"}],
                     )
                 ],
                 final_classification="filled",
@@ -185,6 +185,7 @@ def test_cvi_fill_gaps_route_converts_inputs_and_serializes_results(client, monk
     assert payload["results"][0]["gap_id"] == "gap-1"
     assert payload["results"][0]["status"] == "closed"
     assert payload["results"][0]["confidence"] == pytest.approx(0.84)
+    assert payload["results"][0]["validation"]["outcome"] == "accepted"
     assert captured["gaps"][0].entity_name == "Amentum"
     assert captured["gaps"][0].vehicle_name == "ITEAMS"
 
@@ -208,6 +209,13 @@ def test_attempt_axiom_fill_uses_current_gap_filler_contract(monkeypatch):
                 gap=gaps[0],
                 filled=True,
                 fill_confidence=0.91,
+                attempts=[
+                    axiom_gap_filler.FillAttempt(
+                        approach_name="regulatory_filing_mine",
+                        approach_reasoning="Official contract records resolved the teammate.",
+                        findings=[{"source": "usaspending", "value": "Subaward record ties SMX to ITEAMS"}],
+                    )
+                ],
                 final_classification="filled",
             )
         ]
@@ -238,6 +246,55 @@ def test_attempt_axiom_fill_uses_current_gap_filler_contract(monkeypatch):
     assert captured["gaps"][0].entity_name == "SMX"
     assert captured["gaps"][0].priority == "critical"
     assert captured["user_id"] == "system"
+    assert filled[0]["axiom_validation"]["outcome"] == "accepted"
+
+
+def test_attempt_axiom_fill_demotes_weak_single_source_results(monkeypatch):
+    import axiom_gap_filler
+    import gap_advisory_pipeline
+
+    monkeypatch.setattr(gap_advisory_pipeline.db, "get_vendor", lambda vendor_id: {"name": "Amentum"})
+
+    def fake_fill_gaps(gaps, api_key="", provider="", model="", user_id="", max_attempts_per_gap=3):
+        return [
+            axiom_gap_filler.GapFillResult(
+                gap=gaps[0],
+                filled=True,
+                fill_confidence=0.62,
+                attempts=[
+                    axiom_gap_filler.FillAttempt(
+                        approach_name="proxy_indicator_hunt",
+                        approach_reasoning="A job posting implied the missing teammate.",
+                        findings=[{"source": "careers_scraper", "value": "Job posting for mission support engineer"}],
+                    )
+                ],
+                final_classification="filled",
+            )
+        ]
+
+    monkeypatch.setattr(gap_advisory_pipeline, "fill_gaps", fake_fill_gaps)
+
+    filled, unfilled = gap_advisory_pipeline.attempt_axiom_fill(
+        [
+            {
+                "gap_id": "gap-weak",
+                "gap_type": "subcontractor_identity",
+                "description": "Possible teammate inferred from a job post",
+                "severity": "high",
+                "affected_entities": ["SMX"],
+                "vehicle_name": "ITEAMS",
+            }
+        ],
+        vendor_id="amentum_iteams",
+        api_key="k",
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        user_id="system",
+    )
+
+    assert filled == []
+    assert len(unfilled) == 1
+    assert unfilled[0]["axiom_validation"]["outcome"] == "review"
 
 
 def test_gap_pipeline_generates_proposals_per_vendor_not_cumulative(monkeypatch):
