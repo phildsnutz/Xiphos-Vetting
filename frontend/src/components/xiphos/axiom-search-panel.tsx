@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { Play, Search, Upload, AlertCircle } from "lucide-react";
 import { getToken } from "@/lib/auth";
@@ -136,6 +136,7 @@ function formatMillis(elapsedMs: number): string {
 
 export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const targetInputRef = useRef<HTMLInputElement | null>(null);
+  const resultsScrollRef = useRef<HTMLDivElement | null>(null);
   const [targetEntity, setTargetEntity] = useState("");
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
@@ -150,6 +151,27 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const [isIngesting, setIsIngesting] = useState(false);
   const [autoIngest, setAutoIngest] = useState(true);
   const [showExecutionControls, setShowExecutionControls] = useState(false);
+  const [resultsScrollState, setResultsScrollState] = useState({
+    canScrollUp: false,
+    canScrollDown: false,
+  });
+
+  const syncResultsScrollState = useCallback(() => {
+    const el = resultsScrollRef.current;
+    if (!el) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setResultsScrollState({
+      canScrollUp: el.scrollTop > 8,
+      canScrollDown: remaining > 8,
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = resultsScrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    window.requestAnimationFrame(syncResultsScrollState);
+  }, [error, isRunning, results, status, syncResultsScrollState]);
 
   useHotkey("cmd+f", () => {
     targetInputRef.current?.focus();
@@ -257,72 +279,44 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   return (
     <div
       className="flex flex-col gap-4 rounded-lg"
-      style={{ background: "rgba(12,16,24,0.82)", border: `1px solid rgba(255,255,255,0.06)`, padding: PAD.comfortable }}
+      style={{
+        background: "rgba(12,16,24,0.82)",
+        border: `1px solid rgba(255,255,255,0.06)`,
+        padding: PAD.comfortable,
+        maxHeight: "min(72vh, 860px)",
+      }}
     >
-      <PanelHeader
-        eyebrow="AXIOM collection"
-        title="What should I work?"
-        description="Give me the target, vehicle, or weak point that still feels wrong. Add context only if it changes the trail."
-        meta={
-          <>
-            <StatusPill tone="neutral">
-              <ShortcutBadge>⌘F</ShortcutBadge>
-              Focus target
-            </StatusPill>
-            <StatusPill tone="neutral">
-              <ShortcutBadge>Enter</ShortcutBadge>
-              Run pass
-            </StatusPill>
-          </>
-        }
-      />
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 3,
+          display: "grid",
+          gap: SP.md,
+          paddingBottom: SP.md,
+          background: "linear-gradient(180deg, rgba(12,16,24,0.98) 0%, rgba(12,16,24,0.94) 78%, rgba(12,16,24,0) 100%)",
+          backdropFilter: "blur(18px)",
+        }}
+      >
+        <PanelHeader
+          eyebrow="AXIOM collection"
+          title="What should I work?"
+          description="Give me the target, vehicle, or weak point that still feels wrong. Add context only if it changes the trail."
+          meta={
+            <>
+              <StatusPill tone="neutral">
+                <ShortcutBadge>⌘F</ShortcutBadge>
+                Focus target
+              </StatusPill>
+              <StatusPill tone="neutral">
+                <ShortcutBadge>Enter</ShortcutBadge>
+                Run pass
+              </StatusPill>
+            </>
+          }
+        />
 
-      <div className="space-y-3">
-        <div>
-          <label
-            style={{
-              display: "block",
-              fontSize: FS.sm,
-              fontWeight: 500,
-              color: T.muted,
-              marginBottom: SP.sm,
-            }}
-          >
-            Who or what is the pressure point? *
-          </label>
-          <input
-            ref={targetInputRef}
-            type="text"
-            value={targetEntity}
-            onChange={(e) => setTargetEntity(e.target.value)}
-            onKeyDown={runOnEnter}
-            placeholder="Amentum on ILS 2"
-            disabled={isRunning}
-            aria-label="AXIOM target entity"
-            className="w-full rounded border outline-none"
-            style={{
-              padding: PAD.default,
-              fontSize: FS.sm,
-              background: T.bg,
-              border: `1px solid ${T.border}`,
-              color: T.text,
-            }}
-          />
-          <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
-            Start with the incumbent, teammate, sub, or unresolved player that still carries dark space.
-          </div>
-        </div>
-
-        {collectionBrief.length > 0 ? (
-          <InlineMessage
-            tone="info"
-            title="Working from"
-            message={collectionBrief.join(" • ")}
-            icon={Search}
-          />
-        ) : null}
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3">
           <div>
             <label
               style={{
@@ -333,16 +327,17 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 marginBottom: SP.sm,
               }}
             >
-              Vehicle
+              Who or what is the pressure point? *
             </label>
             <input
+              ref={targetInputRef}
               type="text"
-              value={vehicleName}
-              onChange={(e) => setVehicleName(e.target.value)}
+              value={targetEntity}
+              onChange={(e) => setTargetEntity(e.target.value)}
               onKeyDown={runOnEnter}
-              placeholder="Optional"
+              placeholder="Amentum on ILS 2"
               disabled={isRunning}
-              aria-label="AXIOM vehicle name"
+              aria-label="AXIOM target entity"
               className="w-full rounded border outline-none"
               style={{
                 padding: PAD.default,
@@ -352,272 +347,354 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 color: T.text,
               }}
             />
+            <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
+              Start with the incumbent, teammate, sub, or unresolved player that still carries dark space.
+            </div>
           </div>
-          <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: FS.sm,
-                fontWeight: 500,
-                color: T.muted,
-                marginBottom: SP.sm,
-              }}
-            >
-              Installation
-            </label>
-            <input
-              type="text"
-              value={installation}
-              onChange={(e) => setInstallation(e.target.value)}
-              onKeyDown={runOnEnter}
-              placeholder="Optional"
-              disabled={isRunning}
-              aria-label="AXIOM installation"
-              className="w-full rounded border outline-none"
-              style={{
-                padding: PAD.default,
-                fontSize: FS.sm,
-                background: T.bg,
-                border: `1px solid ${T.border}`,
-                color: T.text,
-              }}
+
+          {collectionBrief.length > 0 ? (
+            <InlineMessage
+              tone="info"
+              title="Working from"
+              message={collectionBrief.join(" • ")}
+              icon={Search}
             />
-          </div>
-        </div>
+          ) : null}
 
-        <div>
-          <label
-            style={{
-              display: "block",
-              fontSize: FS.sm,
-              fontWeight: 500,
-              color: T.muted,
-              marginBottom: SP.sm,
-            }}
-          >
-              What matters
-          </label>
-          <input
-            type="text"
-            value={domainFocus}
-            onChange={(e) => setDomainFocus(e.target.value)}
-            onKeyDown={runOnEnter}
-            placeholder="Recompete pressure, ownership wall, teammate risk"
-            disabled={isRunning}
-            aria-label="AXIOM mission context"
-            className="w-full rounded border outline-none"
-            style={{
-              padding: PAD.default,
-              fontSize: FS.sm,
-              background: T.bg,
-              border: `1px solid ${T.border}`,
-              color: T.text,
-            }}
-          />
-        </div>
-
-        <div
-          style={{
-            borderTop: `1px solid ${T.border}`,
-            paddingTop: SP.sm,
-            display: "flex",
-            flexDirection: "column",
-            gap: SP.sm,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setShowExecutionControls((current) => !current)}
-            className="helios-focus-ring"
-            aria-label={showExecutionControls ? "Hide AXIOM execution controls" : "Show AXIOM execution controls"}
-            aria-expanded={showExecutionControls}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: SP.xs,
-              alignSelf: "flex-start",
-              borderRadius: 999,
-              border: `1px solid ${T.border}`,
-              background: T.surface,
-              color: T.textSecondary,
-              padding: "8px 12px",
-              fontSize: FS.sm,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            {showExecutionControls ? "Hide" : "Show"} model and graph controls
-          </button>
-
-          {showExecutionControls ? (
-            <div
-              className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3"
-              style={{ alignItems: "end" }}
-            >
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: FS.sm,
-                    fontWeight: 500,
-                    color: T.muted,
-                    marginBottom: SP.sm,
-                  }}
-                >
-                  Provider
-                </label>
-                <select
-                  value={provider}
-                  onChange={(e) => {
-                    const nextProvider = e.target.value as AxiomProvider;
-                    setProvider(nextProvider);
-                    setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4.1");
-                  }}
-                  disabled={isRunning}
-                  aria-label="AXIOM provider"
-                  className="w-full rounded border outline-none"
-                  style={{
-                    padding: PAD.default,
-                    fontSize: FS.sm,
-                    background: T.bg,
-                    border: `1px solid ${T.border}`,
-                    color: T.text,
-                  }}
-                >
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai">OpenAI</option>
-                </select>
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: FS.sm,
-                    fontWeight: 500,
-                    color: T.muted,
-                    marginBottom: SP.sm,
-                  }}
-                >
-                  Model
-                </label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  disabled={isRunning}
-                  aria-label="AXIOM model"
-                  className="w-full rounded border outline-none"
-                  style={{
-                    padding: PAD.default,
-                    fontSize: FS.sm,
-                    background: T.bg,
-                    border: `1px solid ${T.border}`,
-                    color: T.text,
-                  }}
-                >
-                  {provider === "anthropic" && (
-                    <>
-                      <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                      <option value="claude-3-opus">Claude 3 Opus</option>
-                    </>
-                  )}
-                  {provider === "openai" && (
-                    <>
-                      <option value="gpt-4.1">GPT-4.1</option>
-                      <option value="gpt-4o">GPT-4o</option>
-                      <option value="gpt-4">GPT-4</option>
-                    </>
-                  )}
-                </select>
-              </div>
-
+          <div className="grid grid-cols-2 gap-3">
+            <div>
               <label
-                htmlFor="autoIngestCheckbox"
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: SP.sm,
+                  display: "block",
                   fontSize: FS.sm,
                   fontWeight: 500,
-                  color: T.text,
-                  cursor: isRunning ? "not-allowed" : "pointer",
-                  minHeight: 40,
+                  color: T.muted,
+                  marginBottom: SP.sm,
                 }}
               >
-                <input
-                  type="checkbox"
-                  id="autoIngestCheckbox"
-                  checked={autoIngest}
-                  onChange={(e) => setAutoIngest(e.target.checked)}
-                  disabled={isRunning}
-                  aria-label="Auto-ingest AXIOM results to knowledge graph"
-                  style={{
-                    cursor: isRunning ? "not-allowed" : "pointer",
-                    width: SP.lg,
-                    height: SP.lg,
-                  }}
-                />
-                Auto-ingest to graph
+                Vehicle
               </label>
+              <input
+                type="text"
+                value={vehicleName}
+                onChange={(e) => setVehicleName(e.target.value)}
+                onKeyDown={runOnEnter}
+                placeholder="Optional"
+                disabled={isRunning}
+                aria-label="AXIOM vehicle name"
+                className="w-full rounded border outline-none"
+                style={{
+                  padding: PAD.default,
+                  fontSize: FS.sm,
+                  background: T.bg,
+                  border: `1px solid ${T.border}`,
+                  color: T.text,
+                }}
+              />
             </div>
-          ) : null}
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: FS.sm,
+                  fontWeight: 500,
+                  color: T.muted,
+                  marginBottom: SP.sm,
+                }}
+              >
+                Installation
+              </label>
+              <input
+                type="text"
+                value={installation}
+                onChange={(e) => setInstallation(e.target.value)}
+                onKeyDown={runOnEnter}
+                placeholder="Optional"
+                disabled={isRunning}
+                aria-label="AXIOM installation"
+                className="w-full rounded border outline-none"
+                style={{
+                  padding: PAD.default,
+                  fontSize: FS.sm,
+                  background: T.bg,
+                  border: `1px solid ${T.border}`,
+                  color: T.text,
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: "block",
+                fontSize: FS.sm,
+                fontWeight: 500,
+                color: T.muted,
+                marginBottom: SP.sm,
+              }}
+            >
+                What matters
+            </label>
+            <input
+              type="text"
+              value={domainFocus}
+              onChange={(e) => setDomainFocus(e.target.value)}
+              onKeyDown={runOnEnter}
+              placeholder="Recompete pressure, ownership wall, teammate risk"
+              disabled={isRunning}
+              aria-label="AXIOM mission context"
+              className="w-full rounded border outline-none"
+              style={{
+                padding: PAD.default,
+                fontSize: FS.sm,
+                background: T.bg,
+                border: `1px solid ${T.border}`,
+                color: T.text,
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              borderTop: `1px solid ${T.border}`,
+              paddingTop: SP.sm,
+              display: "flex",
+              flexDirection: "column",
+              gap: SP.sm,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowExecutionControls((current) => !current)}
+              className="helios-focus-ring"
+              aria-label={showExecutionControls ? "Hide AXIOM execution controls" : "Show AXIOM execution controls"}
+              aria-expanded={showExecutionControls}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: SP.xs,
+                alignSelf: "flex-start",
+                borderRadius: 999,
+                border: `1px solid ${T.border}`,
+                background: T.surface,
+                color: T.textSecondary,
+                padding: "8px 12px",
+                fontSize: FS.sm,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {showExecutionControls ? "Hide" : "Show"} model and graph controls
+            </button>
+
+            {showExecutionControls ? (
+              <div
+                className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3"
+                style={{ alignItems: "end" }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: FS.sm,
+                      fontWeight: 500,
+                      color: T.muted,
+                      marginBottom: SP.sm,
+                    }}
+                  >
+                    Provider
+                  </label>
+                  <select
+                    value={provider}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value as AxiomProvider;
+                      setProvider(nextProvider);
+                      setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4.1");
+                    }}
+                    disabled={isRunning}
+                    aria-label="AXIOM provider"
+                    className="w-full rounded border outline-none"
+                    style={{
+                      padding: PAD.default,
+                      fontSize: FS.sm,
+                      background: T.bg,
+                      border: `1px solid ${T.border}`,
+                      color: T.text,
+                    }}
+                  >
+                    <option value="anthropic">Anthropic</option>
+                    <option value="openai">OpenAI</option>
+                  </select>
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: FS.sm,
+                      fontWeight: 500,
+                      color: T.muted,
+                      marginBottom: SP.sm,
+                    }}
+                  >
+                    Model
+                  </label>
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    disabled={isRunning}
+                    aria-label="AXIOM model"
+                    className="w-full rounded border outline-none"
+                    style={{
+                      padding: PAD.default,
+                      fontSize: FS.sm,
+                      background: T.bg,
+                      border: `1px solid ${T.border}`,
+                      color: T.text,
+                    }}
+                  >
+                    {provider === "anthropic" && (
+                      <>
+                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                        <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                        <option value="claude-3-opus">Claude 3 Opus</option>
+                      </>
+                    )}
+                    {provider === "openai" && (
+                      <>
+                        <option value="gpt-4.1">GPT-4.1</option>
+                        <option value="gpt-4o">GPT-4o</option>
+                        <option value="gpt-4">GPT-4</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+
+                <label
+                  htmlFor="autoIngestCheckbox"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: SP.sm,
+                    fontSize: FS.sm,
+                    fontWeight: 500,
+                    color: T.text,
+                    cursor: isRunning ? "not-allowed" : "pointer",
+                    minHeight: 40,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    id="autoIngestCheckbox"
+                    checked={autoIngest}
+                    onChange={(e) => setAutoIngest(e.target.checked)}
+                    disabled={isRunning}
+                    aria-label="Auto-ingest AXIOM results to knowledge graph"
+                    style={{
+                      cursor: isRunning ? "not-allowed" : "pointer",
+                      width: SP.lg,
+                      height: SP.lg,
+                    }}
+                  />
+                  Auto-ingest to graph
+                </label>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
+          <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+            {isRunning
+              ? "AXIOM is working this thread. The brief stays pinned while the findings update below."
+              : "The brief stays pinned. Scroll the findings below without losing the thread."}
+          </div>
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={isRunning || !targetEntity.trim()}
+            aria-label="Run AXIOM collection pass"
+            className="flex items-center justify-center gap-2 rounded cursor-pointer font-medium"
+            style={{
+              padding: PAD.default,
+              background: isRunning ? `${T.accent}60` : T.accent,
+              color: T.textInverse,
+              fontSize: FS.sm,
+              opacity: isRunning || !targetEntity.trim() ? 0.6 : 1,
+              cursor: isRunning || !targetEntity.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            <Play size={SP.md + SP.xs} />
+            {isRunning ? "Working this thread" : "Work this thread"}
+          </button>
         </div>
       </div>
 
-      {isRunning ? (
-        <LoadingPanel
-          label={status || "AXIOM is working the first pass."}
-          detail={iteration > 0 ? `Iteration ${iteration} is in progress.` : "Collecting public evidence, keeping the weak residue separate, and shaping the first picture."}
-        />
-      ) : null}
+      <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+        {resultsScrollState.canScrollUp ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: SP.xs,
+              height: 28,
+              background: "linear-gradient(180deg, rgba(12,16,24,0.98) 0%, rgba(12,16,24,0) 100%)",
+              pointerEvents: "none",
+              zIndex: 2,
+            }}
+          />
+        ) : null}
 
-      {error ? (
-        <InlineMessage
-          tone="danger"
-          title="AXIOM hit a wall"
-          message={error}
-          icon={AlertCircle}
-        />
-      ) : null}
+        <div
+          ref={resultsScrollRef}
+          onScroll={syncResultsScrollState}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: SP.md,
+            overflowY: "auto",
+            minHeight: 0,
+            paddingRight: SP.xs,
+            paddingBottom: SP.sm,
+          }}
+        >
+          {isRunning ? (
+            <LoadingPanel
+              label={status || "AXIOM is working the first pass."}
+              detail={iteration > 0 ? `Iteration ${iteration} is in progress.` : "Collecting public evidence, keeping the weak residue separate, and shaping the first picture."}
+            />
+          ) : null}
 
-      {!error && !isRunning && status ? (
-        <InlineMessage
-          tone="success"
-          title="AXIOM update"
-          message={status}
-          icon={Search}
-        />
-      ) : null}
+          {error ? (
+            <InlineMessage
+              tone="danger"
+              title="AXIOM hit a wall"
+              message={error}
+              icon={AlertCircle}
+            />
+          ) : null}
 
-      <button
-        type="button"
-        onClick={handleSearch}
-        disabled={isRunning || !targetEntity.trim()}
-        aria-label="Run AXIOM collection pass"
-        className="flex items-center justify-center gap-2 rounded cursor-pointer font-medium"
-        style={{
-          padding: PAD.default,
-          background: isRunning ? `${T.accent}60` : T.accent,
-          color: T.textInverse,
-          fontSize: FS.sm,
-          opacity: isRunning || !targetEntity.trim() ? 0.6 : 1,
-          cursor: isRunning || !targetEntity.trim() ? "not-allowed" : "pointer",
-        }}
-      >
-        <Play size={SP.md + SP.xs} />
-        {isRunning ? "Working..." : "Work this thread"}
-      </button>
+          {!error && !isRunning && status ? (
+            <InlineMessage
+              tone="success"
+              title="AXIOM update"
+              message={status}
+              icon={Search}
+            />
+          ) : null}
 
-      {!isRunning && !results && !error ? (
-        <EmptyPanel
-          title="Nothing active yet"
-          description="Bring the entity, vehicle, or weak point that still feels unresolved. AXIOM will work outward from there."
-          icon={Search}
-        />
-      ) : null}
+          {!isRunning && !results && !error ? (
+            <EmptyPanel
+              title="Nothing active yet"
+              description="Bring the entity, vehicle, or weak point that still feels unresolved. AXIOM will work outward from there."
+              icon={Search}
+            />
+          ) : null}
 
-      {results && (
-        <div className="space-y-3 border-t pt-3" style={{ borderColor: T.border }}>
+          {results ? (
+            <div className="space-y-3 border-t pt-3" style={{ borderColor: T.border }}>
           <div
             className="grid grid-cols-2 gap-3 rounded-lg md:grid-cols-4"
             style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
@@ -774,8 +851,26 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               {isIngesting ? "Promoting..." : "Promote this picture to the graph"}
             </button>
           )}
+            </div>
+          ) : null}
         </div>
-      )}
+
+        {resultsScrollState.canScrollDown ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: SP.xs,
+              height: 34,
+              background: "linear-gradient(180deg, rgba(12,16,24,0) 0%, rgba(12,16,24,0.98) 100%)",
+              pointerEvents: "none",
+              zIndex: 2,
+            }}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

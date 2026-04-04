@@ -598,6 +598,9 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
                 padding: PAD.spacious,
                 display: "grid",
                 gap: SP.lg,
+                position: "sticky",
+                top: PAD.spacious,
+                zIndex: 6,
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: SP.md, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -672,6 +675,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
                 border: `1px solid rgba(255,255,255,0.06)`,
                 background: "rgba(9,12,18,0.92)",
                 overflow: "hidden",
+                minHeight: 420,
               }}
             >
               {mode === "collection" ? (

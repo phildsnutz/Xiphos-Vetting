@@ -453,6 +453,11 @@ export function FrontPorchLanding({
   const [errorText, setErrorText] = useState<string | null>(null);
   const [openingDossierFor, setOpeningDossierFor] = useState<string | null>(null);
   const [resumeIntent, setResumeIntent] = useState<ResumeIntent | null>(null);
+  const [threadScrollState, setThreadScrollState] = useState({
+    canScrollUp: false,
+    canScrollDown: false,
+    atBottom: true,
+  });
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -476,11 +481,25 @@ export function FrontPorchLanding({
     composerRef.current?.focus();
   }, []);
 
+  const syncThreadScrollState = useCallback(() => {
+    const el = messageListRef.current;
+    if (!el) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setThreadScrollState({
+      canScrollUp: el.scrollTop > 8,
+      canScrollDown: remaining > 8,
+      atBottom: remaining <= 8,
+    });
+  }, []);
+
   useEffect(() => {
     const el = messageListRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages, isWorking]);
+    if (isWorking || threadScrollState.atBottom) {
+      el.scrollTop = el.scrollHeight;
+    }
+    window.requestAnimationFrame(syncThreadScrollState);
+  }, [isWorking, messages, syncThreadScrollState, threadScrollState.atBottom]);
 
   useEffect(() => {
     if (!isWorking) return undefined;
@@ -1062,6 +1081,9 @@ export function FrontPorchLanding({
                 padding: PAD.spacious,
                 display: "grid",
                 gap: SP.lg,
+                position: hasThreadDepth ? "sticky" : "relative",
+                top: hasThreadDepth ? SP.lg : undefined,
+                zIndex: hasThreadDepth ? 6 : undefined,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
@@ -1073,41 +1095,78 @@ export function FrontPorchLanding({
                 </div>
               </div>
 
-              <div
-                ref={messageListRef}
-                aria-live="polite"
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: SP.md,
-                  maxHeight: "min(46vh, 520px)",
-                  overflowY: "auto",
-                  paddingRight: SP.xs,
-                }}
-              >
-                {messages.map((message) => (
+              <div style={{ position: "relative" }}>
+                {threadScrollState.canScrollUp ? (
                   <div
-                    key={message.id}
+                    aria-hidden="true"
                     style={{
-                      alignSelf: message.role === "user" ? "flex-end" : "stretch",
-                      maxWidth: message.role === "user" ? "82%" : "100%",
-                      marginLeft: message.role === "user" ? 72 : 0,
-                      borderRadius: 24,
-                      border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : "rgba(255,255,255,0.06)"}`,
-                      background: message.role === "status"
-                        ? "transparent"
-                        : message.role === "user"
-                          ? `${T.accent}${O["08"]}`
-                          : "rgba(255,255,255,0.02)",
-                      padding: message.role === "status" ? "2px 0" : `${SP.lg}px ${PAD.comfortable}`,
-                      color: message.role === "status" ? T.accent : T.text,
-                      fontSize: message.role === "status" ? FS.sm : FS.base,
-                      lineHeight: 1.7,
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: SP.xs,
+                      height: 28,
+                      background: "linear-gradient(180deg, rgba(8,10,16,0.96) 0%, rgba(8,10,16,0) 100%)",
+                      pointerEvents: "none",
+                      zIndex: 2,
                     }}
-                  >
-                    {message.content}
-                  </div>
-                ))}
+                  />
+                ) : null}
+
+                <div
+                  ref={messageListRef}
+                  aria-live="polite"
+                  onScroll={syncThreadScrollState}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: SP.md,
+                    maxHeight: "min(46vh, 520px)",
+                    overflowY: "auto",
+                    paddingRight: SP.xs,
+                    paddingBottom: SP.sm,
+                    scrollPaddingBottom: SP.xxxl,
+                  }}
+                >
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      style={{
+                        alignSelf: message.role === "user" ? "flex-end" : "stretch",
+                        maxWidth: message.role === "user" ? "82%" : "100%",
+                        marginLeft: message.role === "user" ? 72 : 0,
+                        borderRadius: 24,
+                        border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : "rgba(255,255,255,0.06)"}`,
+                        background: message.role === "status"
+                          ? "transparent"
+                          : message.role === "user"
+                            ? `${T.accent}${O["08"]}`
+                            : "rgba(255,255,255,0.02)",
+                        padding: message.role === "status" ? "2px 0" : `${SP.lg}px ${PAD.comfortable}`,
+                        color: message.role === "status" ? T.accent : T.text,
+                        fontSize: message.role === "status" ? FS.sm : FS.base,
+                        lineHeight: 1.7,
+                      }}
+                    >
+                      {message.content}
+                    </div>
+                  ))}
+                </div>
+
+                {threadScrollState.canScrollDown ? (
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: 0,
+                      right: SP.xs,
+                      height: 34,
+                      background: "linear-gradient(180deg, rgba(8,10,16,0) 0%, rgba(8,10,16,0.98) 100%)",
+                      pointerEvents: "none",
+                      zIndex: 2,
+                    }}
+                  />
+                ) : null}
               </div>
 
               <div
@@ -1116,6 +1175,8 @@ export function FrontPorchLanding({
                   paddingTop: SP.lg,
                   display: "grid",
                   gap: SP.md,
+                  background: "linear-gradient(180deg, rgba(8,10,16,0.78) 0%, rgba(8,10,16,0.98) 32%)",
+                  backdropFilter: "blur(16px)",
                 }}
               >
                 <textarea
@@ -1130,6 +1191,7 @@ export function FrontPorchLanding({
                   }}
                   placeholder="ILS 2 follow-on. We think Amentum is the incumbent."
                   aria-label="Brief AXIOM"
+                  disabled={isWorking}
                   className="helios-focus-ring"
                   style={{
                     width: "100%",
@@ -1142,11 +1204,38 @@ export function FrontPorchLanding({
                     fontSize: FS.md,
                     lineHeight: 1.55,
                     fontFamily: "inherit",
+                    opacity: isWorking ? 0.75 : 1,
+                    cursor: isWorking ? "not-allowed" : "text",
                   }}
                 />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                    You do not need the right terms. AXIOM will narrow the problem and ask only what changes the work.
+                  <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+                      {isWorking
+                        ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
+                        : "You do not need the right terms. AXIOM will narrow the problem and ask only what changes the work."}
+                    </div>
+                    {threadScrollState.canScrollDown ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight, behavior: "smooth" });
+                        }}
+                        className="helios-focus-ring"
+                        style={{
+                          border: `1px solid rgba(255,255,255,0.08)`,
+                          background: "rgba(255,255,255,0.04)",
+                          color: T.textSecondary,
+                          borderRadius: 999,
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          fontSize: FS.xs,
+                          fontWeight: 700,
+                        }}
+                      >
+                        Jump to latest
+                      </button>
+                    ) : null}
                   </div>
                   <button
                     type="button"
@@ -1169,7 +1258,7 @@ export function FrontPorchLanding({
                     }}
                   >
                     {isWorking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquareText size={14} />}
-                    Start the brief
+                    {isWorking ? "Working this pass" : "Start the brief"}
                   </button>
                 </div>
               </div>
