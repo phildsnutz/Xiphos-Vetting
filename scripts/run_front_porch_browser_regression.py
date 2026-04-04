@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
 import shutil
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import urllib.request
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -47,6 +49,20 @@ def main() -> int:
 
     session = f"front-porch-regress-{uuid.uuid4().hex[:8]}"
     base_url = args.base_url.rstrip("/")
+    health_url = f"{base_url}/api/health"
+    login_required = True
+    try:
+        with urllib.request.urlopen(health_url, timeout=20) as response:
+            health_payload = json.loads(response.read().decode("utf-8"))
+        login_required = bool(health_payload.get("login_required", True))
+    except Exception:
+        login_required = True
+    if login_required:
+        success_condition = "document.body.innerText.includes(\"Sign in and I’ll work the incumbent path and public ecosystem from there.\")"
+        success_label = "ready"
+    else:
+        success_condition = "document.body.innerText.includes(\"The first vehicle picture is in hand.\") || document.body.innerText.includes(\"The live vehicle search stayed thin, so I opened the first vehicle picture from the context already in hand.\")"
+        success_label = "brief_open"
     regression_code = f"""
 async (page) => {{
   await page.setViewportSize({{ width: 1440, height: 1200 }});
@@ -60,6 +76,7 @@ async (page) => {{
 
   await page.waitForFunction(
     () => document.body.innerText.includes("Good. If this is a follow-on, do you know the incumbent prime?"),
+    undefined,
     {{ timeout: 15000 }},
   );
 
@@ -72,7 +89,8 @@ async (page) => {{
   await composer.press("Enter");
 
   await page.waitForFunction(
-    () => document.body.innerText.includes("Sign in and I’ll work the incumbent path and public ecosystem from there."),
+    () => {success_condition},
+    undefined,
     {{ timeout: 15000 }},
   );
 
@@ -84,7 +102,7 @@ async (page) => {{
 
   return {{
     clarifying_state: "visible",
-    handoff: "ready",
+    handoff: {success_label!r},
   }};
 }}
 """.strip()

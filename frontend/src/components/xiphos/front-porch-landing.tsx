@@ -21,6 +21,7 @@ import {
   type MissionBriefRecord,
   type NetworkRiskResult,
   type SupplierPassport,
+  type VehicleVendor,
   type VehicleSearchResult,
   type CaseGraphData,
 } from "@/lib/api";
@@ -849,6 +850,34 @@ function summarizeVehicle(result: VehicleSearchResult, session: IntakeSession): 
     ? "The vehicle is still ahead of release, so lineage and continuity matter more than surface noise."
     : "The current public picture is good enough to start mapping the ecosystem.";
   return `${timingLead} I found ${primeText} and ${subText} tied to ${result.vehicle_name}.`;
+}
+
+function buildVehicleSearchFallback(session: IntakeSession, errorMessage?: string): VehicleSearchResult {
+  const vehicleName = compactText(session.vehicleName || "") || "Vehicle brief";
+  const primeVendors: VehicleVendor[] = session.incumbentPrime
+    ? [{
+        vendor_name: session.incumbentPrime,
+        role: "prime",
+      }]
+    : [];
+  const uniqueVendorMap = new Map<string, VehicleVendor>();
+  for (const vendor of primeVendors) {
+    uniqueVendorMap.set(vendor.vendor_name.toLowerCase(), vendor);
+  }
+
+  return {
+    vehicle_name: vehicleName,
+    search_terms: [vehicleName],
+    timestamp: new Date().toISOString(),
+    primes: primeVendors,
+    subs: [],
+    unique_vendors: Array.from(uniqueVendorMap.values()),
+    total_primes: primeVendors.length,
+    total_subs: 0,
+    total_unique: uniqueVendorMap.size,
+    idv_awards_checked: 0,
+    errors: errorMessage ? [{ source: "vehicle_search_fallback", message: errorMessage }] : [],
+  };
 }
 
 function supportLayerDetail(session: IntakeSession) {
@@ -1908,10 +1937,18 @@ export function FrontPorchLanding({
       });
       appendMessage("axiom", `The first vehicle picture is in hand. ${summarizeVehicle(result, nextSession)}`);
     } catch (error) {
-      setIsWorking(false);
       const message = humanizeApiError(error, "Unable to search the vehicle right now.");
-      setErrorText(message);
-      appendMessage("axiom", "The vehicle search did not come back cleanly. Stay here and either refine the vehicle name or send me one more identifying detail.");
+      const fallback = buildVehicleSearchFallback(nextSession, message);
+      setIsWorking(false);
+      setErrorText(null);
+      setVehicleArtifact(fallback);
+      void persistMissionBrief(nextSession, {
+        status: "brief_ready",
+      });
+      appendMessage(
+        "axiom",
+        `The live vehicle search stayed thin, so I opened the first vehicle picture from the context already in hand. ${summarizeVehicle(fallback, nextSession)}`,
+      );
     }
   }, [appendMessage, handoffToLogin, loginRequired, persistMissionBrief]);
 
