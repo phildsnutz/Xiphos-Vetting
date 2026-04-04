@@ -819,7 +819,7 @@ export default function App() {
         style={{
           background: T.bg,
           color: T.text,
-          overflow: authRequired && !user || frontPorchMode || warRoomMode ? "auto" : "hidden",
+          overflow: warRoomMode ? "hidden" : authRequired && !user || frontPorchMode ? "auto" : "hidden",
         }}
       >
         {authRequired && !user ? (

@@ -145,6 +145,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
   const targetInputRef = useRef<HTMLInputElement | null>(null);
   const resultsScrollRef = useRef<HTMLDivElement | null>(null);
   const autoRunSeedKeyRef = useRef<string>("");
+  const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 1024);
   const [targetEntity, setTargetEntity] = useState("");
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
@@ -172,6 +173,14 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
       canScrollUp: el.scrollTop > 8,
       canScrollDown: remaining > 8,
     });
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const handleChange = (event: MediaQueryListEvent) => setIsCompactViewport(event.matches);
+    setIsCompactViewport(media.matches);
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
   }, []);
 
   useEffect(() => {
@@ -353,13 +362,15 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
         background: "rgba(12,16,24,0.82)",
         border: `1px solid rgba(255,255,255,0.06)`,
         padding: PAD.comfortable,
-        maxHeight: "min(72vh, 860px)",
+        height: isCompactViewport ? "auto" : "min(72vh, 860px)",
+        maxHeight: isCompactViewport ? "none" : "min(72vh, 860px)",
+        overflow: isCompactViewport ? "visible" : "hidden",
       }}
     >
       <div
         style={{
-          position: "sticky",
-          top: 0,
+          position: isCompactViewport ? "relative" : "sticky",
+          top: isCompactViewport ? undefined : 0,
           zIndex: 3,
           display: "grid",
           gap: SP.md,
@@ -701,7 +712,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
       </div>
 
       <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
-        {resultsScrollState.canScrollUp ? (
+        {!isCompactViewport && resultsScrollState.canScrollUp ? (
           <div
             aria-hidden="true"
             style={{
@@ -724,7 +735,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
             display: "flex",
             flexDirection: "column",
             gap: SP.md,
-            overflowY: "auto",
+            overflowY: isCompactViewport ? "visible" : "auto",
             minHeight: 0,
             paddingRight: SP.xs,
             paddingBottom: SP.sm,
@@ -925,7 +936,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
           ) : null}
         </div>
 
-        {resultsScrollState.canScrollDown ? (
+        {!isCompactViewport && resultsScrollState.canScrollDown ? (
           <div
             aria-hidden="true"
             style={{

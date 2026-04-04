@@ -423,10 +423,13 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
   return (
     <div
       style={{
+        height: "100%",
         minHeight: "100vh",
         background: "radial-gradient(circle at 50% 0%, rgba(14,165,233,0.08), transparent 28%), linear-gradient(180deg, #05070b 0%, #090d13 100%)",
         color: T.text,
-        overflow: "auto",
+        overflowY: "auto",
+        overflowX: "hidden",
+        overscrollBehaviorY: "contain",
       }}
     >
       <div
