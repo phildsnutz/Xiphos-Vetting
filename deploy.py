@@ -148,7 +148,11 @@ ARCHIVE_EXCLUDES = {
     ".ruff_cache",
 }
 
-BUNDLE_MUST_HAVE = ["Helios | Xiphos", "Create draft cases", "Defense counterparty trust"]
+BUNDLE_MUST_HAVE = [
+    "Helios | Xiphos",
+    "Vendor assessment + contract vehicle intelligence",
+    "Open intake",
+]
 BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "xiphos-dashboard"]
 
 
@@ -310,6 +314,12 @@ def cleanup_remote_vendor(vendor_id: str) -> tuple[bool, str]:
     except Exception as exc:  # pragma: no cover - deploy helper
         return False, f"ssh unavailable: {exc}"
 
+    try:
+        secret_key = resolve_secret_key(ssh)
+    except Exception as exc:  # pragma: no cover - deploy helper
+        ssh.close()
+        return False, f"secret unavailable: {exc}"
+
     cleanup_code = f"""
 import sqlite3, sys
 sys.path.insert(0, '/app/backend')
@@ -333,6 +343,7 @@ print('verification vendor cleanup complete')
 
     cmd = (
         f"cd {shlex.quote(REMOTE_DIR)} && "
+        f"export XIPHOS_SECRET_KEY={shlex.quote(secret_key)} && "
         "docker compose exec -T xiphos python3 - <<'PY'\n"
         f"{cleanup_code}\n"
         "PY"
