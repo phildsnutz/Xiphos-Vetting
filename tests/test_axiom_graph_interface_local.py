@@ -101,6 +101,7 @@ def test_axiom_graph_interface_profile_and_staging_review(graph_env):
     assert profile["structured_payload"]["entity"]["name"] == "SMX"
     assert profile["structured_payload"]["direct_relationship_counts"]["competitor_of"] == 1
     assert profile["structured_payload"]["state_mix"]["observed"] >= 1
+    assert profile["structured_payload"]["applicable_rules"]
 
     staged = agi.graph_assert(
         "entity:smx",
@@ -139,6 +140,16 @@ def test_axiom_graph_routes_expose_interrogation_and_review(graph_env):
         profile_body = profile.get_json()
         assert profile_body["status"] == "ok"
         assert profile_body["structured_payload"]["entity"]["name"] == "SMX"
+        assert profile_body["structured_payload"]["applicable_rules"]
+
+        rules = client.post(
+            "/api/axiom/graph/rules",
+            json={"vendor_id": "case-smx", "workflow_lane": "counterparty"},
+        )
+        assert rules.status_code == 200
+        rules_body = rules.get_json()
+        assert rules_body["status"] == "ok"
+        assert rules_body["structured_payload"]["rules"]
 
         staged = client.post(
             "/api/axiom/graph/annotate",
@@ -201,3 +212,98 @@ def test_detect_communities_reports_algorithm_and_bridge_entities():
     first = next(iter(result["communities"].values()))
     assert "density" in first
     assert "bridge_entities" in first
+
+
+def test_graph_interrogation_reuses_cached_snapshot_and_skips_full_centrality(graph_env, monkeypatch):
+    agi = graph_env["agi"]
+
+    class FakeAnalytics:
+        load_calls = 0
+        interrogation_calls = 0
+
+        def __init__(self):
+            self.loaded = False
+            self.nodes = {
+                "entity:smx": {"canonical_name": "SMX", "entity_type": "company"},
+                "entity:amentum": {"canonical_name": "Amentum", "entity_type": "company"},
+            }
+            self.edges = []
+            self.adj = defaultdict(list)
+
+        def load_graph(self, limit=50000):
+            type(self).load_calls += 1
+            self.loaded = True
+            return True
+
+        def compute_interrogation_centrality(self, entity_id, mission_context=None):
+            type(self).interrogation_calls += 1
+            return {
+                "entity_id": entity_id,
+                "entity_name": "SMX",
+                "entity_type": "company",
+                "degree": {"degree": 2, "weighted_normalized": 0.8},
+                "betweenness": {"normalized": 0.6},
+                "closeness": {"closeness": 0.5, "avg_distance": 1.2, "reachable": 1},
+                "pagerank": {"normalized": 0.7},
+                "local_edge_intelligence": 0.83,
+                "structural_importance": 0.63,
+                "decision_importance": 0.72,
+                "focus_proximity": 1.0,
+                "contextual_relevance": 1.0,
+                "mission_importance": 0.72,
+                "composite_importance": 0.72,
+            }
+
+        def compute_all_centrality(self, mission_context=None):
+            raise AssertionError("full centrality should not run for graph interrogation")
+
+        def detect_communities(self):
+            return {
+                "communities": {
+                    "community_0": {
+                        "members": [{"id": "entity:smx", "name": "SMX"}],
+                        "size": 1,
+                        "density": 1.0,
+                        "bridge_entities": [],
+                    }
+                },
+                "node_labels": {"entity:smx": "community_0"},
+                "count": 1,
+                "modularity": 0.0,
+                "algorithm": "leiden",
+            }
+
+        def compute_sanctions_exposure(self):
+            return {
+                "entity:smx": {"exposure_score": 0.0, "risk_level": "CLEAR"},
+                "entity:amentum": {"exposure_score": 0.0, "risk_level": "CLEAR"},
+            }
+
+        def describe_entity_topology(self, entity_id, mission_context=None):
+            return {
+                "entity_id": entity_id,
+                "role": "contextual_node",
+                "tags": ["mission-relevant"],
+                "degree_percentile": 0.62,
+                "betweenness_percentile": 0.55,
+                "influence_percentile": 0.6,
+                "degree_count": 2,
+                "mission_importance": 0.72,
+                "supporting_facts": ["Mission importance is reading 0.72 once the current brief context is applied."],
+            }
+
+        def compute_suspicious_absences(self, entity_id):
+            return []
+
+    monkeypatch.setattr(agi, "GraphAnalytics", FakeAnalytics)
+    monkeypatch.setattr(agi, "get_graph_snapshot_signature", lambda: "snapshot:test")
+    agi._ANALYTICS_RUNTIME["snapshot"] = ""
+    agi._ANALYTICS_RUNTIME["analytics"] = None
+
+    profile = agi.graph_profile(vendor_id="case-smx", workflow_lane="counterparty")
+    anomalies = agi.graph_anomalies(vendor_id="case-smx", workflow_lane="counterparty")
+
+    assert profile["status"] == "ok"
+    assert anomalies["status"] == "ok"
+    assert FakeAnalytics.load_calls == 1
+    assert FakeAnalytics.interrogation_calls == 2

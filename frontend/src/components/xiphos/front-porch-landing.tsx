@@ -701,14 +701,14 @@ function missionBriefSummary(session: IntakeSession): string {
       session.incumbentPrime ? `${session.incumbentPrime} incumbent` : null,
     ].filter(Boolean).join(", ");
     return details
-      ? `Contract vehicle intelligence on ${details}.`
-      : "Contract vehicle intelligence scoped from Front Porch.";
+      ? `Vehicle brief on ${details}.`
+      : "Vehicle brief scoped from the briefing room.";
   }
 
   const weightedFirst = humanizePriorityFocus(session.priorityFocus) || "the full picture";
   return session.vendorName
-    ? `Vendor assessment on ${session.vendorName}. Weight ${weightedFirst} first without shrinking the scope.`
-    : "Vendor assessment scoped from Front Porch.";
+    ? `Entity brief on ${session.vendorName}. Weight ${weightedFirst} first without shrinking the scope.`
+    : "Entity brief scoped from the briefing room.";
 }
 
 function clarifyingFollowUpLabel(pendingFollowUp: PendingFollowUp | null): string | null {
@@ -939,7 +939,7 @@ function buildVendorArtifact(
   caseId: string,
   subjectOverride?: string,
 ): VendorArtifact {
-  const subject = subjectOverride ?? candidate?.legal_name ?? session.vendorName ?? "Vendor assessment";
+  const subject = subjectOverride ?? candidate?.legal_name ?? session.vendorName ?? "Entity brief";
   const ownershipDetail = candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name
     ? `Public control signals already run beyond the surface entity toward ${candidate.highest_owner}.`
     : "The visible public record is still surface-level, so the control story will stay under pressure until it holds.";
@@ -951,11 +951,11 @@ function buildVendorArtifact(
     title: subject,
     eyebrow: phase === "ready" ? "Returned brief" : "Working brief",
     framing: phase === "ready"
-      ? `The first returned brief is ready. AXIOM kept the strongest holds visible and left the real ambiguity explicit.`
-      : `AXIOM is warming the first picture around ${subject} without pretending the thin parts are settled.`,
+      ? "AXIOM's first memo is ready. It keeps the strongest holds visible and leaves the real ambiguity explicit."
+      : `AXIOM is building the first judgment around ${subject} without pretending the thin edge is settled.`,
     sections: [
       {
-        label: "What I found",
+        label: "Initial judgment",
         detail: focusDetail
           ? `This is being worked as a full entity picture, with ${focusDetail} weighted first instead of shrinking the scope.`
           : "This is being worked as a full entity picture, with the public record forced to answer the real decision before AXIOM narrows anything.",
@@ -966,13 +966,13 @@ function buildVendorArtifact(
         tone: candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name ? "info" : "warning",
       },
       {
-        label: "Supporting thread",
+        label: "What changes the call",
         detail: supportLayerDetail(session),
       },
     ],
     note: phase === "ready"
-      ? "Read the clean narrative here. Step into War Room when you want to challenge the picture or pull a harder thread."
-      : "The working case is open and warming. If you want the trail instead of the summary, step into War Room.",
+      ? "Read the memo here. Step into War Room when you want to challenge the picture or pull a harder thread."
+      : "The working case is open and warming. Step into War Room when you want the trail instead of the summary.",
     provenance: phase === "ready"
       ? ["Resolution-backed", "Initial graph context", "Public record only"]
       : ["Entity resolution", "Warm graph context", "Public record only"],
@@ -1095,7 +1095,7 @@ function buildGapClosureContext(
 ) {
   const assessment = assessVendorThinness(readiness);
   const context: string[] = [
-    `Front Porch returned brief warming for ${subject}.`,
+    `Brief room warming for ${subject}.`,
     options.escalated
       ? "The first AXIOM pressure pass still left the picture thin. Push harder against the unresolved edge before the brief freezes."
       : "Work the full entity picture and close the thinnest public-data gap before the brief freezes.",
@@ -1160,11 +1160,11 @@ function buildReturnedVendorArtifact(
   const pressurePasses = gapClosure?.passes ?? 0;
 
   const whatHolds = connectorsWithData > 0 || findingsTotal > 0
-    ? `The first picture is carrying ${connectorsWithData} live source${connectorsWithData === 1 ? "" : "s"} with data, and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} made it through the first cut.`
-    : "The public record stayed unusually thin, so this brief is holding only the parts that actually stand up instead of pretending the surface story is complete.";
+    ? `The first judgment is resting on ${connectorsWithData} live source${connectorsWithData === 1 ? "" : "s"} with data, and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} survived the first cut. That is enough to brief from without pretending the surface story is complete.`
+    : "The public record stayed unusually thin, so this memo is holding only the parts that actually stand up instead of bluffing past the gaps.";
 
   const graphDetail = relationshipCount > 0
-    ? `The graph materially changed the read. It is carrying ${relationshipCount} relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"}${dominantEdgeFamily ? `, with ${dominantEdgeFamily} holding the strongest edge family.` : "."}`
+    ? `The graph changed the call, not just the picture. It is carrying ${relationshipCount} relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"}${dominantEdgeFamily ? `, with ${dominantEdgeFamily} holding the strongest edge family.` : "."}`
     : "The graph stayed too thin to soften the call, which means silence still should not be treated as comfort.";
 
   const thinDetails: string[] = [];
@@ -1196,7 +1196,7 @@ function buildReturnedVendorArtifact(
     : "The weak edge is now explicit, but no material thin spot is being hidden under surface calm.";
 
   const gapDetail = gapClosure?.status === "completed"
-    ? `AXIOM went back through the weak edge ${pressurePasses > 1 ? `${pressurePasses} times` : "once"} and surfaced ${gapClosure.entitiesFound} additional entit${gapClosure.entitiesFound === 1 ? "y" : "ies"}, ${gapClosure.relationshipsFound} relationship${gapClosure.relationshipsFound === 1 ? "" : "s"}, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.${gapClosure.gapHighlights?.length ? ` It kept pressure on ${gapClosure.gapHighlights.join("; ")}.` : ""}`
+    ? `AXIOM reopened the weak edge ${pressurePasses > 1 ? `${pressurePasses} times` : "once"} and surfaced ${gapClosure.entitiesFound} additional entit${gapClosure.entitiesFound === 1 ? "y" : "ies"}, ${gapClosure.relationshipsFound} relationship${gapClosure.relationshipsFound === 1 ? "" : "s"}, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.${gapClosure.gapHighlights?.length ? ` It kept pressure on ${gapClosure.gapHighlights.join("; ")}.` : ""}`
     : gapClosure?.status === "failed"
       ? gapClosure.note
       : "AXIOM did not need a second pressure pass because the first picture already had enough structure to freeze honestly.";
@@ -1207,8 +1207,8 @@ function buildReturnedVendorArtifact(
     title: subject,
     eyebrow: "Returned brief",
     framing: gapClosure?.status === "completed"
-      ? `AXIOM’s first judgment is ready. It uses enrichment, the visible relationship fabric, and ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "one pressure pass"} before freezing the picture.`
-      : "AXIOM’s first judgment is ready. It uses enrichment and the current relationship fabric before freezing the picture.",
+      ? `AXIOM's first judgment is ready. It uses enrichment, the visible relationship fabric, and ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "one pressure pass"} before the picture was allowed to freeze.`
+      : "AXIOM's first judgment is ready. It uses enrichment and the current relationship fabric before the picture was allowed to freeze.",
     sections: [
       {
         label: "What holds",
@@ -1234,8 +1234,8 @@ function buildReturnedVendorArtifact(
       },
     ],
     note: gapClosure?.status === "completed"
-      ? "Read the clean judgment here. Step into War Room when you want to challenge what still stayed thin after AXIOM pressed the weak edge."
-      : "Read the clean judgment here. Step into War Room when you want to challenge the weak edge directly.",
+      ? "Read the judgment here. Step into War Room when you want to challenge what still stayed thin after AXIOM pressed the weak edge."
+      : "Read the judgment here. Step into War Room when you want to challenge the weak edge directly.",
     provenance: [
       `${connectorsWithData} sources with data`,
       relationshipCount > 0 ? `${relationshipCount} graph relationships` : "Graph still thin",
@@ -1676,7 +1676,7 @@ export function FrontPorchLanding({
           .slice(0, 3),
       };
     } catch (error) {
-      const message = humanizeApiError(error, "The AXIOM pressure pass did not close the weak edge cleanly.");
+  const message = humanizeApiError(error, "The AXIOM pressure pass did not close the weak edge cleanly.");
       return {
         status: "failed" as const,
         passes: options.passIndex ?? 1,
@@ -1693,7 +1693,7 @@ export function FrontPorchLanding({
     nextSession: IntakeSession,
     subjectOverride?: string,
   ) => {
-    const subject = subjectOverride || nextSession.vendorName || "Vendor assessment";
+  const subject = subjectOverride || nextSession.vendorName || "Entity brief";
     let readiness = await loadVendorReadiness(caseId);
     let gapClosureMessageSent = false;
     let gapClosure: VendorBriefReadiness["axiomGapClosure"] = null;
@@ -2181,7 +2181,7 @@ export function FrontPorchLanding({
         >
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
             <div style={{ fontSize: FS.md, fontWeight: 800, letterSpacing: "-0.04em" }}>Helios</div>
-            <StatusPill tone="info">Front Porch</StatusPill>
+            <StatusPill tone="info">Briefing</StatusPill>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, position: "relative", flexWrap: "wrap", justifyContent: isCompactViewport ? "flex-start" : "flex-end" }}>
@@ -2889,7 +2889,7 @@ export function FrontPorchLanding({
 
             {errorText ? (
               <div style={{ width: "min(760px, 100%)" }}>
-                <InlineMessage tone="danger" title="Front Porch hit a problem" message={errorText} />
+                <InlineMessage tone="danger" title="Briefing hit a problem" message={errorText} />
               </div>
             ) : null}
               </>

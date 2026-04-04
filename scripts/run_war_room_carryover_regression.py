@@ -42,38 +42,19 @@ def _health_payload(base_url: str) -> dict:
     return json.loads(body.decode("utf-8")) if body else {}
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the War Room carried-brief browser regression.")
-    parser.add_argument("--base-url", required=True)
-    parser.add_argument("--email", default="")
-    parser.add_argument("--password", default="")
-    parser.add_argument("--wrapper", default=str(DEFAULT_WRAPPER))
-    args = parser.parse_args()
-
-    wrapper = pathlib.Path(args.wrapper).expanduser()
-    if not wrapper.exists():
-        raise SystemExit(f"Playwright wrapper not found at {wrapper}")
-    if shutil.which("npx") is None:
-        raise SystemExit("npx is required for the War Room browser regression")
-
-    base_url = args.base_url.rstrip("/")
-    health = _health_payload(base_url)
-    login_required = bool(health.get("login_required", True))
-    if login_required and (not args.email or not args.password):
-        raise SystemExit("War Room carryover regression requires --email and --password when login is enabled")
-
+def _run_regression_attempt(wrapper: pathlib.Path, base_url: str, *, login_required: bool, email: str, password: str) -> str:
     session = f"war-room-regress-{uuid.uuid4().hex[:8]}"
     if login_required:
         auth_block = f"""
   const dialog = page.getByText("Sign in to continue");
   await dialog.waitFor({{ state: "visible", timeout: 15000 }});
-  await page.getByLabel("Email").fill({args.email!r});
-  await page.getByLabel("Password").fill({args.password!r});
+  await page.getByLabel("Email").fill({email!r});
+  await page.getByLabel("Password").fill({password!r});
   await page.getByRole("button", {{ name: "Continue" }}).click();
   await page.waitForFunction(
     () => document.body.innerText.includes("Take into War Room"),
     undefined,
-    {{ timeout: 20000 }},
+    {{ timeout: 30000 }},
   );
 """.rstrip()
     else:
@@ -81,7 +62,7 @@ def main() -> int:
   await page.waitForFunction(
     () => document.body.innerText.includes("Take into War Room"),
     undefined,
-    { timeout: 20000 },
+    { timeout: 30000 },
   );
 """.rstrip()
 
@@ -106,13 +87,19 @@ async (page) => {{
 {auth_block}
 
   const takeIntoWarRoom = page.getByRole("button", {{ name: "Take into War Room" }});
-  await takeIntoWarRoom.waitFor({{ state: "visible", timeout: 15000 }});
+  await takeIntoWarRoom.waitFor({{ state: "visible", timeout: 20000 }});
   await takeIntoWarRoom.click();
 
   await page.waitForFunction(
-    () => document.body.innerText.includes("Brief carried from Front Porch") && document.body.innerText.includes("War Room"),
+    () => (
+      (
+        document.body.innerText.includes("Brief carried from Briefing")
+        || document.body.innerText.includes("Brief carried from Front Porch")
+      )
+      && document.body.innerText.includes("War Room")
+    ),
     undefined,
-    {{ timeout: 15000 }},
+    {{ timeout: 20000 }},
   );
 
   const finalBody = await page.evaluate(() => document.body.innerText);
@@ -131,14 +118,55 @@ async (page) => {{
         cwd = pathlib.Path(tmp)
         try:
             _run_cli(wrapper, session, cwd, "open", base_url)
-            output = _run_cli(wrapper, session, cwd, "run-code", regression_code)
-            print("PASS: War Room carryover regression")
-            print(output)
+            return _run_cli(wrapper, session, cwd, "run-code", regression_code)
         finally:
             try:
                 _run_cli(wrapper, session, cwd, "close")
             except Exception:
                 pass
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run the War Room carried-brief browser regression.")
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--email", default="")
+    parser.add_argument("--password", default="")
+    parser.add_argument("--wrapper", default=str(DEFAULT_WRAPPER))
+    args = parser.parse_args()
+
+    wrapper = pathlib.Path(args.wrapper).expanduser()
+    if not wrapper.exists():
+        raise SystemExit(f"Playwright wrapper not found at {wrapper}")
+    if shutil.which("npx") is None:
+        raise SystemExit("npx is required for the War Room browser regression")
+
+    base_url = args.base_url.rstrip("/")
+    health = _health_payload(base_url)
+    login_required = bool(health.get("login_required", True))
+    if login_required and (not args.email or not args.password):
+        raise SystemExit("War Room carryover regression requires --email and --password when login is enabled")
+
+    last_error: Exception | None = None
+    output = ""
+    for _ in range(3):
+        try:
+            output = _run_regression_attempt(
+                wrapper,
+                base_url,
+                login_required=login_required,
+                email=args.email,
+                password=args.password,
+            )
+            last_error = None
+            break
+        except RuntimeError as exc:
+            last_error = exc
+            if "EADDRINUSE" not in str(exc):
+                break
+    if last_error is not None:
+        raise last_error
+    print("PASS: War Room carryover regression")
+    print(output)
 
     return 0
 

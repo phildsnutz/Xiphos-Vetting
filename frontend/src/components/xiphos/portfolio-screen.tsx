@@ -187,7 +187,7 @@ export function PortfolioScreen({
           <div style={{ minWidth: 0, flex: 1, maxWidth: 840 }}>
             <SectionEyebrow>Operator workbench</SectionEyebrow>
             <div style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text, marginTop: SP.sm }}>
-              Vendor assessment queue
+              Entity intelligence queue
             </div>
             <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.65, marginTop: SP.sm }}>
               {queueSummary}

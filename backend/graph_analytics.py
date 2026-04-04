@@ -45,6 +45,7 @@ import heapq
 import logging
 import math
 import sys
+import threading
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Optional
@@ -120,6 +121,8 @@ class GraphAnalytics:
         self.edges = []          # [{source, target, rel_type, confidence, data_source, created_at}]
         self.adj = defaultdict(list)   # adjacency list: {id: [(neighbor_id, edge_idx), ...]}
         self.loaded = False
+        self._cache_lock = threading.RLock()
+        self._memo: dict[tuple, object] = {}
 
     def load_graph(self, limit: int = 50000) -> bool:
         """Load the full knowledge graph into memory for analysis."""
@@ -161,12 +164,24 @@ class GraphAnalytics:
         self.edges = annotate_graph_relationship_intelligence(self.edges)
 
         self.loaded = True
+        with self._cache_lock:
+            self._memo = {}
         logger.info(f"Graph loaded: {len(self.nodes)} nodes, {len(self.edges)} edges")
         return True
 
     def _ensure_loaded(self):
         if not self.loaded:
             self.load_graph()
+
+    def _memoized(self, key: tuple, loader):
+        with self._cache_lock:
+            cached = self._memo.get(key)
+        if cached is not None:
+            return cached
+        value = loader()
+        with self._cache_lock:
+            self._memo[key] = value
+        return value
 
     def _edge_strength(self, edge: dict) -> float:
         return max(
@@ -275,28 +290,32 @@ class GraphAnalytics:
         Returns: {entity_id: {degree, weighted_degree, normalized}}
         """
         self._ensure_loaded()
-        n = len(self.nodes)
-        if n == 0:
-            return {}
 
-        result = {}
-        max_weighted = 0.0
-        for nid in self.nodes:
-            neighbors = self.adj.get(nid, [])
-            degree = len(neighbors)
-            weighted = sum(self._edge_strength(self.edges[eidx]) for _, eidx in neighbors)
-            max_weighted = max(max_weighted, weighted)
-            result[nid] = {
-                "degree": degree,
-                "weighted_degree": round(weighted, 4),
-                "normalized": round(degree / max(n - 1, 1), 4),
-            }
+        def _compute():
+            n = len(self.nodes)
+            if n == 0:
+                return {}
 
-        for nid in result:
-            weighted_degree = float(result[nid]["weighted_degree"])
-            result[nid]["weighted_normalized"] = round(weighted_degree / max(max_weighted, 1e-10), 4)
+            result = {}
+            max_weighted = 0.0
+            for nid in self.nodes:
+                neighbors = self.adj.get(nid, [])
+                degree = len(neighbors)
+                weighted = sum(self._edge_strength(self.edges[eidx]) for _, eidx in neighbors)
+                max_weighted = max(max_weighted, weighted)
+                result[nid] = {
+                    "degree": degree,
+                    "weighted_degree": round(weighted, 4),
+                    "normalized": round(degree / max(n - 1, 1), 4),
+                }
 
-        return result
+            for nid in result:
+                weighted_degree = float(result[nid]["weighted_degree"])
+                result[nid]["weighted_normalized"] = round(weighted_degree / max(max_weighted, 1e-10), 4)
+
+            return result
+
+        return self._memoized(("degree_centrality",), _compute)
 
     def compute_betweenness_centrality(self, sample_size: int = 200) -> dict:
         """
@@ -307,39 +326,44 @@ class GraphAnalytics:
         Critical for finding shell companies, intermediaries, and brokers.
         """
         self._ensure_loaded()
-        n = len(self.nodes)
-        if n < 3:
-            return {nid: {"betweenness": 0.0, "normalized": 0.0} for nid in self.nodes}
+        sample_key = max(1, int(sample_size or 1))
 
-        betweenness = defaultdict(float)
-        node_list = list(self.nodes.keys())
+        def _compute():
+            n = len(self.nodes)
+            if n < 3:
+                return {nid: {"betweenness": 0.0, "normalized": 0.0} for nid in self.nodes}
 
-        # Sample source nodes for scalability
-        sources = node_list[:min(sample_size, n)]
+            betweenness = defaultdict(float)
+            node_list = list(self.nodes.keys())
 
-        for s in sources:
-            stack, pred, sigma, _ = self._weighted_shortest_path_tree(s)
-            delta = defaultdict(float)
-            while stack:
-                w = stack.pop()
-                for v in pred[w]:
-                    if sigma[w] > 0:
-                        delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w])
-                if w != s:
-                    betweenness[w] += delta[w]
+            # Sample source nodes for scalability
+            sources = node_list[:min(sample_key, n)]
 
-        # Normalize
-        max_b = max(betweenness.values()) if betweenness else 1.0
+            for s in sources:
+                stack, pred, sigma, _ = self._weighted_shortest_path_tree(s)
+                delta = defaultdict(float)
+                while stack:
+                    w = stack.pop()
+                    for v in pred[w]:
+                        if sigma[w] > 0:
+                            delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w])
+                    if w != s:
+                        betweenness[w] += delta[w]
 
-        result = {}
-        for nid in self.nodes:
-            b = betweenness.get(nid, 0.0)
-            result[nid] = {
-                "betweenness": round(b, 4),
-                "normalized": round(b / max(max_b, 1e-10), 4),
-            }
+            # Normalize
+            max_b = max(betweenness.values()) if betweenness else 1.0
 
-        return result
+            result = {}
+            for nid in self.nodes:
+                b = betweenness.get(nid, 0.0)
+                result[nid] = {
+                    "betweenness": round(b, 4),
+                    "normalized": round(b / max(max_b, 1e-10), 4),
+                }
+
+            return result
+
+        return self._memoized(("betweenness_centrality", sample_key), _compute)
 
     def compute_closeness_centrality(self) -> dict:
         """
@@ -350,33 +374,50 @@ class GraphAnalytics:
         affected by network events (sanctions cascade, news propagation).
         """
         self._ensure_loaded()
-        n = len(self.nodes)
-        if n < 2:
-            return {nid: {"closeness": 0.0, "avg_distance": 0.0} for nid in self.nodes}
 
-        result = {}
-        for nid in self.nodes:
-            _, _, _, dist = self._weighted_shortest_path_tree(nid)
+        def _compute():
+            n = len(self.nodes)
+            if n < 2:
+                return {nid: {"closeness": 0.0, "avg_distance": 0.0} for nid in self.nodes}
+
+            result = {}
+            for nid in self.nodes:
+                result[nid] = self.compute_closeness_for_entity(nid)
+
+            return result
+
+        return self._memoized(("closeness_centrality",), _compute)
+
+    def compute_closeness_for_entity(self, entity_id: str) -> dict:
+        """Cheap closeness calculation for a single entity during interrogation."""
+        self._ensure_loaded()
+        normalized_entity_id = str(entity_id or "").strip()
+        if normalized_entity_id not in self.nodes:
+            return {"closeness": 0.0, "avg_distance": 0.0, "reachable": 0}
+
+        def _compute():
+            n = len(self.nodes)
+            if n < 2:
+                return {"closeness": 0.0, "avg_distance": 0.0, "reachable": 0}
+
+            _, _, _, dist = self._weighted_shortest_path_tree(normalized_entity_id)
             reachable = len(dist) - 1
             if reachable == 0:
-                result[nid] = {"closeness": 0.0, "avg_distance": 0.0, "reachable": 0}
-                continue
+                return {"closeness": 0.0, "avg_distance": 0.0, "reachable": 0}
 
             total_dist = sum(dist.values())
             avg_dist = total_dist / reachable
             closeness = reachable / total_dist if total_dist > 0 else 0.0
-
-            # Normalize by component size
             if reachable < n - 1:
                 closeness *= (reachable / (n - 1))
 
-            result[nid] = {
+            return {
                 "closeness": round(closeness, 4),
                 "avg_distance": round(avg_dist, 2),
                 "reachable": reachable,
             }
 
-        return result
+        return self._memoized(("closeness_entity", normalized_entity_id), _compute)
 
     def compute_pagerank(self, damping: float = 0.85, iterations: int = 50, tol: float = 1e-6) -> dict:
         """
@@ -387,42 +428,104 @@ class GraphAnalytics:
         Uses intelligence-weighted edges for propagation strength.
         """
         self._ensure_loaded()
-        n = len(self.nodes)
-        if n == 0:
-            return {}
+        cache_key = ("pagerank", round(float(damping), 4), max(1, int(iterations or 1)), float(tol))
 
-        node_list = list(self.nodes.keys())
-        rank = {nid: 1.0 / n for nid in node_list}
+        def _compute():
+            n = len(self.nodes)
+            if n == 0:
+                return {}
 
-        for _ in range(iterations):
-            new_rank = {}
+            node_list = list(self.nodes.keys())
+            rank = {nid: 1.0 / n for nid in node_list}
+
+            for _ in range(iterations):
+                new_rank = {}
+                for nid in node_list:
+                    incoming_sum = 0.0
+                    for neighbor, eidx in self.adj.get(nid, []):
+                        outgoing_edges = self.adj.get(neighbor, [])
+                        outgoing_weight = sum(self._edge_strength(self.edges[out_idx]) for _, out_idx in outgoing_edges)
+                        if outgoing_weight > 0:
+                            weight = self._edge_strength(self.edges[eidx])
+                            incoming_sum += (rank[neighbor] * weight) / outgoing_weight
+
+                    new_rank[nid] = (1.0 - damping) / n + damping * incoming_sum
+
+                diff = sum(abs(new_rank[nid] - rank[nid]) for nid in node_list)
+                rank = new_rank
+                if diff < tol:
+                    break
+
+            max_rank = max(rank.values()) if rank else 1.0
+            result = {}
             for nid in node_list:
-                incoming_sum = 0.0
-                for neighbor, eidx in self.adj.get(nid, []):
-                    outgoing_edges = self.adj.get(neighbor, [])
-                    outgoing_weight = sum(self._edge_strength(self.edges[out_idx]) for _, out_idx in outgoing_edges)
-                    if outgoing_weight > 0:
-                        weight = self._edge_strength(self.edges[eidx])
-                        incoming_sum += (rank[neighbor] * weight) / outgoing_weight
+                result[nid] = {
+                    "pagerank": round(rank[nid], 6),
+                    "normalized": round(rank[nid] / max(max_rank, 1e-10), 4),
+                }
 
-                new_rank[nid] = (1.0 - damping) / n + damping * incoming_sum
+            return result
 
-            # Check convergence
-            diff = sum(abs(new_rank[nid] - rank[nid]) for nid in node_list)
-            rank = new_rank
-            if diff < tol:
-                break
+        return self._memoized(cache_key, _compute)
 
-        # Normalize to 0-1
-        max_rank = max(rank.values()) if rank else 1.0
-        result = {}
-        for nid in node_list:
-            result[nid] = {
-                "pagerank": round(rank[nid], 6),
-                "normalized": round(rank[nid] / max(max_rank, 1e-10), 4),
-            }
+    def _compose_centrality_row(
+        self,
+        entity_id: str,
+        *,
+        degree: dict,
+        betweenness: dict,
+        closeness: dict,
+        pagerank: dict,
+        mission_context: Optional[dict] = None,
+    ) -> dict:
+        normalized_mission_context = mission_context if isinstance(mission_context, dict) else None
+        focus_entity_ids = [
+            str(focus_id)
+            for focus_id in ((normalized_mission_context or {}).get("focus_entity_ids") or [])
+            if str(focus_id)
+        ]
+        focus_proximity = self._mission_focus_proximity(focus_entity_ids)
+        mission_criticality = _mission_criticality_score((normalized_mission_context or {}).get("criticality"))
 
-        return result
+        d = degree.get("weighted_normalized", 0)
+        b = betweenness.get("normalized", 0)
+        c = closeness.get("closeness", 0)
+        p = pagerank.get("normalized", 0)
+        local_edge_intelligence = self._node_local_edge_strength(entity_id)
+        structural_components = [d, b, c, p]
+        safe_structural = [max(float(value), 1e-6) for value in structural_components]
+        structural_importance = math.prod(safe_structural) ** (1.0 / len(safe_structural))
+        decision_components = [structural_importance, max(float(local_edge_intelligence), 1e-6)]
+        decision_importance = math.prod(decision_components) ** (1.0 / len(decision_components))
+        node_focus_proximity = focus_proximity.get(entity_id, 1.0 if normalized_mission_context is None else 0.0)
+        contextual_relevance = self._node_contextual_relevance(self.nodes[entity_id], normalized_mission_context)
+        if normalized_mission_context is None:
+            mission_importance = decision_importance
+        else:
+            mission_components = [
+                max(float(decision_importance), 1e-6),
+                max(float(node_focus_proximity), 1e-6),
+                max(float(mission_criticality), 1e-6),
+                max(float(contextual_relevance), 1e-6),
+            ]
+            mission_importance = math.prod(mission_components) ** (1.0 / len(mission_components))
+
+        return {
+            "entity_id": entity_id,
+            "entity_name": self.nodes[entity_id].get("canonical_name", ""),
+            "entity_type": self.nodes[entity_id].get("entity_type", ""),
+            "degree": degree,
+            "betweenness": betweenness,
+            "closeness": closeness,
+            "pagerank": pagerank,
+            "local_edge_intelligence": round(local_edge_intelligence, 4),
+            "structural_importance": round(structural_importance, 4),
+            "decision_importance": round(decision_importance, 4),
+            "focus_proximity": round(node_focus_proximity, 4),
+            "contextual_relevance": round(contextual_relevance, 4),
+            "mission_importance": round(mission_importance, 4),
+            "composite_importance": round(decision_importance, 4),
+        }
 
     def compute_all_centrality(self, mission_context: Optional[dict] = None) -> dict:
         """
@@ -435,62 +538,271 @@ class GraphAnalytics:
         """
         self._ensure_loaded()
 
-        degree = self.compute_degree_centrality()
-        betweenness = self.compute_betweenness_centrality()
-        closeness = self.compute_closeness_centrality()
-        pagerank = self.compute_pagerank()
-        normalized_mission_context = mission_context if isinstance(mission_context, dict) else None
-        focus_entity_ids = [
-            str(entity_id)
-            for entity_id in ((normalized_mission_context or {}).get("focus_entity_ids") or [])
-            if str(entity_id)
-        ]
-        focus_proximity = self._mission_focus_proximity(focus_entity_ids)
-        mission_criticality = _mission_criticality_score((normalized_mission_context or {}).get("criticality"))
+        cache_key = (
+            "all_centrality",
+            tuple(sorted((mission_context or {}).get("focus_entity_ids") or [])),
+            _normalize_text((mission_context or {}).get("criticality")).lower(),
+            _normalize_text((mission_context or {}).get("role")).lower(),
+            _normalize_text((mission_context or {}).get("subsystem")).lower(),
+            _normalize_text((mission_context or {}).get("site")).lower(),
+        )
 
-        result = {}
-        for nid in self.nodes:
-            d = degree.get(nid, {}).get("weighted_normalized", 0)
-            b = betweenness.get(nid, {}).get("normalized", 0)
-            c = closeness.get(nid, {}).get("closeness", 0)
-            p = pagerank.get(nid, {}).get("normalized", 0)
-            local_edge_intelligence = self._node_local_edge_strength(nid)
-            structural_components = [d, b, c, p]
-            safe_structural = [max(float(value), 1e-6) for value in structural_components]
-            structural_importance = math.prod(safe_structural) ** (1.0 / len(safe_structural))
-            decision_components = [structural_importance, max(float(local_edge_intelligence), 1e-6)]
-            decision_importance = math.prod(decision_components) ** (1.0 / len(decision_components))
-            node_focus_proximity = focus_proximity.get(nid, 1.0 if normalized_mission_context is None else 0.0)
-            contextual_relevance = self._node_contextual_relevance(self.nodes[nid], normalized_mission_context)
-            if normalized_mission_context is None:
-                mission_importance = decision_importance
-            else:
-                mission_components = [
-                    max(float(decision_importance), 1e-6),
-                    max(float(node_focus_proximity), 1e-6),
-                    max(float(mission_criticality), 1e-6),
-                    max(float(contextual_relevance), 1e-6),
-                ]
-                mission_importance = math.prod(mission_components) ** (1.0 / len(mission_components))
+        def _compute():
+            degree = self.compute_degree_centrality()
+            betweenness = self.compute_betweenness_centrality()
+            closeness = self.compute_closeness_centrality()
+            pagerank = self.compute_pagerank()
+            result = {}
+            for nid in self.nodes:
+                result[nid] = self._compose_centrality_row(
+                    nid,
+                    degree=degree.get(nid, {}),
+                    betweenness=betweenness.get(nid, {}),
+                    closeness=closeness.get(nid, {}),
+                    pagerank=pagerank.get(nid, {}),
+                    mission_context=mission_context,
+                )
+            return result
 
-            result[nid] = {
-                "entity_id": nid,
-                "entity_name": self.nodes[nid].get("canonical_name", ""),
-                "entity_type": self.nodes[nid].get("entity_type", ""),
-                "degree": degree.get(nid, {}),
-                "betweenness": betweenness.get(nid, {}),
-                "closeness": closeness.get(nid, {}),
-                "pagerank": pagerank.get(nid, {}),
-                "local_edge_intelligence": round(local_edge_intelligence, 4),
-                "structural_importance": round(structural_importance, 4),
-                "decision_importance": round(decision_importance, 4),
-                "focus_proximity": round(node_focus_proximity, 4),
-                "contextual_relevance": round(contextual_relevance, 4),
-                "mission_importance": round(mission_importance, 4),
-                "composite_importance": round(decision_importance, 4),
-            }
+        return self._memoized(cache_key, _compute)
 
-        return result
+    def compute_interrogation_centrality(self, entity_id: str, mission_context: Optional[dict] = None) -> dict:
+        """
+        Faster single-entity centrality for AXIOM interrogation.
+
+        This keeps the same output shape AXIOM expects without forcing a full
+        graph-wide closeness pass on every profile or anomaly request.
+        """
+        self._ensure_loaded()
+        normalized_entity_id = str(entity_id or "").strip()
+        if normalized_entity_id not in self.nodes:
+            return {}
+
+        sample_size = min(64, max(16, len(self.nodes) // 12 or 1))
+        degree = self.compute_degree_centrality().get(normalized_entity_id, {})
+        betweenness = self.compute_betweenness_centrality(sample_size=sample_size).get(normalized_entity_id, {})
+        closeness = self.compute_closeness_for_entity(normalized_entity_id)
+        pagerank = self.compute_pagerank(iterations=20).get(normalized_entity_id, {})
+        return self._compose_centrality_row(
+            normalized_entity_id,
+            degree=degree,
+            betweenness=betweenness,
+            closeness=closeness,
+            pagerank=pagerank,
+            mission_context=mission_context,
+        )
+
+    def _percentile_rank(self, values: list[float], current: float) -> float:
+        cleaned = [float(value) for value in values if value is not None]
+        if not cleaned:
+            return 0.0
+        below = sum(1 for value in cleaned if value < current)
+        equal = sum(1 for value in cleaned if abs(value - current) <= 1e-12)
+        return round((below + (equal * 0.5)) / len(cleaned), 4)
+
+    def describe_entity_topology(self, entity_id: str, mission_context: Optional[dict] = None) -> dict:
+        """
+        Summarize where an entity sits in the graph without exposing raw metric
+        maps. This is the AXIOM-facing topology read for Layer 1 reasoning.
+        """
+        self._ensure_loaded()
+        normalized_entity_id = str(entity_id or "").strip()
+        if normalized_entity_id not in self.nodes:
+            return {}
+
+        sample_size = min(64, max(16, len(self.nodes) // 12 or 1))
+        centrality = self.compute_interrogation_centrality(normalized_entity_id, mission_context=mission_context)
+        degree_map = self.compute_degree_centrality()
+        betweenness_map = self.compute_betweenness_centrality(sample_size=sample_size)
+        pagerank_map = self.compute_pagerank(iterations=20)
+
+        degree_row = degree_map.get(normalized_entity_id, {})
+        betweenness_row = betweenness_map.get(normalized_entity_id, {})
+        pagerank_row = pagerank_map.get(normalized_entity_id, {})
+        degree_count = int(degree_row.get("degree") or 0)
+        degree_score = float(degree_row.get("weighted_normalized") or 0.0)
+        betweenness_score = float(betweenness_row.get("normalized") or 0.0)
+        pagerank_score = float(pagerank_row.get("normalized") or 0.0)
+
+        degree_percentile = self._percentile_rank(
+            [float(row.get("weighted_normalized") or 0.0) for row in degree_map.values()],
+            degree_score,
+        )
+        betweenness_percentile = self._percentile_rank(
+            [float(row.get("normalized") or 0.0) for row in betweenness_map.values()],
+            betweenness_score,
+        )
+        pagerank_percentile = self._percentile_rank(
+            [float(row.get("normalized") or 0.0) for row in pagerank_map.values()],
+            pagerank_score,
+        )
+
+        role = "contextual_node"
+        tags: list[str] = []
+        supporting_facts: list[str] = []
+        if betweenness_percentile >= 0.8 and degree_count <= 4:
+            role = "gatekeeper"
+            tags.extend(["bridge", "chokepoint"])
+            supporting_facts.append(
+                f"Betweenness is in the {int(round(betweenness_percentile * 100))}th percentile while degree stays at {degree_count}."
+            )
+        elif pagerank_percentile >= 0.82 and degree_percentile >= 0.6:
+            role = "core_influencer"
+            tags.extend(["influential", "well-connected"])
+            supporting_facts.append(
+                f"Influence is in the {int(round(pagerank_percentile * 100))}th percentile with above-median connectivity."
+            )
+        elif degree_percentile >= 0.8:
+            role = "dense_hub"
+            tags.extend(["hub", "high-connectivity"])
+            supporting_facts.append(
+                f"Connectivity is in the {int(round(degree_percentile * 100))}th percentile."
+            )
+        elif betweenness_percentile >= 0.72:
+            role = "bridge"
+            tags.extend(["bridge"])
+            supporting_facts.append(
+                f"Betweenness is in the {int(round(betweenness_percentile * 100))}th percentile."
+            )
+        elif degree_percentile <= 0.25 and pagerank_percentile <= 0.25:
+            role = "peripheral"
+            tags.extend(["peripheral"])
+            supporting_facts.append("The entity is still sitting on the edge of the current relationship fabric.")
+        else:
+            supporting_facts.append("The entity is connected enough to matter, but it is not yet a dominant node in the visible graph.")
+
+        mission_importance = float(centrality.get("mission_importance") or 0.0)
+        if mission_importance >= 0.7:
+            tags.append("mission-relevant")
+            supporting_facts.append(
+                f"Mission importance is reading {mission_importance:.2f} once the current brief context is applied."
+            )
+
+        return {
+            "entity_id": normalized_entity_id,
+            "role": role,
+            "tags": sorted(set(tags)),
+            "degree_percentile": degree_percentile,
+            "betweenness_percentile": betweenness_percentile,
+            "influence_percentile": pagerank_percentile,
+            "degree_count": degree_count,
+            "mission_importance": round(mission_importance, 4),
+            "supporting_facts": supporting_facts[:4],
+        }
+
+    def compute_suspicious_absences(self, entity_id: str) -> list[dict]:
+        """
+        Find graph patterns that peer entities in the same community commonly
+        show, but the target entity does not. This is a structural expectation
+        model, not a simple transitive closure check.
+        """
+        self._ensure_loaded()
+        normalized_entity_id = str(entity_id or "").strip()
+        if normalized_entity_id not in self.nodes:
+            return []
+
+        cache_key = ("suspicious_absences", normalized_entity_id)
+
+        def _compute():
+            communities = self.detect_communities()
+            community_id = str((communities.get("node_labels") or {}).get(normalized_entity_id) or "")
+            community = (communities.get("communities") or {}).get(community_id) if community_id else None
+            if not isinstance(community, dict):
+                return []
+
+            members = [member for member in (community.get("members") or []) if isinstance(member, dict)]
+            if len(members) < 3:
+                return []
+
+            entity_type = str(self.nodes.get(normalized_entity_id, {}).get("entity_type") or "")
+            same_type_peers = [
+                str(member.get("id") or "")
+                for member in members
+                if str(member.get("id") or "")
+                and str(member.get("id") or "") != normalized_entity_id
+                and str(member.get("type") or "") == entity_type
+            ]
+            peer_ids = same_type_peers or [
+                str(member.get("id") or "")
+                for member in members
+                if str(member.get("id") or "") and str(member.get("id") or "") != normalized_entity_id
+            ]
+            peer_ids = [peer_id for peer_id in peer_ids if peer_id in self.nodes]
+            if len(peer_ids) < 2:
+                return []
+
+            entity_targets = set()
+            entity_rel_types = set()
+            for neighbor, eidx in self.adj.get(normalized_entity_id, []):
+                entity_targets.add(neighbor)
+                entity_rel_types.add(str(self.edges[eidx].get("rel_type") or ""))
+
+            peer_target_support: defaultdict[str, int] = defaultdict(int)
+            peer_rel_support: defaultdict[str, int] = defaultdict(int)
+            for peer_id in peer_ids:
+                peer_targets_seen = set()
+                peer_rels_seen = set()
+                for neighbor, eidx in self.adj.get(peer_id, []):
+                    if neighbor in {normalized_entity_id, peer_id}:
+                        continue
+                    rel_type = str(self.edges[eidx].get("rel_type") or "")
+                    if rel_type and rel_type not in peer_rels_seen:
+                        peer_rel_support[rel_type] += 1
+                        peer_rels_seen.add(rel_type)
+                    if neighbor not in peer_targets_seen:
+                        peer_target_support[neighbor] += 1
+                        peer_targets_seen.add(neighbor)
+
+            threshold = max(2, math.ceil(len(peer_ids) * 0.6))
+            density = float(community.get("density") or 0.0)
+            absences: list[dict] = []
+
+            for target_id, support in sorted(peer_target_support.items(), key=lambda item: (-item[1], item[0])):
+                if target_id in entity_targets or support < threshold:
+                    continue
+                support_ratio = support / max(len(peer_ids), 1)
+                confidence = min(0.48 + (support_ratio * 0.25) + (density * 0.18), 0.9)
+                target_node = self.nodes.get(target_id, {})
+                absences.append(
+                    {
+                        "type": "suspicious_absence",
+                        "confidence": round(confidence, 4),
+                        "community_id": community_id,
+                        "peer_count": len(peer_ids),
+                        "support_count": int(support),
+                        "expected_target_id": target_id,
+                        "expected_target_name": str(target_node.get("canonical_name") or target_id),
+                        "description": (
+                            f"Peers in {community_id} repeatedly connect to {target_node.get('canonical_name', target_id)}, "
+                            f"but {self.nodes.get(normalized_entity_id, {}).get('canonical_name', normalized_entity_id)} does not."
+                        ),
+                    }
+                )
+
+            for rel_type, support in sorted(peer_rel_support.items(), key=lambda item: (-item[1], item[0])):
+                if rel_type in entity_rel_types or support < threshold:
+                    continue
+                support_ratio = support / max(len(peer_ids), 1)
+                confidence = min(0.44 + (support_ratio * 0.22) + (density * 0.14), 0.84)
+                absences.append(
+                    {
+                        "type": "missing_relationship_pattern",
+                        "confidence": round(confidence, 4),
+                        "community_id": community_id,
+                        "peer_count": len(peer_ids),
+                        "support_count": int(support),
+                        "rel_type": rel_type,
+                        "description": (
+                            f"Peers in {community_id} commonly carry {rel_type} edges, but "
+                            f"{self.nodes.get(normalized_entity_id, {}).get('canonical_name', normalized_entity_id)} does not."
+                        ),
+                    }
+                )
+
+            absences.sort(key=lambda item: (-float(item.get("confidence") or 0.0), str(item.get("type") or "")))
+            return absences[:5]
+
+        return self._memoized(cache_key, _compute)
 
     # -------------------------------------------------------------------
     # 2. COMMUNITY DETECTION
@@ -702,19 +1014,23 @@ class GraphAnalytics:
           3. Weighted label propagation fallback
         """
         requested = str(algorithm or "auto").strip().lower()
-        if requested in {"auto", "leiden"}:
-            leiden_result = self._detect_communities_leiden()
-            if leiden_result is not None:
-                return leiden_result
-            if requested == "leiden":
-                logger.warning("graph_analytics: Leiden requested but igraph/leidenalg unavailable, falling back")
-        if requested in {"auto", "louvain"}:
-            louvain_result = self._detect_communities_louvain()
-            if louvain_result is not None:
-                return louvain_result
-            if requested == "louvain":
-                logger.warning("graph_analytics: Louvain requested but networkx support unavailable, falling back")
-        return self._detect_communities_label_propagation(max_iterations=max_iterations)
+
+        def _compute():
+            if requested in {"auto", "leiden"}:
+                leiden_result = self._detect_communities_leiden()
+                if leiden_result is not None:
+                    return leiden_result
+                if requested == "leiden":
+                    logger.warning("graph_analytics: Leiden requested but igraph/leidenalg unavailable, falling back")
+            if requested in {"auto", "louvain"}:
+                louvain_result = self._detect_communities_louvain()
+                if louvain_result is not None:
+                    return louvain_result
+                if requested == "louvain":
+                    logger.warning("graph_analytics: Louvain requested but networkx support unavailable, falling back")
+            return self._detect_communities_label_propagation(max_iterations=max_iterations)
+
+        return self._memoized(("communities", requested, max_iterations), _compute)
 
     # -------------------------------------------------------------------
     # 3. PATH ANALYSIS
@@ -971,83 +1287,82 @@ class GraphAnalytics:
         """
         self._ensure_loaded()
 
-        # Import learned propagation posture
-        try:
-            from network_risk import _hop_decay_factor, _propagation_prior
-        except ImportError:
-            def _hop_decay_factor(hops):
-                return 1.0 / float(hops + 1)
+        def _compute():
+            try:
+                from network_risk import _hop_decay_factor, _propagation_prior
+            except ImportError:
+                def _hop_decay_factor(hops):
+                    return 1.0 / float(hops + 1)
 
-            def _propagation_prior(_relationship):
-                return 0.5
+                def _propagation_prior(_relationship):
+                    return 0.5
 
-        # Find all sanctions-related entities
-        sanctions_nodes = set()
-        for nid, node in self.nodes.items():
-            if node.get("entity_type") in ("sanctions_list", "sanctions_entry"):
-                sanctions_nodes.add(nid)
+            sanctions_nodes = set()
+            for nid, node in self.nodes.items():
+                if node.get("entity_type") in ("sanctions_list", "sanctions_entry"):
+                    sanctions_nodes.add(nid)
 
-        if not sanctions_nodes:
-            return {nid: {"exposure_score": 0.0, "risk_level": "CLEAR"} for nid in self.nodes}
+            if not sanctions_nodes:
+                return {nid: {"exposure_score": 0.0, "risk_level": "CLEAR"} for nid in self.nodes}
 
-        # BFS from each sanctions node, propagating exposure
-        exposure = defaultdict(float)
-        nearest_sanction = {}  # Track which sanctions entry is nearest
+            exposure = defaultdict(float)
+            nearest_sanction = {}
 
-        for sanction_id in sanctions_nodes:
-            visited = set()
-            queue = deque([(sanction_id, 1.0, 0)])  # (node, current_exposure, hops)
+            for sanction_id in sanctions_nodes:
+                visited = set()
+                queue = deque([(sanction_id, 1.0, 0)])
 
-            while queue:
-                current, current_exposure, hops = queue.popleft()
-                if current in visited or hops > 4:
-                    continue
-                visited.add(current)
+                while queue:
+                    current, current_exposure, hops = queue.popleft()
+                    if current in visited or hops > 4:
+                        continue
+                    visited.add(current)
 
-                if current != sanction_id:
-                    exposure[current] = max(exposure[current], current_exposure)
-                    if current not in nearest_sanction or current_exposure > nearest_sanction[current][1]:
-                        nearest_sanction[current] = (sanction_id, current_exposure, hops)
+                    if current != sanction_id:
+                        exposure[current] = max(exposure[current], current_exposure)
+                        if current not in nearest_sanction or current_exposure > nearest_sanction[current][1]:
+                            nearest_sanction[current] = (sanction_id, current_exposure, hops)
 
-                for neighbor, eidx in self.adj.get(current, []):
-                    if neighbor not in visited:
-                        relationship = self.edges[eidx]
-                        rel_weight = _propagation_prior(relationship)
-                        edge_conf = self._edge_strength(relationship)
-                        propagated = current_exposure * rel_weight * edge_conf * _hop_decay_factor(hops)
-                        if propagated > 0.01:  # Threshold to avoid noise
-                            queue.append((neighbor, propagated, hops + 1))
+                    for neighbor, eidx in self.adj.get(current, []):
+                        if neighbor not in visited:
+                            relationship = self.edges[eidx]
+                            rel_weight = _propagation_prior(relationship)
+                            edge_conf = self._edge_strength(relationship)
+                            propagated = current_exposure * rel_weight * edge_conf * _hop_decay_factor(hops)
+                            if propagated > 0.01:
+                                queue.append((neighbor, propagated, hops + 1))
 
-        # Classify risk levels
-        result = {}
-        for nid in self.nodes:
-            score = exposure.get(nid, 0.0)
-            if score >= 0.7:
-                level = "CRITICAL"
-            elif score >= 0.4:
-                level = "HIGH"
-            elif score >= 0.15:
-                level = "MEDIUM"
-            elif score > 0:
-                level = "LOW"
-            else:
-                level = "CLEAR"
+            result = {}
+            for nid in self.nodes:
+                score = exposure.get(nid, 0.0)
+                if score >= 0.7:
+                    level = "CRITICAL"
+                elif score >= 0.4:
+                    level = "HIGH"
+                elif score >= 0.15:
+                    level = "MEDIUM"
+                elif score > 0:
+                    level = "LOW"
+                else:
+                    level = "CLEAR"
 
-            entry = {
-                "exposure_score": round(score, 4),
-                "risk_level": level,
-            }
-            if nid in nearest_sanction:
-                sid, _, hops = nearest_sanction[nid]
-                entry["nearest_sanction"] = {
-                    "id": sid,
-                    "name": self.nodes.get(sid, {}).get("canonical_name", ""),
-                    "hops": hops,
+                entry = {
+                    "exposure_score": round(score, 4),
+                    "risk_level": level,
                 }
+                if nid in nearest_sanction:
+                    sid, _, hops = nearest_sanction[nid]
+                    entry["nearest_sanction"] = {
+                        "id": sid,
+                        "name": self.nodes.get(sid, {}).get("canonical_name", ""),
+                        "hops": hops,
+                    }
 
-            result[nid] = entry
+                result[nid] = entry
 
-        return result
+            return result
+
+        return self._memoized(("sanctions_exposure",), _compute)
 
     # -------------------------------------------------------------------
     # 6. SUMMARY / DASHBOARD DATA

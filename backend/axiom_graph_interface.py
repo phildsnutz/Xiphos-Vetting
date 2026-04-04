@@ -9,8 +9,8 @@ This module is the only graph-facing contract AXIOM should need:
 
 from __future__ import annotations
 
-import math
-from collections import Counter, defaultdict
+import threading
+from collections import Counter
 from typing import Any
 
 from graph_analytics import GraphAnalytics
@@ -18,6 +18,7 @@ from graph_ingest import build_graph_intelligence_summary
 from knowledge_graph import (
     get_entity,
     get_entity_network,
+    get_graph_snapshot_signature,
     get_vendor_entities,
     graph_annotate as stage_graph_annotation,
     graph_assert as stage_graph_assertion,
@@ -28,10 +29,30 @@ from knowledge_graph import (
 )
 
 
+_ANALYTICS_LOCK = threading.RLock()
+_ANALYTICS_RUNTIME: dict[str, Any] = {
+    "snapshot": "",
+    "analytics": None,
+}
+
+
 def _load_analytics() -> GraphAnalytics:
-    analytics = GraphAnalytics()
-    analytics.load_graph()
-    return analytics
+    snapshot = get_graph_snapshot_signature()
+    with _ANALYTICS_LOCK:
+        cached = _ANALYTICS_RUNTIME.get("analytics")
+        cached_snapshot = str(_ANALYTICS_RUNTIME.get("snapshot") or "")
+        if isinstance(cached, GraphAnalytics) and cached.loaded and snapshot == cached_snapshot:
+            return cached
+
+        analytics = GraphAnalytics()
+        try:
+            analytics.load_graph(limit=50000)
+        except TypeError:
+            analytics.load_graph()
+
+        _ANALYTICS_RUNTIME["snapshot"] = snapshot
+        _ANALYTICS_RUNTIME["analytics"] = analytics
+        return analytics
 
 
 def resolve_primary_entity_id_for_vendor(vendor_id: str) -> str:
@@ -153,8 +174,49 @@ def _community_summary(analytics: GraphAnalytics, entity_id: str) -> dict[str, A
     }
 
 
-def _neighbor_rollup(entity_id: str, relationships: list[dict], entities: dict[str, dict], analytics: GraphAnalytics) -> list[dict]:
-    exposure = analytics.compute_sanctions_exposure()
+def _topology_summary(
+    analytics: GraphAnalytics,
+    entity_id: str,
+    *,
+    centrality: dict[str, Any] | None = None,
+    community: dict[str, Any] | None = None,
+    mission_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    topology = analytics.describe_entity_topology(entity_id, mission_context=mission_context) or {}
+    community_row = community if isinstance(community, dict) else {}
+    bridge = next(
+        (
+            row
+            for row in (community_row.get("bridge_entities") or [])
+            if isinstance(row, dict) and str(row.get("id") or "") == entity_id
+        ),
+        None,
+    )
+    if bridge:
+        topology = dict(topology)
+        topology["community_bridge"] = {
+            "cross_community_edges": int(bridge.get("cross_community_edges") or 0),
+            "internal_edges": int(bridge.get("internal_edges") or 0),
+            "community_id": str(community_row.get("community_id") or ""),
+        }
+        tags = set(topology.get("tags") or [])
+        tags.add("community-bridge")
+        topology["tags"] = sorted(tags)
+    if centrality and "mission_importance" not in topology:
+        topology = dict(topology)
+        topology["mission_importance"] = round(float(centrality.get("mission_importance") or 0.0), 4)
+    return topology
+
+
+def _neighbor_rollup(
+    entity_id: str,
+    relationships: list[dict],
+    entities: dict[str, dict],
+    analytics: GraphAnalytics,
+    *,
+    exposure: dict[str, dict[str, Any]] | None = None,
+) -> list[dict]:
+    resolved_exposure = exposure if isinstance(exposure, dict) else analytics.compute_sanctions_exposure()
     rolled: dict[str, dict[str, Any]] = {}
     for relationship in relationships:
         source_id = str(relationship.get("source_entity_id") or "")
@@ -173,8 +235,8 @@ def _neighbor_rollup(entity_id: str, relationships: list[dict], entities: dict[s
                 "relationship_count": 0,
                 "relationship_types": Counter(),
                 "max_confidence": 0.0,
-                "risk_level": str((exposure.get(neighbor_id) or {}).get("risk_level") or "CLEAR"),
-                "exposure_score": float((exposure.get(neighbor_id) or {}).get("exposure_score") or 0.0),
+                "risk_level": str((resolved_exposure.get(neighbor_id) or {}).get("risk_level") or "CLEAR"),
+                "exposure_score": float((resolved_exposure.get(neighbor_id) or {}).get("exposure_score") or 0.0),
             },
         )
         neighbor["relationship_count"] += 1
@@ -208,6 +270,145 @@ def _neighbor_rollup(entity_id: str, relationships: list[dict], entities: dict[s
     return results
 
 
+def _build_explainable_rules(
+    *,
+    entity,
+    analytics: GraphAnalytics,
+    centrality: dict[str, Any],
+    community: dict[str, Any],
+    intelligence: dict[str, Any],
+    sanctions: dict[str, Any],
+    mission_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entity_id = str(getattr(entity, "id", "") or "")
+    topology = _topology_summary(
+        analytics,
+        entity_id,
+        centrality=centrality,
+        community=community,
+        mission_context=mission_context,
+    )
+    suspicious_absences = analytics.compute_suspicious_absences(entity_id)
+    rules: list[dict[str, Any]] = []
+
+    if str(topology.get("role") or "") == "gatekeeper":
+        supporting_facts = list(topology.get("supporting_facts") or [])[:3]
+        rules.append(
+            {
+                "rule_id": "R-STRUCT-01",
+                "label": "Gatekeeper structure",
+                "rule_class": "structural",
+                "confidence": round(min(0.66 + float((centrality.get("betweenness") or {}).get("normalized") or 0.0) * 0.22, 0.92), 4),
+                "support_count": len(supporting_facts),
+                "statement": "IF an entity sits on a high-betweenness, low-degree position, THEN treat it as a likely broker or chokepoint until disproven.",
+                "reasoning": f"{entity.canonical_name} is currently carrying a bridge position that is structurally disproportionate to its visible degree.",
+                "supporting_facts": supporting_facts,
+            }
+        )
+
+    bridge = topology.get("community_bridge") if isinstance(topology.get("community_bridge"), dict) else {}
+    if bridge:
+        supporting_facts = [
+            f"{entity.canonical_name} is currently a bridge entity inside {bridge.get('community_id') or 'the current community'}.",
+            f"It is carrying {int(bridge.get('cross_community_edges') or 0)} cross-community edge(s) against {int(bridge.get('internal_edges') or 0)} internal edge(s).",
+            f"Community density is {float(community.get('density') or 0.0):.2f}.",
+        ]
+        rules.append(
+            {
+                "rule_id": "R-STRUCT-02",
+                "label": "Cross-cluster bridge",
+                "rule_class": "structural",
+                "confidence": round(min(0.58 + float(community.get("density") or 0.0) * 0.22 + min(int(bridge.get("cross_community_edges") or 0), 4) * 0.03, 0.88), 4),
+                "support_count": len(supporting_facts),
+                "statement": "IF an entity bridges a dense community into other clusters, THEN it may be carrying alliance, brokerage, or chokepoint significance that a single dossier would miss.",
+                "reasoning": f"{entity.canonical_name} is not just in a cluster. It is one of the visible exits from that cluster.",
+                "supporting_facts": supporting_facts,
+            }
+        )
+
+    if suspicious_absences:
+        absence = suspicious_absences[0]
+        support_count = int(absence.get("support_count") or 0)
+        peer_count = int(absence.get("peer_count") or 0)
+        support_ratio = support_count / max(peer_count, 1)
+        rules.append(
+            {
+                "rule_id": "R-STRUCT-03",
+                "label": "Suspicious absence",
+                "rule_class": "structural",
+                "confidence": round(float(absence.get("confidence") or 0.0), 4),
+                "support_count": support_count,
+                "statement": "IF peer entities in the same community repeatedly show a relationship pattern that this entity lacks, THEN the absence itself should be treated as intelligence until explained away.",
+                "reasoning": str(absence.get("description") or ""),
+                "supporting_facts": [
+                    f"{support_count} of {peer_count} comparable peers carry this pattern.",
+                    f"Support ratio is {support_ratio:.2f}.",
+                    f"Community anchor: {absence.get('community_id') or community.get('community_id') or 'none'}.",
+                ],
+            }
+        )
+
+    exposure_score = float(sanctions.get("exposure_score") or 0.0)
+    network_risk_level = str(intelligence.get("network_risk_level") or sanctions.get("risk_level") or "").upper()
+    if exposure_score >= 0.45 or network_risk_level in {"HIGH", "CRITICAL"}:
+        rules.append(
+            {
+                "rule_id": "R-RISK-01",
+                "label": "Propagated network exposure",
+                "rule_class": "risk",
+                "confidence": round(min(0.55 + exposure_score * 0.3, 0.9), 4),
+                "support_count": 2 if network_risk_level else 1,
+                "statement": "IF network exposure is already propagating through connected entities, THEN quiet surface evidence should not be treated as comfort.",
+                "reasoning": f"{entity.canonical_name} is already carrying {network_risk_level.lower().replace('_', ' ') if network_risk_level else 'elevated'} network risk through the graph.",
+                "supporting_facts": [
+                    f"Exposure score: {exposure_score:.2f}.",
+                    f"Network risk level: {network_risk_level or 'UNKNOWN'}.",
+                ],
+            }
+        )
+
+    missing_families = [str(item).replace("_", " ") for item in (intelligence.get("missing_required_edge_families") or []) if str(item).strip()]
+    if missing_families:
+        rules.append(
+            {
+                "rule_id": "R-FABRIC-01",
+                "label": "Missing required graph fabric",
+                "rule_class": "coverage",
+                "confidence": round(min(0.6 + len(missing_families) * 0.08, 0.86), 4),
+                "support_count": len(missing_families),
+                "statement": "IF required edge families are absent around an entity, THEN the missing graph fabric must stay explicit in the assessment instead of being silently assumed away.",
+                "reasoning": f"{entity.canonical_name} is still missing graph families that should exist for this workflow slice.",
+                "supporting_facts": [f"Missing families: {', '.join(missing_families[:3])}."],
+            }
+        )
+
+    control_path_count = int(intelligence.get("control_path_count") or 0)
+    control_path_score = float(intelligence.get("control_path_avg_intelligence_score") or 0.0)
+    if control_path_count > 0 and control_path_score >= 0.68:
+        rules.append(
+            {
+                "rule_id": "R-CONTROL-01",
+                "label": "Control path support",
+                "rule_class": "control",
+                "confidence": round(min(0.58 + control_path_score * 0.28, 0.9), 4),
+                "support_count": control_path_count,
+                "statement": "IF the graph already carries multiple ownership or control edges at strong intelligence quality, THEN the control story is strong enough to shape the initial judgment.",
+                "reasoning": f"The control fabric around {entity.canonical_name} is already carrying usable signal, not just adjacency.",
+                "supporting_facts": [
+                    f"Control path count: {control_path_count}.",
+                    f"Average control-path intelligence score: {control_path_score:.2f}.",
+                ],
+            }
+        )
+
+    rules.sort(key=lambda item: (-float(item.get("confidence") or 0.0), str(item.get("rule_id") or "")))
+    return {
+        "topology": topology,
+        "suspicious_absences": suspicious_absences[:3],
+        "rules": rules[:5],
+    }
+
+
 def graph_profile(
     entity_id: str = "",
     *,
@@ -235,14 +436,30 @@ def graph_profile(
     relationships = [row for row in (network.get("relationships") or []) if isinstance(row, dict)]
     intelligence = build_graph_intelligence_summary(network, workflow_lane=workflow_lane)
     analytics = _load_analytics()
-    centrality = analytics.compute_all_centrality(mission_context=mission_context).get(resolved_entity_id, {})
+    centrality = analytics.compute_interrogation_centrality(resolved_entity_id, mission_context=mission_context)
     community = _community_summary(analytics, resolved_entity_id)
-    sanctions = analytics.compute_sanctions_exposure().get(resolved_entity_id, {})
+    exposure = analytics.compute_sanctions_exposure()
+    sanctions = exposure.get(resolved_entity_id, {})
+    reasoning = _build_explainable_rules(
+        entity=entity,
+        analytics=analytics,
+        centrality=centrality,
+        community=community,
+        intelligence=intelligence,
+        sanctions=sanctions,
+        mission_context=mission_context,
+    )
     rel_counts = _relationship_type_counts(relationships)
     state_mix = _state_mix(relationships)
     strongest_neighbor = ""
     highest_risk_neighbor = ""
-    neighbors = _neighbor_rollup(resolved_entity_id, relationships, network.get("entities") or {}, analytics)
+    neighbors = _neighbor_rollup(
+        resolved_entity_id,
+        relationships,
+        network.get("entities") or {},
+        analytics,
+        exposure=exposure,
+    )
     if neighbors:
         strongest_neighbor = str(neighbors[0]["name"])
         highest_risk_neighbor = str(neighbors[0]["name"]) if float(neighbors[0]["exposure_score"]) > 0 else ""
@@ -259,12 +476,17 @@ def graph_profile(
             f"It sits in {community['community_id']} via {community.get('algorithm') or 'community detection'} "
             f"with {community.get('size', 0)} entities."
         )
+    topology_role = str((reasoning.get("topology") or {}).get("role") or "").replace("_", " ")
+    if topology_role and topology_role != "contextual node":
+        summary_bits.append(f"Topology read: {topology_role}.")
     if intelligence.get("missing_required_edge_families"):
         summary_bits.append(
             "Thin areas remain around "
             + ", ".join(str(item).replace("_", " ") for item in (intelligence.get("missing_required_edge_families") or [])[:3])
             + "."
         )
+    if reasoning.get("rules"):
+        summary_bits.append(f"{len(reasoning['rules'])} explainable graph rule(s) currently apply.")
     return {
         "status": "ok",
         "entity_id": resolved_entity_id,
@@ -286,8 +508,11 @@ def graph_profile(
             },
             "community": community,
             "centrality": centrality,
+            "topology": reasoning.get("topology") or {},
             "state_mix": state_mix,
             "graph_intelligence": intelligence,
+            "applicable_rules": reasoning.get("rules") or [],
+            "suspicious_absences": reasoning.get("suspicious_absences") or [],
             "neighbors": neighbors[:8],
         },
     }
@@ -325,7 +550,14 @@ def graph_neighborhood(
         network = {**network, "relationships": relationships, "relationship_count": len(relationships)}
     intelligence = build_graph_intelligence_summary(network, workflow_lane=workflow_lane)
     analytics = _load_analytics()
-    neighbors = _neighbor_rollup(resolved_entity_id, relationships, network.get("entities") or {}, analytics)
+    exposure = analytics.compute_sanctions_exposure()
+    neighbors = _neighbor_rollup(
+        resolved_entity_id,
+        relationships,
+        network.get("entities") or {},
+        analytics,
+        exposure=exposure,
+    )
     rel_counts = _relationship_type_counts(relationships)
     highest_risk_neighbor = next((row for row in neighbors if float(row.get("exposure_score") or 0.0) > 0.0), neighbors[0] if neighbors else None)
     summary_bits = [
@@ -447,58 +679,9 @@ def graph_community(
 
 
 def _community_absence_signal(entity_id: str, analytics: GraphAnalytics, community: dict[str, Any]) -> dict[str, Any] | None:
-    community_members = [member for member in (community.get("members") or []) if isinstance(member, dict)]
-    if len(community_members) < 3:
-        return None
-    peer_ids = [str(member.get("id") or "") for member in community_members if str(member.get("id") or "") and str(member.get("id")) != entity_id]
-    if not peer_ids:
-        return None
-
-    entity_targets = set()
-    entity_rel_types = set()
-    for neighbor, eidx in analytics.adj.get(entity_id, []):
-        entity_targets.add(neighbor)
-        entity_rel_types.add(str(analytics.edges[eidx].get("rel_type") or ""))
-
-    peer_target_support: Counter[str] = Counter()
-    peer_rel_support: Counter[str] = Counter()
-    for peer_id in peer_ids:
-        peer_targets_seen = set()
-        peer_rels_seen = set()
-        for neighbor, eidx in analytics.adj.get(peer_id, []):
-            if neighbor in {entity_id, peer_id}:
-                continue
-            rel_type = str(analytics.edges[eidx].get("rel_type") or "")
-            if rel_type and rel_type not in peer_rels_seen:
-                peer_rel_support[rel_type] += 1
-                peer_rels_seen.add(rel_type)
-            if neighbor not in peer_targets_seen:
-                peer_target_support[neighbor] += 1
-                peer_targets_seen.add(neighbor)
-
-    threshold = max(2, math.ceil(len(peer_ids) * 0.6))
-    for target_id, support in peer_target_support.most_common():
-        if target_id not in entity_targets and support >= threshold:
-            target_node = analytics.nodes.get(target_id, {})
-            return {
-                "type": "suspicious_absence",
-                "confidence": round(min(0.55 + (support / max(len(peer_ids), 1)) * 0.35, 0.89), 4),
-                "description": (
-                    f"Peer entities in {community.get('community_id')} repeatedly connect to "
-                    f"{target_node.get('canonical_name', target_id)}, but {analytics.nodes.get(entity_id, {}).get('canonical_name', entity_id)} does not."
-                ),
-            }
-    for rel_type, support in peer_rel_support.most_common():
-        if rel_type not in entity_rel_types and support >= threshold:
-            return {
-                "type": "missing_relationship_pattern",
-                "confidence": round(min(0.5 + (support / max(len(peer_ids), 1)) * 0.3, 0.84), 4),
-                "description": (
-                    f"Peer entities in {community.get('community_id')} commonly carry {rel_type} edges, "
-                    f"but this entity does not."
-                ),
-            }
-    return None
+    del community
+    absences = analytics.compute_suspicious_absences(entity_id)
+    return absences[0] if absences else None
 
 
 def graph_anomalies(
@@ -518,7 +701,7 @@ def graph_anomalies(
             "structured_payload": {},
         }
     analytics = _load_analytics()
-    centrality = analytics.compute_all_centrality(mission_context=mission_context).get(resolved_entity_id, {})
+    centrality = analytics.compute_interrogation_centrality(resolved_entity_id, mission_context=mission_context)
     community = _community_summary(analytics, resolved_entity_id)
     sanctions = analytics.compute_sanctions_exposure().get(resolved_entity_id, {})
     network = get_entity_network(
@@ -530,6 +713,15 @@ def graph_anomalies(
     )
     relationships = [row for row in (network.get("relationships") or []) if isinstance(row, dict)]
     intelligence = build_graph_intelligence_summary(network, workflow_lane=workflow_lane)
+    reasoning = _build_explainable_rules(
+        entity=entity,
+        analytics=analytics,
+        centrality=centrality,
+        community=community,
+        intelligence=intelligence,
+        sanctions=sanctions,
+        mission_context=mission_context,
+    )
     anomalies: list[dict[str, Any]] = []
 
     betweenness = float(((centrality.get("betweenness") or {}).get("normalized") or 0.0))
@@ -586,9 +778,10 @@ def graph_anomalies(
         )
 
     anomalies.sort(key=lambda item: (-float(item.get("confidence") or 0.0), str(item.get("type") or "")))
+    rule_count = len(reasoning.get("rules") or [])
     summary = (
-        f"{len(anomalies)} anomaly signal(s) detected around {entity.canonical_name}."
-        if anomalies
+        f"{len(anomalies)} anomaly signal(s) and {rule_count} explainable rule(s) detected around {entity.canonical_name}."
+        if anomalies or rule_count
         else f"No material structural anomaly surfaced around {entity.canonical_name} in the current graph slice."
     )
     return {
@@ -600,6 +793,69 @@ def graph_anomalies(
             "anomalies": anomalies[:5],
             "community": community,
             "centrality": centrality,
+            "topology": reasoning.get("topology") or {},
+            "suspicious_absences": reasoning.get("suspicious_absences") or [],
+            "applicable_rules": reasoning.get("rules") or [],
+            "graph_intelligence": intelligence,
+            "risk": sanctions,
+        },
+    }
+
+
+def graph_rules(
+    entity_id: str = "",
+    *,
+    vendor_id: str = "",
+    workflow_lane: str = "",
+    mission_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_entity_id = _resolve_entity_id(entity_id, vendor_id)
+    entity = get_entity(resolved_entity_id)
+    if entity is None:
+        return {
+            "status": "not_found",
+            "entity_id": resolved_entity_id,
+            "summary_text": "No explainable graph rules are available because the entity is not present in graph memory.",
+            "structured_payload": {},
+        }
+
+    analytics = _load_analytics()
+    centrality = analytics.compute_interrogation_centrality(resolved_entity_id, mission_context=mission_context)
+    community = _community_summary(analytics, resolved_entity_id)
+    sanctions = analytics.compute_sanctions_exposure().get(resolved_entity_id, {})
+    network = get_entity_network(
+        resolved_entity_id,
+        depth=1,
+        include_provenance=True,
+        max_claim_records=2,
+        max_evidence_records=1,
+    )
+    intelligence = build_graph_intelligence_summary(network, workflow_lane=workflow_lane)
+    reasoning = _build_explainable_rules(
+        entity=entity,
+        analytics=analytics,
+        centrality=centrality,
+        community=community,
+        intelligence=intelligence,
+        sanctions=sanctions,
+        mission_context=mission_context,
+    )
+    rules = reasoning.get("rules") or []
+    summary = (
+        f"{len(rules)} explainable graph rule(s) currently apply to {entity.canonical_name}."
+        if rules
+        else f"No explainable graph rule is strong enough to apply to {entity.canonical_name} yet."
+    )
+    return {
+        "status": "ok",
+        "entity_id": resolved_entity_id,
+        "summary_text": summary,
+        "structured_payload": {
+            "entity": _entity_payload(entity),
+            "topology": reasoning.get("topology") or {},
+            "community": community,
+            "suspicious_absences": reasoning.get("suspicious_absences") or [],
+            "rules": rules,
             "graph_intelligence": intelligence,
             "risk": sanctions,
         },

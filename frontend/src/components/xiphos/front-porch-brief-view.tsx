@@ -57,7 +57,7 @@ export function FrontPorchBriefView({
         }}
       >
         <div style={{ display: "grid", gap: SP.xs }}>
-          <SectionEyebrow>{artifact.kind === "vendor" ? "Returned brief room" : "Vehicle brief room"}</SectionEyebrow>
+          <SectionEyebrow>{artifact.kind === "vendor" ? "Brief room" : "Vehicle brief room"}</SectionEyebrow>
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
             <button
               type="button"
@@ -140,7 +140,7 @@ export function FrontPorchBriefView({
         }}
       >
         <div style={{ display: "grid", gap: SP.xs }}>
-          <SectionEyebrow>{artifact.kind === "vendor" ? "Returned brief" : "Preliminary picture"}</SectionEyebrow>
+          <SectionEyebrow>{artifact.kind === "vendor" ? "Returned brief" : "Vehicle picture"}</SectionEyebrow>
           <p
             style={{
               margin: 0,
@@ -150,7 +150,7 @@ export function FrontPorchBriefView({
               maxWidth: 720,
             }}
           >
-            This room strips the noise away. Read AXIOM's first judgment, see what is actually carrying it, see what stayed thin, and move into War Room only when the weak edge needs to be challenged directly.
+            Read AXIOM's first judgment here. This room keeps the assessment, the supporting holds, the thin edge, and the graph delta together without making you parse the machinery.
           </p>
         </div>
 

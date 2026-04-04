@@ -797,14 +797,14 @@ export default function ComplianceDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <KPICard label="Total Cases" value={data.summary.total_cases} icon={CheckCircle} />
           <KPICard label="Active Alerts" value={data.summary.total_alerts} icon={ShieldAlert} />
-          <KPICard label="Pending Vendor Reviews" value={data.counterparty_lane.pending_reviews} icon={Building2} />
-          <KPICard label="Export Pressure" value={data.export_lane.pending_license_applications} icon={Globe2} />
+          <KPICard label="Pending Entity Reviews" value={data.counterparty_lane.pending_reviews} icon={Building2} />
+          <KPICard label="Access Pressure" value={data.export_lane.pending_license_applications} icon={Globe2} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <LaneSummaryCard
-            title="Vendor assessment"
-            subtitle="Supplier adjudication, ownership pressure, and trust decisions"
+            title="Entity intelligence"
+            subtitle="Ownership pressure, control paths, and first-cut judgment"
             metrics={[
               { label: "Cases Screened", value: data.counterparty_lane.cases_screened },
               { label: "High Risk", value: data.counterparty_lane.high_risk_vendors },
@@ -825,8 +825,8 @@ export default function ComplianceDashboard() {
           />
 
           <LaneSummaryCard
-            title="Export support layer"
-            subtitle="Authorizations, NLR paths, and license-required pressure"
+            title="Access support layer"
+            subtitle="Authorizations, NLR paths, and transfer pressure"
             metrics={[
               { label: "Authorizations", value: data.export_lane.total_authorizations },
               { label: "NLR Path", value: data.export_lane.posture_distribution.likely_nlr || 0 },
@@ -847,7 +847,7 @@ export default function ComplianceDashboard() {
           />
 
           <LaneSummaryCard
-            title="Cyber support layer"
+            title="Assurance support layer"
             subtitle="Graph density, dependency watch, and centrality pressure"
             metrics={[
               { label: "Entities", value: data.cyber_lane.entities_in_graph },
@@ -871,14 +871,14 @@ export default function ComplianceDashboard() {
                 Queue drift
               </div>
               <h3 style={{ color: T.text }} className="text-lg font-semibold mb-4">
-                Vendor assessment risk trend, last 30 days
+                Entity intelligence risk trend, last 30 days
               </h3>
               <RiskTrendChart data={data.counterparty_lane.risk_trend} />
             </div>
           ) : (
             <div className="glass-card" style={{ backgroundColor: T.surface, borderColor: T.border, padding: 18, borderRadius: 22 }}>
               <h3 style={{ color: T.text }} className="text-lg font-semibold mb-2">
-                Vendor assessment risk trend
+                Entity intelligence risk trend
               </h3>
               <p style={{ color: T.muted }} className="text-sm">
                 No trend data is available yet.

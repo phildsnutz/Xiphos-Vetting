@@ -298,29 +298,29 @@ export default function App() {
   }, [shellLaneCases]);
   const shellSummary = useMemo(() => {
     if (activePillar === "contract_vehicle") {
-      return "Start from the vehicle, map primes and subs, then turn the right vendors into assessments and AXIOM-backed dossier work.";
+      return "Start from the vehicle, map primes and subs, then turn the right entities into AXIOM-backed brief work.";
     }
     if (shellLaneCases.length === 0) {
-      return "No vendor assessments are active yet. Start from a supplier or pivot in from a contract vehicle.";
+      return "No entity briefs are active yet. Start from a supplier, company, or pivot in from a vehicle.";
     }
     if (shellLaneBlocked > 0) {
-      return `${shellLaneBlocked} blocked vendor assessment${shellLaneBlocked === 1 ? "" : "s"} require immediate action.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
+      return `${shellLaneBlocked} blocked brief${shellLaneBlocked === 1 ? "" : "s"} require immediate action.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
     }
     if (shellLaneReview > 0) {
-      return `${shellLaneReview} vendor assessment${shellLaneReview === 1 ? "" : "s"} need focused review.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
+      return `${shellLaneReview} active brief${shellLaneReview === 1 ? "" : "s"} need focused review.${shellTopCase ? ` Start with ${shellTopCase.name}.` : ""}`;
     }
     if (shellLaneWatch > 0) {
-      return `${shellLaneWatch} qualified assessment${shellLaneWatch === 1 ? "" : "s"} remain on watch.${shellTopCase ? ` Highest priority: ${shellTopCase.name}.` : ""}`;
+      return `${shellLaneWatch} qualified brief${shellLaneWatch === 1 ? "" : "s"} remain on watch.${shellTopCase ? ` Highest priority: ${shellTopCase.name}.` : ""}`;
     }
-    return `The vendor assessment queue is currently stable.${shellTopCase ? ` Highest-priority case: ${shellTopCase.name}.` : ""}`;
+    return `The entity queue is currently stable.${shellTopCase ? ` Highest-priority case: ${shellTopCase.name}.` : ""}`;
   }, [activePillar, shellLaneBlocked, shellLaneCases.length, shellLaneReview, shellLaneWatch, shellTopCase]);
   const shellLaneSummary = useMemo(() => ({
     lane: workflowMode,
-    label: activePillar === "contract_vehicle" ? "Contract vehicle intelligence" : "Vendor assessment queue",
-    shortLabel: activePillar === "contract_vehicle" ? "Vehicle" : "Vendor",
+    label: activePillar === "contract_vehicle" ? "Vehicle intelligence" : "Entity intelligence queue",
+    shortLabel: activePillar === "contract_vehicle" ? "Vehicle" : "Entity",
     description: activePillar === "contract_vehicle"
       ? "Start from the vehicle and spin the right vendors into assessment."
-      : "All active vendor assessments across core, cyber, and export support layers.",
+      : "All active entity briefs, with deeper support surfaces pulled in only when they change the call.",
     activeCount: shellLaneCases.length,
     reviewCount: shellLaneReview,
     blockedCount: shellLaneBlocked,
@@ -519,7 +519,7 @@ export default function App() {
     : tab === "portfolio"
       ? "Workbench"
       : tab === "helios"
-        ? "Intake"
+        ? "Briefing"
         : tab === "dashboard"
           ? "Overview"
           : tab === "threads"
@@ -531,13 +531,13 @@ export default function App() {
                 : "Admin";
 
   const screenSubtitle = selected
-    ? `Vendor assessment workspace • ${WORKFLOW_LANE_META[workflowLaneForCase(selected)].label.toLowerCase()}`
+    ? `Working brief • ${WORKFLOW_LANE_META[workflowLaneForCase(selected)].label.toLowerCase()}`
     : tab === "portfolio"
       ? shellSummary
       : tab === "helios"
-        ? "Open a vendor assessment, pivot from a contract vehicle, or bring supporting layers into scope."
+        ? "Start with whatever you know. AXIOM will narrow the problem and take it from there."
         : tab === "dashboard"
-          ? "Status, drift, and supporting-layer pressure across the workspace."
+          ? "Status, drift, and pressure across the workspace."
           : tab === "threads"
             ? "Model contested sustainment as a mission problem, not a single-vendor problem."
             : tab === "graph"
@@ -661,14 +661,14 @@ export default function App() {
     },
     {
       id: "helios",
-      label: "Intake",
-      description: "Start vendor assessments or pivot in from a contract vehicle.",
+      label: "Briefing",
+      description: "Start from an entity, a vehicle, or the knot you cannot quite name yet.",
       icon: Shield,
     },
     {
       id: "dashboard",
       label: "Overview",
-      description: "Read posture, drift, and supporting-layer pressure.",
+      description: "Read posture, drift, and room pressure.",
       icon: LayoutDashboard,
     },
     {
@@ -705,7 +705,7 @@ export default function App() {
     : "TG";
 
   const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
-  const showSupportingLayerControls = !selected && tab === "helios" && productFocus === "vendor_assessment";
+  const showSupportingLayerControls = false;
   const frontPorchMode = !selected && tab === "helios";
   const warRoomMode = !selected && tab === "axiom";
   const shellContent = selected ? (
@@ -909,7 +909,7 @@ export default function App() {
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>Helios</div>
-                    <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assessment and contract vehicle intelligence</div>
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Entity and vehicle intelligence</div>
                   </div>
                   <ShortcutBadge>⌘K</ShortcutBadge>
                 </div>
@@ -922,7 +922,7 @@ export default function App() {
                       setSelected(null);
                     }}
                     className="helios-focus-ring"
-                    aria-label="Open intake"
+                    aria-label="Open briefing"
                     style={{
                       border: "none",
                       background: shellPillarMeta.accent,
@@ -934,7 +934,7 @@ export default function App() {
                       cursor: "pointer",
                     }}
                   >
-                    New intake
+                    New brief
                   </button>
                   <button
                     type="button"
@@ -1035,10 +1035,8 @@ export default function App() {
                   <StatusPill tone="info">{shellPillarMeta.label}</StatusPill>
                   {selected ? (
                     <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}</StatusPill>
-                  ) : productFocus === "vendor_assessment" ? (
-                    <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowMode].label}</StatusPill>
                   ) : (
-                    <StatusPill tone="neutral">Vehicle-first</StatusPill>
+                    <StatusPill tone="neutral">{productFocus === "vendor_assessment" ? "Full picture" : "Vehicle-first"}</StatusPill>
                   )}
                 </div>
 
@@ -1394,7 +1392,7 @@ export default function App() {
                             setTab("helios");
                           }}
                           className="helios-focus-ring"
-                          aria-label="Open intake"
+                          aria-label="Open briefing"
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -1410,7 +1408,7 @@ export default function App() {
                           }}
                         >
                           <Shield size={14} />
-                          Intake
+                          Briefing
                         </button>
                       ) : null}
 
@@ -1484,7 +1482,7 @@ export default function App() {
             <DialogHeader>
               <DialogTitle style={{ color: T.text }}>Sign in to continue</DialogTitle>
               <DialogDescription style={{ color: T.muted }}>
-                Front Porch stays simple. Sign in only when AXIOM needs to actually work the brief.
+                Briefing stays simple. Sign in only when AXIOM needs to actually work the brief.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleDialogLogin} className="flex flex-col gap-3">
@@ -1613,7 +1611,7 @@ export default function App() {
                 <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: 4 }}>Current context</div>
                 <div style={{ fontSize: FS.sm, color: T.text }}>
                   Workflow: {selected ? PRODUCT_PILLAR_META.vendor_assessment.label : PRODUCT_PILLAR_META[productFocus].label}
-                  {selected ? ` · Supporting layer: ${WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}` : ""}
+                  {selected ? ` · Emphasis: ${WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}` : ""}
                   {" · "}
                   Screen: {selected ? "case" : tab}
                   {selected ? ` · Case: ${selected.name}` : ""}

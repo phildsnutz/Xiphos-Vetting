@@ -2480,6 +2480,43 @@ def export_graph(limit_entities: int = 10000) -> dict:
         }
 
 
+def get_graph_snapshot_signature() -> str:
+    """
+    Return a cheap signature for invalidating cached analytics snapshots.
+
+    The interrogation layer only needs to know whether the durable graph
+    changed enough to justify reloading analytics. Counts plus latest
+    timestamps give us that without paying for a full export.
+    """
+    with get_kg_conn() as conn:
+        entity_stats = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS entity_count,
+                MAX(last_updated) AS latest_entity_updated_at,
+                MAX(created_at) AS latest_entity_created_at
+            FROM kg_entities
+            """
+        ).fetchone()
+        relationship_stats = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS relationship_count,
+                MAX(created_at) AS latest_relationship_created_at
+            FROM kg_relationships
+            """
+        ).fetchone()
+
+    return _stable_hash(
+        str(entity_stats["entity_count"] or 0),
+        str(entity_stats["latest_entity_updated_at"] or ""),
+        str(entity_stats["latest_entity_created_at"] or ""),
+        str(relationship_stats["relationship_count"] or 0),
+        str(relationship_stats["latest_relationship_created_at"] or ""),
+        prefix="kgsnapshot",
+    )
+
+
 
 # ---------------------------------------------------------------------------
 # Risk propagation simulation

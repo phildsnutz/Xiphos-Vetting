@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Bell, Eye, Grid3X3, Radar, Search } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Bell, ChevronRight, Eye, Grid3X3, Radar, Search } from "lucide-react";
 import type { VettingCase } from "@/lib/types";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { AxiomAlerts } from "./axiom-alerts";
@@ -155,7 +155,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
       return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, and ${searchResults.intelligenceGaps.length} open gaps from the current brief.`;
     }
     if (seed?.targetEntity) {
-      return `AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and is working the public picture from there.`;
+      return `AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Briefing and is working the public picture from there.`;
     }
     return "Bring the knot, not the taxonomy. AXIOM will work the public picture, keep the weak residue explicit, and only push what holds.";
   }, [mode, searchResults, seed]);
@@ -175,7 +175,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
       return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
     }
     if (seed?.targetEntity) {
-      return "Front Porch brief warming";
+      return "Brief room warming";
     }
     return "Awaiting a live brief";
   }, [activeWatchEntries.length, alerts.length, criticalAlerts.length, mode, searchResults, seed]);
@@ -239,10 +239,10 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
     if (seed?.targetEntity) {
       return {
         eyebrow: "AXIOM exchange",
-        title: "The Front Porch brief is now live in the room.",
+        title: "The briefing-room brief is now live in the room.",
         lead: seed.vehicleName
           ? `I picked up ${seed.seedLabel || seed.targetEntity} with ${seed.vehicleName} already in frame. I’m working the thread from there.`
-          : `I picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and I’m working the first public picture from there.`,
+          : `I picked up ${seed.seedLabel || seed.targetEntity} from Briefing and I’m working the first public picture from there.`,
         follow: seed.domainFocus
           ? `I’m weighting ${seed.domainFocus} first unless you redirect me.`
           : "Redirect me only if the first thread is wrong. Otherwise I’ll work the full picture from the current brief.",
@@ -454,9 +454,30 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.lg, flexWrap: "wrap", position: "relative" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: SP.xs, minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate("helios")}
+                  className="helios-focus-ring"
+                  aria-label="Return to Briefing"
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    padding: 0,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: SP.xs,
+                    color: T.textSecondary,
+                    fontSize: FS.sm,
+                    fontWeight: 700,
+                  }}
+                >
+                  Briefing
+                </button>
+                <ChevronRight size={14} color={T.textTertiary} />
                 <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.04em" }}>Helios</div>
                 <StatusPill tone="info">War Room</StatusPill>
-                {seed?.targetEntity ? <StatusPill tone="neutral">Brief carried from Front Porch</StatusPill> : null}
+                {seed?.targetEntity ? <StatusPill tone="neutral">Brief carried from Briefing</StatusPill> : null}
               </div>
               <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, maxWidth: 760 }}>
                 {leadStatement}
@@ -471,7 +492,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                 type="button"
                 onClick={() => onNavigate("helios")}
                 className="helios-focus-ring"
-                aria-label="Return to Front Porch"
+                aria-label="Return to Briefing"
                 style={{
                   border: `1px solid ${T.border}`,
                   background: "transparent",
@@ -487,7 +508,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                 }}
               >
                 <ArrowLeft size={14} />
-                Front Porch
+                Exit War Room
               </button>
               <button
                 type="button"
@@ -572,7 +593,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                       </div>
                     </button>
                   )) : (
-                    <InlineMessage tone="neutral" message="No recent engagements yet. The first one starts in Front Porch." />
+                    <InlineMessage tone="neutral" message="No recent engagements yet. The first one starts in Briefing." />
                   )}
                 </div>
               ) : null}

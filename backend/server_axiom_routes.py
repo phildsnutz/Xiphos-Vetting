@@ -41,6 +41,7 @@ def register_axiom_routes(*, app, require_auth, db):
                     graph_community,
                     graph_neighborhood,
                     graph_profile,
+                    graph_rules,
                 )
 
                 graph_context = _sanitize_graph_context(vendor_id) or {}
@@ -49,6 +50,7 @@ def register_axiom_routes(*, app, require_auth, db):
                     "neighborhood": graph_neighborhood(vendor_id=vendor_id, depth=1, workflow_lane="counterparty"),
                     "community": graph_community(vendor_id=vendor_id),
                     "anomalies": graph_anomalies(vendor_id=vendor_id, workflow_lane="counterparty"),
+                    "rules": graph_rules(vendor_id=vendor_id, workflow_lane="counterparty"),
                 }
         except Exception:
             graph_context = {}
@@ -405,6 +407,24 @@ def register_axiom_routes(*, app, require_auth, db):
             return jsonify(payload), 200
         except Exception as exc:
             logger.exception("axiom_routes: graph anomalies failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/rules", methods=["POST"])
+    @require_auth("screen:read")
+    def api_axiom_graph_rules():
+        try:
+            from axiom_graph_interface import graph_rules
+
+            body = _graph_body()
+            payload = graph_rules(
+                entity_id=str(body.get("entity_id") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                workflow_lane=_graph_workflow_lane(body),
+                mission_context=_graph_mission_context(body),
+            )
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph rules failed: %s", exc)
             return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/axiom/graph/assert", methods=["POST"])

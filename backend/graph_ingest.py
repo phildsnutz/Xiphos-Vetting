@@ -136,9 +136,14 @@ _GRAPH_EDGE_FAMILIES: dict[str, tuple[str, ...]] = {
 
 _REQUIRED_EDGE_FAMILIES_BY_LANE: dict[str, tuple[str, ...]] = {
     "defense_counterparty_trust": ("ownership_control",),
+    "counterparty": ("ownership_control",),
     "supplier_cyber_trust": ("ownership_control", "cyber_supply_chain"),
+    "cyber": ("ownership_control", "cyber_supply_chain"),
     "export_authorization": ("ownership_control", "trade_and_logistics"),
+    "export": ("ownership_control", "trade_and_logistics"),
     "contract_vehicle_intelligence": ("capture_intelligence", "contracts_and_programs"),
+    "contract_vehicle": ("capture_intelligence", "contracts_and_programs"),
+    "vehicle": ("capture_intelligence", "contracts_and_programs"),
 }
 
 # ---------------------------------------------------------------------------

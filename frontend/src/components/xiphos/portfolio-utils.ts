@@ -14,17 +14,17 @@ export const PRODUCT_PILLAR_META: Record<ProductPillar, {
   softBorder: string;
 }> = {
   vendor_assessment: {
-    label: "Vendor Assessment",
-    shortLabel: "Vendor",
-    description: "Supplier trust, supporting layers, and analyst disposition work.",
+    label: "Entity Intelligence",
+    shortLabel: "Entity",
+    description: "Work the full picture on a company, supplier, or target.",
     accent: T.gold,
     softBackground: T.goldSoft,
     softBorder: `${T.gold}33`,
   },
   contract_vehicle: {
-    label: "Contract Vehicle Intelligence",
+    label: "Vehicle Intelligence",
     shortLabel: "Vehicle",
-    description: "Start from the vehicle, map the ecosystem, and close dossier gaps.",
+    description: "Start from the vehicle, map the ecosystem, and pull the right entities into the room.",
     accent: T.accent,
     softBackground: T.accentSoft,
     softBorder: `${T.accent}33`,
@@ -40,25 +40,25 @@ export const WORKFLOW_LANE_META: Record<WorkflowLane, {
   softBorder: string;
 }> = {
   counterparty: {
-    label: "Core vendor assessment",
-    shortLabel: "Core",
-    description: "Base supplier trust, ownership, FOCI, and adjudication evidence.",
+    label: "Ownership and control",
+    shortLabel: "Control",
+    description: "Core entity truth, ownership paths, FOCI, sanctions, and public-record evidence.",
     accent: T.gold,
     softBackground: T.goldSoft,
     softBorder: `${T.gold}33`,
   },
   cyber: {
-    label: "Cyber support layer",
-    shortLabel: "Cyber",
-    description: "CMMC, remediation, dependency, and software assurance evidence.",
+    label: "Assurance signals",
+    shortLabel: "Assurance",
+    description: "Supplier assurance, cyber readiness, dependency, and software evidence when it changes the call.",
     accent: T.teal,
     softBackground: T.tealSoft,
     softBorder: `${T.teal}33`,
   },
   export: {
-    label: "Export support layer",
-    shortLabel: "Export",
-    description: "Authorization, classification, and foreign-person access evidence.",
+    label: "Access and transfer",
+    shortLabel: "Access",
+    description: "Access, transfer, foreign-person, and authorization evidence when it changes the call.",
     accent: T.accent,
     softBackground: T.accentSoft,
     softBorder: `${T.accent}33`,

@@ -273,7 +273,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
     const runSeed = async () => {
       setError("");
       setIsRunning(true);
-      setStatus(`AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and is working the thread.`);
+      setStatus(`AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Briefing and is working the thread.`);
       setIteration(0);
       setResults(null);
 
