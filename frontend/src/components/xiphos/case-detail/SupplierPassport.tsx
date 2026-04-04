@@ -28,10 +28,7 @@ export const SupplierPassport: React.FC<SupplierPassportProps> = ({
       <div className="rounded-lg p-4 glass-card">
         <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
           <div>
-            <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
-              Supplier Passport
-            </div>
-            <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 4 }}>
+            <div style={{ fontSize: FS.sm, color: T.textSecondary, marginTop: 2, lineHeight: 1.55 }}>
               Portable trust artifact for control-path, identity, and connector coverage.
             </div>
           </div>

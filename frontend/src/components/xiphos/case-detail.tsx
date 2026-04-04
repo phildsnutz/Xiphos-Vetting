@@ -275,47 +275,48 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
       />
 
       <div
-        className="glass-card"
         style={{
-          padding: PAD.default,
-          borderRadius: 18,
+          padding: `${SP.xs}px 0`,
           display: "flex",
           flexDirection: "column",
           gap: SP.sm,
         }}
       >
-        <SectionEyebrow>Workspace</SectionEyebrow>
-        <div className="flex flex-wrap gap-2">
-          {workspaceTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              data-case-view={tab.id}
-              onClick={tab.action}
-              className="helios-focus-ring"
-              aria-label={`Open ${tab.label.toLowerCase()} workspace`}
-              style={{
-                display: "inline-flex",
-                flexDirection: "column",
-                alignItems: "flex-start",
-                gap: 2,
-                borderRadius: 14,
-                border: `1px solid ${tab.active ? `${T.accent}${O["30"]}` : T.border}`,
-                background: tab.active ? T.accentSoft : T.surface,
-                color: tab.active ? T.text : T.textSecondary,
-                padding: PAD.default,
-                cursor: "pointer",
-                minWidth: 152,
-              }}
-            >
-              <span style={{ fontSize: FS.sm, fontWeight: 800, color: tab.active ? T.accent : T.text }}>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <SectionEyebrow>Workspace</SectionEyebrow>
+            <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
+              Decision stays pinned on the left. Evidence, graph, and model reasoning move on the right.
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {workspaceTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                data-case-view={tab.id}
+                onClick={tab.action}
+                className="helios-focus-ring"
+                aria-label={`Open ${tab.label.toLowerCase()} workspace`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                  borderRadius: 999,
+                  border: `1px solid ${tab.active ? `${T.accent}${O["30"]}` : T.border}`,
+                  background: tab.active ? T.accentSoft : T.surface,
+                  color: tab.active ? T.accent : T.textSecondary,
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                }}
+                title={tab.description}
+              >
                 {tab.label}
-              </span>
-              <span style={{ fontSize: FS.xs, color: tab.active ? T.textSecondary : T.textTertiary, lineHeight: 1.45 }}>
-                {tab.description}
-              </span>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

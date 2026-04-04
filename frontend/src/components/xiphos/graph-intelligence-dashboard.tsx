@@ -1005,14 +1005,15 @@ export function GraphIntelligenceDashboard() {
             eyebrow="Graph intelligence"
             title={
               <span style={{ fontSize: FS.md, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>
-                Relationship fabric and provenance pathing
+                Investigation canvas for relationship paths and provenance
               </span>
             }
-            description="Search the graph, pivot the layout, save workspaces, and explain why a relationship matters without leaving the analyst loop."
+            description="Search the graph, pivot the layout, and explain why a node or path matters without leaving the analyst loop."
             meta={
               <>
                 <StatusPill tone="info">{filteredData.nodes.length} nodes</StatusPill>
                 <StatusPill tone="neutral">{filteredData.edges.length} edges</StatusPill>
+                <StatusPill tone="neutral">Paths beat pictures</StatusPill>
                 <StatusPill tone="neutral">
                   <ShortcutBadge>⌘F</ShortcutBadge>
                   Search
@@ -1043,7 +1044,7 @@ export function GraphIntelligenceDashboard() {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search entities, companies, people, or vehicles"
+                placeholder="Search the graph by entity, company, person, or vehicle"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 aria-label="Search graph entities"

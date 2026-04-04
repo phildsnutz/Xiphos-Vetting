@@ -57,37 +57,67 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
 
   if (analystView !== "evidence" && analystView !== "model") return null;
 
-  return (
-    <div ref={evidenceRef} className="mt-3 rounded-lg glass-card" style={{ padding: SP.md + 2 }}>
-      <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
-        {analystView === "model" ? "Model" : "Evidence"}
-      </div>
-      <div style={{ fontSize: FS.sm, color: T.muted, marginTop: SP.xs }}>
-        {analystView === "model"
-          ? "Model-specific reasoning, confidence, and top contribution drivers."
-          : "Connector outputs, findings, timelines, and graph evidence behind the decision."}
-      </div>
+  const evidenceTitle =
+    analystView === "model"
+      ? "Model reasoning"
+      : evidenceTab === "graph"
+        ? "Knowledge graph"
+        : evidenceTab === "events"
+          ? "Evidence timeline"
+          : evidenceTab === "findings"
+            ? "Connector findings"
+            : "Evidence";
+  const evidenceDescription =
+    analystView === "model"
+      ? "Read the calibrated view, confidence, and factor pressure without leaving the case."
+      : evidenceTab === "graph"
+        ? "Use the graph to explain why a relationship matters, not just to look at it."
+        : "Stay inside the evidence stream, then pivot deeper only when the case needs it.";
 
-      <div className="flex gap-2 flex-wrap mt-3">
+  return (
+    <div
+      ref={evidenceRef}
+      style={{
+        marginTop: SP.xs,
+        padding: PAD.comfortable,
+        borderRadius: 18,
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+      }}
+    >
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
+            {evidenceTitle}
+          </div>
+          <div style={{ fontSize: FS.sm, color: T.textSecondary, marginTop: SP.xs, lineHeight: 1.55 }}>
+            {evidenceDescription}
+          </div>
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
         {evidenceTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => openEvidence(tab.id)}
             disabled={tab.disabled}
             aria-label={`Open ${tab.label}`}
-            className="rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
+            className="rounded-full font-medium border cursor-pointer btn-interactive focus-ring"
             style={{
-              padding: PAD.default,
+              padding: "8px 12px",
               fontSize: FS.sm,
-              background: evidenceTab === tab.id ? T.accent + "18" : T.raised,
+              background: evidenceTab === tab.id ? T.accentSoft : T.surface,
               color: evidenceTab === tab.id ? T.accent : tab.disabled ? T.muted : T.dim,
-              borderColor: evidenceTab === tab.id ? T.accent + "44" : T.border,
+              borderColor: evidenceTab === tab.id ? `${T.accent}44` : T.border,
               opacity: tab.disabled ? 0.55 : 1,
+              fontWeight: 700,
             }}
+            title={tab.label}
           >
             {tab.label}
           </button>
         ))}
+        </div>
       </div>
 
       <div className="mt-4">

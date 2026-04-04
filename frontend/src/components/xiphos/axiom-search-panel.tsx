@@ -252,9 +252,9 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
       style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
       <PanelHeader
-        eyebrow="Search"
-        title="Run a focused collection pass"
-        description="Start with the prime or target entity. Add vehicle and mission context only when it narrows the hunt."
+        eyebrow="Collection"
+        title="Define the collection brief"
+        description="Start with the entity you need to pressure-test. Add vehicle or mission context only when it makes the evidence hunt sharper."
         meta={
           <>
             <StatusPill tone={autoIngest ? "info" : "neutral"}>
@@ -266,7 +266,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             </StatusPill>
             <StatusPill tone="neutral">
               <ShortcutBadge>Enter</ShortcutBadge>
-              Run search
+              Run pass
             </StatusPill>
           </>
         }
@@ -304,7 +304,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             }}
           />
           <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
-            Prime, suspected teammate, or entity you need AXIOM to pressure-test.
+            Prime, suspected teammate, sub, or entity that still carries dark space in the dossier.
           </div>
         </div>
 
@@ -511,8 +511,8 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
 
       {isRunning ? (
         <LoadingPanel
-          label={status || "Running AXIOM search"}
-          detail={iteration > 0 ? `Iteration ${iteration} in progress.` : "Collecting structured evidence and evaluating knowledge graph ingest."}
+          label={status || "Running AXIOM collection pass"}
+          detail={iteration > 0 ? `Iteration ${iteration} in progress.` : "Collecting structured evidence, surfacing gaps, and evaluating graph ingest."}
         />
       ) : null}
 
@@ -538,7 +538,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         type="button"
         onClick={handleSearch}
         disabled={isRunning || !targetEntity.trim()}
-        aria-label="Run AXIOM search"
+        aria-label="Run AXIOM collection pass"
         className="flex items-center justify-center gap-2 rounded cursor-pointer font-medium"
         style={{
           padding: PAD.default,
@@ -550,13 +550,13 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         }}
       >
         <Play size={SP.md + SP.xs} />
-        {isRunning ? "Searching..." : "Run AXIOM Search"}
+        {isRunning ? "Running..." : "Run collection pass"}
       </button>
 
       {!isRunning && !results && !error ? (
         <EmptyPanel
-          title="No search run yet"
-          description="Start with a prime, suspected sub, or target entity. Add vehicle and mission context only when it helps constrain the hunt."
+          title="No collection pass run yet"
+          description="Start with a prime, suspected sub, or target entity. Add vehicle and mission context only when it helps constrain the evidence hunt."
           icon={Search}
         />
       ) : null}
@@ -604,7 +604,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.entities.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Discovered Entities ({results.entities.length})
+                Surfaced entities ({results.entities.length})
               </h4>
               <div className="space-y-2">
                 {results.entities.slice(0, 5).map((entity, index) => (
@@ -629,7 +629,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.relationships.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Relationships ({results.relationships.length})
+                Relationship leads ({results.relationships.length})
               </h4>
               <div className="space-y-2">
                 {results.relationships.slice(0, 3).map((relationship, index) => (
@@ -653,7 +653,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.intelligenceGaps.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Intelligence Gaps ({results.intelligenceGaps.length})
+                Remaining gaps ({results.intelligenceGaps.length})
               </h4>
               <div className="space-y-2">
                 {results.intelligenceGaps.slice(0, 4).map((gap, index) => (
@@ -677,7 +677,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.advisory.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Advisory Opportunities ({results.advisory.length})
+                Collection next steps ({results.advisory.length})
               </h4>
               <div className="space-y-2">
                 {results.advisory.map((advisory, index) => (
@@ -716,7 +716,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               }}
             >
               <Upload size={SP.md + SP.xs} />
-              {isIngesting ? "Ingesting..." : "Rerun and Ingest to Knowledge Graph"}
+              {isIngesting ? "Ingesting..." : "Rerun and ingest to graph"}
             </button>
           )}
         </div>

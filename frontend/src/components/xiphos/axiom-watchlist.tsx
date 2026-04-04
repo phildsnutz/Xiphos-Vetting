@@ -268,7 +268,7 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
       <PanelHeader
         eyebrow="Watchlist"
         title="Persistent collection targets"
-        description="Keep vendors and vehicles warm between dossier pulls. AXIOM should revisit these automatically as the graph changes."
+        description="Keep vendors and vehicles warm between dossier pulls. Use this list for the things AXIOM should revisit without being asked."
         meta={
           <>
             <StatusPill tone={daemonRunning ? "success" : "neutral"}>

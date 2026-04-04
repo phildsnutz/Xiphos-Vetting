@@ -192,7 +192,7 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
       <PanelHeader
         eyebrow="Alerts"
         title="Monitoring signals that changed"
-        description="Treat this as the escalation layer. AXIOM should only interrupt the operator when watchlist state materially moves."
+        description="Treat this as the escalation layer. AXIOM should interrupt the operator only when watchlist state materially moves."
         meta={
           <>
             <StatusPill tone="info">{filteredAlerts.length} visible</StatusPill>

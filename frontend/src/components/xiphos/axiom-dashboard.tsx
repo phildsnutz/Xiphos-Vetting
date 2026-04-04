@@ -19,21 +19,21 @@ export function AxiomDashboard() {
   }> = [
     {
       id: "search",
-      label: "Search",
+      label: "Collection",
       icon: <Search size={14} />,
-      description: "Run agent-driven intelligence searches",
+      description: "Run a focused collection pass against the current gap.",
     },
     {
       id: "watchlist",
-      label: "Watchlist",
+      label: "Watch",
       icon: <Eye size={14} />,
-      description: "Monitor persistent targets",
+      description: "Keep persistent targets warm between dossier pulls.",
     },
     {
       id: "alerts",
       label: "Alerts",
       icon: <Bell size={14} />,
-      description: "View monitoring alerts",
+      description: "Escalate drift that materially changed the picture.",
     },
   ];
 
@@ -53,14 +53,14 @@ export function AxiomDashboard() {
           eyebrow="AXIOM"
           title={
             <span style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text }}>
-              Close dossier gaps like a case officer, not a search box.
+              Case-officer workspace for collection, drift, and gap closure.
             </span>
           }
-          description="Develop collection hypotheses, convert weak public signal into structured evidence, and keep the graph warm as vehicles, primes, and teammates drift."
+          description="Work the unknowns. Turn weak public residue into structured evidence, keep watch on the right targets, and feed the graph only when the signal is strong enough."
           meta={
             <>
-              <StatusPill tone="info">Search closes gaps</StatusPill>
-              <StatusPill tone="neutral">Watchlist keeps collection warm</StatusPill>
+              <StatusPill tone="info">Collection closes gaps</StatusPill>
+              <StatusPill tone="neutral">Watch keeps targets warm</StatusPill>
               <StatusPill tone="warning">Alerts escalate drift</StatusPill>
             </>
           }
