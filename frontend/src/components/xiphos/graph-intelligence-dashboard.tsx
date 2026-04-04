@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { type Core, type ElementDefinition, type EventObject, type NodeSingular } from "cytoscape";
-import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText } from "lucide-react";
+import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText, PanelLeft, PanelRight } from "lucide-react";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
 import type { GraphEdge as ApiGraphEdge, GraphWorkspace } from "@/lib/api";
@@ -151,10 +151,10 @@ const COMMUNITY_PALETTE = [
 ];
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string }> = [
-  { id: "importance", label: "Decision Impact" },
-  { id: "risk", label: "Top by Risk" },
-  { id: "detail", label: "Detail" },
-  { id: "analytics", label: "Analytics" },
+  { id: "importance", label: "What matters" },
+  { id: "risk", label: "Pressure" },
+  { id: "detail", label: "Selected" },
+  { id: "analytics", label: "Path lab" },
 ];
 
 const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
@@ -220,6 +220,8 @@ export function GraphIntelligenceDashboard() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showContextPanel, setShowContextPanel] = useState(false);
 
   // Shortest Path
   const [pathSource, setPathSource] = useState<string | null>(null);
@@ -282,6 +284,12 @@ export function GraphIntelligenceDashboard() {
   useEffect(() => {
     loadGraphData();
   }, [loadGraphData]);
+
+  useEffect(() => {
+    if (selectedNode || pathResult || propagationResult) {
+      setShowContextPanel(true);
+    }
+  }, [pathResult, propagationResult, selectedNode]);
 
   // Compute temporal bounds from graph data
   const temporalBounds = useMemo(() => {
@@ -908,8 +916,8 @@ export function GraphIntelligenceDashboard() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", background: GRAPH_BG, padding: 24 }}>
         <div style={{ width: "100%", maxWidth: 520 }}>
           <LoadingPanel
-            label="Loading graph intelligence"
-            detail="Rebuilding the filtered network, analytics, and workspace overlays."
+            label="Opening Graph Room"
+            detail="Rebuilding the paths, bridges, and provenance behind the brief."
           />
         </div>
       </div>
@@ -920,7 +928,7 @@ export function GraphIntelligenceDashboard() {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", background: GRAPH_BG, padding: 24 }}>
         <div style={{ width: "100%", maxWidth: 520, display: "flex", flexDirection: "column", gap: 12 }}>
-          <InlineMessage tone="danger" title="Graph intelligence unavailable" message={error} />
+          <InlineMessage tone="danger" title="Graph Room unavailable" message={error} />
           {retryCount < MAX_RETRIES ? (
             <button
               type="button"
@@ -960,7 +968,7 @@ export function GraphIntelligenceDashboard() {
     <div
       style={{
         display: "flex",
-        flexDirection: "row",
+        flexDirection: "column",
         height: "100%",
         width: "100%",
         background: GRAPH_BG,
@@ -969,26 +977,8 @@ export function GraphIntelligenceDashboard() {
         fontSize: `${FS.base}px`,
       }}
     >
-      {/* Left Sidebar: Filters & Legend */}
-      <LeftSidebar
-        entityTypes={entityTypes}
-        relationshipTypes={relationshipTypes}
-        filters={filters}
-        riskDistribution={riskDistribution}
-        onToggleEntityType={toggleEntityType}
-        onToggleRiskLevel={toggleRiskLevel}
-        onConfidenceChange={(val) => setFilters({ ...filters, confidenceThreshold: val })}
-        onEdgeConfidenceChange={(val) => setFilters({ ...filters, edgeConfidenceThreshold: val })}
-        onResetFilters={handleResetFilters}
-        temporalEnabled={temporalEnabled}
-        onToggleTemporal={() => setTemporalEnabled(!temporalEnabled)}
-        temporalRange={temporalRange}
-        onTemporalRangeChange={setTemporalRange}
-        temporalBounds={temporalBounds}
-      />
-
       {/* Center: Graph Canvas */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", minHeight: 0 }}>
         {/* Top Toolbar */}
         <div
           style={{
@@ -1002,13 +992,13 @@ export function GraphIntelligenceDashboard() {
           }}
         >
           <PanelHeader
-            eyebrow="Graph intelligence"
+            eyebrow="Graph room"
             title={
               <span style={{ fontSize: FS.md, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>
-                Investigation canvas for relationship paths and provenance
+                Trace the structure behind the brief
               </span>
             }
-            description="Search the graph, pivot the layout, and explain why a node or path matters without leaving the analyst loop."
+            description="Follow the bridges, pressure points, and provenance without falling out of the live thread."
             meta={
               <>
                 <StatusPill tone="info">{filteredData.nodes.length} nodes</StatusPill>
@@ -1044,7 +1034,7 @@ export function GraphIntelligenceDashboard() {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search the graph by entity, company, person, or vehicle"
+                placeholder="Find an entity, bridge, or vehicle thread"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 aria-label="Search graph entities"
@@ -1065,19 +1055,42 @@ export function GraphIntelligenceDashboard() {
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
-              <LayoutButton active={layoutMode === "cose"} label="Force layout" onClick={() => changeLayout("cose")}>
-              Force
+              <LayoutButton active={layoutMode === "cose"} label="Free layout" onClick={() => changeLayout("cose")}>
+              Free
               </LayoutButton>
               <LayoutButton active={layoutMode === "breadthfirst"} label="Tree layout" onClick={() => changeLayout("breadthfirst")}>
               Tree
               </LayoutButton>
-              <LayoutButton active={layoutMode === "concentric"} label="Radial layout" onClick={() => changeLayout("concentric")}>
-              Radial
+              <LayoutButton active={layoutMode === "concentric"} label="Orbit layout" onClick={() => changeLayout("concentric")}>
+              Orbit
               </LayoutButton>
               <LayoutButton active={layoutMode === "geo"} label="Map layout" onClick={() => changeLayout("geo")}>
               <Globe size={14} style={{ display: "inline", marginRight: "4px" }} />
               Map
               </LayoutButton>
+
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label={showFilterPanel ? "Hide graph framing tools" : "Show graph framing tools"}
+                onClick={() => setShowFilterPanel(!showFilterPanel)}
+                style={{
+                  padding: PAD.default,
+                  background: showFilterPanel ? `${T.accent}${O["15"]}` : T.bg,
+                  border: `1px solid ${showFilterPanel ? `${T.accent}${O["30"]}` : T.border}`,
+                  color: showFilterPanel ? T.accent : T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Frame the graph picture"
+              >
+                <PanelLeft size={14} />
+                Frame
+              </button>
 
               <button
                 type="button"
@@ -1168,7 +1181,7 @@ export function GraphIntelligenceDashboard() {
                 title="Generate briefing PDF"
               >
                 <FileText size={14} />
-                Briefing
+                Pull brief
               </button>
 
               <button
@@ -1191,12 +1204,35 @@ export function GraphIntelligenceDashboard() {
                 title="Workspaces"
               >
                 <FolderOpen size={14} />
-                Workspaces
+                Saved views
+              </button>
+
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label={showContextPanel ? "Hide graph context" : "Show graph context"}
+                onClick={() => setShowContextPanel(!showContextPanel)}
+                style={{
+                  padding: PAD.default,
+                  background: showContextPanel ? `${T.accent}${O["15"]}` : T.bg,
+                  border: `1px solid ${showContextPanel ? `${T.accent}${O["30"]}` : T.border}`,
+                  color: showContextPanel ? T.accent : T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Show graph context"
+              >
+                <PanelRight size={14} />
+                Context
               </button>
             </div>
 
             {filteredData.nodes.length > 2000 ? (
-              <StatusPill tone="warning">LOD active</StatusPill>
+              <StatusPill tone="warning">Large graph mode</StatusPill>
             ) : null}
           </div>
         </div>
@@ -1212,6 +1248,27 @@ export function GraphIntelligenceDashboard() {
             display: "flex",
           }}
         >
+          {showFilterPanel ? (
+            <div style={{ position: "absolute", top: 14, left: 14, zIndex: 35, maxHeight: "calc(100% - 28px)" }}>
+              <LeftSidebar
+                entityTypes={entityTypes}
+                relationshipTypes={relationshipTypes}
+                filters={filters}
+                riskDistribution={riskDistribution}
+                onToggleEntityType={toggleEntityType}
+                onToggleRiskLevel={toggleRiskLevel}
+                onConfidenceChange={(val) => setFilters({ ...filters, confidenceThreshold: val })}
+                onEdgeConfidenceChange={(val) => setFilters({ ...filters, edgeConfidenceThreshold: val })}
+                onResetFilters={handleResetFilters}
+                temporalEnabled={temporalEnabled}
+                onToggleTemporal={() => setTemporalEnabled(!temporalEnabled)}
+                temporalRange={temporalRange}
+                onTemporalRangeChange={setTemporalRange}
+                temporalBounds={temporalBounds}
+              />
+            </div>
+          ) : null}
+
           {/* Tooltip */}
           {tooltip && (
             <div
@@ -1495,37 +1552,40 @@ export function GraphIntelligenceDashboard() {
               </div>
             </div>
           )}
+
+          {showContextPanel ? (
+            <div style={{ position: "absolute", top: 14, right: 14, zIndex: 35, maxHeight: "calc(100% - 28px)" }}>
+              <RightSidebar
+                selectedNode={selectedNode}
+                topByImportance={graphData?.top_by_importance || []}
+                topByStructuralImportance={graphData?.top_by_structural_importance || []}
+                topByRisk={graphData?.top_by_risk || []}
+                communities={graphData?.communities || []}
+                riskDistribution={riskDistribution}
+                pinnedNodes={pinnedNodes}
+                annotations={annotations}
+                onPinNode={handlePinNode}
+                onAnnotate={(id) => { setAnnotatingNodeId(id); setAnnotationText(annotations[id] || ""); }}
+                pathSource={pathSource}
+                pathTarget={pathTarget}
+                pathResult={pathResult}
+                pathLoading={pathLoading}
+                propagationSource={propagationSource}
+                propagationResult={propagationResult}
+                propagationLoading={propagationLoading}
+                propagationWaveIndex={propagationWaveIndex}
+                onSetPathSource={setPathSource}
+                onSetPathTarget={setPathTarget}
+                onFindPath={handleFindPath}
+                onSetPropagationSource={setPropagationSource}
+                onPropagate={handlePropagate}
+                onShowWave={handleShowWave}
+                onClearAnalytics={handleClearAnalytics}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
-
-      {/* Right Sidebar: Analytics */}
-      <RightSidebar
-        selectedNode={selectedNode}
-        topByImportance={graphData?.top_by_importance || []}
-        topByStructuralImportance={graphData?.top_by_structural_importance || []}
-        topByRisk={graphData?.top_by_risk || []}
-        communities={graphData?.communities || []}
-        riskDistribution={riskDistribution}
-        pinnedNodes={pinnedNodes}
-        annotations={annotations}
-        onPinNode={handlePinNode}
-        onAnnotate={(id) => { setAnnotatingNodeId(id); setAnnotationText(annotations[id] || ""); }}
-        pathSource={pathSource}
-        pathTarget={pathTarget}
-        pathResult={pathResult}
-        pathLoading={pathLoading}
-        propagationSource={propagationSource}
-        propagationResult={propagationResult}
-        propagationLoading={propagationLoading}
-        propagationWaveIndex={propagationWaveIndex}
-        onSetPathSource={setPathSource}
-        onSetPathTarget={setPathTarget}
-        onFindPath={handleFindPath}
-        onSetPropagationSource={setPropagationSource}
-        onPropagate={handlePropagate}
-        onShowWave={handleShowWave}
-        onClearAnalytics={handleClearAnalytics}
-      />
     </div>
   );
 }
@@ -1553,14 +1613,18 @@ function LeftSidebar(props: {
   return (
     <div
       style={{
-        width: "280px",
-        background: T.surface,
-        borderRight: `1px solid ${T.border}`,
+        width: "272px",
+        maxHeight: "100%",
+        background: "rgba(12, 18, 28, 0.94)",
+        border: `1px solid rgba(255,255,255,0.08)`,
+        borderRadius: 22,
+        backdropFilter: "blur(20px)",
         display: "flex",
         flexDirection: "column",
         overflow: "auto",
-        padding: "12px",
-        gap: "16px",
+        padding: `${PAD.comfortable}px`,
+        gap: `${SP.md}px`,
+        boxShadow: "0 24px 60px rgba(0,0,0,0.28)",
       }}
     >
       {/* Reset Button */}
@@ -1570,23 +1634,23 @@ function LeftSidebar(props: {
         aria-label="Reset graph filters"
         onClick={props.onResetFilters}
         style={{
-          padding: "6px 10px",
-          background: T.surfaceElevated,
-          border: `1px solid ${T.border}`,
+          padding: "8px 12px",
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid rgba(255,255,255,0.08)`,
           color: T.text,
-          borderRadius: "4px",
+          borderRadius: "999px",
           cursor: "pointer",
           fontSize: `${FS.sm}px`,
-          fontWeight: 500,
+          fontWeight: 700,
         }}
       >
-        Reset Filters
+        Reset the picture
       </button>
 
       {/* Entity Types */}
       <div>
         <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-          ENTITY TYPES
+          ENTITY CLASSES
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {props.entityTypes.map((type) => (
@@ -1615,7 +1679,7 @@ function LeftSidebar(props: {
       {/* Risk Levels */}
       <div>
         <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-          RISK LEVEL
+          PRESSURE LEVEL
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {["CLEAR", "LOW", "MEDIUM", "HIGH", "CRITICAL"].map((level) => (
@@ -1652,7 +1716,7 @@ function LeftSidebar(props: {
       {/* Confidence Threshold */}
       <div>
         <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-          MIN CONFIDENCE
+          THIN-DATA FLOOR
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <input
@@ -1673,7 +1737,7 @@ function LeftSidebar(props: {
       {/* Edge Confidence Threshold */}
       <div>
         <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-          EDGE CONFIDENCE
+          RELATIONSHIP FLOOR
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <input
@@ -1695,7 +1759,7 @@ function LeftSidebar(props: {
       <div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
           <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600 }}>
-            TIMELINE
+            TIMELINE WINDOW
           </div>
           <button
             type="button"
@@ -1759,7 +1823,7 @@ function LeftSidebar(props: {
       {/* Risk Distribution Chart */}
       <div>
         <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-          RISK DISTRIBUTION
+          PRESSURE MIX
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
           {["CLEAR", "LOW", "MEDIUM", "HIGH", "CRITICAL"].map((level) => {
@@ -1834,17 +1898,21 @@ function RightSidebar(props: {
     <div
       style={{
         width: "320px",
-        background: T.surface,
-        borderLeft: `1px solid ${T.border}`,
+        maxHeight: "100%",
+        background: "rgba(12, 18, 28, 0.94)",
+        border: `1px solid rgba(255,255,255,0.08)`,
+        borderRadius: 22,
+        backdropFilter: "blur(20px)",
         display: "flex",
         flexDirection: "column",
         overflow: "auto",
-        padding: "12px",
-        gap: "12px",
+        padding: `${PAD.comfortable}px`,
+        gap: `${SP.md}px`,
+        boxShadow: "0 24px 60px rgba(0,0,0,0.28)",
       }}
     >
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", borderBottom: `1px solid ${T.border}`, paddingBottom: "8px" }}>
+      <div style={{ display: "flex", gap: "4px", borderBottom: `1px solid rgba(255,255,255,0.08)`, paddingBottom: "8px" }}>
         {SIDEBAR_TABS.map((tab) => (
           <button
             key={tab.id}
@@ -1856,12 +1924,13 @@ function RightSidebar(props: {
             style={{
               flex: 1,
               padding: "6px",
-              background: activeTab === tab.id ? T.surfaceElevated : "transparent",
+              background: activeTab === tab.id ? "rgba(255,255,255,0.05)" : "transparent",
               border: "none",
               color: T.text,
               cursor: "pointer",
               fontSize: `${FS.sm}px`,
               borderBottom: activeTab === tab.id ? `2px solid ${T.accent}` : "none",
+              borderRadius: 10,
             }}
           >
             {tab.label}
@@ -1882,25 +1951,25 @@ function RightSidebar(props: {
               color: T.textSecondary,
             }}
           >
-            Decision impact drives operator ranking. Structural importance shows graph shape and bridge value.
+            These are the nodes most likely to change the working judgment if they move.
           </div>
           {props.topByImportance.slice(0, 10).map((node) => (
             <div
               key={node.id}
               style={{
                 padding: "8px",
-                background: T.bg,
-                borderRadius: "4px",
+                background: "rgba(255,255,255,0.03)",
+                borderRadius: "10px",
                 borderLeft: `3px solid ${RISK_COLORS[node.risk_level].bg}`,
                 fontSize: `${FS.sm}px`,
                 cursor: "pointer",
                 transition: "background 0.2s",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = T.surfaceElevated;
+                e.currentTarget.style.background = "rgba(255,255,255,0.07)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = T.bg;
+                e.currentTarget.style.background = "rgba(255,255,255,0.03)";
               }}
             >
               <div style={{ fontWeight: 600, marginBottom: "4px" }}>{node.canonical_name}</div>
@@ -1914,7 +1983,7 @@ function RightSidebar(props: {
           {props.topByStructuralImportance.length > 0 && (
             <div style={{ marginTop: "12px" }}>
               <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-                STRUCTURAL BRIDGES
+                BRIDGE NODES
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {props.topByStructuralImportance.slice(0, 5).map((node) => (
@@ -1922,8 +1991,8 @@ function RightSidebar(props: {
                     key={`structural-${node.id}`}
                     style={{
                       padding: "8px",
-                      background: T.bg,
-                      borderRadius: "4px",
+                      background: "rgba(255,255,255,0.03)",
+                      borderRadius: "10px",
                       borderLeft: `3px solid ${TYPE_META[node.entity_type]?.stroke || T.accent}`,
                       fontSize: `${FS.sm}px`,
                     }}
@@ -1948,8 +2017,8 @@ function RightSidebar(props: {
               key={node.id}
               style={{
                 padding: "8px",
-                background: T.bg,
-                borderRadius: "4px",
+                background: "rgba(255,255,255,0.03)",
+                borderRadius: "10px",
                 borderLeft: `3px solid ${RISK_COLORS[node.risk_level].bg}`,
                 fontSize: `${FS.sm}px`,
               }}
@@ -1967,8 +2036,20 @@ function RightSidebar(props: {
       )}
 
       {activeTab === "detail" && props.selectedNode && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div
+              style={{
+                padding: "8px",
+                background: "rgba(255,255,255,0.03)",
+                border: `1px solid rgba(255,255,255,0.08)`,
+                borderRadius: "10px",
+                fontSize: `${FS.caption}px`,
+                color: T.textSecondary,
+              }}
+            >
+              Read the selected node as a role in the picture, not as isolated metadata.
+            </div>
+            <div>
             <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600 }}>NAME</div>
             <div style={{ fontSize: `${FS.sm}px`, marginTop: "4px" }}>{props.selectedNode.canonical_name}</div>
           </div>
@@ -2085,7 +2166,7 @@ function RightSidebar(props: {
 
       {activeTab === "detail" && !props.selectedNode && (
         <div style={{ color: T.textSecondary, fontSize: `${FS.sm}px`, textAlign: "center", padding: "20px 0" }}>
-          Click a node to view details
+          Select a node to read its role in the picture.
         </div>
       )}
 
@@ -2094,7 +2175,7 @@ function RightSidebar(props: {
           {/* Shortest Path */}
           <div>
             <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-              SHORTEST PATH
+              TRACE A PATH
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
@@ -2106,7 +2187,7 @@ function RightSidebar(props: {
                 }}
                   onClick={() => { if (props.selectedNode) props.onSetPathSource(props.selectedNode.id); }}
                 >
-                  {props.pathSource ? (props.topByImportance.find((n) => n.id === props.pathSource)?.canonical_name || props.pathSource) : "Click node, then click here"}
+                  {props.pathSource ? (props.topByImportance.find((n) => n.id === props.pathSource)?.canonical_name || props.pathSource) : "Select a node, then set it here"}
                 </div>
               </div>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
@@ -2118,7 +2199,7 @@ function RightSidebar(props: {
                 }}
                   onClick={() => { if (props.selectedNode) props.onSetPathTarget(props.selectedNode.id); }}
                 >
-                  {props.pathTarget ? (props.topByImportance.find((n) => n.id === props.pathTarget)?.canonical_name || props.pathTarget) : "Click node, then click here"}
+                  {props.pathTarget ? (props.topByImportance.find((n) => n.id === props.pathTarget)?.canonical_name || props.pathTarget) : "Select a node, then set it here"}
                 </div>
               </div>
               <button
@@ -2135,7 +2216,7 @@ function RightSidebar(props: {
                   fontSize: `${FS.sm}px`, fontWeight: 600,
                 }}
               >
-                {props.pathLoading ? "Searching..." : "Find Path"}
+                {props.pathLoading ? "Tracing..." : "Trace path"}
               </button>
             </div>
             {props.pathResult && (
@@ -2171,7 +2252,7 @@ function RightSidebar(props: {
           {/* Influence Propagation */}
           <div>
             <div style={{ fontSize: `${FS.caption}px`, color: T.textSecondary, fontWeight: 600, marginBottom: "8px" }}>
-              INFLUENCE PROPAGATION
+              TEST PROPAGATION
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
@@ -2183,7 +2264,7 @@ function RightSidebar(props: {
                 }}
                   onClick={() => { if (props.selectedNode) props.onSetPropagationSource(props.selectedNode.id); }}
                 >
-                  {props.propagationSource ? (props.topByImportance.find((n) => n.id === props.propagationSource)?.canonical_name || props.propagationSource) : "Click node, then click here"}
+                  {props.propagationSource ? (props.topByImportance.find((n) => n.id === props.propagationSource)?.canonical_name || props.propagationSource) : "Select a node, then set it here"}
                 </div>
               </div>
               <button
@@ -2200,7 +2281,7 @@ function RightSidebar(props: {
                   fontSize: `${FS.sm}px`, fontWeight: 600,
                 }}
               >
-                {props.propagationLoading ? "Simulating..." : "Propagate Risk"}
+                {props.propagationLoading ? "Testing..." : "Test propagation"}
               </button>
             </div>
             {props.propagationResult && (
@@ -2263,7 +2344,7 @@ function RightSidebar(props: {
               fontSize: `${FS.sm}px`,
             }}
           >
-            Clear All
+            Clear path lab
           </button>
         </div>
       )}

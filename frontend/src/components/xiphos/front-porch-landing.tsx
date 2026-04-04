@@ -75,9 +75,9 @@ const FRONT_PORCH_EXAMPLES = [
 ];
 
 const PROGRESS_LINES = [
-  "Collecting the public picture and checking where it thins out.",
-  "Holding the weak signals apart from what actually holds.",
-  "Building the first picture and keeping the dark space explicit.",
+  "Collecting the first public picture.",
+  "Validating what holds and what still stays thin.",
+  "Building the returned brief.",
 ];
 
 function nextId(prefix: string) {
@@ -283,16 +283,16 @@ function vehiclePressureDetail(result: VehicleSearchResult, session: IntakeSessi
 function buildVehicleArtifactSections(result: VehicleSearchResult, session: IntakeSession) {
   return [
     {
-      label: "What holds",
+      label: "What I found",
       detail: summarizeVehicle(result, session),
     },
     {
-      label: "Pressure point",
+      label: "Where it stays thin",
       detail: vehiclePressureDetail(result, session),
       tone: result.total_subs === 0 ? "warning" : "neutral",
     },
     {
-      label: "Best next move",
+      label: "Best next question",
       detail: result.unique_vendors.length > 0
         ? `Spin the right vendor out of ${result.vehicle_name} into assessment, or step into War Room if you need to work the weak points directly.`
         : `Step into War Room if the public picture is still too thin to act on cleanly.`,
@@ -315,13 +315,13 @@ function buildVendorArtifact(
   return {
     caseId,
     title: subject,
-    eyebrow: phase === "ready" ? "Preliminary dossier" : "Working artifact",
+    eyebrow: phase === "ready" ? "Returned brief" : "Working brief",
     framing: phase === "ready"
-      ? `The first dossier pass is ready. AXIOM kept the strongest holds visible and left the real ambiguity explicit.`
+      ? `The first returned brief is ready. AXIOM kept the strongest holds visible and left the real ambiguity explicit.`
       : `AXIOM is warming the first picture around ${subject} without pretending the thin parts are settled.`,
     sections: [
       {
-        label: "What holds",
+        label: "What I found",
         detail: session.vendorGoal === "partner"
           ? `This is being worked as a teammate screen with trust and fit ahead of decorative detail.`
           : session.vendorGoal === "compete" || session.vendorGoal === "attack"
@@ -329,7 +329,7 @@ function buildVendorArtifact(
             : `This is being worked as a trust read first, with the public record forced to answer the real decision.`,
       },
       {
-        label: "Ownership path",
+        label: "Where it stays thin",
         detail: ownershipDetail,
         tone: candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name ? "info" : "warning",
       },
@@ -339,7 +339,7 @@ function buildVendorArtifact(
       },
     ],
     note: phase === "ready"
-      ? "Open the dossier for the clean narrative. Step into War Room when you want to challenge the picture or pull a harder thread."
+      ? "Read the clean narrative here. Step into War Room when you want to challenge the picture or pull a harder thread."
       : "The working case is open and warming. If you want the trail instead of the summary, step into War Room.",
     provenance: phase === "ready"
       ? ["Resolution-backed", "Initial graph context", "Public record only"]
@@ -512,7 +512,7 @@ export function FrontPorchLanding({
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
     setIsWorking(false);
-    appendMessage("axiom", "The preliminary picture is ready. I kept the first pass disciplined about what holds and what still needs to be closed.");
+    appendMessage("axiom", "The returned brief is ready. Read the clean picture here, or step into War Room if you want to pressure the weak parts.");
     setVendorArtifact((current) => buildVendorArtifact(
       null,
       current?.title ? { ...session, vendorName: current.title } : session,
@@ -549,7 +549,7 @@ export function FrontPorchLanding({
         resolution.recommended_candidate_id === candidate.candidate_id,
       ).catch(() => undefined);
     }
-    appendMessage("axiom", `Good. I’m using ${candidate.legal_name} and building from that entity.`);
+    appendMessage("axiom", `Good. I’m taking ${candidate.legal_name} as the working entity unless you redirect me.`);
     await startCaseCreation(candidate);
   }, [appendMessage, resolution, startCaseCreation]);
 
@@ -573,10 +573,10 @@ export function FrontPorchLanding({
     setProgressIndex(0);
     setErrorText(null);
     appendMessage("axiom", nextSession.vendorGoal === "partner"
-      ? `${buildVendorWorkingLead(nextSession)} I’ll start with trust and teammate fit, then build the first vendor picture from there.`
+      ? `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll begin with trust and teammate fit, then bring back the first clean picture.`
       : nextSession.vendorGoal === "compete" || nextSession.vendorGoal === "attack"
-        ? `${buildVendorWorkingLead(nextSession)} I’ll frame this as a competitive read and build the first vendor picture from there.`
-        : `${buildVendorWorkingLead(nextSession)} I’ll start with trust, ownership, and the public record that could change the decision.`.trim());
+        ? `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll frame this as a competitive read and bring back the first clean picture.`
+        : `${buildVendorWorkingLead(nextSession)} That is enough to start. I’ll begin with trust, ownership, and the public record that could change the decision.`.trim());
 
     try {
       const result = await resolveEntity(name, {
@@ -600,7 +600,7 @@ export function FrontPorchLanding({
 
       if (result.candidates.length > 1) {
         setCandidateChoices(result.candidates.slice(0, 4));
-        appendMessage("axiom", "I found a few plausible matches. Pick the entity you want me to work and I’ll take it from there.");
+        appendMessage("axiom", "I found a few plausible matches. Pick the one you want me to work and I’ll take it from there.");
         return;
       }
 
@@ -610,7 +610,7 @@ export function FrontPorchLanding({
         return;
       }
 
-      appendMessage("axiom", "The record is thin on entity resolution, but that is not a blocker. I’m opening the assessment from the provided name and keeping the ambiguity explicit.");
+      appendMessage("axiom", "The entity resolution is still thin, but that is not a blocker. I’m opening the assessment from the provided name and keeping the ambiguity explicit.");
       await startCaseCreation(null);
     } catch (error) {
       setIsWorking(false);
@@ -642,15 +642,15 @@ export function FrontPorchLanding({
     appendMessage(
       "axiom",
       nextSession.incumbentPrime
-        ? `${buildVehicleWorkingLead(nextSession)} I’m going to work from ${vehicleName}, ${nextSession.incumbentPrime}'s incumbent position, and the likely transition path.`
-        : `${buildVehicleWorkingLead(nextSession)} I’m going to work from ${vehicleName} and build the public ecosystem picture from there.`,
+        ? `${buildVehicleWorkingLead(nextSession)} That is enough to start. I’m going to work from ${vehicleName}, ${nextSession.incumbentPrime}'s incumbent position, and the likely transition path.`
+        : `${buildVehicleWorkingLead(nextSession)} That is enough to start. I’m going to work from ${vehicleName} and build the public ecosystem picture from there.`,
     );
 
     try {
       const result = await searchContractVehicle(vehicleName);
       setIsWorking(false);
       setVehicleArtifact(result);
-      appendMessage("axiom", summarizeVehicle(result, nextSession));
+      appendMessage("axiom", `The first vehicle picture is in hand. ${summarizeVehicle(result, nextSession)}`);
     } catch (error) {
       setIsWorking(false);
       const message = humanizeApiError(error, "Unable to search the vehicle right now.");
@@ -698,11 +698,11 @@ export function FrontPorchLanding({
       return;
     }
     if (!nextSession.vehicleTiming) {
-      appendMessage("axiom", "Is this a current vehicle, an expired vehicle, or something still in pre-solicitation?");
+      appendMessage("axiom", "Is this current, expired, or still in pre-solicitation?");
       return;
     }
     if (nextSession.vehicleTiming === "pre_solicitation" && nextSession.followOn === null) {
-      appendMessage("axiom", "Good. Is it a follow-on contract, or does it look net-new?");
+      appendMessage("axiom", "Good. Is it a follow-on, or does it look net-new?");
       return;
     }
     if (nextSession.followOn === true && !nextSession.incumbentPrime) {
@@ -736,7 +736,7 @@ export function FrontPorchLanding({
       return;
     }
     if (!nextSession.vendorGoal) {
-      appendMessage("axiom", "Are you trying to trust them, partner with them, or compete against them?");
+      appendMessage("axiom", "Is this a trust read, a teammate question, or a competitive read?");
       return;
     }
 
@@ -755,7 +755,7 @@ export function FrontPorchLanding({
     if (!nextSession.objectType) {
       const inferredObject = inferObjectType(text);
       if (!inferredObject) {
-        appendMessage("axiom", "Are we looking for a contract vehicle or a specific vendor?");
+        appendMessage("axiom", "Are we working a contract vehicle or a specific vendor?");
         return;
       }
       nextSession.objectType = inferredObject;
@@ -790,7 +790,7 @@ export function FrontPorchLanding({
 
   const openArtifactDossier = useCallback(async (caseId: string) => {
     if (loginRequired) {
-      appendMessage("axiom", "Sign in and I’ll open the dossier in the same thread.");
+      appendMessage("axiom", "Sign in and I’ll open the returned dossier in the same thread.");
       onRequestLogin?.();
       return;
     }
@@ -1216,7 +1216,7 @@ export function FrontPorchLanding({
                           fontWeight: 700,
                         }}
                       >
-                        Open Graph Intel
+                        Trace in Graph
                       </button>
                       <button
                         type="button"
@@ -1236,7 +1236,7 @@ export function FrontPorchLanding({
                           gap: SP.xs,
                         }}
                       >
-                        Open in War Room
+                        Take into War Room
                         <ExternalLink size={14} />
                       </button>
                     </>
@@ -1308,7 +1308,7 @@ export function FrontPorchLanding({
                           fontWeight: 700,
                         }}
                       >
-                        Open in War Room
+                        Take into War Room
                       </button>
                       <button
                         type="button"
@@ -1330,7 +1330,7 @@ export function FrontPorchLanding({
                         }}
                       >
                         {openingDossierFor === vendorArtifact.caseId ? <Loader2 size={14} className="animate-spin" /> : null}
-                        Open dossier
+                        Read dossier
                       </button>
                     </>
                   }
