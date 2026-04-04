@@ -177,7 +177,7 @@ export default function App() {
   const [cases, setCases] = useState<VettingCase[]>([]);
   const [selected, setSelected] = useState<VettingCase | null>(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("portfolio");
+  const [tab, setTab] = useState<Tab>("helios");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
   const [productFocus, setProductFocus] = useState<ProductPillar>("vendor_assessment");
   const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
@@ -216,9 +216,9 @@ export default function App() {
 
   const loadCases = useCallback(() => {
     refreshCases(200)
-      .then((loaded) => {
+      .then(() => {
         if (!homeTabInitializedRef.current && !selected) {
-          setTab(loaded.length > 0 ? "portfolio" : "helios");
+          setTab("helios");
           homeTabInitializedRef.current = true;
         }
       })

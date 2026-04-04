@@ -2407,6 +2407,12 @@ def api_vehicle_search():
     status_code = 200
     if result.get("errors") and not any((result.get("total_primes"), result.get("total_subs"), result.get("total_unique"))):
         status_code = 502
+        first_error = result["errors"][0].get("message") if isinstance(result.get("errors"), list) and result["errors"] else None
+        result = {
+            **result,
+            "error": "Vehicle search is temporarily unavailable.",
+            "detail": first_error,
+        }
 
     return jsonify(result), status_code
 

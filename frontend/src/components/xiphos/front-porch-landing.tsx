@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown, ExternalLink, Loader2, MessageSquareText, Sparkles } from "lucide-react";
-import { createCase, fetchHealth, resolveEntity, searchContractVehicle, submitResolveFeedback, type EntityCandidate, type EntityResolution, type VehicleSearchResult } from "@/lib/api";
+import { createCase, resolveEntity, searchContractVehicle, submitResolveFeedback, type EntityCandidate, type EntityResolution, type VehicleSearchResult } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { EnrichmentStream } from "./enrichment-stream";
 import { InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
@@ -53,9 +53,9 @@ const FRONT_PORCH_EXAMPLES = [
 ];
 
 const PROGRESS_LINES = [
-  "Collecting the public picture and checking for gaps.",
-  "Validating what holds before bringing the picture back.",
-  "Building the briefing and keeping the dark space explicit.",
+  "Collecting the public picture and checking where it thins out.",
+  "Holding the weak signals apart from what actually holds.",
+  "Building the first picture and keeping the dark space explicit.",
 ];
 
 function nextId(prefix: string) {
@@ -128,6 +128,100 @@ function compactText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function cleanEntityFragment(value: string) {
+  return compactText(value)
+    .replace(/^[,:;\-\s]+/, "")
+    .replace(/[?.,]+$/, "")
+    .trim();
+}
+
+function cutBeforeCue(value: string, cues: RegExp[]) {
+  let end = value.length;
+  for (const cue of cues) {
+    const match = cue.exec(value);
+    if (match && typeof match.index === "number" && match.index < end) {
+      end = match.index;
+    }
+  }
+  return value.slice(0, end);
+}
+
+function extractVehicleName(value: string): string | null {
+  const source = compactText(value);
+  const underMatch = source.match(/\bunder\s+([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})/i);
+  if (underMatch?.[1]) {
+    return cleanEntityFragment(underMatch[1]);
+  }
+
+  let candidate = source
+    .replace(/^we(?:'re| are)?\s+looking\s+at\s+/i, "")
+    .replace(/^looking\s+at\s+/i, "")
+    .replace(/^it(?:'s| is)\s+/i, "")
+    .replace(/^the\s+follow[- ]on\s+to\s+/i, "")
+    .replace(/^follow[- ]on\s+to\s+/i, "");
+
+  candidate = cutBeforeCue(candidate, [
+    /\b(?:follow[- ]on|pre[- ]solicitation|incumbent|current prime|prime is|we think|current vehicle|expired vehicle|net new)\b/i,
+    /[?.!]/,
+    /,\s/,
+  ]);
+
+  const cleaned = cleanEntityFragment(candidate);
+  return cleaned && cleaned.length > 1 ? cleaned : null;
+}
+
+function extractVendorName(value: string): string | null {
+  const source = compactText(value);
+  const directMatch = source.match(/\b(?:read on|assessment on|look at|screen|trust|partner with|team with|compete against|attack|on)\s+([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})/i);
+  const candidate = directMatch?.[1]
+    ? directMatch[1]
+    : source
+      .replace(/^need\s+(?:a\s+)?quick\s+read\s+on\s+/i, "")
+      .replace(/^need\s+(?:an?\s+)?assessment\s+on\s+/i, "")
+      .replace(/^open\s+(?:a\s+)?vendor\s+assessment\s+on\s+/i, "")
+      .replace(/^vendor\s+/i, "")
+      .replace(/^supplier\s+/i, "")
+      .replace(/^teammate\s+/i, "");
+
+  const trimmed = cutBeforeCue(candidate, [
+    /\b(?:as a potential teammate|as a teammate|as a potential partner|as teammate|as partner|potential teammate|potential partner)\b/i,
+    /[?.!]/,
+    /,\s/,
+  ]);
+
+  const cleaned = cleanEntityFragment(trimmed);
+  return cleaned && cleaned.length > 1 ? cleaned : null;
+}
+
+function extractPrimeName(value: string): string | null {
+  const source = compactText(value);
+  const thinkIncumbent = source.match(/\bwe\s+think\s+([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})\s+is\s+the\s+incumbent\b/i);
+  if (thinkIncumbent?.[1]) {
+    return cleanEntityFragment(thinkIncumbent[1]);
+  }
+  const explicit = source.match(/\b(?:prime(?:\s+is|\s+position)?|incumbent(?:\s+is)?)\b[:\s-]*([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})/i);
+  if (explicit?.[1]) {
+    return cleanEntityFragment(explicit[1]);
+  }
+  const reverse = source.match(/([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})\s+is\s+the\s+incumbent\b/i);
+  if (reverse?.[1]) {
+    return cleanEntityFragment(reverse[1]);
+  }
+  if (!/[?.!,]/.test(source)) {
+    const cleaned = cleanEntityFragment(source);
+    if (cleaned && cleaned.split(/\s+/).length <= 6) {
+      return cleaned;
+    }
+  }
+  return null;
+}
+
+function humanizeApiError(value: unknown, fallback: string) {
+  if (!(value instanceof Error)) return fallback;
+  const cleaned = value.message.replace(/^API\s+\d+:\s*/i, "").trim();
+  return cleaned || fallback;
+}
+
 function summarizeVehicle(result: VehicleSearchResult, session: IntakeSession): string {
   const primeText = result.total_primes > 0
     ? `${result.total_primes} prime contractor${result.total_primes === 1 ? "" : "s"}`
@@ -198,7 +292,7 @@ const INITIAL_MESSAGES: ThreadMessage[] = [
   {
     id: nextId("axiom"),
     role: "axiom",
-    content: "What are we looking at today: a contract vehicle, a specific vendor, or something still unclear?",
+    content: "Start anywhere. Are we looking at a contract vehicle, a specific vendor, or something still unclear?",
   },
 ];
 
@@ -224,7 +318,6 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   const [vehicleArtifact, setVehicleArtifact] = useState<VehicleSearchResult | null>(null);
   const [vendorArtifact, setVendorArtifact] = useState<VendorArtifact | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
-  const [connectorCount, setConnectorCount] = useState<number>(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -244,9 +337,6 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
 
   useEffect(() => {
     composerRef.current?.focus();
-    fetchHealth()
-      .then((health) => setConnectorCount(health.osint_connector_count ?? 0))
-      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -275,7 +365,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
     setIsWorking(false);
-    appendMessage("axiom", "The preliminary picture is ready. I opened the assessment and kept the first pass disciplined about what holds and what still needs to be closed.");
+    appendMessage("axiom", "The preliminary picture is ready. I kept the first pass disciplined about what holds and what still needs to be closed.");
     setVendorArtifact((current) => current ? current : {
       caseId: workingCaseId,
       title: "Vendor Assessment Ready",
@@ -290,7 +380,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     setIsWorking(true);
     setProgressIndex(0);
     setErrorText(null);
-    appendMessage("axiom", "That is enough to start. I am opening the assessment now and warming the first picture.");
+    appendMessage("axiom", "That is enough to start. I’m going to work it now and bring back the first picture.");
 
     try {
       const created = await createCase(payload);
@@ -308,7 +398,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       });
     } catch (error) {
       setIsWorking(false);
-      const message = error instanceof Error ? error.message : "Unable to open the vendor assessment.";
+      const message = humanizeApiError(error, "Unable to open the vendor assessment.");
       setErrorText(message);
       appendMessage("axiom", "I could not open the assessment cleanly. Stay here and I will let you retry without losing the thread.");
     }
@@ -323,7 +413,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
         resolution.recommended_candidate_id === candidate.candidate_id,
       ).catch(() => undefined);
     }
-    appendMessage("axiom", `Good. I’m using ${candidate.legal_name} and opening the assessment from that entity.`);
+    appendMessage("axiom", `Good. I’m using ${candidate.legal_name} and building from that entity.`);
     await startCaseCreation(candidate);
   }, [appendMessage, resolution, startCaseCreation]);
 
@@ -338,9 +428,9 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     setProgressIndex(0);
     setErrorText(null);
     appendMessage("axiom", nextSession.vendorGoal === "partner"
-      ? "Understood. I’ll start with trust and teammate fit, then warm the assessment from there."
+      ? "Understood. I’ll start with trust and teammate fit, then build the first vendor picture from there."
       : nextSession.vendorGoal === "compete" || nextSession.vendorGoal === "attack"
-        ? "Understood. I’ll frame this as a competitive read and warm the assessment from there."
+        ? "Understood. I’ll frame this as a competitive read and build the first vendor picture from there."
         : "Understood. I’ll start with trust, ownership, and the public record that could change the decision.");
 
     try {
@@ -379,7 +469,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       await startCaseCreation(null);
     } catch (error) {
       setIsWorking(false);
-      const message = error instanceof Error ? error.message : "Unable to resolve the vendor cleanly.";
+      const message = humanizeApiError(error, "Unable to resolve the vendor cleanly.");
       setErrorText(message);
       appendMessage("axiom", "The clean entity match did not hold. If you still want me to proceed, give me the vendor name again or add one more fact.");
     }
@@ -398,7 +488,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     appendMessage(
       "axiom",
       nextSession.incumbentPrime
-        ? `That is enough to start. I’m going to work from ${vehicleName}, the incumbent prime, and the likely transition path.`
+        ? `That is enough to start. I’m going to work from ${vehicleName}, ${nextSession.incumbentPrime}'s incumbent position, and the likely transition path.`
         : `That is enough to start. I’m going to work from ${vehicleName} and build the public ecosystem picture from there.`,
     );
 
@@ -409,7 +499,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       appendMessage("axiom", summarizeVehicle(result, nextSession));
     } catch (error) {
       setIsWorking(false);
-      const message = error instanceof Error ? error.message : "Unable to search the vehicle right now.";
+      const message = humanizeApiError(error, "Unable to search the vehicle right now.");
       setErrorText(message);
       appendMessage("axiom", "The vehicle search did not come back cleanly. Stay here and either refine the vehicle name or send me one more identifying detail.");
     }
@@ -421,7 +511,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     const lower = input.toLowerCase();
 
     if (!nextSession.vehicleName && stripped && !looksLikeObjectOnlyAnswer(input)) {
-      nextSession.vehicleName = stripped;
+      nextSession.vehicleName = extractVehicleName(input) || stripped;
     }
     if (!nextSession.vehicleTiming) {
       const inferredTiming = inferVehicleTiming(input);
@@ -430,8 +520,10 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     if (nextSession.followOn === null && /\bfollow-on|follow on|net-new|net new\b/.test(lower)) {
       nextSession.followOn = inferBoolean(input);
     }
-    if (!nextSession.incumbentPrime && /\bprime\b/.test(lower) && stripped) {
-      nextSession.incumbentPrime = stripped.replace(/^.*?\bprime\b[:\s-]*/i, "").trim() || stripped;
+    if (!nextSession.incumbentPrime && stripped) {
+      if (/\bprime\b/.test(lower) || nextSession.followOn === true) {
+        nextSession.incumbentPrime = extractPrimeName(input);
+      }
     }
 
     setSession(nextSession);
@@ -449,7 +541,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       return;
     }
     if (nextSession.followOn === true && !nextSession.incumbentPrime) {
-      appendMessage("axiom", "Do you know who holds the current prime position?");
+      appendMessage("axiom", "Good. Do you know who holds the current prime position?");
       return;
     }
 
@@ -461,7 +553,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     const stripped = compactText(stripObjectLabel(input));
 
     if (!nextSession.vendorName && stripped && !looksLikeObjectOnlyAnswer(input)) {
-      nextSession.vendorName = stripped;
+      nextSession.vendorName = extractVendorName(input) || stripped;
     }
     if (!nextSession.vendorGoal) {
       const inferredGoal = inferVendorGoal(input);
@@ -525,11 +617,8 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
 
   const handleExample = useCallback(async (example: string) => {
     setMenu(null);
-    setDraft(example);
-    window.setTimeout(() => {
-      setDraft("");
-      void handleUserTurn(example);
-    }, 0);
+    setDraft("");
+    void handleUserTurn(example);
   }, [handleUserTurn]);
 
   const shellBackground = `radial-gradient(circle at 18% 20%, ${T.accent}${O["12"]}, transparent 28%), radial-gradient(circle at 82% 18%, ${T.statusQualified}${O["12"]}, transparent 22%), linear-gradient(180deg, ${T.bg} 0%, #06080c 100%)`;
@@ -733,150 +822,155 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
             alignItems: "center",
             justifyContent: "center",
             padding: `${SP.xxxl}px ${PAD.spacious}`,
-            gap: SP.xl,
+            gap: SP.lg,
           }}
         >
-          <div style={{ width: "min(940px, 100%)", display: "flex", flexDirection: "column", alignItems: "center", gap: SP.lg }}>
-            <SectionEyebrow>Briefing</SectionEyebrow>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: "clamp(44px, 7vw, 84px)",
-                lineHeight: 0.96,
-                letterSpacing: "-0.07em",
-                textAlign: "center",
-                maxWidth: "12ch",
-              }}
-            >
-              Tell me what you are trying to understand.
-            </h1>
-            <p
-              style={{
-                margin: 0,
-                fontSize: FS.md,
-                color: T.textSecondary,
-                lineHeight: 1.6,
-                textAlign: "center",
-                maxWidth: 760,
-              }}
-            >
-              A vehicle, a vendor, or a live pursuit problem. Start with whatever you know and AXIOM will work from there.
-            </p>
-
+          <div style={{ width: "min(860px, 100%)", display: "flex", flexDirection: "column", alignItems: "center", gap: SP.lg }}>
+            <div style={{ display: "grid", justifyItems: "center", gap: SP.xs, textAlign: "center" }}>
+              <SectionEyebrow>Brief AXIOM</SectionEyebrow>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: FS.md,
+                  color: T.textSecondary,
+                  lineHeight: 1.6,
+                  maxWidth: 620,
+                }}
+              >
+                Start with whatever you know. A vehicle, a vendor, or the fragment you already have.
+              </p>
+            </div>
             <div
               style={{
-                width: "min(860px, 100%)",
-                borderRadius: 28,
+                width: "100%",
+                borderRadius: 32,
                 border: `1px solid ${T.borderStrong}`,
                 background: "linear-gradient(180deg, rgba(14,18,27,0.9) 0%, rgba(10,13,20,0.92) 100%)",
                 boxShadow: FX.cardHover,
-                padding: `${SP.lg + SP.xs}px ${PAD.comfortable}`,
+                padding: PAD.spacious,
+                display: "grid",
+                gap: SP.lg,
               }}
             >
-              <div style={{ fontSize: FS.caption, color: T.textTertiary, marginBottom: SP.md }}>
-                AXIOM is listening
-              </div>
-              <textarea
-                ref={composerRef}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void submitDraft();
-                  }
-                }}
-                placeholder="ILS 2 follow-on. We think Amentum is the incumbent."
-                aria-label="Brief AXIOM"
-                className="helios-focus-ring"
-                style={{
-                  width: "100%",
-                  minHeight: 104,
-                  resize: "none",
-                  border: "none",
-                  outline: "none",
-                  background: "transparent",
-                  color: T.text,
-                  fontSize: FS.md,
-                  lineHeight: 1.55,
-                  fontFamily: "inherit",
-                }}
-              />
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, marginTop: SP.md }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
+                <div style={{ fontSize: FS.caption, color: T.textTertiary, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                  AXIOM
+                </div>
                 <div style={{ fontSize: FS.sm, color: isWorking ? T.accent : T.textSecondary }}>
-                  {isWorking ? PROGRESS_LINES[progressIndex] : `${connectorCount > 0 ? connectorCount : 49} source connectors stay behind the curtain.`}
+                  {isWorking ? PROGRESS_LINES[progressIndex] : "AXIOM will ask only what it needs to start."}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { void submitDraft(); }}
-                  disabled={!draft.trim() || isWorking}
-                  className="helios-focus-ring"
-                  style={{
-                    border: "none",
-                    background: draft.trim() && !isWorking ? T.text : `${T.border}`,
-                    color: draft.trim() && !isWorking ? T.textInverse : T.textTertiary,
-                    borderRadius: 999,
-                    padding: "12px 18px",
-                    cursor: draft.trim() && !isWorking ? "pointer" : "default",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: SP.xs,
-                    fontSize: FS.sm,
-                    fontWeight: 800,
-                    transition: `all ${MOTION.fast} ${MOTION.easing}`,
-                  }}
-                >
-                  {isWorking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquareText size={14} />}
-                  Send to AXIOM
-                </button>
               </div>
-            </div>
 
-            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: SP.sm, maxWidth: 920 }}>
-              {FRONT_PORCH_EXAMPLES.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => { void handleExample(example); }}
+              <div aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: SP.md }}>
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    style={{
+                      alignSelf: message.role === "user" ? "flex-end" : "stretch",
+                      maxWidth: message.role === "user" ? "82%" : "100%",
+                      marginLeft: message.role === "user" ? 72 : 0,
+                      borderRadius: 24,
+                      border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : "rgba(255,255,255,0.06)"}`,
+                      background: message.role === "status"
+                        ? "transparent"
+                        : message.role === "user"
+                          ? `${T.accent}${O["08"]}`
+                          : "rgba(255,255,255,0.02)",
+                      padding: message.role === "status" ? "2px 0" : `${SP.lg}px ${PAD.comfortable}`,
+                      color: message.role === "status" ? T.accent : T.text,
+                      fontSize: message.role === "status" ? FS.sm : FS.base,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    {message.content}
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  borderTop: `1px solid rgba(255,255,255,0.06)`,
+                  paddingTop: SP.lg,
+                  display: "grid",
+                  gap: SP.md,
+                }}
+              >
+                <textarea
+                  ref={composerRef}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void submitDraft();
+                    }
+                  }}
+                  placeholder="ILS 2 follow-on. We think Amentum is the incumbent."
+                  aria-label="Brief AXIOM"
                   className="helios-focus-ring"
                   style={{
-                    border: `1px solid ${T.border}`,
-                    background: "rgba(255,255,255,0.03)",
-                    color: T.textSecondary,
-                    borderRadius: 999,
-                    padding: "10px 14px",
-                    fontSize: FS.sm,
-                    cursor: "pointer",
+                    width: "100%",
+                    minHeight: 72,
+                    resize: "none",
+                    border: "none",
+                    outline: "none",
+                    background: "transparent",
+                    color: T.text,
+                    fontSize: FS.md,
+                    lineHeight: 1.55,
+                    fontFamily: "inherit",
                   }}
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ width: "min(760px, 100%)", display: "flex", flexDirection: "column", gap: SP.sm }}>
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  style={{
-                    alignSelf: message.role === "user" ? "flex-end" : "stretch",
-                    marginLeft: message.role === "user" ? 72 : 0,
-                    borderRadius: 24,
-                    border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : T.border}`,
-                    background: message.role === "status"
-                      ? "transparent"
-                      : message.role === "user"
-                        ? `${T.accent}${O["08"]}`
-                        : "rgba(255,255,255,0.03)",
-                    padding: message.role === "status" ? "2px 0" : `${SP.lg}px ${PAD.comfortable}`,
-                    color: message.role === "status" ? T.accent : T.text,
-                    fontSize: message.role === "status" ? FS.sm : FS.base,
-                    lineHeight: 1.65,
-                  }}
-                >
-                  {message.content}
+                />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, alignItems: "center" }}>
+                    <span style={{ fontSize: FS.caption, color: T.textTertiary, textTransform: "uppercase", letterSpacing: "0.12em" }}>
+                      Try
+                    </span>
+                    {FRONT_PORCH_EXAMPLES.map((example) => (
+                      <button
+                        key={example}
+                        type="button"
+                        onClick={() => { void handleExample(example); }}
+                        className="helios-focus-ring"
+                        style={{
+                          border: `1px solid ${T.border}`,
+                          background: "rgba(255,255,255,0.02)",
+                          color: T.textSecondary,
+                          borderRadius: 999,
+                          padding: "8px 12px",
+                          fontSize: FS.sm,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {example}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void submitDraft(); }}
+                    disabled={!draft.trim() || isWorking}
+                    className="helios-focus-ring"
+                    style={{
+                      border: "none",
+                      background: draft.trim() && !isWorking ? T.text : `${T.border}`,
+                      color: draft.trim() && !isWorking ? T.textInverse : T.textTertiary,
+                      borderRadius: 999,
+                      padding: "12px 18px",
+                      cursor: draft.trim() && !isWorking ? "pointer" : "default",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: SP.xs,
+                      fontSize: FS.sm,
+                      fontWeight: 800,
+                      transition: `all ${MOTION.fast} ${MOTION.easing}`,
+                    }}
+                  >
+                    {isWorking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquareText size={14} />}
+                    Send to AXIOM
+                  </button>
                 </div>
-              ))}
+              </div>
             </div>
 
             {candidateChoices.length > 0 ? (
