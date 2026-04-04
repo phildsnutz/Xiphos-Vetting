@@ -107,7 +107,7 @@ def login_with_retry(base_url: str, email: str, password: str, *, wait_seconds: 
                 "POST",
                 "/api/auth/login",
                 {"email": email, "password": password},
-                timeout=20,
+                timeout=45,
             )
             if status == 200:
                 return login

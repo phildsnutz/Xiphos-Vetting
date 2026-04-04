@@ -1278,6 +1278,32 @@ def save_beta_feedback(
     metadata: dict | None = None,
 ) -> int:
     with get_conn() as conn:
+        params = (
+            user_id or None,
+            user_email or None,
+            user_role or None,
+            case_id,
+            workflow_lane,
+            screen,
+            category,
+            severity,
+            summary,
+            details,
+            status,
+            json.dumps(metadata or {}),
+        )
+        if _use_postgres:
+            row = conn.execute(
+                """
+                INSERT INTO beta_feedback
+                    (user_id, user_email, user_role, case_id, workflow_lane, screen,
+                     category, severity, summary, details, status, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                params,
+            ).fetchone()
+            return int((row or {}).get("id") or 0)
         cursor = conn.execute(
             """
             INSERT INTO beta_feedback
@@ -1285,20 +1311,7 @@ def save_beta_feedback(
                  category, severity, summary, details, status, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                user_id or None,
-                user_email or None,
-                user_role or None,
-                case_id,
-                workflow_lane,
-                screen,
-                category,
-                severity,
-                summary,
-                details,
-                status,
-                json.dumps(metadata or {}),
-            ),
+            params,
         )
         return cursor.lastrowid
 
@@ -1336,22 +1349,34 @@ def save_beta_event(
     metadata: dict | None = None,
 ) -> int:
     with get_conn() as conn:
+        params = (
+            user_id or None,
+            user_email or None,
+            user_role or None,
+            case_id,
+            workflow_lane,
+            screen,
+            event_name,
+            json.dumps(metadata or {}),
+        )
+        if _use_postgres:
+            row = conn.execute(
+                """
+                INSERT INTO beta_events
+                    (user_id, user_email, user_role, case_id, workflow_lane, screen, event_name, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                params,
+            ).fetchone()
+            return int((row or {}).get("id") or 0)
         cursor = conn.execute(
             """
             INSERT INTO beta_events
                 (user_id, user_email, user_role, case_id, workflow_lane, screen, event_name, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                user_id or None,
-                user_email or None,
-                user_role or None,
-                case_id,
-                workflow_lane,
-                screen,
-                event_name,
-                json.dumps(metadata or {}),
-            ),
+            params,
         )
         return cursor.lastrowid
 
