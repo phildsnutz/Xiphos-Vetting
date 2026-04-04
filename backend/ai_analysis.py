@@ -120,6 +120,51 @@ def _analysis_verdict_for_tier(tier: str) -> str:
     return "APPROVE"
 
 
+def _rank_graph_entities(entities: list[dict], relationships: list[dict], limit: int = 4) -> list[dict]:
+    name_by_id: dict[str, str] = {}
+    type_by_id: dict[str, str] = {}
+    degree_by_id: dict[str, int] = {}
+
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+        entity_id = str(entity.get("id") or entity.get("entity_id") or "").strip()
+        if not entity_id:
+            continue
+        name_by_id[entity_id] = _sanitize_prompt_fragment(entity.get("name") or entity_id, 80)
+        type_by_id[entity_id] = _sanitize_prompt_fragment(entity.get("entity_type") or "entity", 32)
+        degree_by_id.setdefault(entity_id, 0)
+
+    for relationship in relationships:
+        if not isinstance(relationship, dict):
+            continue
+        for raw_key, fallback_key in (
+            ("source_entity_id", "source_name"),
+            ("target_entity_id", "target_name"),
+        ):
+            entity_id = str(relationship.get(raw_key) or "").strip()
+            if entity_id:
+                degree_by_id[entity_id] = degree_by_id.get(entity_id, 0) + 1
+                if entity_id not in name_by_id:
+                    fallback_name = relationship.get(fallback_key) or entity_id
+                    name_by_id[entity_id] = _sanitize_prompt_fragment(fallback_name, 80)
+                    type_by_id[entity_id] = "entity"
+
+    ranked = sorted(
+        (
+            {
+                "name": name_by_id.get(entity_id, entity_id),
+                "entity_type": type_by_id.get(entity_id, "entity"),
+                "degree": degree,
+            }
+            for entity_id, degree in degree_by_id.items()
+            if degree > 0
+        ),
+        key=lambda item: (-int(item.get("degree") or 0), str(item.get("name") or "")),
+    )
+    return ranked[:limit]
+
+
 def _build_local_fallback_analysis(
     vendor_data: dict,
     score_data: dict,
@@ -140,6 +185,7 @@ def _build_local_fallback_analysis(
     probability = float(calibrated.get("calibrated_probability") or 0.0)
     composite_score = int(score_data.get("composite_score") or 0)
     verdict = _analysis_verdict_for_tier(tier)
+    graph_context = _sanitize_graph_context(vendor_data.get("id"))
 
     hard_stops = score_data.get("hard_stop_decisions") or []
     soft_flags = score_data.get("soft_flags") or []
@@ -170,6 +216,21 @@ def _build_local_fallback_analysis(
             if len(critical_concerns) >= 3:
                 break
 
+    missing_edge_families = graph_context.get("missing_required_edge_families") or []
+    if graph_context.get("thin_graph"):
+        critical_concerns.append("The knowledge graph is still thin, so silence in the relationship fabric should not be treated as comfort.")
+    if missing_edge_families:
+        critical_concerns.append(
+            "The graph is still missing mission-critical edge families: "
+            + ", ".join(str(item).replace("_", " ") for item in missing_edge_families[:3])
+            + "."
+        )
+    network_risk_level = str(graph_context.get("network_risk_level") or "").lower()
+    if network_risk_level in {"high", "critical"}:
+        critical_concerns.append(
+            f"Network risk is currently {network_risk_level}, which means the visible relationship fabric is already propagating elevated concern."
+        )
+
     mitigating_factors: list[str] = []
     ownership = vendor_data.get("ownership") or {}
     data_quality = vendor_data.get("data_quality") or {}
@@ -184,6 +245,16 @@ def _build_local_fallback_analysis(
         mitigating_factors.append("Core corporate identifiers are present for follow-on verification.")
     if int(exec_profile.get("adverse_media") or 0) == 0:
         mitigating_factors.append("No adverse-media signal is present in the structured executive profile.")
+    if int(graph_context.get("control_path_count") or 0) > 0:
+        mitigating_factors.append(
+            f"The graph already holds {int(graph_context.get('control_path_count') or 0)} ownership/control path"
+            f"{'' if int(graph_context.get('control_path_count') or 0) == 1 else 's'}, which gives the first picture structural support."
+        )
+    if int(graph_context.get("strong_edge_count") or 0) > 0:
+        mitigating_factors.append(
+            f"{int(graph_context.get('strong_edge_count') or 0)} graph edge"
+            f"{'' if int(graph_context.get('strong_edge_count') or 0) == 1 else 's'} already carry strong intelligence support."
+        )
 
     recommended_actions: list[str] = []
     if verdict == "REJECT":
@@ -204,6 +275,15 @@ def _build_local_fallback_analysis(
         recommended_actions.append("Review the highest-severity enrichment findings and capture disposition notes in the case record.")
     if not findings:
         recommended_actions.append("Run fresh enrichment before relying on this narrative for an external-facing decision.")
+    if graph_context.get("thin_graph") or missing_edge_families:
+        recommended_actions.append(
+            "Use AXIOM to pressure the weak graph edge before treating the first picture as stable, especially where ownership, control, or teammate structure is still missing."
+        )
+    top_entities = graph_context.get("top_entities_by_degree") or []
+    if top_entities:
+        entity_list = ", ".join(str(item.get("name") or "") for item in top_entities[:3] if item.get("name"))
+        if entity_list:
+            recommended_actions.append(f"Pressure the graph around {entity_list} and confirm whether those nodes materially change the decision.")
 
     recommended_actions = recommended_actions[:4]
     critical_concerns = critical_concerns[:5]
@@ -229,6 +309,19 @@ def _build_local_fallback_analysis(
         summary_open += f" Primary analyst attention areas are {critical_concerns[0].lower()}."
     else:
         summary_open += " No material critical concerns were surfaced beyond the deterministic model inputs."
+    if int(graph_context.get("relationship_count") or 0) > 0:
+        relationship_count = int(graph_context.get("relationship_count") or 0)
+        control_path_count = int(graph_context.get("control_path_count") or 0)
+        control_path_fragment = (
+            f" with {control_path_count} visible control path{'' if control_path_count == 1 else 's'}"
+            if control_path_count > 0
+            else ""
+        )
+        summary_open += (
+            f" The graph is carrying {relationship_count} relationship"
+            f"{'' if relationship_count == 1 else 's'}"
+            f"{control_path_fragment}."
+        )
 
     confidence_tail = (
         "Moderate. This is a deterministic local fallback narrative built from the current case, score, "
@@ -239,6 +332,10 @@ def _build_local_fallback_analysis(
             "Moderate. This is a deterministic local fallback narrative built from the current case, score, "
             f"and enrichment data because the external AI provider failed: {fallback_reason}."
         )
+    if graph_context.get("thin_graph"):
+        confidence_tail += " Confidence stays constrained because the graph is still thin."
+    elif int(graph_context.get("strong_edge_count") or 0) > 0:
+        confidence_tail += " Confidence is helped by the current graph structure and the strongest supported edges."
 
     return {
         "executive_summary": summary_open,
@@ -859,7 +956,7 @@ def _sanitize_graph_context(vendor_id: object) -> dict:
     entities = summary.get("entities") if isinstance(summary.get("entities"), list) else []
     intelligence = summary.get("intelligence") if isinstance(summary.get("intelligence"), dict) else {}
     top_relationships = []
-    for rel in relationships[:3]:
+    for rel in relationships[:4]:
         if not isinstance(rel, dict):
             continue
         top_relationships.append({
@@ -868,14 +965,33 @@ def _sanitize_graph_context(vendor_id: object) -> dict:
             "type": _sanitize_prompt_fragment(rel.get("rel_type") or "related_entity", 48),
             "confidence": round(float(rel.get("confidence") or 0.0), 3),
         })
+    edge_family_counts = intelligence.get("edge_family_counts") if isinstance(intelligence.get("edge_family_counts"), dict) else {}
+    top_edge_families = [
+        {"family": _sanitize_prompt_fragment(family, 48), "count": int(count or 0)}
+        for family, count in sorted(edge_family_counts.items(), key=lambda item: (-int(item[1] or 0), str(item[0])))[:4]
+    ]
+    top_entities = _rank_graph_entities(entities, relationships, limit=4)
+    missing_required_edge_families = [
+        _sanitize_prompt_fragment(item, 48)
+        for item in (intelligence.get("missing_required_edge_families") or [])
+        if str(item).strip()
+    ]
 
     return {
         "entity_count": int(summary.get("entity_count") or len(entities) or 0),
         "relationship_count": int(summary.get("relationship_count") or len(relationships) or 0),
         "control_path_count": int(intelligence.get("control_path_count") or 0),
         "thin_graph": bool(intelligence.get("thin_graph")),
+        "thin_control_paths": bool(intelligence.get("thin_control_paths")),
         "dominant_edge_family": _sanitize_prompt_fragment(intelligence.get("dominant_edge_family") or "", 48),
+        "missing_required_edge_families": missing_required_edge_families,
+        "strong_edge_count": int(intelligence.get("strong_edge_count") or 0),
+        "fragile_edge_count": int(intelligence.get("fragile_edge_count") or 0),
+        "claim_coverage_pct": round(float(intelligence.get("claim_coverage_pct") or 0.0), 4),
+        "evidence_coverage_pct": round(float(intelligence.get("evidence_coverage_pct") or 0.0), 4),
         "top_relationships": top_relationships,
+        "top_edge_families": top_edge_families,
+        "top_entities_by_degree": top_entities,
         "network_risk_level": _sanitize_prompt_fragment(network_risk.get("network_risk_level") or "", 32),
         "high_risk_neighbors": int(network_risk.get("high_risk_neighbors") or 0),
     }
@@ -951,9 +1067,16 @@ GRAPH RELATIONSHIP CONTEXT:
 - Relationship Count: {graph_context.get('relationship_count', 0)}
 - Control Paths: {graph_context.get('control_path_count', 0)}
 - Thin Graph: {"yes" if graph_context.get('thin_graph') else "no"}
+- Thin Control Paths: {"yes" if graph_context.get('thin_control_paths') else "no"}
 - Dominant Edge Family: {graph_context.get('dominant_edge_family') or "unknown"}
+- Missing Required Edge Families: {", ".join(graph_context.get('missing_required_edge_families', [])) or "none"}
+- Strong vs Fragile Edges: {graph_context.get('strong_edge_count', 0)} strong / {graph_context.get('fragile_edge_count', 0)} fragile
+- Claim Coverage: {graph_context.get('claim_coverage_pct', 0)}
+- Evidence Coverage: {graph_context.get('evidence_coverage_pct', 0)}
 - Network Risk: {graph_context.get('network_risk_level') or "unknown"}
 - High-Risk Neighbors: {graph_context.get('high_risk_neighbors', 0)}
+- Top Graph Entities: {json.dumps(graph_context.get('top_entities_by_degree', []), indent=2)}
+- Top Edge Families: {json.dumps(graph_context.get('top_edge_families', []), indent=2)}
 - Top Relationships: {top_relationships}
 """
 

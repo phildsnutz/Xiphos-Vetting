@@ -62,14 +62,16 @@ _ALPHA3_TO_ALPHA2 = {
 }
 
 _SOURCE_PRIORITY = {
-    "sam_gov": 0,
-    "sec_edgar": 1,
-    "gleif": 2,
-    "opencorporates": 3,
-    "wikidata": 4,
+    "local_vendor_memory": 0,
+    "sam_gov": 1,
+    "sec_edgar": 2,
+    "gleif": 3,
+    "opencorporates": 4,
+    "wikidata": 5,
 }
 
 _IDENTIFIER_FIELDS = (
+    "local_vendor_id",
     "uei",
     "cage",
     "lei",
@@ -167,6 +169,7 @@ def compute_match_features(query: str, candidate: dict[str, Any], query_country:
 
     query_lower = (query or "").lower().strip()
     legal_name = str(candidate.get("legal_name", "") or "")
+    exact_name_match = bool(query_tokens and name_tokens and " ".join(query_tokens) == " ".join(name_tokens))
     if query_lower and query_lower in legal_name.lower():
         name_score = max(name_score, 0.95)
 
@@ -177,6 +180,7 @@ def compute_match_features(query: str, candidate: dict[str, Any], query_country:
     identifier_count = sum(1 for field in _IDENTIFIER_FIELDS if candidate.get(field))
     ownership_signal = bool(candidate.get("highest_owner") or candidate.get("immediate_owner"))
     source_rank = {
+        "local_vendor_memory": 0.98,
         "sam_gov": 0.95,
         "sec_edgar": 0.85,
         "gleif": 0.85,
@@ -186,6 +190,7 @@ def compute_match_features(query: str, candidate: dict[str, Any], query_country:
 
     return {
         "name_score": round(min(1.0, name_score), 3),
+        "exact_name_match": exact_name_match,
         "country_match": country_match,
         "identifier_count": identifier_count,
         "ownership_signal": ownership_signal,
@@ -195,6 +200,7 @@ def compute_match_features(query: str, candidate: dict[str, Any], query_country:
 
 def compute_deterministic_score(features: dict[str, Any]) -> float:
     score = features["name_score"] * 0.40
+    score += 0.18 if features.get("exact_name_match") else 0.0
     score += 0.15 if features["country_match"] else 0.0
     score += min(features["identifier_count"] * 0.08, 0.25)
     score += 0.10 if features["ownership_signal"] else 0.0
@@ -219,6 +225,7 @@ def _candidate_prompt_payload(candidate: dict[str, Any]) -> dict[str, Any]:
         "highest_owner": _sanitize_prompt_text(candidate.get("highest_owner", ""), 120),
         "match_features": {
             "name_score": features.get("name_score", 0),
+            "exact_name_match": features.get("exact_name_match", False),
             "country_match": features.get("country_match", False),
             "identifier_count": features.get("identifier_count", 0),
             "ownership_signal": features.get("ownership_signal", False),
@@ -487,6 +494,30 @@ def resolve_with_reranking(
     top_score = float(candidates[0].get("deterministic_score", 0.0))
     second_score = float(candidates[1].get("deterministic_score", 0.0)) if len(candidates) > 1 else 0.0
     delta = top_score - second_score
+    top_candidate = candidates[0]
+    top_features = top_candidate.get("match_features") or {}
+    exact_local_vendor_memory_hit = (
+        str(top_candidate.get("source") or "").strip().lower() == "local_vendor_memory"
+        and bool(top_features.get("exact_name_match"))
+        and top_score >= 0.75
+    )
+
+    if exact_local_vendor_memory_hit:
+        return _build_resolution(
+            mode="deterministic_only",
+            status="recommended",
+            abstained=False,
+            recommended_candidate_id=top_candidate["candidate_id"],
+            confidence=top_score,
+            request_id=request_id,
+            input_hash=input_hash,
+            candidate_count=len(candidates),
+            country=normalized_country,
+            profile=profile,
+            program=program,
+            context=context,
+            reason_summary="Exact Helios vendor-memory hit outranked noisier public ambiguity.",
+        )
 
     if len(candidates) == 1 or delta >= MIN_DELTA:
         top_confident = top_score >= 0.55

@@ -1046,6 +1046,103 @@ def test_analyze_vendor_without_ai_config_uses_local_fallback(monkeypatch):
     assert persisted["payload"]["provider"] == "local_fallback"
 
 
+def test_local_fallback_analysis_uses_graph_context(monkeypatch):
+    import ai_analysis
+
+    monkeypatch.setattr(
+        ai_analysis,
+        "_sanitize_graph_context",
+        lambda _vendor_id: {
+            "relationship_count": 6,
+            "control_path_count": 2,
+            "thin_graph": False,
+            "thin_control_paths": False,
+            "missing_required_edge_families": ["ownership_control"],
+            "strong_edge_count": 3,
+            "fragile_edge_count": 1,
+            "top_entities_by_degree": [
+                {"name": "OceanSound Partners", "entity_type": "company", "degree": 4},
+                {"name": "SMX", "entity_type": "company", "degree": 3},
+            ],
+            "top_edge_families": [{"family": "ownership_control", "count": 2}],
+            "network_risk_level": "HIGH",
+            "high_risk_neighbors": 1,
+        },
+    )
+
+    analysis = ai_analysis._build_local_fallback_analysis(
+        vendor_data={
+            "id": "vendor-smx",
+            "name": "SMX",
+            "country": "US",
+            "ownership": {"publicly_traded": False, "beneficial_owner_known": True},
+            "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 7},
+            "exec": {"adverse_media": 0},
+        },
+        score_data={
+            "composite_score": 18,
+            "calibrated": {"calibrated_tier": "TIER_3_CONDITIONAL", "calibrated_probability": 0.22},
+            "soft_flags": [],
+            "hard_stop_decisions": [],
+        },
+        enrichment_data={"findings": []},
+    )
+
+    assert "6 relationship" in analysis["executive_summary"]
+    assert "control path" in analysis["executive_summary"].lower()
+    assert any("OceanSound Partners" in action for action in analysis["recommended_actions"])
+    assert "graph structure" in analysis["confidence_assessment"].lower()
+
+
+def test_analysis_prompt_includes_graph_edge_quality_details(monkeypatch):
+    import ai_analysis
+
+    monkeypatch.setattr(
+        ai_analysis,
+        "_sanitize_graph_context",
+        lambda _vendor_id: {
+            "entity_count": 4,
+            "relationship_count": 5,
+            "control_path_count": 1,
+            "thin_graph": False,
+            "thin_control_paths": False,
+            "dominant_edge_family": "ownership_control",
+            "missing_required_edge_families": ["trade_and_logistics"],
+            "strong_edge_count": 3,
+            "fragile_edge_count": 2,
+            "claim_coverage_pct": 0.8,
+            "evidence_coverage_pct": 0.6,
+            "top_entities_by_degree": [{"name": "SMX", "entity_type": "company", "degree": 3}],
+            "top_edge_families": [{"family": "ownership_control", "count": 2}],
+            "top_relationships": [{"source": "SMX", "target": "OceanSound Partners", "type": "parent_of", "confidence": 0.91}],
+            "network_risk_level": "WATCH",
+            "high_risk_neighbors": 1,
+        },
+    )
+
+    prompt = ai_analysis._build_prompt(
+        vendor_data={"id": "vendor-smx", "name": "SMX", "country": "US", "program": "dod_unclassified"},
+        score_data={
+            "composite_score": 12,
+            "calibrated": {
+                "calibrated_tier": "TIER_4_CLEAR",
+                "calibrated_probability": 0.11,
+                "interval": {"lower": 0.08, "upper": 0.15},
+                "hard_stop_decisions": [],
+                "soft_flags": [],
+                "contributions": [],
+                "narratives": {"findings": []},
+            },
+        },
+        enrichment_data={"overall_risk": "LOW", "summary": {"findings_total": 1}, "identifiers": {}, "findings": []},
+    )
+
+    assert "Missing Required Edge Families" in prompt
+    assert "Strong vs Fragile Edges" in prompt
+    assert "Top Graph Entities" in prompt
+    assert "Top Edge Families" in prompt
+
+
 def test_analyze_vendor_provider_failure_raises_transient_error(monkeypatch):
     import ai_analysis
 

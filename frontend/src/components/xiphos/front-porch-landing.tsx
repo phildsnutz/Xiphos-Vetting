@@ -103,10 +103,14 @@ interface VendorBriefReadiness {
   networkRisk: NetworkRiskResult | null;
   axiomGapClosure: {
     status: "completed" | "skipped" | "failed";
+    passes: number;
     entitiesFound: number;
     relationshipsFound: number;
     gapCount: number;
     note: string;
+    remainingThinSignals?: number;
+    unresolvedReasons?: string[];
+    gapHighlights?: string[];
   } | null;
 }
 
@@ -431,12 +435,15 @@ function missionBriefNotesFromReadiness(readiness: VendorBriefReadiness): string
 
   if (readiness.axiomGapClosure?.status === "completed") {
     notes.push(
-      `AXIOM ran a second pass and surfaced ${readiness.axiomGapClosure.entitiesFound} entities, ${readiness.axiomGapClosure.relationshipsFound} relationships, and ${readiness.axiomGapClosure.gapCount} residual gaps.`,
+      `AXIOM ran ${readiness.axiomGapClosure.passes > 1 ? `${readiness.axiomGapClosure.passes} pressure passes` : "a pressure pass"} and surfaced ${readiness.axiomGapClosure.entitiesFound} entities, ${readiness.axiomGapClosure.relationshipsFound} relationships, and ${readiness.axiomGapClosure.gapCount} residual gaps.`,
     );
+    if (readiness.axiomGapClosure.unresolvedReasons?.length) {
+      notes.push(`What stayed thin after pressure: ${readiness.axiomGapClosure.unresolvedReasons.join(" ")}`);
+    }
   } else if (readiness.axiomGapClosure?.status === "failed") {
     notes.push(readiness.axiomGapClosure.note);
   } else {
-    notes.push("AXIOM did not need a second pass before the returned brief froze.");
+    notes.push("AXIOM did not need a pressure pass before the returned brief froze.");
   }
 
   return notes;
@@ -608,32 +615,126 @@ function buildVendorArtifact(
   };
 }
 
-function shouldPressureVendorReadiness(readiness: VendorBriefReadiness) {
+function assessVendorThinness(readiness: VendorBriefReadiness) {
   const findingsTotal = readiness.enrichment?.summary?.findings_total ?? readiness.passport?.identity.findings_total ?? 0;
   const connectorsWithData = readiness.enrichment?.summary?.connectors_with_data ?? readiness.passport?.identity.connectors_with_data ?? 0;
   const relationshipCount = readiness.graph?.relationship_count ?? readiness.passport?.graph.relationship_count ?? 0;
   const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
-  const thinGraph = Boolean(readiness.passport?.graph.intelligence?.thin_graph);
+  const graphIntelligence = readiness.passport?.graph.intelligence;
+  const thinGraph = Boolean(graphIntelligence?.thin_graph);
+  const missingRequiredEdgeFamilies = (graphIntelligence?.missing_required_edge_families ?? []).filter(Boolean);
+  const dominantEdgeFamily = String(graphIntelligence?.dominant_edge_family || "").replace(/_/g, " ").trim();
+  const networkRiskLevel = String(readiness.networkRisk?.network_risk_level || "").toLowerCase();
+  const topControlPath = readiness.passport?.graph.control_paths[0];
+  const reasons: string[] = [];
 
-  const thinSignals = [
-    findingsTotal < 2,
-    connectorsWithData < 2,
-    relationshipCount < 2,
+  if (findingsTotal < 2) reasons.push("The visible public record is still thin.");
+  if (connectorsWithData < 2) reasons.push("Too few connectors returned usable data.");
+  if (relationshipCount < 2) reasons.push("Relationship depth is still shallow.");
+  if (thinGraph) reasons.push("The graph is still thin.");
+  if (controlPathCount === 0) reasons.push("No control path has held cleanly yet.");
+  if (missingRequiredEdgeFamilies.length > 0) {
+    reasons.push(
+      `Required graph edge families are still missing: ${missingRequiredEdgeFamilies
+        .slice(0, 3)
+        .map((item) => item.replace(/_/g, " "))
+        .join(", ")}.`,
+    );
+  }
+  if (networkRiskLevel === "high" || networkRiskLevel === "critical") {
+    reasons.push(`Network risk is already reading ${networkRiskLevel}.`);
+  }
+
+  const severe =
+    findingsTotal === 0 ||
+    connectorsWithData === 0 ||
+    thinGraph ||
+    controlPathCount === 0 ||
+    missingRequiredEdgeFamilies.length > 0;
+
+  return {
+    findingsTotal,
+    connectorsWithData,
+    relationshipCount,
+    controlPathCount,
     thinGraph,
-    controlPathCount === 0,
-  ].filter(Boolean).length;
+    thinSignals: reasons.length,
+    severe,
+    reasons,
+    missingRequiredEdgeFamilies,
+    dominantEdgeFamily,
+    networkRiskLevel,
+    topControlPath,
+  };
+}
 
-  return thinSignals >= 2;
+function shouldPressureVendorReadiness(readiness: VendorBriefReadiness) {
+  const assessment = assessVendorThinness(readiness);
+  return assessment.severe || assessment.thinSignals >= 2;
+}
+
+function shouldEscalateVendorGapClosure(
+  readiness: VendorBriefReadiness,
+  gapClosure: VendorBriefReadiness["axiomGapClosure"],
+) {
+  if (!gapClosure || gapClosure.status !== "completed" || gapClosure.passes >= 2) {
+    return false;
+  }
+  const assessment = assessVendorThinness(readiness);
+  return (
+    assessment.severe ||
+    assessment.thinSignals >= 2 ||
+    gapClosure.gapCount > 0 ||
+    gapClosure.relationshipsFound === 0
+  );
+}
+
+function mergeVendorGapClosures(
+  existing: VendorBriefReadiness["axiomGapClosure"],
+  next: VendorBriefReadiness["axiomGapClosure"],
+  readiness: VendorBriefReadiness,
+): VendorBriefReadiness["axiomGapClosure"] {
+  if (!existing) return next;
+  if (!next) return existing;
+
+  const assessment = assessVendorThinness(readiness);
+  const gapHighlights = Array.from(
+    new Set([...(existing.gapHighlights ?? []), ...(next.gapHighlights ?? [])].filter(Boolean)),
+  ).slice(0, 3);
+
+  return {
+    status: next.status === "failed" && existing.status === "failed" ? "failed" : "completed",
+    passes: Math.max(existing.passes, next.passes),
+    entitiesFound: existing.entitiesFound + next.entitiesFound,
+    relationshipsFound: existing.relationshipsFound + next.relationshipsFound,
+    gapCount: next.gapCount,
+    note:
+      next.status === "failed"
+        ? next.note
+        : next.passes > 1
+          ? "AXIOM pressured the weak edge twice before the brief froze."
+          : next.note,
+    remainingThinSignals: assessment.thinSignals,
+    unresolvedReasons: assessment.reasons.slice(0, 3),
+    gapHighlights,
+  };
 }
 
 function buildGapClosureContext(
   session: IntakeSession,
   subject: string,
   readiness: VendorBriefReadiness,
+  options: {
+    passIndex?: number;
+    escalated?: boolean;
+  } = {},
 ) {
+  const assessment = assessVendorThinness(readiness);
   const context: string[] = [
     `Front Porch returned brief warming for ${subject}.`,
-    "Work the full entity picture and close the thinnest public-data gap before the brief freezes.",
+    options.escalated
+      ? "The first AXIOM pressure pass still left the picture thin. Push harder against the unresolved edge before the brief freezes."
+      : "Work the full entity picture and close the thinnest public-data gap before the brief freezes.",
   ];
   const weightedFirst = humanizePriorityFocus(session.priorityFocus);
   if (weightedFirst) {
@@ -646,9 +747,32 @@ function buildGapClosureContext(
   if (relationshipCount > 0) {
     context.push(`Current graph already holds ${relationshipCount} relationship${relationshipCount === 1 ? "" : "s"}. Use those relationships to guide the next thread, not just the surface record.`);
   }
-  const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
-  if (controlPathCount > 0) {
-    context.push(`There are ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"} already visible in the graph.`);
+  if (assessment.controlPathCount > 0) {
+    context.push(`There are ${assessment.controlPathCount} control path${assessment.controlPathCount === 1 ? "" : "s"} already visible in the graph.`);
+  } else {
+    context.push("No clean control path is holding yet. Pressure ownership and control until the graph stops being surface-level.");
+  }
+  if (assessment.missingRequiredEdgeFamilies.length > 0) {
+    context.push(
+      `Missing edge families: ${assessment.missingRequiredEdgeFamilies
+        .slice(0, 3)
+        .map((item) => item.replace(/_/g, " "))
+        .join(", ")}.`,
+    );
+  }
+  if (assessment.dominantEdgeFamily) {
+    context.push(`The dominant graph edge family so far is ${assessment.dominantEdgeFamily}. Use it, but do not let it trap the next move.`);
+  }
+  if (assessment.networkRiskLevel === "high" || assessment.networkRiskLevel === "critical") {
+    context.push(`Network risk is already ${assessment.networkRiskLevel}. Use the graph to explain that propagation instead of treating it as a detached score.`);
+  }
+  if (assessment.topControlPath?.source_name && assessment.topControlPath?.target_name) {
+    context.push(
+      `One visible control path already runs from ${assessment.topControlPath.source_name} to ${assessment.topControlPath.target_name}. Confirm whether that path is stable or misleading.`,
+    );
+  }
+  if (assessment.reasons.length > 0) {
+    context.push(`Residual thinness after pass ${options.passIndex ?? 1}: ${assessment.reasons.slice(0, 3).join(" ")}`);
   }
   return context.join(" ");
 }
@@ -668,7 +792,9 @@ function buildReturnedVendorArtifact(
   const networkRiskLevel = String(readiness.networkRisk?.network_risk_level || "").toUpperCase();
   const graphIntelligence = readiness.passport?.graph.intelligence;
   const dominantEdgeFamily = String(graphIntelligence?.dominant_edge_family || "").replace(/_/g, " ");
+  const missingEdgeFamilies = (graphIntelligence?.missing_required_edge_families ?? []).filter(Boolean);
   const gapClosure = readiness.axiomGapClosure;
+  const pressurePasses = gapClosure?.passes ?? 0;
 
   const whatHolds = connectorsWithData > 0 || findingsTotal > 0
     ? `${connectorsWithData} of ${connectorsRun || connectorsWithData} sources produced data and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} survived into the first picture.`
@@ -688,18 +814,29 @@ function buildReturnedVendorArtifact(
   if (controlPathCount === 0) {
     thinDetails.push("No control path has held cleanly yet.");
   }
+  if (missingEdgeFamilies.length > 0) {
+    thinDetails.push(
+      `The graph is still missing ${missingEdgeFamilies
+        .slice(0, 2)
+        .map((item) => item.replace(/_/g, " "))
+        .join(" and ")}.`,
+    );
+  }
   if (gapClosure?.gapCount && gapClosure.gapCount > 0) {
-    thinDetails.push(`${gapClosure.gapCount} gap${gapClosure.gapCount === 1 ? "" : "s"} remain open after the second pass.`);
+    thinDetails.push(`${gapClosure.gapCount} gap${gapClosure.gapCount === 1 ? "" : "s"} remain open after ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "the pressure pass"}.`);
+  }
+  if (gapClosure?.unresolvedReasons?.length) {
+    thinDetails.push(gapClosure.unresolvedReasons.join(" "));
   }
   const thinDetail = thinDetails.length > 0
     ? thinDetails.join(" ")
     : "The weak edge is now explicit, but no material thin spot is being hidden under surface calm.";
 
   const gapDetail = gapClosure?.status === "completed"
-    ? `AXIOM ran a second pass against the weak edge and surfaced ${gapClosure.entitiesFound} entities, ${gapClosure.relationshipsFound} relationships, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.`
+    ? `AXIOM ran ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "a pressure pass"} against the weak edge and surfaced ${gapClosure.entitiesFound} entities, ${gapClosure.relationshipsFound} relationships, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.${gapClosure.gapHighlights?.length ? ` It kept pressure on ${gapClosure.gapHighlights.join("; ")}.` : ""}`
     : gapClosure?.status === "failed"
       ? gapClosure.note
-      : "AXIOM did not need a second pass because the first picture already had enough structure to freeze the brief honestly.";
+      : "AXIOM did not need a pressure pass because the first picture already had enough structure to freeze the brief honestly.";
 
   return {
     caseId,
@@ -707,7 +844,7 @@ function buildReturnedVendorArtifact(
     title: subject,
     eyebrow: "Returned brief",
     framing: gapClosure?.status === "completed"
-      ? "The returned brief is ready. AXIOM used enrichment, graph relationships, and a second gap-closing pass before freezing the picture."
+      ? `The returned brief is ready. AXIOM used enrichment, graph relationships, and ${pressurePasses > 1 ? `${pressurePasses} pressure passes` : "a pressure pass"} before freezing the picture.`
       : "The returned brief is ready. AXIOM used enrichment and the current graph relationships before freezing the picture.",
     sections: [
       {
@@ -734,12 +871,12 @@ function buildReturnedVendorArtifact(
       },
     ],
     note: gapClosure?.status === "completed"
-      ? "Read the clean narrative here. Step into War Room when you want to challenge what still stayed thin after the second pass."
+      ? "Read the clean narrative here. Step into War Room when you want to challenge what still stayed thin after AXIOM pressured the weak edge."
       : "Read the clean narrative here. Step into War Room when you want to challenge the weak edge directly.",
     provenance: [
       `${connectorsWithData} sources with data`,
       relationshipCount > 0 ? `${relationshipCount} graph relationships` : "Graph still thin",
-      gapClosure?.status === "completed" ? "AXIOM second pass" : "Single-pass public picture",
+      gapClosure?.status === "completed" ? `AXIOM ${pressurePasses > 1 ? `${pressurePasses}-pass pressure loop` : "pressure pass"}` : "Single-pass public picture",
     ],
   };
 }
@@ -1124,25 +1261,37 @@ export function FrontPorchLanding({
     subject: string,
     nextSession: IntakeSession,
     readiness: VendorBriefReadiness,
+    options: {
+      passIndex?: number;
+      escalated?: boolean;
+    } = {},
   ) => {
     try {
       const response = await runAxiomSearchIngest({
         prime_contractor: subject,
         vehicle_name: nextSession.vehicleName || undefined,
-        context: buildGapClosureContext(nextSession, subject, readiness),
+        context: buildGapClosureContext(nextSession, subject, readiness, options),
         vendor_id: caseId,
       });
       return {
         status: "completed" as const,
+        passes: options.passIndex ?? 1,
         entitiesFound: response.entities?.length ?? 0,
         relationshipsFound: response.relationships?.length ?? 0,
         gapCount: response.intelligence_gaps?.length ?? 0,
-        note: "AXIOM pressured the thinnest thread before the brief froze.",
+        note: options.escalated
+          ? "AXIOM escalated the weak edge after the first pressure pass stayed thin."
+          : "AXIOM pressured the thinnest thread before the brief froze.",
+        gapHighlights: (response.intelligence_gaps ?? [])
+          .map((gap) => gap.description || gap.gap_type || "")
+          .filter(Boolean)
+          .slice(0, 3),
       };
     } catch (error) {
-      const message = humanizeApiError(error, "The second AXIOM pass did not close the weak edge cleanly.");
+      const message = humanizeApiError(error, "The AXIOM pressure pass did not close the weak edge cleanly.");
       return {
         status: "failed" as const,
+        passes: options.passIndex ?? 1,
         entitiesFound: 0,
         relationshipsFound: 0,
         gapCount: 0,
@@ -1159,17 +1308,31 @@ export function FrontPorchLanding({
     const subject = subjectOverride || nextSession.vendorName || "Vendor assessment";
     let readiness = await loadVendorReadiness(caseId);
     let gapClosureMessageSent = false;
+    let gapClosure: VendorBriefReadiness["axiomGapClosure"] = null;
 
     if (shouldPressureVendorReadiness(readiness)) {
       gapClosureMessageSent = true;
-      appendMessage("axiom", "The first pass is still thin. I’m using the graph and a second AXIOM pass to close the weakest gap before I freeze the brief.");
-      const gapClosure = await runVendorGapClosure(caseId, subject, nextSession, readiness);
+      appendMessage("axiom", "The first pass is still thin. I’m using the graph and an AXIOM pressure pass to close the weakest gap before I freeze the brief.");
+      gapClosure = await runVendorGapClosure(caseId, subject, nextSession, readiness, { passIndex: 1 });
       readiness = {
         ...(await loadVendorReadiness(caseId)),
         axiomGapClosure: gapClosure,
       };
-      if (gapClosure.status === "failed") {
-        appendMessage("axiom", "The second pass did not close the weak edge cleanly. I’m freezing the brief with the ambiguity explicit instead of bluffing past it.");
+      if (shouldEscalateVendorGapClosure(readiness, gapClosure)) {
+        appendMessage("axiom", "One weak edge still is not holding. I’m going back through it once more with the graph in hand before I freeze the brief.");
+        const escalatedClosure = await runVendorGapClosure(caseId, subject, nextSession, readiness, {
+          passIndex: 2,
+          escalated: true,
+        });
+        const refreshedReadiness = await loadVendorReadiness(caseId);
+        gapClosure = mergeVendorGapClosures(gapClosure, escalatedClosure, refreshedReadiness);
+        readiness = {
+          ...refreshedReadiness,
+          axiomGapClosure: gapClosure,
+        };
+      }
+      if (gapClosure?.status === "failed") {
+        appendMessage("axiom", "The pressure pass did not close the weak edge cleanly. I’m freezing the brief with the ambiguity explicit instead of bluffing past it.");
       }
     }
 
@@ -1183,7 +1346,7 @@ export function FrontPorchLanding({
     appendMessage(
       "axiom",
       gapClosureMessageSent && readiness.axiomGapClosure?.status === "completed"
-        ? "The returned brief is ready. I used the graph and a second AXIOM pass to tighten the weak edge before freezing it."
+        ? `The returned brief is ready. I used the graph and ${readiness.axiomGapClosure.passes > 1 ? `${readiness.axiomGapClosure.passes} AXIOM pressure passes` : "an AXIOM pressure pass"} to tighten the weak edge before freezing it.`
         : "The returned brief is ready. Open it here, or step into War Room if you want to challenge the weak edge.",
     );
   }, [appendMessage, loadVendorReadiness, persistMissionBrief, runVendorGapClosure]);

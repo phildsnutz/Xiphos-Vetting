@@ -238,6 +238,67 @@ def test_api_resolve_degrades_when_one_source_times_out(client, monkeypatch):
     assert body["resolution"]["status"] in {"recommended", "disabled", "ambiguous"}
 
 
+def test_api_resolve_prefers_exact_local_vendor_memory_for_short_name(client, app_env, monkeypatch):
+    import entity_resolver
+    import entity_rerank
+
+    app_env["server"].db.upsert_vendor(
+        "iteams-competitor-smx",
+        "SMX",
+        "US",
+        "iteams_competitive_intelligence",
+        {
+            "website": "https://smxtech.com",
+            "industry": "Defense IT & Network Services",
+            "entity_type": "competitor",
+        },
+        profile="defense_acquisition",
+    )
+
+    monkeypatch.setattr(entity_resolver, "_SAM_API_KEY", "")
+    monkeypatch.setattr(
+        entity_resolver,
+        "_search_sec_edgar",
+        lambda _name: [
+            {
+                "legal_name": "SMX (Security Matters) Public Ltd Co",
+                "source": "sec_edgar",
+                "country": "US",
+                "ticker": "SMX",
+                "cik": "1940674",
+                "confidence": 0.9,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        entity_resolver,
+        "_search_gleif",
+        lambda _name: [
+            {
+                "legal_name": "SMX SERVICES & CONSULTING, INC.",
+                "source": "gleif",
+                "country": "US",
+                "lei": "25490008VB97CDDCWQ89",
+                "confidence": 0.95,
+            }
+        ],
+    )
+    monkeypatch.setattr(entity_resolver, "_search_opencorporates", lambda _name: [])
+    monkeypatch.setattr(entity_resolver, "_search_wikidata", lambda _name: [])
+    monkeypatch.setattr(entity_rerank, "MIN_DELTA", 0.15)
+
+    resp = client.post(
+        "/api/resolve",
+        json={"name": "SMX", "country": "US", "use_ai": False, "max_candidates": 6},
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["candidates"][0]["legal_name"] == "SMX"
+    assert body["candidates"][0]["source"] == "local_vendor_memory"
+    assert body["resolution"]["status"] in {"disabled", "recommended", "ambiguous"}
+
+
 def test_feedback_endpoint_rejects_unknown_run(client):
     resp = client.post(
         "/api/resolve/feedback",

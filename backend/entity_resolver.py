@@ -12,11 +12,12 @@ import re
 import os
 import json
 import time
+import sqlite3
 import threading
 import difflib
 import requests
 import concurrent.futures
-from runtime_paths import get_cache_dir
+from runtime_paths import get_cache_dir, get_main_db_path
 
 TIMEOUT = 10
 # Front Porch should move with partial truth, not wait on every slow registry.
@@ -32,6 +33,7 @@ _EDGAR_CACHE_FILE = os.path.join(_EDGAR_CACHE_DIR, "company_tickers.json")
 _edgar_lock = threading.Lock()
 _edgar_data: dict | None = None
 _edgar_loaded_at: float = 0.0
+_LOCAL_VENDOR_MEMORY_LIMIT = 8
 
 
 def _load_edgar_tickers() -> dict:
@@ -97,6 +99,25 @@ ENTITY_SUFFIXES = {
 }
 
 
+def _normalize_entity_name(name: str) -> str:
+    tokens = _strip_entity_suffixes(name)
+    if tokens:
+        return " ".join(tokens)
+    return re.sub(r"\s+", " ", str(name or "").strip().lower())
+
+
+def _safe_json_loads(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    if value in (None, ""):
+        return {}
+    try:
+        loaded = json.loads(str(value))
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
 def _strip_entity_suffixes(name: str) -> list[str]:
     """Extract meaningful search words from entity name, stripping legal suffixes and short noise."""
     # Remove common punctuation
@@ -126,6 +147,89 @@ def _name_match_score(query: str, candidate: str) -> float:
 
 def _is_relevant_candidate(query: str, candidate: str, threshold: float = 0.55) -> bool:
     return _name_match_score(query, candidate) >= threshold
+
+
+def _search_local_vendor_memory(name: str) -> list[dict]:
+    """Search Helios local vendor memory before falling back to thinner public ambiguity."""
+    db_path = get_main_db_path()
+    if not db_path or not os.path.exists(db_path):
+        return []
+
+    raw_query = re.sub(r"\s+", " ", str(name or "").strip())
+    if not raw_query:
+        return []
+
+    normalized_query = _normalize_entity_name(raw_query)
+    lowered_query = raw_query.lower()
+    startswith_like = f"{lowered_query}%"
+    contains_like = f"%{lowered_query}%"
+    candidates: list[dict] = []
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, name, country, program, profile, vendor_input, updated_at
+                FROM vendors
+                WHERE LOWER(name) = ?
+                   OR LOWER(name) LIKE ?
+                   OR LOWER(name) LIKE ?
+                ORDER BY
+                    CASE
+                        WHEN LOWER(name) = ? THEN 0
+                        WHEN LOWER(name) LIKE ? THEN 1
+                        ELSE 2
+                    END,
+                    updated_at DESC
+                LIMIT ?
+                """,
+                (lowered_query, startswith_like, contains_like, lowered_query, startswith_like, _LOCAL_VENDOR_MEMORY_LIMIT),
+            ).fetchall()
+    except Exception:
+        return []
+
+    for row in rows:
+        legal_name = str(row["name"] or "").strip()
+        if not legal_name:
+            continue
+        if not _is_relevant_candidate(name, legal_name, threshold=0.5):
+            continue
+
+        vendor_input = _safe_json_loads(row["vendor_input"])
+        normalized_candidate = _normalize_entity_name(legal_name)
+        match_score = _name_match_score(name, legal_name)
+        exact_match = lowered_query == legal_name.lower().strip() or normalized_query == normalized_candidate
+        prefix_match = bool(normalized_query and normalized_candidate.startswith(normalized_query))
+
+        confidence = 0.78 + (match_score * 0.14)
+        if exact_match:
+            confidence = max(confidence, 0.99)
+        elif prefix_match:
+            confidence = max(confidence, 0.94)
+        elif lowered_query in legal_name.lower():
+            confidence = max(confidence, 0.9)
+
+        entity_hint = str(vendor_input.get("entity_type") or vendor_input.get("industry") or "").strip()
+        candidate = {
+            "legal_name": legal_name,
+            "country": str(row["country"] or "") or "US",
+            "program": str(row["program"] or ""),
+            "profile": str(row["profile"] or ""),
+            "local_vendor_id": str(row["id"] or ""),
+            "source": "local_vendor_memory",
+            "confidence": round(min(confidence, 0.995), 3),
+            "entity_type": entity_hint or "Known Vendor Memory",
+        }
+        website = str(vendor_input.get("website") or "").strip()
+        if website:
+            candidate["url"] = website
+        ownership = str(vendor_input.get("ownership") or "").strip()
+        if ownership:
+            candidate["description"] = ownership[:180]
+        candidates.append(candidate)
+
+    return candidates
 
 
 def _search_sec_edgar(name: str) -> list[dict]:
@@ -429,7 +533,7 @@ def resolve_entity(name: str) -> list[dict]:
     to maximize recall across registries that handle legal suffixes differently.
     Returns deduplicated candidate list sorted by confidence.
     """
-    all_candidates = []
+    all_candidates = _search_local_vendor_memory(name)
 
     # Build a clean core name by stripping entity suffixes (LLC, INC, etc.)
     core_words = _strip_entity_suffixes(name)
