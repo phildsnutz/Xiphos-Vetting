@@ -150,7 +150,8 @@ ARCHIVE_EXCLUDES = {
 
 BUNDLE_MUST_HAVE = [
     "Helios | Xiphos",
-    "Vendor assessment + contract vehicle intelligence",
+    "Vendor Assessment",
+    "Contract Vehicle Intelligence",
     "Open intake",
 ]
 BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "xiphos-dashboard"]
