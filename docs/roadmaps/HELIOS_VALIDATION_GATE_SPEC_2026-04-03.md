@@ -19,6 +19,7 @@ This first implementation covers:
 - AXIOM gap-fill results
 - CVI fill-gaps API responses
 - AXIOM first-look inside the gap advisory pipeline
+- automatic graph promotion for accepted vehicle-participation claims
 
 Future scope:
 - direct connector outputs
@@ -126,7 +127,7 @@ Applied when:
 
 ## Current implementation slice
 
-The first runtime implementation does two things:
+The first runtime implementation now does three things:
 
 1. `/api/cvi/fill-gaps`
 - returns validation metadata per result
@@ -136,12 +137,17 @@ The first runtime implementation does two things:
 - counts a gap as filled only if the validation gate returns `accepted`
 - demotes review/rejected fills back into the unfilled/advisory path
 
+3. Phase 4 promotion hook
+- accepted AXIOM findings can now promote into the graph
+- promotion writes claim/evidence-backed `awarded_under` relationships for supported vehicle-facing gap types
+- promotion remains intentionally narrow and explainable
+
 ## What this does not do yet
 
-- automatic claim/evidence promotion into the graph
 - contradiction review queues
 - analyst override workflow
 - freshness decay rules
 - cross-source temporal conflict adjudication
+- richer automatic role extraction such as teammate/subcontractor ownership or facility-specific edges from unstructured AXIOM text
 
 Those are Phase 4 follow-ons, not prerequisites for this first gate.

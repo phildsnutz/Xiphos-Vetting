@@ -134,6 +134,7 @@ def test_cvi_gap_advisory_route_serializes_pipeline_result(client, monkeypatch):
 
 def test_cvi_fill_gaps_route_converts_inputs_and_serializes_results(client, monkeypatch):
     import axiom_gap_filler
+    import knowledge_graph
 
     captured = {}
 
@@ -186,15 +187,30 @@ def test_cvi_fill_gaps_route_converts_inputs_and_serializes_results(client, monk
     assert payload["results"][0]["status"] == "closed"
     assert payload["results"][0]["confidence"] == pytest.approx(0.84)
     assert payload["results"][0]["validation"]["outcome"] == "accepted"
+    assert payload["results"][0]["graph_promotion"]["status"] == "promoted"
+    assert payload["graph_promotion"]["promoted_claims"] == 1
     assert captured["gaps"][0].entity_name == "Amentum"
     assert captured["gaps"][0].vehicle_name == "ITEAMS"
+    with knowledge_graph.get_kg_conn() as conn:
+        claim_count = conn.execute("SELECT COUNT(*) FROM kg_claims").fetchone()[0]
+        evidence_count = conn.execute("SELECT COUNT(*) FROM kg_evidence").fetchone()[0]
+    assert claim_count == 1
+    assert evidence_count == 1
 
 
-def test_attempt_axiom_fill_uses_current_gap_filler_contract(monkeypatch):
+def test_attempt_axiom_fill_uses_current_gap_filler_contract(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    for module_name in ["knowledge_graph", "gap_advisory_pipeline"]:
+        if module_name in sys.modules:
+            importlib.reload(sys.modules[module_name])
     import axiom_gap_filler
     import gap_advisory_pipeline
+    import knowledge_graph
 
     captured = {}
+    knowledge_graph.init_kg_db()
 
     monkeypatch.setattr(gap_advisory_pipeline.db, "get_vendor", lambda vendor_id: {"name": "Amentum"})
 
@@ -247,6 +263,7 @@ def test_attempt_axiom_fill_uses_current_gap_filler_contract(monkeypatch):
     assert captured["gaps"][0].priority == "critical"
     assert captured["user_id"] == "system"
     assert filled[0]["axiom_validation"]["outcome"] == "accepted"
+    assert filled[0]["axiom_graph_promotion"]["status"] == "promoted"
 
 
 def test_attempt_axiom_fill_demotes_weak_single_source_results(monkeypatch):

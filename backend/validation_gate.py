@@ -243,7 +243,7 @@ def _extract_evidence_text(finding: dict) -> str:
     return ""
 
 
-def _extract_normalized_findings(result) -> list[NormalizedFinding]:
+def extract_normalized_findings(result) -> list[NormalizedFinding]:
     attempts = list(getattr(result, "attempts", []) or [])
     result_confidence = _coerce_float(getattr(result, "fill_confidence", 0.0), 0.0)
     findings: list[NormalizedFinding] = []
@@ -287,7 +287,7 @@ def validate_gap_fill_result(result) -> ValidationDecision:
     """
 
     fill_confidence = _coerce_float(getattr(result, "fill_confidence", 0.0), 0.0)
-    findings = _extract_normalized_findings(result)
+    findings = extract_normalized_findings(result)
 
     if not findings:
         return ValidationDecision(
@@ -388,3 +388,7 @@ def should_promote_gap_fill(result) -> bool:
     """True when a gap-fill result is strong enough for the durable path."""
     decision = validate_gap_fill_result(result)
     return decision.outcome == "accepted"
+
+
+# Backward-compatible alias for any local callers that still use the private name.
+_extract_normalized_findings = extract_normalized_findings

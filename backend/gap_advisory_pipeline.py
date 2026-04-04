@@ -45,6 +45,7 @@ from dossier import build_dossier_context
 from knowledge_graph import get_kg_conn
 import db
 import os
+from axiom_graph_promotion import promote_validated_gap_fill, summarize_promotions
 from validation_gate import validate_gap_fill_result
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,7 @@ class PipelineResult:
     proposals_generated: list[AdvisoryProposal]
     total_pipeline_value: float
     axiom_fill_results: list[dict]  # Summary of what Axiom filled
+    graph_promotion: dict = field(default_factory=dict)
     elapsed_ms: int = 0
 
     def to_dict(self) -> dict:
@@ -509,11 +511,13 @@ def attempt_axiom_fill(gaps: list[dict], vendor_id: str, api_key: str = "",
             if isinstance(fill_result, list) and len(fill_result) > 0:
                 result = fill_result[0]
                 validation = validate_gap_fill_result(result)
+                promotion = promote_validated_gap_fill(result, validation, vendor_id=vendor_id)
                 result_payload = asdict(result) if hasattr(result, '__dataclass_fields__') else result
                 if isinstance(result_payload, dict):
                     result_payload["validation"] = validation.to_dict()
                 gap["axiom_fill_result"] = result_payload
                 gap["axiom_validation"] = validation.to_dict()
+                gap["axiom_graph_promotion"] = promotion.to_dict()
                 if isinstance(result, GapFillResult) and result.filled and validation.outcome == "accepted":
                     filled_gaps.append(gap)
                 else:
@@ -1477,6 +1481,7 @@ def run_gap_advisory_pipeline(
     all_filled_gaps = []
     all_unfilled_gaps = []
     all_proposals = []
+    all_graph_promotions = []
 
     # Extract gaps from all vendors
     for vendor_id in vendor_ids:
@@ -1498,6 +1503,11 @@ def run_gap_advisory_pipeline(
             )
             all_filled_gaps.extend(filled)
             all_unfilled_gaps.extend(unfilled)
+            all_graph_promotions.extend(
+                gap.get("axiom_graph_promotion", {})
+                for gap in filled + unfilled
+                if gap.get("axiom_graph_promotion")
+            )
             vendor_unfilled_gaps = unfilled
         else:
             all_unfilled_gaps.extend(gaps)
@@ -1522,9 +1532,11 @@ def run_gap_advisory_pipeline(
             "status": gap.get("axiom_validation", {}).get("outcome", "accepted"),
             "confidence_label": gap.get("axiom_validation", {}).get("confidence_label", ""),
             "reasons": list(gap.get("axiom_validation", {}).get("reasons", []) or [])[:3],
+            "graph_promotion": gap.get("axiom_graph_promotion", {}),
         }
         for gap in all_filled_gaps
     ]
+    graph_promotion = summarize_promotions(all_graph_promotions)
 
     result = PipelineResult(
         total_gaps_identified=len(all_gaps),
@@ -1533,6 +1545,7 @@ def run_gap_advisory_pipeline(
         proposals_generated=all_proposals,
         total_pipeline_value=total_pipeline_value,
         axiom_fill_results=axiom_summary,
+        graph_promotion=graph_promotion,
         elapsed_ms=elapsed_ms,
     )
 

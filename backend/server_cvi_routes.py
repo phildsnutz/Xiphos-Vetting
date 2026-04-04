@@ -128,6 +128,33 @@ def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "anthr
     return api_key, provider, model
 
 
+def _maybe_queue_neo4j_sync(*, since_timestamp: str, requested_by: str = "", requested_by_email: str = ""):
+    try:
+        from neo4j_integration import is_neo4j_available
+        from neo4j_sync_scheduler import get_neo4j_sync_scheduler
+
+        if not since_timestamp:
+            return {"status": "skipped", "reason": "no_since_timestamp"}
+        if not is_neo4j_available():
+            return {"status": "unavailable"}
+
+        job = get_neo4j_sync_scheduler().queue_incremental_sync(
+            since_timestamp,
+            requested_by=requested_by,
+            requested_by_email=requested_by_email,
+            metadata={"requested_via": "cvi_graph_promotion"},
+        )
+        return {
+            "status": job.get("status") or "queued",
+            "job_id": job.get("job_id"),
+            "status_url": f"/api/neo4j/sync/{job.get('job_id')}" if job.get("job_id") else None,
+            "reused_existing_job": bool(job.get("reused_existing_job")),
+        }
+    except Exception as exc:
+        logger.warning("cvi_routes: Neo4j sync queue failed: %s", exc)
+        return {"status": "failed", "error": str(exc)}
+
+
 def _serialize_gap(gap):
     """Serialize a gap object for JSON response."""
     return {
@@ -420,6 +447,15 @@ def api_cvi_gap_advisory():
             pipeline_result if isinstance(pipeline_result, dict) else {}
         )
 
+        graph_promotion = result_dict.get("graph_promotion") or {}
+        neo4j_sync = None
+        if int(graph_promotion.get("promoted_claims") or 0) > 0:
+            neo4j_sync = _maybe_queue_neo4j_sync(
+                since_timestamp=str(graph_promotion.get("since_timestamp") or ""),
+                requested_by=user_id,
+                requested_by_email=user_email,
+            )
+
         response = {
             "pipeline_result": {
                 "gaps_identified": result_dict.get("total_gaps_identified", 0),
@@ -430,8 +466,11 @@ def api_cvi_gap_advisory():
             },
             "proposals": result_dict.get("proposals_generated", []),
             "axiom_fill_results": result_dict.get("axiom_fill_results", []),
+            "graph_promotion": graph_promotion,
             "status": "completed",
         }
+        if neo4j_sync:
+            response["neo4j_sync"] = neo4j_sync
 
         return jsonify(response), 200
 
@@ -493,6 +532,7 @@ def api_cvi_fill_gaps():
     """
     try:
         from axiom_gap_filler import fill_gaps as fill_gaps_with_axiom
+        from axiom_graph_promotion import promote_validated_gap_fill, summarize_promotions
         from validation_gate import validate_gap_fill_result
 
         body = request.get_json(silent=True) or {}
@@ -502,6 +542,8 @@ def api_cvi_fill_gaps():
             return jsonify({"error": "Missing required field: gaps"}), 400
 
         user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
+        user_email = g.user.get("email", "") if getattr(g, "user", None) else ""
+        vendor_id = str(body.get("vendor_id") or "").strip()
 
         api_key, provider, model = _resolve_ai_runtime(user_id, body)
         default_vehicle_name = str(body.get("vehicle_name", "")).strip()
@@ -523,12 +565,14 @@ def api_cvi_fill_gaps():
         )
 
         serialized_results = []
+        promotion_results = []
         closed = 0
         partial = 0
         failed = 0
         for result in results:
             serialized = _serialize_gap_fill_result(result)
             validation = validate_gap_fill_result(result)
+            promotion = promote_validated_gap_fill(result, validation, vendor_id=vendor_id)
             if validation.outcome == "accepted":
                 serialized["status"] = "closed"
                 closed += 1
@@ -539,12 +583,22 @@ def api_cvi_fill_gaps():
                 serialized["status"] = "failed"
                 failed += 1
             serialized["validation"] = validation.to_dict()
+            serialized["graph_promotion"] = promotion.to_dict()
             serialized_results.append(serialized)
+            promotion_results.append(promotion)
 
         average_confidence = (
             sum(float(getattr(result, "fill_confidence", 0.0) or 0.0) for result in results) / len(results)
             if results else 0.0
         )
+        graph_promotion = summarize_promotions(promotion_results)
+        neo4j_sync = None
+        if int(graph_promotion.get("promoted_claims") or 0) > 0:
+            neo4j_sync = _maybe_queue_neo4j_sync(
+                since_timestamp=str(graph_promotion.get("since_timestamp") or ""),
+                requested_by=user_id,
+                requested_by_email=user_email,
+            )
 
         response = {
             "results": serialized_results,
@@ -558,8 +612,11 @@ def api_cvi_fill_gaps():
                 "rejected": failed,
                 "average_confidence": average_confidence,
             },
+            "graph_promotion": graph_promotion,
             "status": "completed",
         }
+        if neo4j_sync:
+            response["neo4j_sync"] = neo4j_sync
 
         return jsonify(response), 200
 

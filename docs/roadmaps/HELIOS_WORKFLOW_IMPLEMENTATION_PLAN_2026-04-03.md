@@ -1,15 +1,16 @@
-# Helios Workflow V2 Implementation Plan
-## Phase tickets for Vendor Assessment + Contract Vehicle Intelligence
+# Helios Workflow V2.1 Implementation Plan
+## Phase tickets for mission-scoped Vendor Assessment + Contract Vehicle Intelligence
 
 Date: 2026-04-03  
 Status: Internal implementation plan  
-Depends on: [HELIOS_WORKFLOW_V2_2026-04-03.md](/Users/tyegonzalez/Desktop/Helios-Package%20Merged/docs/roadmaps/HELIOS_WORKFLOW_V2_2026-04-03.md)
+Depends on: [HELIOS_WORKFLOW_V2_1_2026-04-03.md](/Users/tyegonzalez/Desktop/Helios-Package%20Merged/docs/roadmaps/HELIOS_WORKFLOW_V2_1_2026-04-03.md)
 
 ## Bottom line
 
 Helios does not need a full rewrite to reach the workflow model.
 
 It needs:
+- mission scoping before collection
 - one explicit validation gate
 - cleaner object resolution
 - stronger vehicle-first resolution
@@ -17,6 +18,33 @@ It needs:
 - a stricter AXIOM feedback loop into the graph
 
 This plan is intentionally staged so each phase lands a durable product behavior.
+
+## Phase 0. Mission scoping
+
+Goal:
+- turn natural-language intent into a structured mission brief before collection starts
+
+Tickets:
+1. Add `MissionBrief` with:
+   - engagement type
+   - targets
+   - known context
+   - priority intelligence requirements
+   - collection depth
+   - timeline
+2. Support two operator modes:
+   - Front Porch guided intake
+   - War Room expedited intake
+3. Treat user-provided context as first-class signal in downstream collection.
+4. Persist draft mission briefs for resumed work.
+
+Current repo status:
+- interaction ideas are clear
+- implementation is still route-centric, not brief-centric
+
+Exit criteria:
+- every major workflow starts from a structured mission brief
+- AXIOM scopes before it hunts
 
 ## Phase 1. Resolve the entry object
 
@@ -105,7 +133,8 @@ Tickets:
 
 Current repo status:
 - claim/evidence persistence exists
-- promotion rules are weaker than they should be
+- accepted AXIOM vehicle-participation findings now promote into claim/evidence-backed graph memory
+- promotion is intentionally narrow until richer structured AXIOM findings exist
 
 Exit criteria:
 - every durable edge is explainable by claim, evidence, source, and time
