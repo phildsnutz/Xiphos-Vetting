@@ -454,9 +454,11 @@ export function FrontPorchLanding({
   const [openingDossierFor, setOpeningDossierFor] = useState<string | null>(null);
   const [resumeIntent, setResumeIntent] = useState<ResumeIntent | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
+  const hasThreadDepth = messages.length > INITIAL_MESSAGES.length || candidateChoices.length > 0 || Boolean(vehicleArtifact || vendorArtifact || errorText);
 
   const appendMessage = useCallback((role: MessageRole, content: string) => {
     setMessages((current) => [...current, { id: nextId(role), role, content }]);
@@ -473,6 +475,12 @@ export function FrontPorchLanding({
   useEffect(() => {
     composerRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const el = messageListRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, isWorking]);
 
   useEffect(() => {
     if (!isWorking) return undefined;
@@ -813,18 +821,20 @@ export function FrontPorchLanding({
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight: "100%",
+        height: "100%",
         background: shellBackground,
         color: T.text,
         padding: `${SP.xl}px ${PAD.spacious}px ${PAD.spacious}px`,
-        overflow: "auto",
+        overflowY: "auto",
+        overflowX: "hidden",
       }}
     >
       <div
         style={{
           width: "min(1180px, 100%)",
           margin: "0 auto",
-          minHeight: `calc(100vh - ${SP.xxxl}px)`,
+          minHeight: "100%",
           display: "flex",
           flexDirection: "column",
         }}
@@ -1022,7 +1032,7 @@ export function FrontPorchLanding({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: hasThreadDepth ? "flex-start" : "center",
             padding: `${SP.lg}px 0 ${SP.xxxl}px`,
             gap: SP.xl,
           }}
@@ -1063,7 +1073,18 @@ export function FrontPorchLanding({
                 </div>
               </div>
 
-              <div aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: SP.md }}>
+              <div
+                ref={messageListRef}
+                aria-live="polite"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: SP.md,
+                  maxHeight: "min(46vh, 520px)",
+                  overflowY: "auto",
+                  paddingRight: SP.xs,
+                }}
+              >
                 {messages.map((message) => (
                   <div
                     key={message.id}

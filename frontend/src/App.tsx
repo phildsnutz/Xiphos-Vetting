@@ -801,7 +801,14 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="h-screen overflow-hidden" style={{ background: T.bg, color: T.text }}>
+      <div
+        className="h-screen"
+        style={{
+          background: T.bg,
+          color: T.text,
+          overflow: authRequired && !user || frontPorchMode || warRoomMode ? "auto" : "hidden",
+        }}
+      >
         {authRequired && !user ? (
           <FrontPorchLanding
             cases={cases}
