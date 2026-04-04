@@ -5,7 +5,7 @@ import { fetchMonitorChanges, fetchPortfolioAnomalies } from "@/lib/api";
 import type { MonitorChangeEntry } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { emit } from "@/lib/telemetry";
-import { EmptyPanel, InlineMessage, MetricTile, SectionEyebrow } from "./shell-primitives";
+import { EmptyPanel, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
 import { portfolioDisposition, workflowLaneForCase, WORKFLOW_LANE_META } from "./portfolio-utils";
 
 interface PortfolioScreenProps {
@@ -176,10 +176,8 @@ export function PortfolioScreen({
       }}
     >
       <section
-        className="glass-card animate-slide-up"
+        className="animate-slide-up"
         style={{
-          padding: PAD.comfortable,
-          borderRadius: 20,
           display: "flex",
           flexDirection: "column",
           gap: SP.md,
@@ -267,11 +265,18 @@ export function PortfolioScreen({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <MetricTile label="Cases in scope" value={cases.length} detail={laneSummary?.shortLabel || "Vendor"} />
-          <MetricTile label="Blocked" value={blockedCases.length} detail={topCase ? displayName(topCase.name) : "None"} tone={blockedCases.length > 0 ? "danger" : "neutral"} />
-          <MetricTile label="Review" value={reviewCases.length} detail="Need judgement" tone={reviewCases.length > 0 ? "warning" : "neutral"} />
-          <MetricTile label="Average risk" value={`${averageRisk(cases)}%`} detail={`${watchCases.length} on watch`} tone={watchCases.length > 0 ? "info" : "neutral"} />
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill tone="neutral">{cases.length} in scope</StatusPill>
+          <StatusPill tone={blockedCases.length > 0 ? "danger" : "neutral"}>
+            {blockedCases.length} blocked
+          </StatusPill>
+          <StatusPill tone={reviewCases.length > 0 ? "warning" : "neutral"}>
+            {reviewCases.length} review
+          </StatusPill>
+          <StatusPill tone={watchCases.length > 0 ? "info" : "neutral"}>
+            {watchCases.length} watch
+          </StatusPill>
+          <StatusPill tone="neutral">Average risk {averageRisk(cases)}%</StatusPill>
         </div>
       </section>
 
@@ -505,10 +510,7 @@ export function PortfolioScreen({
       </section>
 
       <section
-        className="glass-card"
         style={{
-          padding: PAD.comfortable,
-          borderRadius: 18,
           display: "flex",
           flexDirection: "column",
           gap: SP.sm,
@@ -554,12 +556,13 @@ export function PortfolioScreen({
               style={{
                 gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,0.8fr) minmax(0,0.8fr) minmax(0,0.8fr)",
                 gap: SP.sm,
-                padding: `0 ${SP.sm}px`,
+                padding: `0 ${SP.sm}px ${SP.xs}px`,
                 fontSize: FS.xs,
                 color: T.textTertiary,
                 fontWeight: 700,
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
+                borderBottom: `1px solid ${T.border}`,
               }}
             >
               <span>Vendor</span>
@@ -570,7 +573,7 @@ export function PortfolioScreen({
               <span style={{ textAlign: "right" }}>Updated</span>
             </div>
 
-            {sortedCases.map((item, index) => {
+            {sortedCases.map((item) => {
               const lane = WORKFLOW_LANE_META[workflowLaneForCase(item)];
               const band = bandTone(item);
               const disposition = dispositionTone(portfolioDisposition(item));
@@ -599,10 +602,10 @@ export function PortfolioScreen({
                   aria-label={`Open case for ${displayName(item.name)}`}
                   style={{
                     width: "100%",
-                    borderRadius: 16,
-                    border: `1px solid ${index % 2 === 0 ? T.border : `${T.border}${O["50"]}`}`,
-                    background: index % 2 === 0 ? `${T.surfaceElevated}${O["50"]}` : T.surface,
-                    padding: PAD.default,
+                    borderRadius: 14,
+                    border: `1px solid ${T.border}`,
+                    background: "transparent",
+                    padding: `${SP.md}px ${SP.md}px`,
                     textAlign: "left",
                     cursor: "pointer",
                   }}

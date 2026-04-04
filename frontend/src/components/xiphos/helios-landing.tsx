@@ -300,10 +300,6 @@ export function HeliosLanding({
   });
   const blockedCount = laneCases.filter((c) => portfolioDisposition(c) === "blocked").length;
   const reviewCount = laneCases.filter((c) => portfolioDisposition(c) === "review").length;
-  const movingCount = laneCases.filter((c) => {
-    const disposition = portfolioDisposition(c);
-    return disposition === "clear" || disposition === "qualified";
-  }).length;
   const freshCount = laneCases.filter((c) => clockTs - caseTimestamp(c.created_at || c.date) <= 86_400_000).length;
   const primaryPlaceholder =
     activePillar === "contract_vehicle"
@@ -685,128 +681,107 @@ export function HeliosLanding({
       {phase === "idle" && (
         <div style={{ width: "100%", maxWidth: 1360 }} className="animate-slide-up">
           <div style={{ display: "flex", flexDirection: "column", gap: SP.lg, width: "100%" }}>
-            <section
-              className="glass-card"
-              style={{
-                padding: PAD.default,
-                borderRadius: 18,
-                display: "flex",
-                flexDirection: "column",
-                gap: SP.sm,
-              }}
-            >
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div style={{ minWidth: 0, flex: 1, maxWidth: 760 }}>
-                  <SectionEyebrow>Start point</SectionEyebrow>
-                  <div style={{ fontSize: FS.base, color: T.text, fontWeight: 800, marginTop: SP.xs }}>
-                    Choose the object first. Helios will route the rest of the workflow around it.
-                  </div>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
-                    Vendor Assessment starts from the supplier. Contract Vehicle Intelligence starts from the vehicle and spins the right vendors into assessment.
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {(["vendor_assessment", "contract_vehicle"] as ProductPillar[]).map((pillar) => {
-                    const meta = PRODUCT_PILLAR_META[pillar];
-                    const active = pillar === activePillar;
-                    const PillarIcon = PILLAR_ICONS[pillar];
-                    return (
-                      <button
-                        key={pillar}
-                        type="button"
-                        onClick={() => handlePillarSelect(pillar)}
-                        className="helios-focus-ring"
-                        aria-label={`Switch intake start point to ${meta.label}`}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: SP.xs,
-                          padding: "10px 14px",
-                          borderRadius: 999,
-                          border: `1px solid ${active ? meta.softBorder : T.border}`,
-                          background: active ? meta.softBackground : T.surface,
-                          color: active ? meta.accent : T.textSecondary,
-                          cursor: "pointer",
-                          fontSize: FS.sm,
-                          fontWeight: 700,
-                        }}
-                        title={meta.description}
-                      >
-                        <PillarIcon size={14} />
-                        {meta.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <InlineMessage
-                tone={activePillar === "contract_vehicle" ? "info" : "neutral"}
-                title={activePillarBrief.title}
-                message={activePillarBrief.useWhen}
-                icon={activePillar === "contract_vehicle" ? GitBranch : Building2}
-              />
-
-              {activePillar === "vendor_assessment" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: SP.xs }}>
-                  <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                    Supporting layers
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {(["counterparty", "cyber", "export"] as DecisionLane[]).map((lane) => {
-                      const meta = WORKFLOW_LANE_META[lane];
-                      const counts = laneCounts[lane];
-                      const active = lane === activeLane;
-                      return (
-                        <button
-                          key={lane}
-                          type="button"
-                          onClick={() => handleLaneSelect(lane)}
-                          className="helios-focus-ring"
-                          aria-label={`Switch supporting layer to ${meta.label}`}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: SP.xs,
-                            borderRadius: 999,
-                            border: `1px solid ${active ? meta.softBorder : T.border}`,
-                            background: active ? meta.softBackground : T.surface,
-                            color: active ? meta.accent : T.textSecondary,
-                            padding: "8px 12px",
-                            fontSize: FS.sm,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                          title={meta.description}
-                        >
-                          {meta.shortLabel}
-                          <span style={{ fontSize: FS.xs, color: active ? meta.accent : T.textTertiary }}>
-                            {counts.total}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
-                    Core is the default. Cyber and export only surface when they materially change the vendor decision.
-                  </div>
-                </div>
-              ) : null}
-            </section>
-
             <section className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] gap-4 items-start">
               <div
-                className="glass-card"
                 style={{
                   padding: PAD.comfortable,
                   borderRadius: 20,
-                  border: `1px solid ${activePillarMeta.softBorder}`,
-                  background: FX.panelStrong,
+                  border: `1px solid ${T.borderStrong}`,
+                  background: T.surfaceElevated,
                   display: "flex",
                   flexDirection: "column",
                   gap: SP.md,
                 }}
               >
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <SectionEyebrow>Mission scoping</SectionEyebrow>
+                    <div style={{ fontSize: FS.base, color: T.text, fontWeight: 800, marginTop: SP.xs }}>
+                      Start from the object. Helios will route the rest.
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(["vendor_assessment", "contract_vehicle"] as ProductPillar[]).map((pillar) => {
+                      const meta = PRODUCT_PILLAR_META[pillar];
+                      const active = pillar === activePillar;
+                      const PillarIcon = PILLAR_ICONS[pillar];
+                      return (
+                        <button
+                          key={pillar}
+                          type="button"
+                          onClick={() => handlePillarSelect(pillar)}
+                          className="helios-focus-ring"
+                          aria-label={`Switch intake start point to ${meta.label}`}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: SP.xs,
+                            padding: "10px 14px",
+                            borderRadius: 999,
+                            border: `1px solid ${active ? meta.softBorder : T.border}`,
+                            background: active ? meta.softBackground : T.surface,
+                            color: active ? meta.accent : T.textSecondary,
+                            cursor: "pointer",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                          }}
+                          title={meta.description}
+                        >
+                          <PillarIcon size={14} />
+                          {meta.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {activePillar === "vendor_assessment" ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: SP.xs }}>
+                    <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      Supporting layers
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(["counterparty", "cyber", "export"] as DecisionLane[]).map((lane) => {
+                        const meta = WORKFLOW_LANE_META[lane];
+                        const counts = laneCounts[lane];
+                        const active = lane === activeLane;
+                        return (
+                          <button
+                            key={lane}
+                            type="button"
+                            onClick={() => handleLaneSelect(lane)}
+                            className="helios-focus-ring"
+                            aria-label={`Switch supporting layer to ${meta.label}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: SP.xs,
+                              borderRadius: 999,
+                              border: `1px solid ${active ? meta.softBorder : T.border}`,
+                              background: active ? meta.softBackground : T.surface,
+                              color: active ? meta.accent : T.textSecondary,
+                              padding: "8px 12px",
+                              fontSize: FS.sm,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                            title={meta.description}
+                          >
+                            {meta.shortLabel}
+                            <span style={{ fontSize: FS.xs, color: active ? meta.accent : T.textTertiary }}>
+                              {counts.total}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+                    Start from the vehicle, map the ecosystem, and spin the right vendors into assessment and AXIOM-backed dossier work.
+                  </div>
+                )}
+
                 <div style={{ minWidth: 0, flex: 1, maxWidth: 820 }}>
                   <SectionEyebrow>{activePillar === "contract_vehicle" ? "Contract vehicle intelligence" : "Vendor assessment"}</SectionEyebrow>
                   <div style={{ fontSize: "clamp(28px, 4vw, 38px)", lineHeight: 1.08, letterSpacing: "-0.04em", color: T.text, fontWeight: 800, marginTop: SP.sm }}>
@@ -823,52 +798,12 @@ export function HeliosLanding({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      borderRadius: 999,
-                      background: activePillar === "contract_vehicle" ? activePillarMeta.softBackground : activeLaneMeta.softBackground,
-                      border: `1px solid ${activePillar === "contract_vehicle" ? activePillarMeta.softBorder : activeLaneMeta.softBorder}`,
-                      color: activePillar === "contract_vehicle" ? activePillarMeta.accent : activeLaneMeta.accent,
-                      padding: "6px 10px",
-                      fontSize: FS.xs,
-                      fontWeight: 800,
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {activePillar === "contract_vehicle" ? activePillarBrief.outputs : activeLaneBrief.outputs}
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      borderRadius: 999,
-                      background: T.surface,
-                      border: `1px solid ${T.border}`,
-                      color: T.textSecondary,
-                      padding: "6px 10px",
-                      fontSize: FS.xs,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {connectorCount} live connectors
-                  </span>
+                <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+                  {activePillar === "contract_vehicle" ? activePillarBrief.useWhen : activeLaneBrief.useWhen}
                 </div>
 
                 {searchMode !== "export" ? (
                   <>
-                    {searchMode === "vehicle" ? (
-                      <InlineMessage
-                        tone="info"
-                        title="Vehicle mode"
-                        message="Search the public contract award spine first, then pivot the right vendors into assessment and AXIOM-backed dossier closure."
-                        icon={GitBranch}
-                      />
-                    ) : null}
-
                     <div
                       style={{
                         display: "flex",
@@ -899,11 +834,11 @@ export function HeliosLanding({
                           padding: "8px 0",
                         }}
                       />
-                      <button
-                        type="button"
-                        onClick={handleSubmit}
-                        className="helios-focus-ring"
-                        aria-label="Start intake"
+                        <button
+                          type="button"
+                          onClick={handleSubmit}
+                          className="helios-focus-ring"
+                          aria-label="Start intake"
                         style={{
                           width: 44,
                           height: 44,
@@ -992,40 +927,17 @@ export function HeliosLanding({
                       </button>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        `Active ${laneCases.length}`,
-                        `Need decision ${blockedCount + reviewCount}`,
-                        `Moving ${movingCount}`,
-                        `Connectors ${connectorCount}`,
-                      ].map((item) => (
-                        <span
-                          key={item}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            borderRadius: 999,
-                            padding: "6px 10px",
-                            border: `1px solid ${T.border}`,
-                            background: T.surface,
-                            color: T.textSecondary,
-                            fontSize: FS.xs,
-                            fontWeight: 700,
-                          }}
-                        >
-                          {item}
-                        </span>
-                      ))}
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+                      {laneCases.length} active case{laneCases.length === 1 ? "" : "s"} in scope, {blockedCount + reviewCount} still need judgment, and {connectorCount} live connectors will shape the next pass.
                     </div>
                   </>
                 ) : (
                   <div
-                    className="glass-card"
                     style={{
                       padding: PAD.comfortable,
                       borderRadius: 20,
-                      border: `1px solid ${T.borderStrong}`,
-                      background: "rgba(7, 12, 22, 0.62)",
+                      border: `1px solid ${T.border}`,
+                      background: T.surface,
                       display: "flex",
                       flexDirection: "column",
                       gap: SP.md,

@@ -30,7 +30,7 @@ import {
 } from "@/components/xiphos/portfolio-utils";
 import type { ProductPillar, WorkflowLane } from "@/components/xiphos/portfolio-utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { InlineMessage, SectionEyebrow, ShortcutBadge } from "@/components/xiphos/shell-primitives";
+import { InlineMessage, ShortcutBadge, StatusPill } from "@/components/xiphos/shell-primitives";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -666,8 +666,7 @@ export default function App() {
     : "TG";
 
   const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
-  const showWorkflowControls = !selected && tab !== "admin" && tab !== "graph" && tab !== "dashboard" && tab !== "threads";
-  const showSupportingLayerControls = showWorkflowControls && productFocus === "vendor_assessment";
+  const showSupportingLayerControls = !selected && tab === "helios" && productFocus === "vendor_assessment";
   const shellContent = selected ? (
     <CaseDetail
       c={selected}
@@ -772,79 +771,30 @@ export default function App() {
             gap: SP.lg,
           }}
         >
-          <div
-            className="glass-card"
-            style={{
-              padding: PAD.comfortable,
-              borderRadius: 18,
-              display: "flex",
-              flexDirection: "column",
-              gap: SP.sm,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.sm }}>
-              <div style={{ display: "flex", alignItems: "center", gap: SP.sm, minWidth: 0 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 12,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: shellPillarMeta.softBackground,
-                    border: `1px solid ${shellPillarMeta.accent}${O["20"]}`,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Shield size={18} color={shellPillarMeta.accent} />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em" }}>Helios</div>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assessment + contract vehicle intelligence</div>
-                </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: SP.md }}>
+            <div style={{ display: "flex", alignItems: "center", gap: SP.sm, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: shellPillarMeta.softBackground,
+                  border: `1px solid ${shellPillarMeta.accent}${O["20"]}`,
+                  flexShrink: 0,
+                }}
+              >
+                <Shield size={18} color={shellPillarMeta.accent} />
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>Helios</div>
+                <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assessment and contract vehicle intelligence</div>
               </div>
               <ShortcutBadge>⌘K</ShortcutBadge>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  borderRadius: 999,
-                  border: `1px solid ${shellPillarMeta.softBorder}`,
-                  background: shellPillarMeta.softBackground,
-                  color: shellPillarMeta.accent,
-                  padding: "5px 8px",
-                  fontSize: FS.xs,
-                  fontWeight: 800,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {shellPillarMeta.label}
-              </span>
-              {productFocus === "vendor_assessment" ? (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    borderRadius: 999,
-                    border: `1px solid ${WORKFLOW_LANE_META[workflowMode].softBorder}`,
-                    background: WORKFLOW_LANE_META[workflowMode].softBackground,
-                    color: WORKFLOW_LANE_META[workflowMode].accent,
-                    padding: "5px 8px",
-                    fontSize: FS.xs,
-                    fontWeight: 800,
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {WORKFLOW_LANE_META[workflowMode].shortLabel} layer
-                </span>
-              ) : null}
-            </div>
-            <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{shellSummary}</div>
+
             <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
               <button
                 type="button"
@@ -865,16 +815,16 @@ export default function App() {
                   cursor: "pointer",
                 }}
               >
-                Open intake
+                New intake
               </button>
               <button
                 type="button"
-                onClick={() => setShowShortcutDialog(true)}
+                onClick={() => setCmdPaletteOpen(true)}
                 className="helios-focus-ring"
-                aria-label="Open keyboard shortcuts"
+                aria-label="Open command palette"
                 style={{
                   border: `1px solid ${T.border}`,
-                  background: "transparent",
+                  background: T.surface,
                   color: T.textSecondary,
                   borderRadius: 999,
                   padding: "8px 12px",
@@ -883,7 +833,7 @@ export default function App() {
                   cursor: "pointer",
                 }}
               >
-                Shortcuts
+                Command menu
               </button>
             </div>
           </div>
@@ -915,6 +865,7 @@ export default function App() {
                     textAlign: "left",
                   }}
                   aria-current={active ? "page" : undefined}
+                  title={item.description}
                 >
                   <div
                     style={{
@@ -934,9 +885,6 @@ export default function App() {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: FS.sm, fontWeight: 700, color: active ? T.text : T.textSecondary }}>
                       {item.label}
-                    </div>
-                    <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45, display: active ? "block" : "none" }}>
-                      {item.description}
                     </div>
                   </div>
                   {item.badge ? (
@@ -964,101 +912,16 @@ export default function App() {
           </nav>
 
           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: SP.sm }}>
-            {showWorkflowControls ? (
-              <div
-                className="glass-card"
-                style={{
-                  padding: PAD.default,
-                  borderRadius: 16,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: SP.sm,
-                }}
-              >
-                <SectionEyebrow>Workflow model</SectionEyebrow>
-                <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
-                  Pick the product pillar first. Add cyber or export only when they change the vendor decision.
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
-                  {(Object.keys(PRODUCT_PILLAR_META) as ProductPillar[]).map((pillar) => {
-                    const meta = PRODUCT_PILLAR_META[pillar];
-                    const active = productFocus === pillar;
-                    return (
-                      <button
-                        key={pillar}
-                        type="button"
-                        onClick={() => {
-                          setProductFocus(pillar);
-                          setSelected(null);
-                          if (pillar === "contract_vehicle") {
-                            setWorkflowMode("counterparty");
-                            setTab("helios");
-                            return;
-                          }
-                          if (tab === "helios") {
-                            setTab("portfolio");
-                          }
-                        }}
-                        className="helios-focus-ring"
-                        aria-label={`Switch primary pillar to ${meta.label}`}
-                        style={{
-                          border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
-                          background: active ? meta.softBackground : T.surface,
-                          color: active ? meta.accent : T.textSecondary,
-                          borderRadius: 999,
-                          padding: "8px 12px",
-                          fontSize: FS.sm,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                        title={meta.description}
-                      >
-                        {meta.shortLabel}
-                      </button>
-                    );
-                  })}
-                </div>
-                {showSupportingLayerControls ? (
-                  <>
-                    <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                      Supporting layers
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
-                      {(["counterparty", "cyber", "export"] as WorkflowLane[]).map((lane) => {
-                        const meta = WORKFLOW_LANE_META[lane];
-                        const active = workflowMode === lane;
-                        return (
-                          <button
-                            key={lane}
-                            type="button"
-                            onClick={() => setWorkflowMode(lane)}
-                            className="helios-focus-ring"
-                            aria-label={`Switch supporting layer to ${meta.label}`}
-                            style={{
-                              border: `1px solid ${active ? meta.softBorder : T.border}`,
-                              background: active ? meta.softBackground : T.surface,
-                              color: active ? meta.accent : T.textSecondary,
-                              borderRadius: 999,
-                              padding: "8px 12px",
-                              fontSize: FS.sm,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                            title={meta.description}
-                          >
-                            {meta.shortLabel}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
-                    Contract vehicle work should spin the right targets into vendor assessment and AXIOM-backed dossier closure.
-                  </div>
-                )}
-              </div>
-            ) : null}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
+              <StatusPill tone="info">{shellPillarMeta.label}</StatusPill>
+              {selected ? (
+                <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowLaneForCase(selected)].label}</StatusPill>
+              ) : productFocus === "vendor_assessment" ? (
+                <StatusPill tone="neutral">{WORKFLOW_LANE_META[workflowMode].label}</StatusPill>
+              ) : (
+                <StatusPill tone="neutral">Vehicle-first</StatusPill>
+              )}
+            </div>
 
             <InlineMessage
               tone={apiAvailable ? "success" : "warning"}
@@ -1402,6 +1265,34 @@ export default function App() {
                         }}
                       />
                     </label>
+                  ) : null}
+
+                  {!selected && (tab === "portfolio" || tab === "helios") ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelected(null);
+                        setTab("helios");
+                      }}
+                      className="helios-focus-ring"
+                      aria-label="Open intake"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: SP.xs,
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        color: T.textSecondary,
+                        borderRadius: 999,
+                        padding: "8px 12px",
+                        fontSize: FS.sm,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Shield size={14} />
+                      Intake
+                    </button>
                   ) : null}
 
                   <div
