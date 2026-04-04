@@ -19,7 +19,8 @@ import concurrent.futures
 from runtime_paths import get_cache_dir
 
 TIMEOUT = 10
-RESOLUTION_TIMEOUT = float(os.environ.get("XIPHOS_ENTITY_RESOLUTION_TIMEOUT", "20"))
+# Front Porch should move with partial truth, not wait on every slow registry.
+RESOLUTION_TIMEOUT = float(os.environ.get("XIPHOS_ENTITY_RESOLUTION_TIMEOUT", "6"))
 UA = "Xiphos/5.0 (tye.gonzalez@xiphosllc.com)"
 
 # --- SEC EDGAR Ticker Cache ---
