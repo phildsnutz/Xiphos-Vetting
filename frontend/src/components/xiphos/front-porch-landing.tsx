@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, ExternalLink, Loader2, MessageSquareText, Sparkles } from "lucide-react";
-import { createCase, resolveEntity, searchContractVehicle, submitResolveFeedback, type EntityCandidate, type EntityResolution, type VehicleSearchResult } from "@/lib/api";
+import { ArrowUpRight, ChevronDown, ExternalLink, Loader2, MessageSquareText } from "lucide-react";
+import {
+  buildProtectedUrl,
+  createCase,
+  generateDossier,
+  resolveEntity,
+  searchContractVehicle,
+  submitResolveFeedback,
+  type EntityCandidate,
+  type EntityResolution,
+  type VehicleSearchResult,
+} from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { EnrichmentStream } from "./enrichment-stream";
-import { InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
+import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
 import { T, FS, SP, PAD, O, FX, MOTION } from "@/lib/tokens";
 
 type RoomMenu = "recent" | "examples" | null;
@@ -40,9 +50,15 @@ interface IntakeSession {
 interface VendorArtifact {
   caseId: string;
   title: string;
-  summary: string;
-  anchors: string[];
+  eyebrow: string;
+  framing: string;
+  sections: Array<{
+    label: string;
+    detail: string;
+    tone?: "neutral" | "info" | "success" | "warning" | "danger";
+  }>;
   note: string;
+  provenance: string[];
 }
 
 const FRONT_PORCH_EXAMPLES = [
@@ -235,16 +251,121 @@ function summarizeVehicle(result: VehicleSearchResult, session: IntakeSession): 
   return `${timingLead} I found ${primeText} and ${subText} tied to ${result.vehicle_name}.`;
 }
 
-function vendorArtifactSummary(candidate: EntityCandidate | null, session: IntakeSession) {
-  const layerLine = session.supportLayer === "export"
-    ? "Export exposure will stay in scope as a supporting thread."
-    : session.supportLayer === "cyber"
-      ? "Cyber posture will stay in scope as a supporting thread."
-      : "The first pass will stay centered on trust, ownership, and capability fit.";
-  if (candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name) {
-    return `The assessment is warming around ${candidate.legal_name}. Public control signals already point beyond the surface entity. ${layerLine}`;
+function supportLayerDetail(session: IntakeSession) {
+  if (session.supportLayer === "export") {
+    return "Export exposure stays folded into the trust read unless the record forces it into its own issue.";
   }
-  return `The assessment is warming around ${candidate?.legal_name ?? session.vendorName ?? "the vendor"}. ${layerLine}`;
+  if (session.supportLayer === "cyber") {
+    return "Cyber posture stays in scope as supporting evidence instead of taking over the brief.";
+  }
+  return "The first pass stays centered on trust, control, and fit before it widens into supporting layers.";
+}
+
+function vehiclePressureDetail(result: VehicleSearchResult, session: IntakeSession) {
+  if (session.vehicleTiming === "pre_solicitation" && session.followOn === true && session.incumbentPrime) {
+    return `${session.incumbentPrime} gives AXIOM a concrete incumbent spine to test for continuity, brittleness, and likely teammate carryover.`;
+  }
+  if (session.vehicleTiming === "pre_solicitation") {
+    return "Because this is still ahead of release, the real value is continuity and lineage, not surface-level award noise.";
+  }
+  if (result.total_subs === 0) {
+    return "Subcontractor visibility is still thin, so the first picture should be treated as a disciplined public read, not a complete team map.";
+  }
+  return "The public ecosystem is warm enough to start separating what holds from what still needs pressure.";
+}
+
+function buildVehicleArtifactSections(result: VehicleSearchResult, session: IntakeSession) {
+  return [
+    {
+      label: "What holds",
+      detail: summarizeVehicle(result, session),
+    },
+    {
+      label: "Pressure point",
+      detail: vehiclePressureDetail(result, session),
+      tone: result.total_subs === 0 ? "warning" : "neutral",
+    },
+    {
+      label: "Best next move",
+      detail: result.unique_vendors.length > 0
+        ? `Spin the right vendor out of ${result.vehicle_name} into assessment, or step into War Room if you need to work the weak points directly.`
+        : `Step into War Room if the public picture is still too thin to act on cleanly.`,
+    },
+  ] as VendorArtifact["sections"];
+}
+
+function buildVendorArtifact(
+  candidate: EntityCandidate | null,
+  session: IntakeSession,
+  phase: "warming" | "ready",
+  caseId: string,
+  subjectOverride?: string,
+): VendorArtifact {
+  const subject = subjectOverride ?? candidate?.legal_name ?? session.vendorName ?? "Vendor assessment";
+  const ownershipDetail = candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name
+    ? `Public control signals already run beyond the surface entity toward ${candidate.highest_owner}.`
+    : "The visible public record is still surface-level, so the control story will stay under pressure until it holds.";
+
+  return {
+    caseId,
+    title: subject,
+    eyebrow: phase === "ready" ? "Preliminary dossier" : "Working artifact",
+    framing: phase === "ready"
+      ? `The first dossier pass is ready. AXIOM kept the strongest holds visible and left the real ambiguity explicit.`
+      : `AXIOM is warming the first picture around ${subject} without pretending the thin parts are settled.`,
+    sections: [
+      {
+        label: "What holds",
+        detail: session.vendorGoal === "partner"
+          ? `This is being worked as a teammate screen with trust and fit ahead of decorative detail.`
+          : session.vendorGoal === "compete" || session.vendorGoal === "attack"
+            ? `This is being worked as a competitive read, with pressure points prioritized over generic background.`
+            : `This is being worked as a trust read first, with the public record forced to answer the real decision.`,
+      },
+      {
+        label: "Ownership path",
+        detail: ownershipDetail,
+        tone: candidate?.highest_owner && candidate.highest_owner !== candidate.legal_name ? "info" : "warning",
+      },
+      {
+        label: "Supporting thread",
+        detail: supportLayerDetail(session),
+      },
+    ],
+    note: phase === "ready"
+      ? "Open the dossier for the clean narrative. Step into War Room when you want to challenge the picture or pull a harder thread."
+      : "The working case is open and warming. If you want the trail instead of the summary, step into War Room.",
+    provenance: phase === "ready"
+      ? ["Resolution-backed", "Initial graph context", "Public record only"]
+      : ["Entity resolution", "Warm graph context", "Public record only"],
+  };
+}
+
+function buildVehicleWorkingLead(session: IntakeSession) {
+  const frame = [
+    session.vehicleName,
+    session.vehicleTiming ? session.vehicleTiming.replace(/_/g, " ") : null,
+    session.followOn === true ? "follow-on" : session.followOn === false ? "net-new" : null,
+    session.incumbentPrime ? `${session.incumbentPrime} incumbent` : null,
+  ].filter(Boolean).join(", ");
+  return frame ? `I have enough: ${frame}.` : "";
+}
+
+function buildVendorWorkingLead(session: IntakeSession) {
+  const frame = [
+    session.vendorName,
+    session.vendorGoal === "partner"
+      ? "partner read"
+      : session.vendorGoal === "compete"
+        ? "competitive read"
+        : session.vendorGoal === "attack"
+          ? "pressure read"
+          : session.vendorGoal === "trust"
+            ? "trust read"
+            : null,
+    session.supportLayer !== "counterparty" ? `${session.supportLayer} in support` : null,
+  ].filter(Boolean).join(", ");
+  return frame ? `I have enough: ${frame}.` : "";
 }
 
 function buildCasePayload(candidate: EntityCandidate | null, session: IntakeSession) {
@@ -318,6 +439,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   const [vehicleArtifact, setVehicleArtifact] = useState<VehicleSearchResult | null>(null);
   const [vendorArtifact, setVendorArtifact] = useState<VendorArtifact | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [openingDossierFor, setOpeningDossierFor] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -366,36 +488,25 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     if (!workingCaseId) return;
     setIsWorking(false);
     appendMessage("axiom", "The preliminary picture is ready. I kept the first pass disciplined about what holds and what still needs to be closed.");
-    setVendorArtifact((current) => current ? current : {
-      caseId: workingCaseId,
-      title: "Vendor Assessment Ready",
-      summary: "The assessment is warm and the first dossier pass is ready to open.",
-      anchors: ["Trust read", "Ownership path", "Graph context"],
-      note: "Open the case workspace for the working dossier and evidence trail.",
-    });
-  }, [appendMessage, workingCaseId]);
+    setVendorArtifact((current) => buildVendorArtifact(
+      null,
+      current?.title ? { ...session, vendorName: current.title } : session,
+      "ready",
+      workingCaseId,
+      current?.title,
+    ));
+  }, [appendMessage, session, workingCaseId]);
 
   const startCaseCreation = useCallback(async (candidate: EntityCandidate | null) => {
     const payload = buildCasePayload(candidate, session);
     setIsWorking(true);
     setProgressIndex(0);
     setErrorText(null);
-    appendMessage("axiom", "That is enough to start. I’m going to work it now and bring back the first picture.");
 
     try {
       const created = await createCase(payload);
       setWorkingCaseId(created.case_id);
-      setVendorArtifact({
-        caseId: created.case_id,
-        title: payload.name,
-        summary: vendorArtifactSummary(candidate, session),
-        anchors: session.supportLayer === "export"
-          ? ["Trust read", "Ownership path", "Export thread"]
-          : session.supportLayer === "cyber"
-            ? ["Trust read", "Ownership path", "Cyber thread"]
-            : ["Trust read", "Ownership path", "Capability fit"],
-        note: "The dossier is warming. Open the case when you want the working surface.",
-      });
+      setVendorArtifact(buildVendorArtifact(candidate, session, "warming", created.case_id));
     } catch (error) {
       setIsWorking(false);
       const message = humanizeApiError(error, "Unable to open the vendor assessment.");
@@ -428,10 +539,10 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     setProgressIndex(0);
     setErrorText(null);
     appendMessage("axiom", nextSession.vendorGoal === "partner"
-      ? "Understood. I’ll start with trust and teammate fit, then build the first vendor picture from there."
+      ? `${buildVendorWorkingLead(nextSession)} I’ll start with trust and teammate fit, then build the first vendor picture from there.`
       : nextSession.vendorGoal === "compete" || nextSession.vendorGoal === "attack"
-        ? "Understood. I’ll frame this as a competitive read and build the first vendor picture from there."
-        : "Understood. I’ll start with trust, ownership, and the public record that could change the decision.");
+        ? `${buildVendorWorkingLead(nextSession)} I’ll frame this as a competitive read and build the first vendor picture from there.`
+        : `${buildVendorWorkingLead(nextSession)} I’ll start with trust, ownership, and the public record that could change the decision.`.trim());
 
     try {
       const result = await resolveEntity(name, {
@@ -488,8 +599,8 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     appendMessage(
       "axiom",
       nextSession.incumbentPrime
-        ? `That is enough to start. I’m going to work from ${vehicleName}, ${nextSession.incumbentPrime}'s incumbent position, and the likely transition path.`
-        : `That is enough to start. I’m going to work from ${vehicleName} and build the public ecosystem picture from there.`,
+        ? `${buildVehicleWorkingLead(nextSession)} I’m going to work from ${vehicleName}, ${nextSession.incumbentPrime}'s incumbent position, and the likely transition path.`
+        : `${buildVehicleWorkingLead(nextSession)} I’m going to work from ${vehicleName} and build the public ecosystem picture from there.`,
     );
 
     try {
@@ -622,6 +733,23 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   }, [handleUserTurn]);
 
   const shellBackground = `radial-gradient(circle at 18% 20%, ${T.accent}${O["12"]}, transparent 28%), radial-gradient(circle at 82% 18%, ${T.statusQualified}${O["12"]}, transparent 22%), linear-gradient(180deg, ${T.bg} 0%, #06080c 100%)`;
+
+  const openArtifactDossier = useCallback(async (caseId: string) => {
+    setOpeningDossierFor(caseId);
+    setErrorText(null);
+    try {
+      const data = await generateDossier(caseId);
+      const url = data.download_url || `/api/dossiers/dossier-${caseId}.html`;
+      const protectedUrl = await buildProtectedUrl(url);
+      window.open(protectedUrl, "_blank");
+    } catch (error) {
+      const message = humanizeApiError(error, "The dossier is not ready to open yet.");
+      setErrorText(message);
+      appendMessage("axiom", "The dossier render hit a snag. The thread is still warm, and you can retry without losing the work.");
+    } finally {
+      setOpeningDossierFor(null);
+    }
+  }, [appendMessage]);
 
   return (
     <div
@@ -922,29 +1050,8 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
                   }}
                 />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, alignItems: "center" }}>
-                    <span style={{ fontSize: FS.caption, color: T.textTertiary, textTransform: "uppercase", letterSpacing: "0.12em" }}>
-                      Try
-                    </span>
-                    {FRONT_PORCH_EXAMPLES.map((example) => (
-                      <button
-                        key={example}
-                        type="button"
-                        onClick={() => { void handleExample(example); }}
-                        className="helios-focus-ring"
-                        style={{
-                          border: `1px solid ${T.border}`,
-                          background: "rgba(255,255,255,0.02)",
-                          color: T.textSecondary,
-                          borderRadius: 999,
-                          padding: "8px 12px",
-                          fontSize: FS.sm,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {example}
-                      </button>
-                    ))}
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+                    You do not need the right terms. AXIOM will narrow the problem and ask only what changes the work.
                   </div>
                   <button
                     type="button"
@@ -967,7 +1074,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
                     }}
                   >
                     {isWorking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquareText size={14} />}
-                    Send to AXIOM
+                    Start the brief
                   </button>
                 </div>
               </div>
@@ -1005,190 +1112,155 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
             ) : null}
 
             {vehicleArtifact ? (
-              <div
-                style={{
-                  width: "min(760px, 100%)",
-                  borderRadius: 28,
-                  background: "linear-gradient(180deg, rgba(246,248,252,0.96) 0%, rgba(231,236,243,0.92) 100%)",
-                  color: T.textInverse,
-                  padding: PAD.spacious,
-                  display: "grid",
-                  gap: SP.md,
-                  boxShadow: "0 28px 80px rgba(0,0,0,0.28)",
-                }}
-              >
-                <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.05em" }}>
-                  {vehicleArtifact.vehicle_name}
-                </div>
-                <div style={{ fontSize: FS.base, color: "rgba(7,16,26,0.78)", lineHeight: 1.65 }}>
-                  {summarizeVehicle(vehicleArtifact, session)}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
-                  <StatusPill tone="neutral">{vehicleArtifact.total_primes} primes</StatusPill>
-                  <StatusPill tone="neutral">{vehicleArtifact.total_subs} subcontractor traces</StatusPill>
-                  <StatusPill tone="neutral">{vehicleArtifact.total_unique} unique vendors</StatusPill>
-                </div>
-                {vehicleArtifact.unique_vendors.length > 0 ? (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
-                    {vehicleArtifact.unique_vendors.slice(0, 4).map((vendor) => (
+              <div style={{ width: "min(760px, 100%)" }}>
+                <BriefArtifact
+                  surface="light"
+                  eyebrow="Preliminary picture"
+                  title={vehicleArtifact.vehicle_name}
+                  framing={summarizeVehicle(vehicleArtifact, session)}
+                  sections={buildVehicleArtifactSections(vehicleArtifact, session)}
+                  provenance={[
+                    `${vehicleArtifact.total_primes} primes`,
+                    `${vehicleArtifact.total_subs} subcontractor traces`,
+                    `${vehicleArtifact.total_unique} unique vendors`,
+                  ]}
+                  note="If you want the clean picture, stay here. If you want to work the pressure points, step into War Room."
+                  actions={
+                    <>
                       <button
-                        key={`${vendor.vendor_name}-${vendor.role}`}
                         type="button"
-                        onClick={async () => {
-                          setVehicleArtifact(null);
-                          const nextSession = {
-                            ...session,
-                            objectType: "vendor" as const,
-                            vendorName: vendor.vendor_name,
-                            vendorGoal: session.vendorGoal || "partner",
-                          };
-                          setSession(nextSession);
-                          appendMessage("user", `Open a vendor assessment on ${vendor.vendor_name}.`);
-                          await startVendorFlow(nextSession);
-                        }}
+                        onClick={() => onNavigate("graph")}
                         className="helios-focus-ring"
                         style={{
-                          border: `1px solid rgba(7,16,26,0.12)`,
-                          background: "rgba(7,16,26,0.06)",
+                          border: "none",
+                          background: "rgba(7,16,26,0.08)",
                           color: T.textInverse,
                           borderRadius: 999,
-                          padding: "10px 14px",
+                          padding: "11px 16px",
                           cursor: "pointer",
                           fontSize: FS.sm,
                           fontWeight: 700,
                         }}
                       >
-                        Assess {vendor.vendor_name}
+                        Open Graph Intel
                       </button>
-                    ))}
-                  </div>
-                ) : null}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: SP.md, flexWrap: "wrap" }}>
-                  <div style={{ fontSize: FS.caption, color: "rgba(7,16,26,0.56)" }}>
-                    Open the deeper room when you want the working trail, not just the picture.
-                  </div>
-                  <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate("graph")}
-                      className="helios-focus-ring"
-                      style={{
-                        border: "none",
-                        background: "rgba(7,16,26,0.08)",
-                        color: T.textInverse,
-                        borderRadius: 999,
-                        padding: "11px 16px",
-                        cursor: "pointer",
-                        fontSize: FS.sm,
-                        fontWeight: 700,
-                      }}
-                    >
-                      Open Graph Intel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openWarRoom}
-                      className="helios-focus-ring"
-                      style={{
-                        border: "none",
-                        background: T.textInverse,
-                        color: T.text,
-                        borderRadius: 999,
-                        padding: "11px 16px",
-                        cursor: "pointer",
-                        fontSize: FS.sm,
-                        fontWeight: 700,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: SP.xs,
-                      }}
-                    >
-                      Open in War Room
-                      <ExternalLink size={14} />
-                    </button>
-                  </div>
-                </div>
+                      <button
+                        type="button"
+                        onClick={openWarRoom}
+                        className="helios-focus-ring"
+                        style={{
+                          border: "none",
+                          background: T.textInverse,
+                          color: T.text,
+                          borderRadius: 999,
+                          padding: "11px 16px",
+                          cursor: "pointer",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: SP.xs,
+                        }}
+                      >
+                        Open in War Room
+                        <ExternalLink size={14} />
+                      </button>
+                    </>
+                  }
+                >
+                  {vehicleArtifact.unique_vendors.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+                      {vehicleArtifact.unique_vendors.slice(0, 4).map((vendor) => (
+                        <button
+                          key={`${vendor.vendor_name}-${vendor.role}`}
+                          type="button"
+                          onClick={async () => {
+                            setVehicleArtifact(null);
+                            const nextSession = {
+                              ...session,
+                              objectType: "vendor" as const,
+                              vendorName: vendor.vendor_name,
+                              vendorGoal: session.vendorGoal || "partner",
+                            };
+                            setSession(nextSession);
+                            appendMessage("user", `Open a vendor assessment on ${vendor.vendor_name}.`);
+                            await startVendorFlow(nextSession);
+                          }}
+                          className="helios-focus-ring"
+                          style={{
+                            border: `1px solid rgba(7,16,26,0.12)`,
+                            background: "rgba(7,16,26,0.06)",
+                            color: T.textInverse,
+                            borderRadius: 999,
+                            padding: "10px 14px",
+                            cursor: "pointer",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                          }}
+                        >
+                          Assess {vendor.vendor_name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </BriefArtifact>
               </div>
             ) : null}
 
             {vendorArtifact ? (
-              <div
-                style={{
-                  width: "min(760px, 100%)",
-                  borderRadius: 28,
-                  background: "linear-gradient(180deg, rgba(246,248,252,0.96) 0%, rgba(231,236,243,0.92) 100%)",
-                  color: T.textInverse,
-                  padding: PAD.spacious,
-                  display: "grid",
-                  gap: SP.md,
-                  boxShadow: "0 28px 80px rgba(0,0,0,0.28)",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: SP.md, alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.05em" }}>{vendorArtifact.title}</div>
-                    <div style={{ fontSize: FS.base, color: "rgba(7,16,26,0.78)", lineHeight: 1.65, marginTop: SP.xs }}>
-                      {vendorArtifact.summary}
-                    </div>
-                  </div>
-                  <Sparkles size={18} color={T.textInverse} />
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
-                  {vendorArtifact.anchors.map((anchor) => (
-                    <span
-                      key={anchor}
-                      style={{
-                        borderRadius: 999,
-                        background: "rgba(7,16,26,0.08)",
-                        color: "rgba(7,16,26,0.7)",
-                        padding: "8px 12px",
-                        fontSize: FS.caption,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {anchor}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: SP.md, alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ fontSize: FS.caption, color: "rgba(7,16,26,0.56)" }}>{vendorArtifact.note}</div>
-                  <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={openWarRoom}
-                      className="helios-focus-ring"
-                      style={{
-                        border: "none",
-                        background: "rgba(7,16,26,0.08)",
-                        color: T.textInverse,
-                        borderRadius: 999,
-                        padding: "11px 16px",
-                        cursor: "pointer",
-                        fontSize: FS.sm,
-                        fontWeight: 700,
-                      }}
-                    >
-                      Open in War Room
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenCase(vendorArtifact.caseId)}
-                      className="helios-focus-ring"
-                      style={{
-                        border: "none",
-                        background: T.textInverse,
-                        color: T.text,
-                        borderRadius: 999,
-                        padding: "11px 16px",
-                        cursor: "pointer",
-                        fontSize: FS.sm,
-                        fontWeight: 700,
-                      }}
-                    >
-                      Open dossier
-                    </button>
-                  </div>
-                </div>
+              <div style={{ width: "min(760px, 100%)" }}>
+                <BriefArtifact
+                  surface="light"
+                  eyebrow={vendorArtifact.eyebrow}
+                  title={vendorArtifact.title}
+                  framing={vendorArtifact.framing}
+                  sections={vendorArtifact.sections}
+                  provenance={vendorArtifact.provenance}
+                  note={vendorArtifact.note}
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        onClick={openWarRoom}
+                        className="helios-focus-ring"
+                        style={{
+                          border: "none",
+                          background: "rgba(7,16,26,0.08)",
+                          color: T.textInverse,
+                          borderRadius: 999,
+                          padding: "11px 16px",
+                          cursor: "pointer",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                        }}
+                      >
+                        Open in War Room
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { void openArtifactDossier(vendorArtifact.caseId); }}
+                        disabled={openingDossierFor === vendorArtifact.caseId}
+                        className="helios-focus-ring"
+                        style={{
+                          border: "none",
+                          background: T.textInverse,
+                          color: T.text,
+                          borderRadius: 999,
+                          padding: "11px 16px",
+                          cursor: openingDossierFor === vendorArtifact.caseId ? "default" : "pointer",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: SP.xs,
+                        }}
+                      >
+                        {openingDossierFor === vendorArtifact.caseId ? <Loader2 size={14} className="animate-spin" /> : null}
+                        Open dossier
+                      </button>
+                    </>
+                  }
+                />
               </div>
             ) : null}
 

@@ -79,6 +79,143 @@ export function StatusPill({
   );
 }
 
+export function BriefArtifact({
+  eyebrow,
+  title,
+  framing,
+  sections = [],
+  provenance = [],
+  note,
+  actions,
+  surface = "light",
+  children,
+}: {
+  eyebrow?: React.ReactNode;
+  title: React.ReactNode;
+  framing: React.ReactNode;
+  sections?: Array<{
+    label: string;
+    detail: React.ReactNode;
+    tone?: Tone;
+  }>;
+  provenance?: React.ReactNode[];
+  note?: React.ReactNode;
+  actions?: React.ReactNode;
+  surface?: "light" | "dark";
+  children?: React.ReactNode;
+}) {
+  const isLight = surface === "light";
+  const borderColor = isLight ? "rgba(7,16,26,0.10)" : "rgba(255,255,255,0.06)";
+  const background = isLight
+    ? "linear-gradient(180deg, rgba(246,248,252,0.96) 0%, rgba(231,236,243,0.92) 100%)"
+    : "linear-gradient(180deg, rgba(18,24,35,0.9) 0%, rgba(10,14,21,0.94) 100%)";
+  const bodyColor = isLight ? T.textInverse : T.text;
+  const secondaryColor = isLight ? "rgba(7,16,26,0.72)" : T.textSecondary;
+  const tertiaryColor = isLight ? "rgba(7,16,26,0.56)" : T.textTertiary;
+  const sectionBackground = isLight ? "rgba(7,16,26,0.05)" : "rgba(255,255,255,0.03)";
+
+  return (
+    <div
+      style={{
+        borderRadius: 28,
+        border: `1px solid ${borderColor}`,
+        background,
+        color: bodyColor,
+        padding: PAD.spacious,
+        display: "grid",
+        gap: SP.lg,
+        boxShadow: isLight ? "0 28px 80px rgba(0,0,0,0.28)" : "none",
+      }}
+    >
+      <div style={{ display: "grid", gap: SP.sm }}>
+        {eyebrow ? <SectionEyebrow>{eyebrow}</SectionEyebrow> : null}
+        <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.05em" }}>{title}</div>
+        <div style={{ fontSize: FS.base, color: secondaryColor, lineHeight: 1.65 }}>{framing}</div>
+      </div>
+
+      {sections.length > 0 ? (
+        <div className={sections.length > 1 ? "grid gap-3 md:grid-cols-2" : "grid gap-3"}>
+          {sections.map((section) => {
+            const toneMeta = section.tone ? TONE_META[section.tone] : null;
+            return (
+              <div
+                key={`${section.label}`}
+                style={{
+                  borderRadius: 18,
+                  border: `1px solid ${toneMeta ? toneMeta.border : borderColor}`,
+                  background: toneMeta && !isLight ? toneMeta.background : sectionBackground,
+                  padding: PAD.default,
+                  display: "grid",
+                  gap: SP.xs,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: FS.xs,
+                    color: toneMeta ? toneMeta.color : tertiaryColor,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  {section.label}
+                </div>
+                <div style={{ fontSize: FS.sm, color: secondaryColor, lineHeight: 1.6 }}>{section.detail}</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {children ? <div style={{ display: "grid", gap: SP.sm }}>{children}</div> : null}
+
+      {provenance.length > 0 ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+          {provenance.map((item, index) => (
+            <span
+              key={`artifact-provenance-${index}`}
+              style={{
+                borderRadius: 999,
+                border: `1px solid ${borderColor}`,
+                background: sectionBackground,
+                color: tertiaryColor,
+                padding: "8px 12px",
+                fontSize: FS.caption,
+                fontWeight: 700,
+              }}
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {(note || actions) ? (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: SP.md,
+            flexWrap: "wrap",
+          }}
+        >
+          {note ? (
+            <div style={{ fontSize: FS.caption, color: tertiaryColor, lineHeight: 1.55, maxWidth: 560 }}>
+              {note}
+            </div>
+          ) : <div />}
+          {actions ? (
+            <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap", alignItems: "center" }}>
+              {actions}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function PanelHeader({
   eyebrow,
   title,

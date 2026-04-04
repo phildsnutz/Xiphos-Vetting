@@ -5,7 +5,7 @@ import { T, FS, PAD, SP, O, FX } from "@/lib/tokens";
 import { AxiomAlerts } from "./axiom-alerts";
 import { AxiomSearchPanel } from "./axiom-search-panel";
 import { AxiomWatchlist } from "./axiom-watchlist";
-import { InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
+import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
 
 type RoomMode = "collection" | "watch" | "alerts";
 type RoomMenu = "recent" | null;
@@ -99,10 +99,6 @@ function formatRelativeTime(value?: string) {
   return `${diffDays}d ago`;
 }
 
-function formatConfidence(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
-
 function priorityTone(priority: string): "danger" | "warning" | "info" | "neutral" {
   if (priority === "critical") return "danger";
   if (priority === "high" || priority === "medium") return "warning";
@@ -189,6 +185,140 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
       { label: "Gap pressure", detail: "Keep the unknowns explicit and prioritize the one that changes the call." },
     ];
   }, [activeWatchEntries, alerts, mode, searchResults]);
+
+  const workingArtifact = useMemo(() => {
+    if (mode === "collection" && searchResults) {
+      return {
+        eyebrow: "Working artifact",
+        title: "Initial collection picture",
+        framing: `AXIOM pulled the first public picture from the brief and kept the weak residue separate from what currently holds.`,
+        sections: [
+          {
+            label: "What holds",
+            detail: searchResults.entities.length > 0
+              ? `The strongest visible entities are ${searchResults.entities.slice(0, 3).map((entity) => entity.name).join(", ")}.`
+              : "The first pass did not surface enough settled entities to overstate the picture yet.",
+          },
+          {
+            label: "Still dark",
+            detail: searchResults.intelligenceGaps.length > 0
+              ? searchResults.intelligenceGaps[0].description
+              : "No material public gap is dominant yet, which means the first pass is comparatively clean.",
+            tone: searchResults.intelligenceGaps.length > 0 ? "warning" : "neutral",
+          },
+          {
+            label: "Next push",
+            detail: searchResults.advisory.length > 0
+              ? searchResults.advisory[0].description
+              : "Move into Graph Intel only if the path structure matters more than the headline picture.",
+          },
+        ] as Array<{ label: string; detail: string; tone?: "neutral" | "info" | "success" | "warning" | "danger" }>,
+        provenance: [
+          `${searchResults.totalQueries} queries`,
+          `${searchResults.totalConnectorCalls} connector calls`,
+          `Iteration ${searchResults.iteration}`,
+        ],
+      };
+    }
+
+    if (mode === "watch" && activeWatchEntries.length > 0) {
+      const leadEntry = activeWatchEntries[0];
+      return {
+        eyebrow: "Working artifact",
+        title: "Warm target posture",
+        framing: "AXIOM is keeping the right things warm between dossier pulls and only surfacing movement that should change the call.",
+        sections: [
+          {
+            label: "What is warm",
+            detail: activeWatchEntries.slice(0, 3).map((entry) => entry.target).join(", "),
+          },
+          {
+            label: "Where to watch",
+            detail: leadEntry.vehicle
+              ? `${leadEntry.target} is pinned to ${leadEntry.vehicle}, which keeps the room oriented around the live vehicle picture.`
+              : `${leadEntry.target} is being watched as a vendor-level target until the vehicle context sharpens.`,
+          },
+          {
+            label: "Next scan",
+            detail: leadEntry.next_scan_at
+              ? `Next scan ${formatRelativeTime(leadEntry.next_scan_at)}.`
+              : leadEntry.last_scan
+                ? `Last scan ${formatRelativeTime(leadEntry.last_scan)}.`
+                : "Waiting for the first scan cycle.",
+          },
+        ] as Array<{ label: string; detail: string; tone?: "neutral" | "info" | "success" | "warning" | "danger" }>,
+        provenance: [
+          `${activeWatchEntries.length} active targets`,
+          `${criticalAlerts.length} critical signals`,
+        ],
+      };
+    }
+
+    if (mode === "alerts" && alerts.length > 0) {
+      const leadAlert = (criticalAlerts.length > 0 ? criticalAlerts : alerts)[0];
+      return {
+        eyebrow: "Working artifact",
+        title: "Material drift picture",
+        framing: "This room only shows movement that should change the working judgment. Everything else stays below the line.",
+        sections: [
+          {
+            label: "What changed",
+            detail: leadAlert.details,
+            tone: priorityTone(leadAlert.priority),
+          },
+          {
+            label: "Why it matters",
+            detail: `${leadAlert.target} is now carrying a ${leadAlert.priority} signal through ${leadAlert.title.toLowerCase()}.`,
+          },
+          {
+            label: "Best next move",
+            detail: "Challenge the new claim if it is thin, or redirect AXIOM into the thread that most changes the case.",
+          },
+        ] as Array<{ label: string; detail: string; tone?: "neutral" | "info" | "success" | "warning" | "danger" }>,
+        provenance: [
+          `${alerts.length} total alerts`,
+          `${criticalAlerts.length} material signals`,
+          `${formatRelativeTime(leadAlert.timestamp)}`,
+        ],
+      };
+    }
+
+    return null;
+  }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults]);
+
+  const movementFeed = useMemo(() => {
+    if (mode === "alerts") {
+      return (criticalAlerts.length > 0 ? criticalAlerts : alerts).slice(0, 3).map((alert) => ({
+        key: alert.id,
+        title: alert.title,
+        detail: alert.details,
+        meta: `${alert.target} • ${formatRelativeTime(alert.timestamp)}`,
+        tone: priorityTone(alert.priority),
+      }));
+    }
+
+    if (mode === "watch") {
+      return activeWatchEntries.slice(0, 3).map((entry) => ({
+        key: entry.id,
+        title: entry.target,
+        detail: entry.vehicle ? `Watching ${entry.vehicle}` : "Monitoring vendor drift without a pinned vehicle.",
+        meta: entry.last_scan ? `Last scan ${formatRelativeTime(entry.last_scan)}` : "Waiting for the first scan",
+        tone: priorityTone(entry.priority),
+      }));
+    }
+
+    if (searchResults?.intelligenceGaps.length) {
+      return searchResults.intelligenceGaps.slice(0, 3).map((gap) => ({
+        key: `${gap.gap_type}-${gap.description}`,
+        title: gap.gap_type.replace(/_/g, " "),
+        detail: gap.description,
+        meta: `Confidence ${Math.round(gap.confidence * 100)}%`,
+        tone: "warning" as const,
+      }));
+    }
+
+    return [];
+  }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults]);
 
   const headerBackground = "linear-gradient(180deg, rgba(10,13,19,0.98) 0%, rgba(7,9,14,0.98) 100%)";
 
@@ -519,116 +649,78 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
               gap: SP.lg,
             }}
           >
-            <div style={{ display: "grid", gap: SP.sm }}>
-              <SectionEyebrow>Evidence wall</SectionEyebrow>
-              {mode === "collection" ? (
-                searchResults ? (
+            {workingArtifact ? (
+              <BriefArtifact
+                surface="dark"
+                eyebrow={workingArtifact.eyebrow}
+                title={workingArtifact.title}
+                framing={workingArtifact.framing}
+                sections={workingArtifact.sections}
+                provenance={workingArtifact.provenance}
+                note="Stay in the room if the next move is to challenge, redirect, or keep pressure on the weak point. Leave only when you need the wider map."
+                actions={
                   <>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
-                      <StatusPill tone="info">{searchResults.entities.length} entities</StatusPill>
-                      <StatusPill tone="neutral">{searchResults.relationships.length} relationships</StatusPill>
-                      <StatusPill tone={searchResults.intelligenceGaps.length > 0 ? "warning" : "neutral"}>
-                        {searchResults.intelligenceGaps.length} gaps
-                      </StatusPill>
-                    </div>
-                    <div style={{ display: "grid", gap: SP.sm }}>
-                      {searchResults.entities.slice(0, 4).map((entity) => (
-                        <div
-                          key={`${entity.name}-${entity.type}`}
-                          style={{
-                            borderRadius: 18,
-                            border: `1px solid rgba(255,255,255,0.06)`,
-                            background: "rgba(255,255,255,0.02)",
-                            padding: PAD.default,
-                            display: "grid",
-                            gap: SP.xs,
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.sm }}>
-                            <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{entity.name}</div>
-                            <StatusPill tone="neutral">{formatConfidence(entity.confidence)}</StatusPill>
-                          </div>
-                          <div style={{ fontSize: FS.sm, color: T.textSecondary }}>{entity.type}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <InlineMessage
-                    tone="neutral"
-                    message="Run a collection pass and the live evidence trail will populate here without leaving the room."
-                  />
-                )
-              ) : mode === "watch" ? (
-                activeWatchEntries.length > 0 ? (
-                  <div style={{ display: "grid", gap: SP.sm }}>
-                    {activeWatchEntries.slice(0, 4).map((entry) => (
-                      <div
-                        key={entry.id}
-                        style={{
-                          borderRadius: 18,
-                          border: `1px solid rgba(255,255,255,0.06)`,
-                          background: "rgba(255,255,255,0.02)",
-                          padding: PAD.default,
-                          display: "grid",
-                          gap: SP.xs,
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: SP.sm, alignItems: "center" }}>
-                          <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{entry.target}</div>
-                          <StatusPill tone={priorityTone(entry.priority)}>{entry.priority}</StatusPill>
-                        </div>
-                        <div style={{ fontSize: FS.sm, color: T.textSecondary }}>
-                          {entry.vehicle ? `Watching ${entry.vehicle}` : "Monitoring vendor drift without a pinned vehicle."}
-                        </div>
-                        <div style={{ fontSize: FS.xs, color: T.textTertiary }}>
-                          {entry.last_scan ? `Last scan ${formatRelativeTime(entry.last_scan)}` : "Waiting for the first scan"}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <InlineMessage
-                    tone="neutral"
-                    message="No active watch targets yet. Add the vendors or vehicles AXIOM should keep warm between pulls."
-                  />
-                )
-              ) : alerts.length > 0 ? (
-                <div style={{ display: "grid", gap: SP.sm }}>
-                  {alerts.slice(0, 4).map((alert) => (
-                    <div
-                      key={alert.id}
+                    <button
+                      type="button"
+                      onClick={() => onNavigate("graph")}
+                      className="helios-focus-ring"
                       style={{
-                        borderRadius: 18,
-                        border: `1px solid rgba(255,255,255,0.06)`,
+                        border: `1px solid ${T.border}`,
                         background: "rgba(255,255,255,0.02)",
+                        color: T.textSecondary,
+                        borderRadius: 999,
                         padding: PAD.default,
-                        display: "grid",
-                        gap: SP.xs,
+                        fontSize: FS.sm,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: SP.sm,
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: SP.sm, alignItems: "center" }}>
-                        <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{alert.title}</div>
-                        <StatusPill tone={priorityTone(alert.priority)}>{alert.priority}</StatusPill>
-                      </div>
-                      <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{alert.details}</div>
-                      <div style={{ fontSize: FS.xs, color: T.textTertiary }}>{alert.target} • {formatRelativeTime(alert.timestamp)}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <InlineMessage
-                  tone="neutral"
-                  message="No drift signals are visible yet. When AXIOM sees movement that changes the picture, it will land here."
-                />
-              )}
-            </div>
+                      <Grid3X3 size={14} />
+                      Graph Intel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate("portfolio")}
+                      className="helios-focus-ring"
+                      style={{
+                        border: `1px solid ${T.border}`,
+                        background: "rgba(255,255,255,0.02)",
+                        color: T.textSecondary,
+                        borderRadius: 999,
+                        padding: PAD.default,
+                        fontSize: FS.sm,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: SP.sm,
+                      }}
+                    >
+                      <Radar size={14} />
+                      Workbench
+                    </button>
+                  </>
+                }
+              />
+            ) : (
+              <InlineMessage
+                tone="neutral"
+                message={mode === "collection"
+                  ? "Run a collection pass and AXIOM will turn the first picture into a readable working artifact here."
+                  : mode === "watch"
+                    ? "No active watch targets yet. Add the vendors or vehicles AXIOM should keep warm between pulls."
+                    : "No drift signals are visible yet. When movement changes the picture, it will land here."}
+              />
+            )}
 
             <div style={{ display: "grid", gap: SP.sm }}>
-              <SectionEyebrow>Priority movement</SectionEyebrow>
-              {(criticalAlerts.length > 0 ? criticalAlerts : alerts).length > 0 ? (criticalAlerts.length > 0 ? criticalAlerts : alerts).slice(0, 3).map((alert) => (
+              <SectionEyebrow>{mode === "alerts" ? "Latest movement" : "Live threads"}</SectionEyebrow>
+              {movementFeed.length > 0 ? movementFeed.map((item) => (
                 <div
-                  key={alert.id}
+                  key={item.key}
                   style={{
                     borderRadius: 18,
                     border: `1px solid rgba(255,255,255,0.06)`,
@@ -639,66 +731,20 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: SP.sm, alignItems: "center" }}>
-                    <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{alert.title}</div>
-                    <StatusPill tone={priorityTone(alert.priority)}>{alert.priority}</StatusPill>
+                    <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{item.title}</div>
+                    <StatusPill tone={item.tone}>{item.tone}</StatusPill>
                   </div>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{alert.details}</div>
-                  <div style={{ fontSize: FS.xs, color: T.textTertiary }}>{alert.target} • {formatRelativeTime(alert.timestamp)}</div>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{item.detail}</div>
+                  <div style={{ fontSize: FS.xs, color: T.textTertiary }}>{item.meta}</div>
                 </div>
               )) : (
                 <InlineMessage
                   tone="neutral"
                   message={activeWatchEntries.length > 0
                     ? "No material drift is visible right now. The warm targets are holding."
-                    : "No material drift is visible yet. Add watch targets to keep the room live between dossier pulls."}
+                    : "The room is quiet because nothing has moved enough to justify attention."}
                 />
               )}
-            </div>
-
-            <div style={{ display: "grid", gap: SP.sm }}>
-              <SectionEyebrow>Room tools</SectionEyebrow>
-              <button
-                type="button"
-                onClick={() => onNavigate("graph")}
-                className="helios-focus-ring"
-                style={{
-                  border: `1px solid ${T.border}`,
-                  background: "rgba(255,255,255,0.02)",
-                  color: T.textSecondary,
-                  borderRadius: 18,
-                  padding: PAD.default,
-                  fontSize: FS.sm,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: SP.sm,
-                }}
-              >
-                <Grid3X3 size={14} />
-                Open Graph Intel
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate("portfolio")}
-                className="helios-focus-ring"
-                style={{
-                  border: `1px solid ${T.border}`,
-                  background: "rgba(255,255,255,0.02)",
-                  color: T.textSecondary,
-                  borderRadius: 18,
-                  padding: PAD.default,
-                  fontSize: FS.sm,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: SP.sm,
-                }}
-              >
-                <Radar size={14} />
-                Open Workbench
-              </button>
             </div>
           </aside>
         </main>

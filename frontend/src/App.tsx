@@ -249,7 +249,12 @@ export default function App() {
 
     checkAuthEnabled().then((enabled) => {
       setAuthRequired(enabled);
-      if (!enabled || getToken()) {
+      const token = getToken();
+      if (!enabled) {
+        setApiAvailable(true);
+        setCasesLoading(false);
+      }
+      if (token) {
         setApiAvailable(true);
         loadCases();
       }
