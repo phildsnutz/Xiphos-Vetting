@@ -252,6 +252,7 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
       action: () => openEvidence("graph"),
     },
   ] as const;
+  const activeWorkspace = workspaceTabs.find((tab) => tab.active) ?? workspaceTabs[0];
 
   return (
     <div
@@ -276,17 +277,18 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
 
       <div
         style={{
-          padding: `${SP.xs}px 0`,
+          padding: `${SP.xs}px 0 ${SP.sm}px`,
           display: "flex",
           flexDirection: "column",
           gap: SP.sm,
+          borderBottom: `1px solid ${T.border}`,
         }}
       >
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <SectionEyebrow>Workspace</SectionEyebrow>
             <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
-              Decision stays pinned on the left. Evidence, graph, and model reasoning move on the right.
+              {activeWorkspace.label} active. Decision stays anchored while evidence, graph, and model pressure move on the right.
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -306,7 +308,7 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
                   border: `1px solid ${tab.active ? `${T.accent}${O["30"]}` : T.border}`,
                   background: tab.active ? T.accentSoft : T.surface,
                   color: tab.active ? T.accent : T.textSecondary,
-                  padding: "8px 12px",
+                  padding: PAD.default,
                   cursor: "pointer",
                   fontSize: FS.sm,
                   fontWeight: 700,
@@ -339,13 +341,13 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
               position: "sticky",
               top: 0,
               zIndex: 1,
-              paddingBottom: SP.xs,
+              paddingBottom: SP.sm,
               background: T.bg,
             }}
           >
             <SectionEyebrow>Decision rail</SectionEyebrow>
             <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
-              Keep disposition, supplier posture, and person screening visible while evidence builds on the right.
+              Disposition, passport, and screening stay in view while you work the evidence.
             </div>
           </div>
 
@@ -391,13 +393,13 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
               position: "sticky",
               top: 0,
               zIndex: 1,
-              paddingBottom: SP.xs,
+              paddingBottom: SP.sm,
               background: T.bg,
             }}
           >
             <SectionEyebrow>Evidence rail</SectionEyebrow>
             <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
-              Work the evidence first, then expand enrichment, monitoring, graph context, and AXIOM follow-ons.
+              Evidence stays primary. Expand graph, monitoring, and enrichment only when the case needs it.
             </div>
           </div>
 

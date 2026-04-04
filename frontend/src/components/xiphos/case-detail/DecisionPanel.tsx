@@ -2,6 +2,7 @@ import React from "react";
 import { AlertTriangle } from "lucide-react";
 import { T, FS, PAD, SP } from "@/lib/tokens";
 import type { Calibration, VettingCase } from "@/lib/types";
+import { SectionEyebrow } from "../shell-primitives";
 
 interface DecisionPanelProps {
   c: VettingCase;
@@ -9,26 +10,41 @@ interface DecisionPanelProps {
 }
 
 export const DecisionPanel: React.FC<DecisionPanelProps> = ({ c, cal }) => {
+  const bayesPct = cal ? Math.round(cal.p * 100) : null;
+  const divergence = bayesPct != null ? Math.abs(bayesPct - c.sc) : 0;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-      {/* Policy Rubric */}
-      <div className="rounded-lg glass-card" style={{ padding: PAD.comfortable }}>
-        <div>
-          <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
-            Policy Rubric
+    <div
+      style={{
+        borderRadius: SP.lg,
+        border: `1px solid ${T.border}`,
+        background: T.surface,
+        padding: PAD.comfortable,
+      }}
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: SP.sm,
+            paddingRight: SP.sm,
+            borderRight: cal ? `1px solid ${T.border}` : "none",
+          }}
+        >
+          <SectionEyebrow>Decision baseline</SectionEyebrow>
+          <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+            What procurement policy is telling the reviewer right now.
           </div>
-          <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: SP.sm - 2 }}>
-            What procurement policy prescribes for this vendor profile
-          </div>
-          <div className="flex items-baseline gap-1 mb-2">
+          <div className="flex items-baseline gap-2">
             <span className="font-mono font-bold" style={{ fontSize: FS.lg, color: T.text }}>
               {c.sc}
             </span>
             <span className="font-mono" style={{ fontSize: FS.sm, color: T.muted }}>
               /100
             </span>
-            <span className="font-mono ml-2" style={{ fontSize: FS.sm, color: T.muted }}>
-              ({Math.min(99, Math.max(0, Math.round((c.conf || 0.85) * 100)))}% confidence)
+            <span className="font-mono" style={{ fontSize: FS.sm, color: T.muted }}>
+              {Math.min(99, Math.max(0, Math.round((c.conf || 0.85) * 100)))}% confidence
             </span>
           </div>
           <div className="w-full rounded-full overflow-hidden" style={{ height: SP.xs, background: T.border }}>
@@ -37,43 +53,20 @@ export const DecisionPanel: React.FC<DecisionPanelProps> = ({ c, cal }) => {
               style={{ width: `${c.sc}%`, background: c.sc > 70 ? T.red : c.sc > 40 ? T.amber : T.green }}
             />
           </div>
-          {cal && (() => {
-            const bayesPct = Math.round(cal.p * 100);
-            const divergence = Math.abs(bayesPct - c.sc);
-            if (divergence > 15) {
-              return (
-                <div
-                  className="flex items-center gap-1.5 mt-2 rounded"
-                  style={{ padding: PAD.tight, background: T.amberBg, border: `1px solid ${T.amber}33` }}
-                >
-                  <AlertTriangle size={10} color={T.amber} className="shrink-0" />
-                  <span style={{ fontSize: FS.sm, color: T.amber }}>
-                    Consensus break: Bayesian ({bayesPct}%) and Policy Rubric ({c.sc}) diverge by {divergence} points
-                  </span>
-                </div>
-              );
-            }
-            return null;
-          })()}
         </div>
-      </div>
 
-      {/* Bayesian Model */}
-      {cal && (
-        <div className="rounded-lg glass-card" style={{ padding: PAD.comfortable }}>
-          <div>
-            <div className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted }}>
-              Bayesian Model
+        {cal ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
+            <SectionEyebrow>Model pressure</SectionEyebrow>
+            <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+              The calibrated model view. Use it to pressure-test the rubric, not replace it.
             </div>
-            <div style={{ fontSize: FS.sm, color: T.muted, marginBottom: SP.sm - 2 }}>
-              Machine-learned confidence that this entity poses risk.
-            </div>
-            <div className="flex items-baseline gap-1 mb-2">
+            <div className="flex items-baseline gap-2">
               <span className="font-mono font-bold" style={{ fontSize: FS.lg, color: T.text }}>
-                {Math.round(cal.p * 100)}%
+                {bayesPct}%
               </span>
-              <span className="font-mono ml-2" style={{ fontSize: FS.sm, color: T.muted }}>
-                (Coverage {Math.round(cal.cov * 100)}%)
+              <span className="font-mono" style={{ fontSize: FS.sm, color: T.muted }}>
+                Coverage {Math.round(cal.cov * 100)}%
               </span>
             </div>
             <div className="w-full rounded-full overflow-hidden" style={{ height: SP.xs, background: T.border }}>
@@ -85,9 +78,25 @@ export const DecisionPanel: React.FC<DecisionPanelProps> = ({ c, cal }) => {
                 }}
               />
             </div>
+
+            {divergence > 15 ? (
+              <div
+                className="flex items-start gap-2 rounded"
+                style={{ padding: PAD.tight, background: T.amberBg, border: `1px solid ${T.amber}33` }}
+              >
+                <AlertTriangle size={12} color={T.amber} className="shrink-0" style={{ marginTop: 2 }} />
+                <span style={{ fontSize: FS.sm, color: T.amber, lineHeight: 1.5 }}>
+                  Consensus break. Bayesian ({bayesPct}%) and policy rubric ({c.sc}) diverge by {divergence} points.
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.5 }}>
+                Bayesian and rubric views are materially aligned.
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        ) : null}
+      </div>
     </div>
   );
 };
