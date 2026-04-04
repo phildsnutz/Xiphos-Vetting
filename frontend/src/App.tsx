@@ -13,7 +13,7 @@ import { DemoCompare } from "@/components/xiphos/demo-compare";
 import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligence-dashboard";
 import ComplianceDashboard from "@/components/xiphos/compliance-dashboard";
 import { ErrorBoundary } from "@/components/xiphos/error-boundary";
-import { AxiomDashboard } from "@/components/xiphos/axiom-dashboard";
+import { WarRoom } from "@/components/xiphos/war-room";
 import { PortfolioSkeleton } from "@/components/xiphos/skeletons";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
@@ -488,7 +488,7 @@ export default function App() {
             : tab === "graph"
               ? "Graph Intelligence"
               : tab === "axiom"
-                ? "AXIOM"
+                ? "War Room"
                 : "Admin";
 
   const screenSubtitle = selected
@@ -504,7 +504,7 @@ export default function App() {
             : tab === "graph"
               ? "Interrogate the relationship map, not just the case in front of you."
               : tab === "axiom"
-                ? "Grow the collection picture, close dossier gaps, and monitor what changes."
+                ? "Work the problem with AXIOM, keep the trail visible, and surface only what changes the judgment."
                 : "Workspace administration, access, AI configuration, and beta review.";
 
   const relevantCaseList = query ? filtered : cases;
@@ -646,8 +646,8 @@ export default function App() {
     },
     {
       id: "axiom",
-      label: "AXIOM",
-      description: "Run collection, close intel gaps, and monitor change.",
+      label: "War Room",
+      description: "Work collection, drift, and evidence at practitioner depth.",
       icon: Radar,
     },
     ...(user && hasPermission(user, "auditor")
@@ -668,6 +668,7 @@ export default function App() {
   const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
   const showSupportingLayerControls = !selected && tab === "helios" && productFocus === "vendor_assessment";
   const frontPorchMode = !selected && tab === "helios";
+  const warRoomMode = !selected && tab === "axiom";
   const shellContent = selected ? (
     <CaseDetail
       c={selected}
@@ -698,7 +699,19 @@ export default function App() {
   ) : tab === "graph" ? (
     <GraphIntelligenceDashboard />
   ) : tab === "axiom" ? (
-    <AxiomDashboard />
+    <WarRoom
+      cases={cases}
+      onNavigate={(nextTab) => setTab(nextTab as Tab)}
+      onOpenCase={(caseId) => {
+        const found = cases.find((item) => item.id === caseId);
+        if (found) {
+          setSelected(found);
+          setTab("portfolio");
+          return;
+        }
+        void handleCaseCreated(caseId);
+      }}
+    />
   ) : tab === "admin" && user && hasPermission(user, "auditor") ? (
     <AdminPanel currentUser={user} />
   ) : (
@@ -756,6 +769,23 @@ export default function App() {
       <div className="h-screen overflow-hidden" style={{ background: T.bg, color: T.text }}>
         {frontPorchMode ? (
           <FrontPorchLanding
+            cases={cases}
+            onNavigate={(nextTab) => {
+              setSelected(null);
+              setTab(nextTab as Tab);
+            }}
+            onOpenCase={(caseId) => {
+              const found = cases.find((item) => item.id === caseId);
+              if (found) {
+                setSelected(found);
+                setTab("portfolio");
+                return;
+              }
+              void handleCaseCreated(caseId);
+            }}
+          />
+        ) : warRoomMode ? (
+          <WarRoom
             cases={cases}
             onNavigate={(nextTab) => {
               setSelected(null);
