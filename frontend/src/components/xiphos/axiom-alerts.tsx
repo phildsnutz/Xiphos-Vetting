@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { T, FS, PAD, SP } from "@/lib/tokens";
 import { AlertCircle, TrendingUp, TrendingDown, Users, Info } from "lucide-react";
 import { getToken } from "@/lib/auth";
-import { EmptyPanel, InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+import { EmptyPanel, InlineMessage, LoadingPanel, PanelHeader, StatusPill } from "./shell-primitives";
 
 type AlertType = "new_sub" | "departed_sub" | "hiring_surge" | "position_drop" | "activity_change" | "initial_scan";
 type AlertPriority = "critical" | "high" | "medium" | "low";
@@ -189,24 +189,17 @@ export function AxiomAlerts({ onAlertsChange }: AxiomAlertsProps) {
       className="flex flex-col gap-4 rounded-lg"
       style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <SectionEyebrow>Alerts</SectionEyebrow>
-          <h2 style={{ fontSize: FS.base, fontWeight: 700, color: T.text, margin: `${SP.xs}px 0 0` }}>Monitoring signals that changed</h2>
-        </div>
-        <div
-          style={{
-            fontSize: FS.sm,
-            fontWeight: 600,
-            color: T.accent,
-            background: `${T.accent}20`,
-            padding: PAD.tight,
-            borderRadius: SP.xs,
-          }}
-        >
-          {filteredAlerts.length}
-        </div>
-      </div>
+      <PanelHeader
+        eyebrow="Alerts"
+        title="Monitoring signals that changed"
+        description="Treat this as the escalation layer. AXIOM should only interrupt the operator when watchlist state materially moves."
+        meta={
+          <>
+            <StatusPill tone="info">{filteredAlerts.length} visible</StatusPill>
+            <StatusPill tone="neutral">Refreshes every 30s</StatusPill>
+          </>
+        }
+      />
 
       {error ? <InlineMessage tone="danger" title="Alert load failed" message={error} icon={AlertCircle} /> : null}
 

@@ -49,6 +49,80 @@ export function SectionEyebrow({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function StatusPill({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: Tone;
+}) {
+  const meta = TONE_META[tone];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: SP.xs,
+        padding: PAD.tight,
+        borderRadius: 999,
+        border: `1px solid ${meta.border}`,
+        background: meta.background,
+        color: tone === "neutral" ? T.textSecondary : meta.color,
+        fontSize: FS.xs,
+        fontWeight: 700,
+        letterSpacing: "0.02em",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function PanelHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+  meta,
+}: {
+  eyebrow?: React.ReactNode;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  actions?: React.ReactNode;
+  meta?: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: SP.lg,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.xs, minWidth: 0, flex: "1 1 320px" }}>
+        {eyebrow ? <SectionEyebrow>{eyebrow}</SectionEyebrow> : null}
+        <div style={{ fontSize: FS.base, fontWeight: 700, color: T.text }}>{title}</div>
+        {description ? (
+          <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, maxWidth: 720 }}>{description}</div>
+        ) : null}
+        {meta ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, marginTop: SP.xs }}>
+            {meta}
+          </div>
+        ) : null}
+      </div>
+      {actions ? (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: SP.sm }}>
+          {actions}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ShortcutBadge({ children }: { children: React.ReactNode }) {
   return (
     <span
@@ -133,6 +207,8 @@ export function InlineMessage({
   return (
     <div
       className="rounded-xl"
+      role={tone === "danger" ? "alert" : "status"}
+      aria-live={tone === "danger" ? "assertive" : "polite"}
       style={{
         display: "flex",
         gap: SP.sm,
@@ -162,6 +238,8 @@ export function LoadingPanel({ label, detail }: { label: string; detail?: string
   return (
     <div
       className="glass-card animate-fade-in"
+      role="status"
+      aria-live="polite"
       style={{
         padding: PAD.spacious,
         borderRadius: 18,
@@ -198,6 +276,7 @@ export function EmptyPanel({
   return (
     <div
       className="glass-card animate-fade-in"
+      role="note"
       style={{
         padding: PAD.spacious,
         borderRadius: 18,

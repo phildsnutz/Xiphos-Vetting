@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { T, FS, PAD, SP } from "@/lib/tokens";
 import { Plus, Play, Loader, AlertCircle, Square } from "lucide-react";
 import { getToken } from "@/lib/auth";
-import { EmptyPanel, InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+import { EmptyPanel, InlineMessage, LoadingPanel, PanelHeader, StatusPill } from "./shell-primitives";
 
 type WatchlistPriority = "critical" | "high" | "standard" | "low";
 type WatchlistStatus = "idle" | "scanning" | "inactive" | "error";
@@ -265,28 +265,37 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
       className="flex flex-col gap-4 rounded-lg"
       style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <SectionEyebrow>Watchlist</SectionEyebrow>
-          <h2 style={{ fontSize: FS.base, fontWeight: 700, color: T.text, margin: `${SP.xs}px 0 0` }}>Persistent collection targets</h2>
-        </div>
-        <button
-          type="button"
-          aria-label={showAddForm ? "Hide add watchlist target form" : "Show add watchlist target form"}
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="helios-focus-ring flex items-center gap-1.5 rounded cursor-pointer font-medium"
-          style={{
-            padding: PAD.default,
-            background: `${T.accent}20`,
-            border: `1px solid ${T.accent}`,
-            color: T.accent,
-            fontSize: FS.sm,
-          }}
-        >
-          <Plus size={SP.md + SP.xs} />
-          Add Target
-        </button>
-      </div>
+      <PanelHeader
+        eyebrow="Watchlist"
+        title="Persistent collection targets"
+        description="Keep vendors and vehicles warm between dossier pulls. AXIOM should revisit these automatically as the graph changes."
+        meta={
+          <>
+            <StatusPill tone={daemonRunning ? "success" : "neutral"}>
+              {daemonRunning ? "Daemon running" : "Daemon stopped"}
+            </StatusPill>
+            <StatusPill tone="neutral">{entries.length} target{entries.length === 1 ? "" : "s"}</StatusPill>
+          </>
+        }
+        actions={
+          <button
+            type="button"
+            aria-label={showAddForm ? "Hide add watchlist target form" : "Show add watchlist target form"}
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="helios-focus-ring flex items-center gap-1.5 rounded cursor-pointer font-medium"
+            style={{
+              padding: PAD.default,
+              background: `${T.accent}20`,
+              border: `1px solid ${T.accent}`,
+              color: T.accent,
+              fontSize: FS.sm,
+            }}
+          >
+            <Plus size={SP.md + SP.xs} />
+            Add Target
+          </button>
+        }
+      />
 
       {error ? (
         <InlineMessage tone="danger" title="Watchlist error" message={error} icon={AlertCircle} />
@@ -475,6 +484,7 @@ export function AxiomWatchlist({ onEntriesChange }: AxiomWatchlistProps) {
           action={
             <button
               type="button"
+              aria-label="Show add watchlist target form"
               onClick={() => setShowAddForm(true)}
               className="helios-focus-ring"
               style={{

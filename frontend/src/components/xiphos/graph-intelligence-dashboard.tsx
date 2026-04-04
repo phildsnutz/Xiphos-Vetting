@@ -12,10 +12,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { type Core, type ElementDefinition, type EventObject, type NodeSingular } from "cytoscape";
 import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText } from "lucide-react";
-import { T, FS } from "@/lib/tokens";
+import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
 import type { GraphEdge as ApiGraphEdge, GraphWorkspace } from "@/lib/api";
-import { InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+import { useHotkey } from "@/lib/use-hotkeys";
+import { InlineMessage, LoadingPanel, PanelHeader, ShortcutBadge, StatusPill } from "./shell-primitives";
 
 // ============================================================================
 // Type Definitions
@@ -189,6 +190,7 @@ export function GraphIntelligenceDashboard() {
   const cyContainerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // State
   const [graphData, setGraphData] = useState<FullGraphIntelligence | null>(null);
@@ -876,6 +878,31 @@ export function GraphIntelligenceDashboard() {
     setLayoutMode(mode);
   };
 
+  useHotkey("cmd+f", () => {
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  }, { ignoreInputs: false });
+  useHotkey("/", () => {
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  });
+  useHotkey("escape", () => {
+    if (annotatingNodeId) {
+      setAnnotatingNodeId(null);
+      setAnnotationText("");
+      return;
+    }
+    if (showWorkspacePanel) {
+      setShowWorkspacePanel(false);
+      return;
+    }
+    if (searchQuery) {
+      setSearchQuery("");
+      return;
+    }
+    searchInputRef.current?.blur();
+  }, { ignoreInputs: false });
+
   if (loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", background: GRAPH_BG, padding: 24 }}>
@@ -897,6 +924,7 @@ export function GraphIntelligenceDashboard() {
           {retryCount < MAX_RETRIES ? (
             <button
               type="button"
+              aria-label="Retry graph intelligence load"
               onClick={() => {
                 setRetryCount((count) => count + 1);
                 loadGraphData();
@@ -965,162 +993,210 @@ export function GraphIntelligenceDashboard() {
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            padding: "12px",
+            flexDirection: "column",
+            gap: SP.md,
+            padding: PAD.comfortable,
             background: T.surface,
             borderBottom: `1px solid ${T.border}`,
             zIndex: 10,
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", flex: 1, minWidth: 0 }}>
-            <div>
-              <SectionEyebrow>Graph intelligence</SectionEyebrow>
-              <h1 style={{ margin: "4px 0 0", fontSize: `${FS.md}px`, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>
+          <PanelHeader
+            eyebrow="Graph intelligence"
+            title={
+              <span style={{ fontSize: FS.md, fontWeight: 800, letterSpacing: "-0.03em", color: T.text }}>
                 Relationship fabric and provenance pathing
-              </h1>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
-            <Search size={16} color={T.textSecondary} />
-            <input
-              type="text"
-              placeholder="Search entities..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search graph entities"
-              style={{
-                flex: 1,
-                background: T.bg,
-                border: `1px solid ${T.border}`,
-                color: T.text,
-                padding: "6px 8px",
-                borderRadius: "4px",
-                fontSize: `${FS.sm}px`,
-                outline: "none",
-              }}
-            />
-            {searchMatchCount > 0 && (
-              <div style={{ color: T.textSecondary, fontSize: `${FS.caption}px`, minWidth: "40px" }}>
-                {searchMatchCount} match{searchMatchCount !== 1 ? "es" : ""}
-              </div>
-            )}
-          </div>
-          </div>
+              </span>
+            }
+            description="Search the graph, pivot the layout, save workspaces, and explain why a relationship matters without leaving the analyst loop."
+            meta={
+              <>
+                <StatusPill tone="info">{filteredData.nodes.length} nodes</StatusPill>
+                <StatusPill tone="neutral">{filteredData.edges.length} edges</StatusPill>
+                <StatusPill tone="neutral">
+                  <ShortcutBadge>⌘F</ShortcutBadge>
+                  Search
+                </StatusPill>
+                <StatusPill tone="neutral">
+                  <ShortcutBadge>/</ShortcutBadge>
+                  Focus graph query
+                </StatusPill>
+              </>
+            }
+          />
 
-          <div style={{ display: "flex", gap: "8px" }}>
-            <LayoutButton active={layoutMode === "cose"} onClick={() => changeLayout("cose")}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, alignItems: "center" }}>
+            <div
+              style={{
+                flex: "1 1 320px",
+                minWidth: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: SP.sm,
+                padding: PAD.default,
+                borderRadius: 14,
+                border: `1px solid ${T.border}`,
+                background: T.bg,
+              }}
+            >
+              <Search size={16} color={T.textSecondary} />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search entities, companies, people, or vehicles"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search graph entities"
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  border: "none",
+                  color: T.text,
+                  fontSize: `${FS.sm}px`,
+                  outline: "none",
+                }}
+              />
+              {searchMatchCount > 0 ? (
+                <StatusPill tone="neutral">
+                  {searchMatchCount} match{searchMatchCount !== 1 ? "es" : ""}
+                </StatusPill>
+              ) : null}
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+              <LayoutButton active={layoutMode === "cose"} label="Force layout" onClick={() => changeLayout("cose")}>
               Force
-            </LayoutButton>
-            <LayoutButton active={layoutMode === "breadthfirst"} onClick={() => changeLayout("breadthfirst")}>
+              </LayoutButton>
+              <LayoutButton active={layoutMode === "breadthfirst"} label="Tree layout" onClick={() => changeLayout("breadthfirst")}>
               Tree
-            </LayoutButton>
-            <LayoutButton active={layoutMode === "concentric"} onClick={() => changeLayout("concentric")}>
+              </LayoutButton>
+              <LayoutButton active={layoutMode === "concentric"} label="Radial layout" onClick={() => changeLayout("concentric")}>
               Radial
-            </LayoutButton>
-            <LayoutButton active={layoutMode === "geo"} onClick={() => changeLayout("geo")}>
+              </LayoutButton>
+              <LayoutButton active={layoutMode === "geo"} label="Map layout" onClick={() => changeLayout("geo")}>
               <Globe size={14} style={{ display: "inline", marginRight: "4px" }} />
               Map
-            </LayoutButton>
-          </div>
+              </LayoutButton>
 
-          <button
-            onClick={() => setCommunityColorEnabled(!communityColorEnabled)}
-            style={{
-              padding: "6px 10px",
-              background: communityColorEnabled ? T.accent : T.bg,
-              border: `1px solid ${communityColorEnabled ? T.accent : T.border}`,
-              color: communityColorEnabled ? "#000" : T.text,
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: `${FS.sm}px`,
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-            title="Toggle community coloring"
-          >
-            <Grid3X3 size={14} />
-          </button>
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label="Toggle community coloring"
+                onClick={() => setCommunityColorEnabled(!communityColorEnabled)}
+                style={{
+                  padding: PAD.default,
+                  background: communityColorEnabled ? `${T.accent}${O["15"]}` : T.bg,
+                  border: `1px solid ${communityColorEnabled ? `${T.accent}${O["30"]}` : T.border}`,
+                  color: communityColorEnabled ? T.accent : T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Toggle community coloring"
+              >
+                <Grid3X3 size={14} />
+                Communities
+              </button>
 
-          <button
-            onClick={() => setShowLabels(!showLabels)}
-            style={{
-              padding: "6px 10px",
-              background: showLabels ? T.accent : T.bg,
-              border: `1px solid ${showLabels ? T.accent : T.border}`,
-              color: showLabels ? "#000" : T.text,
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: `${FS.sm}px`,
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-            title="Toggle labels"
-          >
-            {showLabels ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label={showLabels ? "Hide graph labels" : "Show graph labels"}
+                onClick={() => setShowLabels(!showLabels)}
+                style={{
+                  padding: PAD.default,
+                  background: showLabels ? `${T.accent}${O["15"]}` : T.bg,
+                  border: `1px solid ${showLabels ? `${T.accent}${O["30"]}` : T.border}`,
+                  color: showLabels ? T.accent : T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Toggle labels"
+              >
+                {showLabels ? <Eye size={14} /> : <EyeOff size={14} />}
+                Labels
+              </button>
 
-          <button
-            onClick={handleExportPNG}
-            style={{
-              padding: "6px 10px",
-              background: T.bg,
-              border: `1px solid ${T.border}`,
-              color: T.text,
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: `${FS.sm}px`,
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-            title="Export graph as PNG"
-          >
-            <Download size={14} />
-          </button>
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label="Export graph as PNG"
+                onClick={handleExportPNG}
+                style={{
+                  padding: PAD.default,
+                  background: T.bg,
+                  border: `1px solid ${T.border}`,
+                  color: T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Export graph as PNG"
+              >
+                <Download size={14} />
+                Export
+              </button>
 
-          <button
-            onClick={handleGenerateBriefing}
-            style={{
-              padding: "6px 10px",
-              background: T.bg,
-              border: `1px solid ${T.border}`,
-              color: T.text,
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: `${FS.sm}px`,
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-            title="Generate briefing PDF"
-          >
-            <FileText size={14} />
-          </button>
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label="Generate graph briefing"
+                onClick={handleGenerateBriefing}
+                style={{
+                  padding: PAD.default,
+                  background: T.bg,
+                  border: `1px solid ${T.border}`,
+                  color: T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Generate briefing PDF"
+              >
+                <FileText size={14} />
+                Briefing
+              </button>
 
-          <button
-            onClick={() => setShowWorkspacePanel(!showWorkspacePanel)}
-            style={{
-              padding: "6px 10px",
-              background: showWorkspacePanel ? T.accent : T.bg,
-              border: `1px solid ${showWorkspacePanel ? T.accent : T.border}`,
-              color: showWorkspacePanel ? "#000" : T.text,
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: `${FS.sm}px`,
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-            title="Workspaces"
-          >
-            <FolderOpen size={14} />
-          </button>
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label={showWorkspacePanel ? "Hide saved graph workspaces" : "Show saved graph workspaces"}
+                onClick={() => setShowWorkspacePanel(!showWorkspacePanel)}
+                style={{
+                  padding: PAD.default,
+                  background: showWorkspacePanel ? `${T.accent}${O["15"]}` : T.bg,
+                  border: `1px solid ${showWorkspacePanel ? `${T.accent}${O["30"]}` : T.border}`,
+                  color: showWorkspacePanel ? T.accent : T.text,
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+                title="Workspaces"
+              >
+                <FolderOpen size={14} />
+                Workspaces
+              </button>
+            </div>
 
-          <div style={{ color: T.textSecondary, fontSize: `${FS.caption}px` }}>
-            {filteredData.nodes.length} nodes • {filteredData.edges.length} edges
-            {filteredData.nodes.length > 2000 && " (LOD active)"}
+            {filteredData.nodes.length > 2000 ? (
+              <StatusPill tone="warning">LOD active</StatusPill>
+            ) : null}
           </div>
         </div>
 
@@ -1241,6 +1317,9 @@ export function GraphIntelligenceDashboard() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: `${FS.md}px`, fontWeight: 600, color: T.text }}>Workspaces</div>
                 <button
+                  type="button"
+                  className="helios-focus-ring"
+                  aria-label="Close workspace panel"
                   onClick={() => setShowWorkspacePanel(false)}
                   style={{ background: "none", border: "none", color: T.textSecondary, cursor: "pointer", fontSize: `${FS.md}px` }}
                 >
@@ -1268,6 +1347,9 @@ export function GraphIntelligenceDashboard() {
                   }}
                 />
                 <button
+                  type="button"
+                  className="helios-focus-ring"
+                  aria-label="Save current graph workspace"
                   onClick={handleSaveWorkspace}
                   style={{
                     padding: "6px 10px",
@@ -1316,6 +1398,9 @@ export function GraphIntelligenceDashboard() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ fontWeight: 600, fontSize: `${FS.sm}px`, color: T.text }}>{ws.name}</div>
                         <button
+                          type="button"
+                          className="helios-focus-ring"
+                          aria-label={`Delete workspace ${ws.name}`}
                           onClick={(e) => { e.stopPropagation(); handleDeleteWorkspace(ws.id); }}
                           style={{ background: "none", border: "none", color: T.textSecondary, cursor: "pointer", padding: "2px" }}
                         >
@@ -1373,6 +1458,9 @@ export function GraphIntelligenceDashboard() {
               />
               <div style={{ display: "flex", gap: "8px", marginTop: "8px", justifyContent: "flex-end" }}>
                 <button
+                  type="button"
+                  className="helios-focus-ring"
+                  aria-label="Cancel node annotation"
                   onClick={() => { setAnnotatingNodeId(null); setAnnotationText(""); }}
                   style={{
                     padding: "6px 12px",
@@ -1387,6 +1475,9 @@ export function GraphIntelligenceDashboard() {
                   Cancel
                 </button>
                 <button
+                  type="button"
+                  className="helios-focus-ring"
+                  aria-label="Save node annotation"
                   onClick={() => handleAnnotate(annotatingNodeId, annotationText)}
                   style={{
                     padding: "6px 12px",
@@ -1473,6 +1564,9 @@ function LeftSidebar(props: {
     >
       {/* Reset Button */}
       <button
+        type="button"
+        className="helios-focus-ring"
+        aria-label="Reset graph filters"
         onClick={props.onResetFilters}
         style={{
           padding: "6px 10px",
@@ -1603,6 +1697,10 @@ function LeftSidebar(props: {
             TIMELINE
           </div>
           <button
+            type="button"
+            className="helios-focus-ring"
+            aria-label={props.temporalEnabled ? "Disable timeline filter" : "Enable timeline filter"}
+            aria-pressed={props.temporalEnabled}
             onClick={props.onToggleTemporal}
             style={{
               padding: "2px 6px",
@@ -1749,6 +1847,10 @@ function RightSidebar(props: {
         {SIDEBAR_TABS.map((tab) => (
           <button
             key={tab.id}
+            type="button"
+            className="helios-focus-ring"
+            aria-label={`Show ${tab.label.toLowerCase()} graph sidebar`}
+            aria-pressed={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
               flex: 1,
@@ -1925,6 +2027,9 @@ function RightSidebar(props: {
           {/* Pin & Annotate Actions */}
           <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
             <button
+              type="button"
+              className="helios-focus-ring"
+              aria-label={props.pinnedNodes.has(props.selectedNode!.id) ? `Unpin ${props.selectedNode.canonical_name}` : `Pin ${props.selectedNode.canonical_name}`}
               onClick={() => props.onPinNode(props.selectedNode!.id)}
               style={{
                 flex: 1,
@@ -1945,6 +2050,9 @@ function RightSidebar(props: {
               {props.pinnedNodes.has(props.selectedNode!.id) ? "Unpin" : "Pin"}
             </button>
             <button
+              type="button"
+              className="helios-focus-ring"
+              aria-label={`Annotate ${props.selectedNode.canonical_name}`}
               onClick={() => props.onAnnotate(props.selectedNode!.id)}
               style={{
                 flex: 1,
@@ -2013,6 +2121,9 @@ function RightSidebar(props: {
                 </div>
               </div>
               <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label="Find shortest path"
                 onClick={props.onFindPath}
                 disabled={!props.pathSource || !props.pathTarget || props.pathLoading}
                 style={{
@@ -2075,6 +2186,9 @@ function RightSidebar(props: {
                 </div>
               </div>
               <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label="Propagate risk from selected source"
                 onClick={props.onPropagate}
                 disabled={!props.propagationSource || props.propagationLoading}
                 style={{
@@ -2098,6 +2212,9 @@ function RightSidebar(props: {
                   {props.propagationResult.waves.map((wave, i: number) => (
                     <button
                       key={i}
+                      type="button"
+                      className="helios-focus-ring"
+                      aria-label={`Show propagation wave ${wave.hop}`}
                       onClick={() => props.onShowWave(i)}
                       style={{
                         padding: "3px 8px",
@@ -2135,6 +2252,9 @@ function RightSidebar(props: {
 
           {/* Clear button */}
           <button
+            type="button"
+            className="helios-focus-ring"
+            aria-label="Clear graph analytics selections"
             onClick={props.onClearAnalytics}
             style={{
               padding: "6px", background: T.bg, border: `1px solid ${T.border}`,
@@ -2150,16 +2270,20 @@ function RightSidebar(props: {
   );
 }
 
-function LayoutButton(props: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function LayoutButton(props: { active: boolean; label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
+      type="button"
+      className="helios-focus-ring"
+      aria-label={props.label}
+      aria-pressed={props.active}
       onClick={props.onClick}
       style={{
-        padding: "6px 10px",
-        background: props.active ? T.accent : T.bg,
-        border: `1px solid ${props.active ? T.accent : T.border}`,
-        color: props.active ? "#000" : T.text,
-        borderRadius: "4px",
+        padding: PAD.default,
+        background: props.active ? `${T.accent}${O["15"]}` : T.bg,
+        border: `1px solid ${props.active ? `${T.accent}${O["30"]}` : T.border}`,
+        color: props.active ? T.accent : T.text,
+        borderRadius: 10,
         cursor: "pointer",
         fontSize: `${FS.sm}px`,
         fontWeight: 500,

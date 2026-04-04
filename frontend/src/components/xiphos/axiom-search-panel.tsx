@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { T, FS, PAD, SP } from "@/lib/tokens";
-import { Play, Upload, AlertCircle } from "lucide-react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { T, FS, PAD, SP, O } from "@/lib/tokens";
+import { Play, Search, Upload, AlertCircle } from "lucide-react";
 import { getToken } from "@/lib/auth";
-import { EmptyPanel, InlineMessage, LoadingPanel, SectionEyebrow } from "./shell-primitives";
+import { useHotkey } from "@/lib/use-hotkeys";
+import { EmptyPanel, InlineMessage, LoadingPanel, PanelHeader, ShortcutBadge, StatusPill } from "./shell-primitives";
 
 type AxiomProvider = "anthropic" | "openai";
 
@@ -134,6 +135,7 @@ function formatMillis(elapsedMs: number): string {
 }
 
 export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
+  const targetInputRef = useRef<HTMLInputElement | null>(null);
   const [targetEntity, setTargetEntity] = useState("");
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
@@ -147,6 +149,11 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const [error, setError] = useState<string>("");
   const [isIngesting, setIsIngesting] = useState(false);
   const [autoIngest, setAutoIngest] = useState(true);
+
+  useHotkey("cmd+f", () => {
+    targetInputRef.current?.focus();
+    targetInputRef.current?.select();
+  }, { ignoreInputs: false });
 
   const runSearch = async (ingest: boolean) => {
     if (!targetEntity.trim()) {
@@ -231,15 +238,39 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
     }
   };
 
+  const runOnEnter = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || isRunning) {
+      return;
+    }
+    event.preventDefault();
+    void handleSearch();
+  };
+
   return (
     <div
       className="flex flex-col gap-4 rounded-lg"
       style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
     >
-      <div>
-        <SectionEyebrow>Search</SectionEyebrow>
-        <h2 style={{ fontSize: FS.base, fontWeight: 700, color: T.text, margin: `${SP.xs}px 0 0` }}>Run a focused collection pass</h2>
-      </div>
+      <PanelHeader
+        eyebrow="Search"
+        title="Run a focused collection pass"
+        description="Start with the prime or target entity. Add vehicle and mission context only when it narrows the hunt."
+        meta={
+          <>
+            <StatusPill tone={autoIngest ? "info" : "neutral"}>
+              {autoIngest ? "Auto-ingest on" : "Auto-ingest off"}
+            </StatusPill>
+            <StatusPill tone="neutral">
+              <ShortcutBadge>⌘F</ShortcutBadge>
+              Focus target
+            </StatusPill>
+            <StatusPill tone="neutral">
+              <ShortcutBadge>Enter</ShortcutBadge>
+              Run search
+            </StatusPill>
+          </>
+        }
+      />
 
       <div className="space-y-3">
         <div>
@@ -255,9 +286,11 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             Target Entity Name *
           </label>
           <input
+            ref={targetInputRef}
             type="text"
             value={targetEntity}
             onChange={(e) => setTargetEntity(e.target.value)}
+            onKeyDown={runOnEnter}
             placeholder="e.g., Acme Corp, SMX Technologies"
             disabled={isRunning}
             aria-label="AXIOM target entity"
@@ -270,6 +303,9 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               color: T.text,
             }}
           />
+          <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
+            Prime, suspected teammate, or entity you need AXIOM to pressure-test.
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -289,6 +325,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               type="text"
               value={vehicleName}
               onChange={(e) => setVehicleName(e.target.value)}
+              onKeyDown={runOnEnter}
               placeholder="Optional"
               disabled={isRunning}
               aria-label="AXIOM vehicle name"
@@ -318,6 +355,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               type="text"
               value={installation}
               onChange={(e) => setInstallation(e.target.value)}
+              onKeyDown={runOnEnter}
               placeholder="Optional"
               disabled={isRunning}
               aria-label="AXIOM installation"
@@ -349,6 +387,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             type="text"
             value={domainFocus}
             onChange={(e) => setDomainFocus(e.target.value)}
+            onKeyDown={runOnEnter}
             placeholder="e.g., INDOPACOM C5ISR support"
             disabled={isRunning}
             aria-label="AXIOM mission context"
@@ -486,7 +525,17 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         />
       ) : null}
 
+      {!error && !isRunning && status ? (
+        <InlineMessage
+          tone="success"
+          title="Collection status"
+          message={status}
+          icon={Search}
+        />
+      ) : null}
+
       <button
+        type="button"
         onClick={handleSearch}
         disabled={isRunning || !targetEntity.trim()}
         aria-label="Run AXIOM search"
@@ -508,7 +557,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         <EmptyPanel
           title="No search run yet"
           description="Start with a prime, suspected sub, or target entity. Add vehicle and mission context only when it helps constrain the hunt."
-          icon={Upload}
+          icon={Search}
         />
       ) : null}
 
@@ -534,20 +583,22 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           </div>
 
           {results.kgIngestion && (
-            <div className="rounded-lg" style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}>
-              <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Knowledge Graph Ingestion
-              </div>
-              <div style={{ fontSize: FS.sm, color: T.muted }}>
-                {results.kgIngestion.entities_created ?? 0} entities, {results.kgIngestion.relationships_created ?? 0} relationships, {results.kgIngestion.claims_created ?? 0} claims
-              </div>
-              {results.neo4jSync && (
-                <div style={{ fontSize: FS.sm, color: T.muted, marginTop: SP.sm }}>
-                  Neo4j sync: <span style={{ color: T.text }}>{results.neo4jSync.status || "unknown"}</span>
-                  {results.neo4jSync.error ? ` (${results.neo4jSync.error})` : ""}
-                </div>
-              )}
-            </div>
+            <InlineMessage
+              tone={(results.kgIngestion.entities_created ?? 0) > 0 || (results.kgIngestion.relationships_created ?? 0) > 0 ? "success" : "info"}
+              title="Knowledge Graph ingest"
+              message={
+                <>
+                  {(results.kgIngestion.entities_created ?? 0)} entities, {(results.kgIngestion.relationships_created ?? 0)} relationships, and{" "}
+                  {(results.kgIngestion.claims_created ?? 0)} claims created.
+                  {results.neo4jSync ? (
+                    <span style={{ display: "block", marginTop: SP.xs, color: T.textSecondary }}>
+                      Neo4j sync: <span style={{ color: T.text }}>{results.neo4jSync.status || "unknown"}</span>
+                      {results.neo4jSync.error ? ` (${results.neo4jSync.error})` : ""}
+                    </span>
+                  ) : null}
+                </>
+              }
+            />
           )}
 
           {results.entities.length > 0 && (
@@ -609,9 +660,9 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                   <div
                     key={`${gap.gap_type}-${index}`}
                     className="rounded"
-                    style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
+                    style={{ background: `${T.amber}${O["08"]}`, border: `1px solid ${T.amber}${O["20"]}`, padding: PAD.default }}
                   >
-                    <div style={{ fontSize: FS.sm, fontWeight: 500, color: T.accent }}>
+                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.amber }}>
                       {gap.gap_type}
                     </div>
                     <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
@@ -633,9 +684,9 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                   <div
                     key={`${advisory.opportunity_type}-${index}`}
                     className="rounded"
-                    style={{ background: T.bg, border: `1px solid ${T.border}`, padding: PAD.default }}
+                    style={{ background: `${T.accent}${O["08"]}`, border: `1px solid ${T.accent}${O["20"]}`, padding: PAD.default }}
                   >
-                    <div style={{ fontSize: FS.sm, fontWeight: 500, color: T.accent }}>
+                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.accent }}>
                       {advisory.opportunity_type}
                     </div>
                     <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
@@ -649,6 +700,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
 
           {!autoIngest && (
             <button
+              type="button"
               onClick={handleIngestToKG}
               disabled={isIngesting}
               aria-label="Rerun AXIOM search and ingest to knowledge graph"
