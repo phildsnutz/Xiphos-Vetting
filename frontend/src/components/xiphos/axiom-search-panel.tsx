@@ -200,7 +200,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const handleSearch = async () => {
     setError("");
     setIsRunning(true);
-    setStatus(autoIngest ? "Initializing search and ingesting to Knowledge Graph..." : "Initializing search...");
+    setStatus(autoIngest ? "AXIOM is working the first pass and warming the graph." : "AXIOM is working the first pass.");
     setIteration(0);
     setResults(null);
 
@@ -209,8 +209,8 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
       if (data) {
         setStatus(
           autoIngest
-            ? "Search completed and results ingested to Knowledge Graph"
-            : data.status || "Search completed",
+            ? "AXIOM completed the pass and promoted the accepted picture into the graph."
+            : data.status || "AXIOM completed the first pass.",
         );
       }
     } catch (err) {
@@ -229,7 +229,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
     try {
       const data = await runSearch(true);
       if (data) {
-        setStatus("Search rerun and results ingested to Knowledge Graph");
+        setStatus("AXIOM reran the thread and promoted the accepted picture into the graph.");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -257,17 +257,14 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   return (
     <div
       className="flex flex-col gap-4 rounded-lg"
-      style={{ background: T.surface, border: `1px solid ${T.border}`, padding: PAD.default }}
+      style={{ background: "rgba(12,16,24,0.82)", border: `1px solid rgba(255,255,255,0.06)`, padding: PAD.comfortable }}
     >
       <PanelHeader
-        eyebrow="Collection"
-        title="Define the collection brief"
-        description="Start with the entity you need to pressure-test. Add vehicle or mission context only when it makes the evidence hunt sharper."
+        eyebrow="AXIOM collection"
+        title="What should I work?"
+        description="Give me the target, vehicle, or weak point that still feels wrong. Add context only if it changes the trail."
         meta={
           <>
-            <StatusPill tone={autoIngest ? "info" : "neutral"}>
-              {autoIngest ? "Auto-ingest on" : "Auto-ingest off"}
-            </StatusPill>
             <StatusPill tone="neutral">
               <ShortcutBadge>⌘F</ShortcutBadge>
               Focus target
@@ -291,7 +288,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               marginBottom: SP.sm,
             }}
           >
-            Target Entity Name *
+            Who or what is the pressure point? *
           </label>
           <input
             ref={targetInputRef}
@@ -299,7 +296,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             value={targetEntity}
             onChange={(e) => setTargetEntity(e.target.value)}
             onKeyDown={runOnEnter}
-            placeholder="e.g., Acme Corp, SMX Technologies"
+            placeholder="Amentum on ILS 2"
             disabled={isRunning}
             aria-label="AXIOM target entity"
             className="w-full rounded border outline-none"
@@ -312,14 +309,14 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             }}
           />
           <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
-            Prime, suspected teammate, sub, or entity that still carries dark space in the dossier.
+            Start with the incumbent, teammate, sub, or unresolved player that still carries dark space.
           </div>
         </div>
 
         {collectionBrief.length > 0 ? (
           <InlineMessage
             tone="info"
-            title="Collection brief"
+            title="Working from"
             message={collectionBrief.join(" • ")}
             icon={Search}
           />
@@ -336,7 +333,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                 marginBottom: SP.sm,
               }}
             >
-              Vehicle Name
+              Vehicle
             </label>
             <input
               type="text"
@@ -398,14 +395,14 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               marginBottom: SP.sm,
             }}
           >
-            Context / Mission Focus
+              What matters
           </label>
           <input
             type="text"
             value={domainFocus}
             onChange={(e) => setDomainFocus(e.target.value)}
             onKeyDown={runOnEnter}
-            placeholder="e.g., INDOPACOM C5ISR support"
+            placeholder="Recompete pressure, ownership wall, teammate risk"
             disabled={isRunning}
             aria-label="AXIOM mission context"
             className="w-full rounded border outline-none"
@@ -449,7 +446,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               cursor: "pointer",
             }}
           >
-            {showExecutionControls ? "Hide" : "Show"} execution controls
+            {showExecutionControls ? "Hide" : "Show"} model and graph controls
           </button>
 
           {showExecutionControls ? (
@@ -569,15 +566,15 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
 
       {isRunning ? (
         <LoadingPanel
-          label={status || "Running AXIOM collection pass"}
-          detail={iteration > 0 ? `Iteration ${iteration} in progress.` : "Collecting structured evidence, surfacing gaps, and evaluating graph ingest."}
+          label={status || "AXIOM is working the first pass."}
+          detail={iteration > 0 ? `Iteration ${iteration} is in progress.` : "Collecting public evidence, keeping the weak residue separate, and shaping the first picture."}
         />
       ) : null}
 
       {error ? (
         <InlineMessage
           tone="danger"
-          title="AXIOM search failed"
+          title="AXIOM hit a wall"
           message={error}
           icon={AlertCircle}
         />
@@ -586,7 +583,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
       {!error && !isRunning && status ? (
         <InlineMessage
           tone="success"
-          title="Collection status"
+          title="AXIOM update"
           message={status}
           icon={Search}
         />
@@ -608,13 +605,13 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         }}
       >
         <Play size={SP.md + SP.xs} />
-        {isRunning ? "Running..." : "Run collection pass"}
+        {isRunning ? "Working..." : "Work this thread"}
       </button>
 
       {!isRunning && !results && !error ? (
         <EmptyPanel
-          title="No collection pass run yet"
-          description="Start with a prime, suspected sub, or target entity. Add vehicle and mission context only when it helps constrain the evidence hunt."
+          title="Nothing active yet"
+          description="Bring the entity, vehicle, or weak point that still feels unresolved. AXIOM will work outward from there."
           icon={Search}
         />
       ) : null}
@@ -643,7 +640,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.intelligenceGaps.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Remaining gaps ({results.intelligenceGaps.length})
+                Where the picture is still thin ({results.intelligenceGaps.length})
               </h4>
               <div className="space-y-2">
                 {results.intelligenceGaps.slice(0, 4).map((gap, index) => (
@@ -667,7 +664,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.advisory.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Collection next steps ({results.advisory.length})
+                Best next threads ({results.advisory.length})
               </h4>
               <div className="space-y-2">
                 {results.advisory.map((advisory, index) => (
@@ -691,7 +688,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.kgIngestion && (
             <InlineMessage
               tone={(results.kgIngestion.entities_created ?? 0) > 0 || (results.kgIngestion.relationships_created ?? 0) > 0 ? "success" : "info"}
-              title="Knowledge Graph ingest"
+              title="Graph promotion"
               message={
                 <>
                   {(results.kgIngestion.entities_created ?? 0)} entities, {(results.kgIngestion.relationships_created ?? 0)} relationships, and{" "}
@@ -710,7 +707,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.entities.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Surfaced entities ({results.entities.length})
+                What surfaced ({results.entities.length})
               </h4>
               <div className="space-y-2">
                 {results.entities.slice(0, 5).map((entity, index) => (
@@ -735,7 +732,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           {results.relationships.length > 0 && (
             <div>
               <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Relationship leads ({results.relationships.length})
+                Trail hints ({results.relationships.length})
               </h4>
               <div className="space-y-2">
                 {results.relationships.slice(0, 3).map((relationship, index) => (
@@ -774,7 +771,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               }}
             >
               <Upload size={SP.md + SP.xs} />
-              {isIngesting ? "Ingesting..." : "Rerun and ingest to graph"}
+              {isIngesting ? "Promoting..." : "Promote this picture to the graph"}
             </button>
           )}
         </div>

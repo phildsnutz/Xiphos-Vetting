@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Bell, Eye, Grid3X3, Radar, Search } from "lucide-react";
 import type { VettingCase } from "@/lib/types";
-import { T, FS, PAD, SP, O, FX } from "@/lib/tokens";
+import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { AxiomAlerts } from "./axiom-alerts";
 import { AxiomSearchPanel } from "./axiom-search-panel";
 import { AxiomWatchlist } from "./axiom-watchlist";
@@ -154,10 +154,74 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
         : `${alerts.length} alert${alerts.length === 1 ? "" : "s"} in the room`;
     }
     if (searchResults) {
-      return `${searchResults.totalQueries} query${searchResults.totalQueries === 1 ? "" : "ies"} • ${searchResults.totalConnectorCalls} connector calls • iteration ${searchResults.iteration}`;
+      return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
     }
-    return "War Room is ready";
+    return "Awaiting a live brief";
   }, [activeWatchEntries.length, alerts.length, criticalAlerts.length, mode, searchResults]);
+
+  const currentFrame = useMemo(() => {
+    if (mode === "watch") {
+      return "Keep the right targets warm between dossier pulls and only interrupt when the picture actually moves.";
+    }
+    if (mode === "alerts") {
+      return "This room is only for movement that should alter the working judgment.";
+    }
+    return "AXIOM leads the collection. You step in when the trail gets ambiguous, the picture feels thin, or the judgment needs pressure.";
+  }, [mode]);
+
+  const roomExchange = useMemo(() => {
+    if (mode === "alerts" && alerts.length > 0) {
+      const leadAlert = (criticalAlerts.length > 0 ? criticalAlerts : alerts)[0];
+      return {
+        eyebrow: "AXIOM exchange",
+        title: "A material signal crossed the line.",
+        lead: `${leadAlert.title} is now active around ${leadAlert.target}. ${leadAlert.details}`,
+        follow: "Challenge it if the claim is thin. If it holds, redirect the room around the thread that most changes the call.",
+      };
+    }
+
+    if (mode === "watch") {
+      if (activeWatchEntries.length > 0) {
+        const leadEntry = activeWatchEntries[0];
+        return {
+          eyebrow: "AXIOM exchange",
+          title: "The room is keeping the right things warm.",
+          lead: leadEntry.vehicle
+            ? `${leadEntry.target} is being held against ${leadEntry.vehicle}. I’ll surface movement only when it changes the picture.`
+            : `${leadEntry.target} is being held warm at the vendor level until the vehicle context sharpens.`,
+          follow: "Add a vendor or vehicle when you want AXIOM watching the edge between dossier pulls.",
+        };
+      }
+      return {
+        eyebrow: "AXIOM exchange",
+        title: "Nothing is warm yet.",
+        lead: "Give me the vendor or vehicle that needs quiet persistence between pulls, and I’ll keep the drift below the line until it matters.",
+        follow: "War Room should stay quiet until a warm target or material signal earns attention.",
+      };
+    }
+
+    if (searchResults) {
+      const leadGap = searchResults.intelligenceGaps[0];
+      const leadAdvisory = searchResults.advisory[0];
+      return {
+        eyebrow: "AXIOM exchange",
+        title: "The first public picture is in hand.",
+        lead: leadGap
+          ? `The clean record starts to thin at ${leadGap.description}. I’m keeping that weakness explicit instead of bluffing past it.`
+          : "The first pass is comparatively clean. Nothing in the public trail is strong enough to force a hard turn yet.",
+        follow: leadAdvisory
+          ? leadAdvisory.description
+          : "If you want, I can keep pressing the weakest thread or move into Graph Intel when structure matters more than the surface story.",
+      };
+    }
+
+    return {
+      eyebrow: "AXIOM exchange",
+      title: "Bring me the knot, not the taxonomy.",
+      lead: "Start with the entity, vehicle, incumbent, teammate, or weak point that still feels unresolved. I’ll work outward from there and keep the dark space explicit.",
+      follow: "Reply with a redirect, a harder question, or the thread you want me to pressure first.",
+    };
+  }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults]);
 
   const openThreads = useMemo(() => {
     if (mode === "watch") {
@@ -479,7 +543,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
         </header>
 
         <main
-          className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px] lg:grid-cols-[240px_minmax(0,1fr)]"
+          className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)_320px] lg:grid-cols-[220px_minmax(0,1fr)]"
           style={{
             flex: 1,
             padding: PAD.spacious,
@@ -488,67 +552,33 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
         >
           <aside
             style={{
-              background: "rgba(255,255,255,0.02)",
-              border: `1px solid rgba(255,255,255,0.06)`,
-              borderRadius: 24,
-              padding: PAD.comfortable,
+              paddingTop: SP.md,
               display: "grid",
               gap: SP.lg,
             }}
           >
             <div style={{ display: "grid", gap: SP.xs }}>
-              <SectionEyebrow>Mission frame</SectionEyebrow>
+              <SectionEyebrow>Current frame</SectionEyebrow>
               <div style={{ fontSize: FS.base, color: T.text, lineHeight: 1.6 }}>
-                {mode === "collection"
-                  ? "AXIOM leads collection. You step in when the trail gets ambiguous or the judgment needs pressure."
-                  : mode === "watch"
-                    ? "Warm the right targets between dossier pulls and keep the room ready for the next change."
-                    : "Only the movements that alter the case belong in view here."}
+                {currentFrame}
               </div>
             </div>
 
             <div style={{ display: "grid", gap: SP.sm }}>
-              <SectionEyebrow>Open threads</SectionEyebrow>
+              <SectionEyebrow>{mode === "alerts" ? "What moved" : "Pressure threads"}</SectionEyebrow>
               {openThreads.map((thread) => (
                 <div
                   key={`${thread.label}-${thread.detail}`}
                   style={{
-                    borderRadius: 18,
-                    border: `1px solid rgba(255,255,255,0.06)`,
-                    background: "rgba(255,255,255,0.02)",
-                    padding: PAD.default,
+                    padding: `0 0 0 ${SP.md}px`,
+                    borderLeft: `2px solid rgba(255,255,255,0.12)`,
                     display: "grid",
-                    gap: SP.xs,
+                    gap: 6,
                   }}
                 >
                   <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{thread.label}</div>
                   <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{thread.detail}</div>
                 </div>
-              ))}
-            </div>
-
-            <div style={{ display: "grid", gap: SP.sm }}>
-              <SectionEyebrow>Recent engagements</SectionEyebrow>
-              {recentCases.slice(0, 4).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onOpenCase(item.id)}
-                  className="helios-focus-ring"
-                  style={{
-                    border: `1px solid rgba(255,255,255,0.06)`,
-                    background: "transparent",
-                    borderRadius: 16,
-                    padding: PAD.default,
-                    textAlign: "left",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontSize: FS.sm, fontWeight: 700, color: T.text }}>{item.name}</div>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary, marginTop: SP.xs }}>
-                    {item.created_at || item.date}
-                  </div>
-                </button>
               ))}
             </div>
           </aside>
@@ -562,30 +592,48 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
           >
             <div
               style={{
-                borderRadius: 28,
+                borderRadius: 30,
                 border: `1px solid rgba(255,255,255,0.06)`,
-                background: "linear-gradient(180deg, rgba(18,24,35,0.92) 0%, rgba(11,15,22,0.94) 100%)",
+                background: "linear-gradient(180deg, rgba(17,21,30,0.92) 0%, rgba(10,13,20,0.96) 100%)",
                 padding: PAD.spacious,
-                boxShadow: FX.cardHover,
                 display: "grid",
                 gap: SP.lg,
               }}
             >
-              <div style={{ display: "grid", gap: SP.sm }}>
-                <SectionEyebrow>AXIOM lead</SectionEyebrow>
-                <div style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text }}>
-                  {mode === "collection"
-                    ? "Work the brief together."
-                    : mode === "watch"
-                      ? "Keep the right targets warm."
-                      : "Separate drift from noise."}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: SP.md, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gap: SP.sm, minWidth: 0, flex: "1 1 420px" }}>
+                  <SectionEyebrow>{roomExchange.eyebrow}</SectionEyebrow>
+                  <div style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text }}>
+                    {roomExchange.title}
+                  </div>
                 </div>
-                <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.65, maxWidth: 900 }}>
-                  {leadStatement}
+                <StatusPill tone={mode === "alerts" && criticalAlerts.length > 0 ? "warning" : "neutral"}>
+                  {roomStatus}
+                </StatusPill>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 24,
+                  border: `1px solid rgba(255,255,255,0.06)`,
+                  background: "rgba(255,255,255,0.025)",
+                  padding: PAD.comfortable,
+                  display: "grid",
+                  gap: SP.sm,
+                }}
+              >
+                <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  AXIOM
+                </div>
+                <div style={{ fontSize: FS.md, color: T.text, lineHeight: 1.75, maxWidth: 920 }}>
+                  {roomExchange.lead}
+                </div>
+                <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.65, maxWidth: 920 }}>
+                  {roomExchange.follow}
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, alignItems: "center" }}>
                 {ROOM_MODES.map((item) => {
                   const Icon = item.icon;
                   const active = item.id === mode;
@@ -641,10 +689,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
           <aside
             className="xl:block lg:hidden"
             style={{
-              background: "rgba(255,255,255,0.02)",
-              border: `1px solid rgba(255,255,255,0.06)`,
-              borderRadius: 24,
-              padding: PAD.comfortable,
+              paddingTop: SP.md,
               display: "grid",
               gap: SP.lg,
             }}
@@ -717,17 +762,15 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
             )}
 
             <div style={{ display: "grid", gap: SP.sm }}>
-              <SectionEyebrow>{mode === "alerts" ? "Latest movement" : "Live threads"}</SectionEyebrow>
+              <SectionEyebrow>{mode === "alerts" ? "What moved" : mode === "watch" ? "Warm signals" : "Open pressure"}</SectionEyebrow>
               {movementFeed.length > 0 ? movementFeed.map((item) => (
                 <div
                   key={item.key}
                   style={{
-                    borderRadius: 18,
-                    border: `1px solid rgba(255,255,255,0.06)`,
-                    background: "rgba(255,255,255,0.02)",
-                    padding: PAD.default,
+                    padding: `0 0 0 ${SP.md}px`,
+                    borderLeft: `2px solid rgba(255,255,255,0.12)`,
                     display: "grid",
-                    gap: SP.xs,
+                    gap: 6,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: SP.sm, alignItems: "center" }}>
