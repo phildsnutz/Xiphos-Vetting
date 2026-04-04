@@ -1372,6 +1372,9 @@ export function FrontPorchLanding({
       room?: "front_porch" | "war_room";
     } = {},
   ) => {
+    if (loginRequired) {
+      return missionBrief ?? null;
+    }
     const payload = buildMissionBriefPayload(nextSession, lastUserInput, options);
     try {
       const saved = missionBrief?.id
@@ -1382,7 +1385,7 @@ export function FrontPorchLanding({
     } catch {
       return null;
     }
-  }, [lastUserInput, missionBrief?.id]);
+  }, [lastUserInput, loginRequired, missionBrief]);
 
   const openWarRoom = useCallback(() => {
     if (loginRequired) {
