@@ -333,6 +333,21 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
             paddingRight: SP.xs,
           }}
         >
+          <div
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              paddingBottom: SP.xs,
+              background: T.bg,
+            }}
+          >
+            <SectionEyebrow>Decision rail</SectionEyebrow>
+            <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
+              Keep disposition, supplier posture, and person screening visible while evidence builds on the right.
+            </div>
+          </div>
+
           <DecisionPanel c={c} cal={cal} />
 
           <SupplierPassport
@@ -370,6 +385,40 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
             paddingRight: SP.xs,
           }}
         >
+          <div
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              paddingBottom: SP.xs,
+              background: T.bg,
+            }}
+          >
+            <SectionEyebrow>Evidence rail</SectionEyebrow>
+            <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
+              Work the evidence first, then expand enrichment, monitoring, graph context, and AXIOM follow-ons.
+            </div>
+          </div>
+
+          <EvidenceView
+            evidenceRef={evidenceRef}
+            analystView={analystView}
+            evidenceTab={evidenceTab}
+            loadingEnrichment={loadingEnrichment}
+            enrichment={enrichment}
+            showStream={showStream}
+            cal={cal}
+            graphData={graphData}
+            graphLoading={graphLoading}
+            provenanceEntityId={provenanceEntityId}
+            provenanceRelId={provenanceRelId}
+            c={c}
+            evidenceTabs={evidenceTabs}
+            graphDepth={graphDepth}
+            openEvidence={openEvidence}
+            switchGraphDepth={switchGraphDepth}
+          />
+
           <EnrichmentWorkflow
             isReadOnly={isReadOnly}
             authorityLaneKey={authorityLaneKey}
@@ -405,25 +454,6 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
               )}
             </div>
           )}
-
-          <EvidenceView
-            evidenceRef={evidenceRef}
-            analystView={analystView}
-            evidenceTab={evidenceTab}
-            loadingEnrichment={loadingEnrichment}
-            enrichment={enrichment}
-            showStream={showStream}
-            cal={cal}
-            graphData={graphData}
-            graphLoading={graphLoading}
-            provenanceEntityId={provenanceEntityId}
-            provenanceRelId={provenanceRelId}
-            c={c}
-            evidenceTabs={evidenceTabs}
-            graphDepth={graphDepth}
-            openEvidence={openEvidence}
-            switchGraphDepth={switchGraphDepth}
-          />
         </section>
       </div>
     </div>

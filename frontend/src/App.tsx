@@ -30,7 +30,7 @@ import {
 } from "@/components/xiphos/portfolio-utils";
 import type { ProductPillar, WorkflowLane } from "@/components/xiphos/portfolio-utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { InlineMessage, ShortcutBadge } from "@/components/xiphos/shell-primitives";
+import { InlineMessage, SectionEyebrow, ShortcutBadge } from "@/components/xiphos/shell-primitives";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -783,7 +783,7 @@ export default function App() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.sm }}>
-              <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+              <div style={{ display: "flex", alignItems: "center", gap: SP.sm, minWidth: 0 }}>
                 <div
                   style={{
                     width: 34,
@@ -794,16 +794,55 @@ export default function App() {
                     justifyContent: "center",
                     background: shellPillarMeta.softBackground,
                     border: `1px solid ${shellPillarMeta.accent}${O["20"]}`,
+                    flexShrink: 0,
                   }}
                 >
                   <Shield size={18} color={shellPillarMeta.accent} />
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: FS.base, fontWeight: 800, letterSpacing: "-0.03em" }}>Helios</div>
-                  <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assurance + vehicle intelligence</div>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary }}>Vendor assessment + contract vehicle intelligence</div>
                 </div>
               </div>
               <ShortcutBadge>⌘K</ShortcutBadge>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: 999,
+                  border: `1px solid ${shellPillarMeta.softBorder}`,
+                  background: shellPillarMeta.softBackground,
+                  color: shellPillarMeta.accent,
+                  padding: "5px 8px",
+                  fontSize: FS.xs,
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {shellPillarMeta.label}
+              </span>
+              {productFocus === "vendor_assessment" ? (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    borderRadius: 999,
+                    border: `1px solid ${WORKFLOW_LANE_META[workflowMode].softBorder}`,
+                    background: WORKFLOW_LANE_META[workflowMode].softBackground,
+                    color: WORKFLOW_LANE_META[workflowMode].accent,
+                    padding: "5px 8px",
+                    fontSize: FS.xs,
+                    fontWeight: 800,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {WORKFLOW_LANE_META[workflowMode].shortLabel} layer
+                </span>
+              ) : null}
             </div>
             <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>{shellSummary}</div>
             <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
@@ -814,23 +853,25 @@ export default function App() {
                   setSelected(null);
                 }}
                 className="helios-focus-ring"
+                aria-label="Open intake"
                 style={{
-                  border: `1px solid ${T.border}`,
-                  background: T.surface,
-                  color: T.text,
+                  border: "none",
+                  background: shellPillarMeta.accent,
+                  color: "#04101f",
                   borderRadius: 999,
                   padding: "8px 12px",
                   fontSize: FS.sm,
-                  fontWeight: 700,
+                  fontWeight: 800,
                   cursor: "pointer",
                 }}
               >
-                New case
+                Open intake
               </button>
               <button
                 type="button"
                 onClick={() => setShowShortcutDialog(true)}
                 className="helios-focus-ring"
+                aria-label="Open keyboard shortcuts"
                 style={{
                   border: `1px solid ${T.border}`,
                   background: "transparent",
@@ -860,6 +901,7 @@ export default function App() {
                     setTab(item.id);
                   }}
                   className="helios-focus-ring"
+                  aria-label={`${item.label}. ${item.description}`}
                   style={{
                     border: `1px solid ${active ? `${shellPillarMeta.accent}${O["20"]}` : "transparent"}`,
                     background: active ? shellPillarMeta.softBackground : "transparent",
@@ -893,7 +935,7 @@ export default function App() {
                     <div style={{ fontSize: FS.sm, fontWeight: 700, color: active ? T.text : T.textSecondary }}>
                       {item.label}
                     </div>
-                    <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
+                    <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45, display: active ? "block" : "none" }}>
                       {item.description}
                     </div>
                   </div>
@@ -915,9 +957,7 @@ export default function App() {
                     >
                       {item.badge}
                     </span>
-                  ) : (
-                    <ChevronRight size={14} color={active ? shellPillarMeta.accent : T.textTertiary} />
-                  )}
+                  ) : active ? <ChevronRight size={14} color={shellPillarMeta.accent} /> : null}
                 </button>
               );
             })}
@@ -935,8 +975,9 @@ export default function App() {
                   gap: SP.sm,
                 }}
               >
-                <div style={{ fontSize: FS.xs, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textTertiary }}>
-                  Primary workflow
+                <SectionEyebrow>Workflow model</SectionEyebrow>
+                <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55 }}>
+                  Pick the product pillar first. Add cyber or export only when they change the vendor decision.
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
                   {(Object.keys(PRODUCT_PILLAR_META) as ProductPillar[]).map((pillar) => {
@@ -959,6 +1000,7 @@ export default function App() {
                           }
                         }}
                         className="helios-focus-ring"
+                        aria-label={`Switch primary pillar to ${meta.label}`}
                         style={{
                           border: `1px solid ${active ? `${meta.accent}${O["20"]}` : T.border}`,
                           background: active ? meta.softBackground : T.surface,
@@ -971,14 +1013,50 @@ export default function App() {
                         }}
                         title={meta.description}
                       >
-                        {meta.label}
+                        {meta.shortLabel}
                       </button>
                     );
                   })}
                 </div>
-                <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
-                  Cyber and export stay inside vendor assessment as supporting layers.
-                </div>
+                {showSupportingLayerControls ? (
+                  <>
+                    <div style={{ fontSize: FS.xs, color: T.textTertiary, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      Supporting layers
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: SP.xs }}>
+                      {(["counterparty", "cyber", "export"] as WorkflowLane[]).map((lane) => {
+                        const meta = WORKFLOW_LANE_META[lane];
+                        const active = workflowMode === lane;
+                        return (
+                          <button
+                            key={lane}
+                            type="button"
+                            onClick={() => setWorkflowMode(lane)}
+                            className="helios-focus-ring"
+                            aria-label={`Switch supporting layer to ${meta.label}`}
+                            style={{
+                              border: `1px solid ${active ? meta.softBorder : T.border}`,
+                              background: active ? meta.softBackground : T.surface,
+                              color: active ? meta.accent : T.textSecondary,
+                              borderRadius: 999,
+                              padding: "8px 12px",
+                              fontSize: FS.sm,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                            title={meta.description}
+                          >
+                            {meta.shortLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: FS.xs, color: T.textTertiary, lineHeight: 1.45 }}>
+                    Contract vehicle work should spin the right targets into vendor assessment and AXIOM-backed dossier closure.
+                  </div>
+                )}
               </div>
             ) : null}
 

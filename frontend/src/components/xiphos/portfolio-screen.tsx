@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Grid3X3, LayoutDashboard, Shield, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowRight, Radar, Shield, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { T, FS, O, PAD, SP, displayName, parseTier, tierBand } from "@/lib/tokens";
 import { fetchMonitorChanges, fetchPortfolioAnomalies } from "@/lib/api";
 import type { MonitorChangeEntry } from "@/lib/api";
@@ -178,18 +178,18 @@ export function PortfolioScreen({
       <section
         className="glass-card animate-slide-up"
         style={{
-          padding: PAD.spacious,
+          padding: PAD.comfortable,
           borderRadius: 20,
           display: "flex",
           flexDirection: "column",
-          gap: SP.lg,
+          gap: SP.md,
         }}
       >
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div style={{ minWidth: 0, flex: 1, maxWidth: 840 }}>
             <SectionEyebrow>Operator workbench</SectionEyebrow>
             <div style={{ fontSize: FS.xl, fontWeight: 800, letterSpacing: "-0.04em", color: T.text, marginTop: SP.sm }}>
-              Work the queue, not the chrome.
+              Vendor assessment queue
             </div>
             <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.65, marginTop: SP.sm }}>
               {queueSummary}
@@ -202,6 +202,7 @@ export function PortfolioScreen({
               onClick={() => topCase && onSelect(topCase)}
               disabled={!topCase}
               className="helios-focus-ring"
+              aria-label={topCase ? `Open top priority case for ${displayName(topCase.name)}` : "No top priority case available"}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -223,6 +224,7 @@ export function PortfolioScreen({
               type="button"
               onClick={() => onNavigate?.("helios")}
               className="helios-focus-ring"
+              aria-label="Open intake"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -242,8 +244,9 @@ export function PortfolioScreen({
             </button>
             <button
               type="button"
-              onClick={() => onNavigate?.("graph")}
+              onClick={() => onNavigate?.("axiom")}
               className="helios-focus-ring"
+              aria-label="Open AXIOM"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -258,38 +261,17 @@ export function PortfolioScreen({
                 cursor: "pointer",
               }}
             >
-              <Grid3X3 size={14} />
-              Graph intel
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate?.("dashboard")}
-              className="helios-focus-ring"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: SP.xs,
-                border: `1px solid ${T.border}`,
-                borderRadius: 999,
-                padding: "10px 14px",
-                background: T.surface,
-                color: T.text,
-                fontSize: FS.sm,
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              <LayoutDashboard size={14} />
-              Overview
+              <Radar size={14} />
+              AXIOM
             </button>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <MetricTile label="Cases in scope" value={cases.length} detail={laneSummary?.label || "All active work in this queue."} />
-          <MetricTile label="Blocked" value={blockedCases.length} detail={topCase ? `Highest priority: ${displayName(topCase.name)}` : "No blocked cases in scope."} tone={blockedCases.length > 0 ? "danger" : "neutral"} />
-          <MetricTile label="Review" value={reviewCases.length} detail="Needs analyst judgement or additional evidence." tone={reviewCases.length > 0 ? "warning" : "neutral"} />
-          <MetricTile label="Average risk" value={`${averageRisk(cases)}%`} detail={`${watchCases.length} cases remain on watch.`} tone={watchCases.length > 0 ? "info" : "neutral"} />
+          <MetricTile label="Cases in scope" value={cases.length} detail={laneSummary?.shortLabel || "Vendor"} />
+          <MetricTile label="Blocked" value={blockedCases.length} detail={topCase ? displayName(topCase.name) : "None"} tone={blockedCases.length > 0 ? "danger" : "neutral"} />
+          <MetricTile label="Review" value={reviewCases.length} detail="Need judgement" tone={reviewCases.length > 0 ? "warning" : "neutral"} />
+          <MetricTile label="Average risk" value={`${averageRisk(cases)}%`} detail={`${watchCases.length} on watch`} tone={watchCases.length > 0 ? "info" : "neutral"} />
         </div>
       </section>
 
