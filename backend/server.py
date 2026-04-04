@@ -2437,7 +2437,11 @@ def api_resolve_entity():
     max_candidates = max(1, min(max_candidates, 10))
 
     from entity_resolver import resolve_entity
-    candidates = resolve_entity(name)[:max_candidates]
+    try:
+        candidates = resolve_entity(name)[:max_candidates]
+    except Exception as exc:
+        app.logger.warning("Entity resolution failed for %r: %s", name, exc)
+        candidates = []
     resolution = None
 
     try:

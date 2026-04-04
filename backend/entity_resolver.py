@@ -19,6 +19,7 @@ import concurrent.futures
 from runtime_paths import get_cache_dir
 
 TIMEOUT = 10
+RESOLUTION_TIMEOUT = float(os.environ.get("XIPHOS_ENTITY_RESOLUTION_TIMEOUT", "20"))
 UA = "Xiphos/5.0 (tye.gonzalez@xiphosllc.com)"
 
 # --- SEC EDGAR Ticker Cache ---
@@ -438,7 +439,8 @@ def resolve_entity(name: str) -> list[dict]:
     if core_name.lower() != name.lower().strip():
         search_names.append(core_name)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+    try:
         futures = {}
         for sn in search_names:
             # SEC EDGAR uses local word matching (already suffix-aware), only run once
@@ -452,11 +454,17 @@ def resolve_entity(name: str) -> list[dict]:
             if _SAM_API_KEY and sn == name:
                 futures[executor.submit(_search_sam_gov, name)] = "sam"
 
-        for f in concurrent.futures.as_completed(futures, timeout=20):
+        done, not_done = concurrent.futures.wait(tuple(futures), timeout=RESOLUTION_TIMEOUT)
+
+        for f in done:
             try:
                 all_candidates.extend(f.result())
             except Exception:
                 pass
+        for f in not_done:
+            f.cancel()
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     # Deduplicate by legal_name (merge identifiers from different sources)
     merged: dict[str, dict] = {}

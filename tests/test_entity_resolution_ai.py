@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 
 import pytest
 
@@ -198,6 +199,43 @@ def test_api_resolve_returns_resolution_and_candidate_features(client, monkeypat
     assert all(candidate.get("candidate_id") for candidate in body["candidates"])
     assert all("match_features" in candidate for candidate in body["candidates"])
     assert any(candidate["match_features"]["country_match"] for candidate in body["candidates"])
+
+
+def test_api_resolve_degrades_when_one_source_times_out(client, monkeypatch):
+    import entity_resolver
+
+    monkeypatch.setattr(entity_resolver, "RESOLUTION_TIMEOUT", 0.01)
+    monkeypatch.setattr(entity_resolver, "_SAM_API_KEY", "")
+    monkeypatch.setattr(
+        entity_resolver,
+        "_search_sec_edgar",
+        lambda name: [
+            {
+                "legal_name": "SMX LLC",
+                "source": "sec_edgar",
+                "country": "US",
+                "confidence": 0.88,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        entity_resolver,
+        "_search_gleif",
+        lambda name: (time.sleep(0.05) or []),
+    )
+    monkeypatch.setattr(entity_resolver, "_search_opencorporates", lambda name: [])
+    monkeypatch.setattr(entity_resolver, "_search_wikidata", lambda name: [])
+
+    resp = client.post(
+        "/api/resolve",
+        json={"name": "SMX", "country": "US", "use_ai": False, "max_candidates": 6},
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["count"] == 1
+    assert body["candidates"][0]["legal_name"] == "SMX LLC"
+    assert body["resolution"]["status"] in {"recommended", "disabled", "ambiguous"}
 
 
 def test_feedback_endpoint_rejects_unknown_run(client):
