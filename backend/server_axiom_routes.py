@@ -156,6 +156,8 @@ def register_axiom_routes(*, app, require_auth, db):
                 provider=body.get("provider", "anthropic"),
                 model=body.get("model", "claude-sonnet-4-6"),
                 user_id=user_id,
+                provider_locked="provider" in body,
+                model_locked="model" in body,
             )
 
             if result.error:
@@ -216,6 +218,8 @@ def register_axiom_routes(*, app, require_auth, db):
                 provider=body.get("provider", "anthropic"),
                 model=body.get("model", "claude-sonnet-4-6"),
                 user_id=user_id,
+                provider_locked="provider" in body,
+                model_locked="model" in body,
             )
 
             if result.error:
@@ -264,7 +268,7 @@ def register_axiom_routes(*, app, require_auth, db):
         """
         try:
             from axiom_extractor import extract_from_text
-            from ai_analysis import get_ai_config
+            from axiom_agent import resolve_runtime_ai_credentials
 
             body = request.get_json(silent=True) or {}
             content = body.get("content", "").strip()
@@ -274,15 +278,13 @@ def register_axiom_routes(*, app, require_auth, db):
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
 
             # Resolve API key
-            api_key = ""
-            provider = body.get("provider", "anthropic")
-            model = body.get("model", "claude-sonnet-4-6")
-            if user_id:
-                config = get_ai_config(user_id)
-                if config:
-                    api_key = config.get("api_key", "")
-                    provider = config.get("provider", provider)
-                    model = config.get("model", model)
+            provider, model, api_key = resolve_runtime_ai_credentials(
+                user_id=user_id,
+                provider=body.get("provider", "anthropic"),
+                model=body.get("model", "claude-sonnet-4-6"),
+                provider_locked="provider" in body,
+                model_locked="model" in body,
+            )
 
             result = extract_from_text(
                 content=content,
@@ -331,7 +333,7 @@ def register_axiom_routes(*, app, require_auth, db):
         """
         try:
             from axiom_extractor import extract_from_job_postings
-            from ai_analysis import get_ai_config
+            from axiom_agent import resolve_runtime_ai_credentials
 
             body = request.get_json(silent=True) or {}
             postings = body.get("postings", [])
@@ -340,15 +342,13 @@ def register_axiom_routes(*, app, require_auth, db):
 
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
 
-            api_key = ""
-            provider = body.get("provider", "anthropic")
-            model = body.get("model", "claude-sonnet-4-6")
-            if user_id:
-                config = get_ai_config(user_id)
-                if config:
-                    api_key = config.get("api_key", "")
-                    provider = config.get("provider", provider)
-                    model = config.get("model", model)
+            provider, model, api_key = resolve_runtime_ai_credentials(
+                user_id=user_id,
+                provider=body.get("provider", "anthropic"),
+                model=body.get("model", "claude-sonnet-4-6"),
+                provider_locked="provider" in body,
+                model_locked="model" in body,
+            )
 
             result = extract_from_job_postings(
                 postings=postings,

@@ -26,6 +26,7 @@ and make judgments about what's worth pursuing.
 
 import json
 import logging
+import os
 import re
 import time
 import urllib.request
@@ -53,6 +54,18 @@ SCRAPE_DELAY = 2.0          # Seconds between scraper calls
 LLM_TIMEOUT = 30            # Seconds for LLM API calls
 DEFAULT_PROVIDER = "anthropic"
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+_ENV_PROVIDER_KEYS: dict[str, tuple[str, ...]] = {
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+}
+
+_FALLBACK_PROVIDER_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-4o",
+    "gemini": "gemini-1.5-pro",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +141,79 @@ class AgentResult:
 # ---------------------------------------------------------------------------
 # LLM interaction
 # ---------------------------------------------------------------------------
+
+def _default_model_for_provider(provider: str) -> str:
+    normalized = str(provider or "").strip().lower() or DEFAULT_PROVIDER
+    try:
+        from ai_analysis import PROVIDERS
+
+        config = PROVIDERS.get(normalized)
+        if config and getattr(config, "default_model", ""):
+            return config.default_model
+    except Exception:
+        pass
+    return _FALLBACK_PROVIDER_MODELS.get(normalized, DEFAULT_MODEL)
+
+
+def _env_api_key_for_provider(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    for env_var in _ENV_PROVIDER_KEYS.get(normalized, ()):
+        value = os.environ.get(env_var, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def resolve_runtime_ai_credentials(
+    *,
+    user_id: str = "",
+    provider: str = DEFAULT_PROVIDER,
+    model: str = DEFAULT_MODEL,
+    api_key: str = "",
+    provider_locked: bool = False,
+    model_locked: bool = False,
+) -> tuple[str, str, str]:
+    """Resolve runtime LLM credentials from explicit args, stored config, then env fallback."""
+    resolved_provider = str(provider or DEFAULT_PROVIDER).strip().lower() or DEFAULT_PROVIDER
+    resolved_model = str(model or "").strip() or _default_model_for_provider(resolved_provider)
+    resolved_api_key = str(api_key or "").strip()
+
+    if resolved_api_key:
+        return resolved_provider, resolved_model, resolved_api_key
+
+    if user_id:
+        try:
+            from ai_analysis import get_ai_config
+
+            config = get_ai_config(user_id)
+            if config and config.get("api_key"):
+                return (
+                    str(config.get("provider") or resolved_provider).strip().lower() or resolved_provider,
+                    str(config.get("model") or resolved_model).strip() or resolved_model,
+                    str(config.get("api_key") or "").strip(),
+                )
+        except Exception as e:
+            logger.warning("axiom_agent: could not retrieve AI config: %s", e)
+
+    env_api_key = _env_api_key_for_provider(resolved_provider)
+    if env_api_key:
+        return resolved_provider, resolved_model, env_api_key
+
+    if not provider_locked:
+        for fallback_provider in _ENV_PROVIDER_KEYS:
+            if fallback_provider == resolved_provider:
+                continue
+            fallback_key = _env_api_key_for_provider(fallback_provider)
+            if not fallback_key:
+                continue
+            fallback_model = (
+                resolved_model
+                if model_locked and resolved_model
+                else _default_model_for_provider(fallback_provider)
+            )
+            return fallback_provider, fallback_model, fallback_key
+
+    return resolved_provider, resolved_model, ""
 
 def _call_llm(prompt: str, system: str = "", provider: str = DEFAULT_PROVIDER,
               model: str = DEFAULT_MODEL, api_key: str = "",
@@ -592,7 +678,8 @@ def _run_web_search(query: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_PROVIDER,
-              model: str = DEFAULT_MODEL, user_id: str = "") -> AgentResult:
+              model: str = DEFAULT_MODEL, user_id: str = "",
+              provider_locked: bool = False, model_locked: bool = False) -> AgentResult:
     """
     Execute the AXIOM agentic search loop.
 
@@ -615,17 +702,14 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     result = AgentResult(target=target)
     start = datetime.now(timezone.utc)
 
-    # Resolve API key
-    if not api_key and user_id:
-        try:
-            from ai_analysis import get_ai_config
-            config = get_ai_config(user_id)
-            if config:
-                api_key = config.get("api_key", "")
-                provider = config.get("provider", provider)
-                model = config.get("model", model)
-        except Exception as e:
-            logger.warning("axiom_agent: could not retrieve AI config: %s", e)
+    provider, model, api_key = resolve_runtime_ai_credentials(
+        user_id=user_id,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        provider_locked=provider_locked,
+        model_locked=model_locked,
+    )
 
     if not api_key:
         result.error = "No API key available. Configure AI provider in settings or pass api_key."

@@ -1222,6 +1222,7 @@ export function FrontPorchLanding({
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
   const hasThreadDepth = messages.length > INITIAL_MESSAGES.length || candidateChoices.length > 0 || Boolean(vehicleArtifact || vendorArtifact || errorText);
   const hasArtifactStage = Boolean(vehicleArtifact || vendorArtifact);
+  const isDisambiguatingEntity = candidateChoices.length > 0;
   const pressureThreadOptions = useMemo(() => pressureOptionsForSession(session), [session]);
   const activeBriefView = useMemo<FrontPorchBriefViewModel | null>(() => {
     if (activeBriefKind === "vendor" && vendorArtifact) {
@@ -1232,6 +1233,16 @@ export function FrontPorchLanding({
     }
     return null;
   }, [activeBriefKind, session, vendorArtifact, vehicleArtifact]);
+  const roomStatusText = isDisambiguatingEntity
+    ? "AXIOM is narrowing the entity in frame."
+    : isWorking
+      ? PROGRESS_LINES[progressIndex]
+      : "AXIOM will ask only what it needs to start.";
+  const composerSupportText = isDisambiguatingEntity
+    ? "Pick the right entity or ask one separating question. AXIOM will stay on the same thread."
+    : isWorking
+      ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
+      : "You can be messy. AXIOM will narrow it from there and ask only what changes the work.";
 
   const appendMessage = useCallback((role: MessageRole, content: string) => {
     setMessages((current) => [...current, { id: nextId(role), role, content }]);
@@ -2234,8 +2245,8 @@ export function FrontPorchLanding({
                 <div style={{ fontSize: FS.caption, color: T.textTertiary, letterSpacing: "0.12em", textTransform: "uppercase" }}>
                   AXIOM
                 </div>
-                <div style={{ fontSize: FS.sm, color: isWorking ? T.accent : T.textSecondary }}>
-                  {isWorking ? PROGRESS_LINES[progressIndex] : "AXIOM will ask only what it needs to start."}
+                <div style={{ fontSize: FS.sm, color: isWorking || isDisambiguatingEntity ? T.accent : T.textSecondary }}>
+                  {roomStatusText}
                 </div>
               </div>
 
@@ -2419,9 +2430,7 @@ export function FrontPorchLanding({
                 <div style={{ display: "flex", flexDirection: isCompactViewport ? "column" : "row", alignItems: isCompactViewport ? "stretch" : "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
                     <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                      {isWorking
-                        ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
-                        : "You can be messy. AXIOM will narrow it from there and ask only what changes the work."}
+                      {composerSupportText}
                     </div>
                     {threadScrollState.canScrollDown ? (
                       <button
@@ -2476,6 +2485,24 @@ export function FrontPorchLanding({
 
             {candidateChoices.length > 0 ? (
               <div style={{ width: "min(760px, 100%)", display: "grid", gap: SP.sm }}>
+                <div
+                  style={{
+                    borderRadius: 18,
+                    border: `1px solid ${T.border}`,
+                    background: `${T.surface}`,
+                    padding: PAD.comfortable,
+                    display: "grid",
+                    gap: SP.xs,
+                  }}
+                >
+                  <SectionEyebrow>Entity narrowing</SectionEyebrow>
+                  <div style={{ fontSize: FS.base, color: T.text, fontWeight: 700 }}>
+                    AXIOM has a few plausible entities in frame.
+                  </div>
+                  <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.65 }}>
+                    Pick one, or ask a separating question like “are any of these related?” or “which one looks most like the contractor?”
+                  </div>
+                </div>
                 {candidateChoices.map((candidate) => (
                   <button
                     key={candidate.candidate_id || candidate.legal_name}
