@@ -123,6 +123,39 @@ KG_PROVENANCE_SCHEMA_SQL = """
         FOREIGN KEY (claim_id) REFERENCES kg_claims(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS kg_graph_staging (
+        id TEXT PRIMARY KEY,
+        proposal_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'staged',
+        entity_id TEXT,
+        source_entity_id TEXT,
+        target_entity_id TEXT,
+        relationship_id TEXT,
+        rel_type TEXT,
+        annotation_type TEXT,
+        flag_type TEXT,
+        severity TEXT,
+        proposed_confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+        source_tier TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL DEFAULT '',
+        reasoning TEXT NOT NULL DEFAULT '',
+        evidence JSONB NOT NULL DEFAULT '[]',
+        supporting_claim_ids JSONB NOT NULL DEFAULT '[]',
+        structured_fields JSONB NOT NULL DEFAULT '{}',
+        vendor_id TEXT,
+        proposed_by_agent_id TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        reviewed_at TIMESTAMP,
+        reviewed_by TEXT,
+        review_outcome TEXT,
+        review_notes TEXT,
+        FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE SET NULL,
+        FOREIGN KEY (source_entity_id) REFERENCES kg_entities(id) ON DELETE SET NULL,
+        FOREIGN KEY (target_entity_id) REFERENCES kg_entities(id) ON DELETE SET NULL,
+        FOREIGN KEY (proposed_by_agent_id) REFERENCES kg_asserting_agents(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_kg_entities_name ON kg_entities(canonical_name);
     CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(entity_type);
     CREATE INDEX IF NOT EXISTS idx_kg_entities_country ON kg_entities(country);
@@ -135,6 +168,10 @@ KG_PROVENANCE_SCHEMA_SQL = """
     CREATE INDEX IF NOT EXISTS idx_kg_claims_rel_type ON kg_claims(rel_type);
     CREATE INDEX IF NOT EXISTS idx_kg_claims_vendor ON kg_claims(vendor_id);
     CREATE INDEX IF NOT EXISTS idx_kg_evidence_claim ON kg_evidence(claim_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_status ON kg_graph_staging(status);
+    CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_type ON kg_graph_staging(proposal_type);
+    CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_vendor ON kg_graph_staging(vendor_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_entity ON kg_graph_staging(entity_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_relationships_unique
         ON kg_relationships(
             source_entity_id,

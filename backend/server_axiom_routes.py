@@ -32,13 +32,27 @@ def register_axiom_routes(*, app, require_auth, db):
 
     def _build_local_axiom_fallback(*, target, vendor_id: str = "", error: str = "", include_ingestion: bool = False):
         graph_context = {}
+        graph_toolkit = {}
         try:
             if vendor_id:
                 from ai_analysis import _sanitize_graph_context
+                from axiom_graph_interface import (
+                    graph_anomalies,
+                    graph_community,
+                    graph_neighborhood,
+                    graph_profile,
+                )
 
                 graph_context = _sanitize_graph_context(vendor_id) or {}
+                graph_toolkit = {
+                    "profile": graph_profile(vendor_id=vendor_id, workflow_lane="counterparty"),
+                    "neighborhood": graph_neighborhood(vendor_id=vendor_id, depth=1, workflow_lane="counterparty"),
+                    "community": graph_community(vendor_id=vendor_id),
+                    "anomalies": graph_anomalies(vendor_id=vendor_id, workflow_lane="counterparty"),
+                }
         except Exception:
             graph_context = {}
+            graph_toolkit = {}
 
         entities = [
             {
@@ -205,6 +219,8 @@ def register_axiom_routes(*, app, require_auth, db):
                 "reason": error or "No external provider key available in dev mode.",
             },
         }
+        if graph_toolkit:
+            response["graph_interrogation"] = graph_toolkit
         if include_ingestion:
             response["kg_ingestion"] = {
                 "entities_created": 0,
@@ -285,6 +301,264 @@ def register_axiom_routes(*, app, require_auth, db):
         except Exception as exc:
             logger.warning("axiom_routes: Neo4j sync queue failed: %s", exc)
             return {"status": "failed", "error": str(exc)}
+
+    def _graph_body() -> dict:
+        body = request.get_json(silent=True)
+        return body if isinstance(body, dict) else {}
+
+    def _graph_mission_context(body: dict) -> dict | None:
+        mission_context = body.get("mission_context")
+        return mission_context if isinstance(mission_context, dict) else None
+
+    def _graph_workflow_lane(body: dict) -> str:
+        return str(body.get("workflow_lane") or body.get("lane") or "counterparty").strip()
+
+    # -------------------------------------------------------------------
+    # AXIOM Graph Interrogation and Staged Writeback
+    # -------------------------------------------------------------------
+
+    @app.route("/api/axiom/graph/profile", methods=["POST"])
+    @require_auth("screen:read")
+    def api_axiom_graph_profile():
+        try:
+            from axiom_graph_interface import graph_profile
+
+            body = _graph_body()
+            payload = graph_profile(
+                entity_id=str(body.get("entity_id") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                workflow_lane=_graph_workflow_lane(body),
+                mission_context=_graph_mission_context(body),
+            )
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph profile failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/neighborhood", methods=["POST"])
+    @require_auth("screen:read")
+    def api_axiom_graph_neighborhood():
+        try:
+            from axiom_graph_interface import graph_neighborhood
+
+            body = _graph_body()
+            rel_types = body.get("rel_types")
+            payload = graph_neighborhood(
+                entity_id=str(body.get("entity_id") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                depth=int(body.get("depth") or 1),
+                rel_types=rel_types if isinstance(rel_types, (list, tuple)) else None,
+                workflow_lane=_graph_workflow_lane(body),
+                mission_context=_graph_mission_context(body),
+            )
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph neighborhood failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/path", methods=["POST"])
+    @require_auth("screen:read")
+    def api_axiom_graph_path():
+        try:
+            from axiom_graph_interface import graph_path
+
+            body = _graph_body()
+            source_id = str(body.get("source_id") or body.get("source") or "").strip()
+            target_id = str(body.get("target_id") or body.get("target") or "").strip()
+            if not source_id or not target_id:
+                return jsonify({"error": "Both source_id and target_id are required"}), 400
+            payload = graph_path(source_id, target_id, max_depth=int(body.get("max_depth") or 4))
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph path failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/community", methods=["POST"])
+    @require_auth("screen:read")
+    def api_axiom_graph_community():
+        try:
+            from axiom_graph_interface import graph_community
+
+            body = _graph_body()
+            payload = graph_community(
+                entity_id=str(body.get("entity_id") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+            )
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph community failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/anomalies", methods=["POST"])
+    @require_auth("screen:read")
+    def api_axiom_graph_anomalies():
+        try:
+            from axiom_graph_interface import graph_anomalies
+
+            body = _graph_body()
+            payload = graph_anomalies(
+                entity_id=str(body.get("entity_id") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                workflow_lane=_graph_workflow_lane(body),
+                mission_context=_graph_mission_context(body),
+            )
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph anomalies failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/assert", methods=["POST"])
+    @require_auth("cases:enrich")
+    def api_axiom_graph_assert():
+        try:
+            from axiom_graph_interface import graph_assert
+
+            body = _graph_body()
+            source_entity_id = str(body.get("source_entity_id") or "").strip()
+            target_entity_id = str(body.get("target_entity_id") or "").strip()
+            rel_type = str(body.get("rel_type") or "").strip()
+            if not source_entity_id or not target_entity_id or not rel_type:
+                return jsonify({"error": "source_entity_id, target_entity_id, and rel_type are required"}), 400
+            payload = graph_assert(
+                source_entity_id,
+                target_entity_id,
+                rel_type,
+                confidence=float(body.get("confidence") or 0.0),
+                evidence=body.get("evidence") if isinstance(body.get("evidence"), list) else None,
+                source_tier=str(body.get("source_tier") or ""),
+                reasoning=str(body.get("reasoning") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                supporting_claim_ids=body.get("supporting_claim_ids") if isinstance(body.get("supporting_claim_ids"), list) else None,
+                structured_fields=body.get("structured_fields") if isinstance(body.get("structured_fields"), dict) else None,
+                proposed_by=body.get("proposed_by") if isinstance(body.get("proposed_by"), dict) else None,
+            )
+            return jsonify({"status": "ok", "summary_text": "Graph assertion staged for validation.", "structured_payload": payload}), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph assert failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/annotate", methods=["POST"])
+    @require_auth("cases:enrich")
+    def api_axiom_graph_annotate():
+        try:
+            from axiom_graph_interface import graph_annotate
+
+            body = _graph_body()
+            entity_id = str(body.get("entity_id") or "").strip()
+            annotation_type = str(body.get("annotation_type") or "").strip()
+            content = str(body.get("content") or "").strip()
+            if not entity_id or not annotation_type or not content:
+                return jsonify({"error": "entity_id, annotation_type, and content are required"}), 400
+            payload = graph_annotate(
+                entity_id,
+                annotation_type,
+                content,
+                confidence=float(body.get("confidence") or 0.0),
+                reasoning=str(body.get("reasoning") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                structured_fields=body.get("structured_fields") if isinstance(body.get("structured_fields"), dict) else None,
+                proposed_by=body.get("proposed_by") if isinstance(body.get("proposed_by"), dict) else None,
+            )
+            return jsonify({"status": "ok", "summary_text": "Graph annotation staged for validation.", "structured_payload": payload}), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph annotate failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/flag", methods=["POST"])
+    @require_auth("cases:enrich")
+    def api_axiom_graph_flag():
+        try:
+            from axiom_graph_interface import graph_flag
+
+            body = _graph_body()
+            entity_id = str(body.get("entity_id") or "").strip()
+            flag_type = str(body.get("flag_type") or "").strip()
+            severity = str(body.get("severity") or "").strip()
+            reasoning = str(body.get("reasoning") or "").strip()
+            if not entity_id or not flag_type or not severity or not reasoning:
+                return jsonify({"error": "entity_id, flag_type, severity, and reasoning are required"}), 400
+            payload = graph_flag(
+                entity_id,
+                flag_type,
+                severity,
+                reasoning,
+                confidence=float(body.get("confidence") or 0.0),
+                vendor_id=str(body.get("vendor_id") or ""),
+                structured_fields=body.get("structured_fields") if isinstance(body.get("structured_fields"), dict) else None,
+                proposed_by=body.get("proposed_by") if isinstance(body.get("proposed_by"), dict) else None,
+            )
+            return jsonify({"status": "ok", "summary_text": "Graph flag staged for validation.", "structured_payload": payload}), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph flag failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/update-confidence", methods=["POST"])
+    @require_auth("cases:enrich")
+    def api_axiom_graph_update_confidence():
+        try:
+            from axiom_graph_interface import graph_update_confidence
+
+            body = _graph_body()
+            relationship_id = str(body.get("relationship_id") or "").strip()
+            if not relationship_id:
+                return jsonify({"error": "relationship_id is required"}), 400
+            payload = graph_update_confidence(
+                relationship_id,
+                float(body.get("new_confidence") if body.get("new_confidence") is not None else body.get("confidence") or 0.0),
+                evidence=body.get("evidence") if isinstance(body.get("evidence"), list) else None,
+                reasoning=str(body.get("reasoning") or ""),
+                vendor_id=str(body.get("vendor_id") or ""),
+                supporting_claim_ids=body.get("supporting_claim_ids") if isinstance(body.get("supporting_claim_ids"), list) else None,
+                structured_fields=body.get("structured_fields") if isinstance(body.get("structured_fields"), dict) else None,
+                proposed_by=body.get("proposed_by") if isinstance(body.get("proposed_by"), dict) else None,
+            )
+            return jsonify({"status": "ok", "summary_text": "Confidence update staged for validation.", "structured_payload": payload}), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph update confidence failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/staging", methods=["GET"])
+    @require_auth("screen:read")
+    def api_axiom_graph_staging():
+        try:
+            from axiom_graph_interface import graph_staging_queue
+
+            payload = graph_staging_queue(
+                status=str(request.args.get("status", "staged") or ""),
+                proposal_type=str(request.args.get("proposal_type", "") or ""),
+                vendor_id=str(request.args.get("vendor_id", "") or ""),
+                limit=int(request.args.get("limit", 50) or 50),
+            )
+            return jsonify(payload), 200
+        except Exception as exc:
+            logger.exception("axiom_routes: graph staging list failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/axiom/graph/staging/<staging_id>/review", methods=["POST"])
+    @require_auth("cases:enrich")
+    def api_axiom_graph_staging_review(staging_id: str):
+        try:
+            from axiom_graph_interface import graph_review_staging
+
+            body = _graph_body()
+            outcome = str(body.get("review_outcome") or body.get("outcome") or "").strip()
+            if not outcome:
+                return jsonify({"error": "review_outcome is required"}), 400
+            reviewed_by = ""
+            if getattr(g, "user", None):
+                reviewed_by = str(g.user.get("email") or g.user.get("sub") or "").strip()
+            payload = graph_review_staging(
+                staging_id,
+                review_outcome=outcome,
+                reviewed_by=reviewed_by,
+                review_notes=str(body.get("review_notes") or body.get("notes") or ""),
+            )
+            return jsonify(payload), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            logger.exception("axiom_routes: graph staging review failed: %s", exc)
+            return jsonify({"error": str(exc)}), 500
 
     # -------------------------------------------------------------------
     # Tier 2: Agentic Search
@@ -813,4 +1087,4 @@ def register_axiom_routes(*, app, require_auth, db):
         all_ok = all(status.values())
         return jsonify({"status": "ok" if all_ok else "degraded", "components": status}), 200
 
-    logger.info("axiom_routes: registered %d AXIOM API endpoints", 10)
+    logger.info("axiom_routes: registered %d AXIOM API endpoints", 21)

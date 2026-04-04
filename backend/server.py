@@ -5548,7 +5548,7 @@ def api_graph_centrality():
 @app.route("/api/graph/analytics/communities")
 @require_auth("screen:read")
 def api_graph_communities():
-    """Detect communities in the knowledge graph using label propagation."""
+    """Detect communities in the knowledge graph using the strongest available engine."""
     if not HAS_GRAPH_ANALYTICS:
         return jsonify({"error": "Graph analytics module not available"}), 501
 

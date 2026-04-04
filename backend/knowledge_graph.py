@@ -194,6 +194,39 @@ def init_kg_db():
                 FOREIGN KEY (claim_id) REFERENCES kg_claims(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS kg_graph_staging (
+                id TEXT PRIMARY KEY,
+                proposal_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'staged',
+                entity_id TEXT,
+                source_entity_id TEXT,
+                target_entity_id TEXT,
+                relationship_id TEXT,
+                rel_type TEXT,
+                annotation_type TEXT,
+                flag_type TEXT,
+                severity TEXT,
+                proposed_confidence REAL NOT NULL DEFAULT 0.0,
+                source_tier TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL DEFAULT '',
+                reasoning TEXT NOT NULL DEFAULT '',
+                evidence JSON NOT NULL DEFAULT '[]',
+                supporting_claim_ids JSON NOT NULL DEFAULT '[]',
+                structured_fields JSON NOT NULL DEFAULT '{}',
+                vendor_id TEXT,
+                proposed_by_agent_id TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                reviewed_at TEXT,
+                reviewed_by TEXT,
+                review_outcome TEXT,
+                review_notes TEXT,
+                FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE SET NULL,
+                FOREIGN KEY (source_entity_id) REFERENCES kg_entities(id) ON DELETE SET NULL,
+                FOREIGN KEY (target_entity_id) REFERENCES kg_entities(id) ON DELETE SET NULL,
+                FOREIGN KEY (proposed_by_agent_id) REFERENCES kg_asserting_agents(id) ON DELETE SET NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_kg_entities_name
                 ON kg_entities(canonical_name);
             CREATE INDEX IF NOT EXISTS idx_kg_entities_type
@@ -220,6 +253,14 @@ def init_kg_db():
                 ON kg_claims(vendor_id);
             CREATE INDEX IF NOT EXISTS idx_kg_evidence_claim
                 ON kg_evidence(claim_id);
+            CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_status
+                ON kg_graph_staging(status);
+            CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_type
+                ON kg_graph_staging(proposal_type);
+            CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_vendor
+                ON kg_graph_staging(vendor_id);
+            CREATE INDEX IF NOT EXISTS idx_kg_graph_staging_entity
+                ON kg_graph_staging(entity_id);
         """)
 
         # Migrate existing databases: add risk_level and sanctions_exposure columns
@@ -685,6 +726,406 @@ def _aggregate_relationships(rel_rows: list[sqlite3.Row | dict]) -> list[dict]:
         entry["data_sources"].sort()
         entry["evidence_summary"] = " | ".join(entry["evidence_snippets"][:3])
     return list(grouped.values())
+
+
+def _ensure_graph_agent(
+    conn: sqlite3.Connection,
+    *,
+    label: str,
+    agent_type: str = "agentic_analysis",
+    metadata: dict | None = None,
+    agent_id: str = "",
+) -> str:
+    resolved_metadata = metadata or {}
+    resolved_id = agent_id or _stable_hash(
+        agent_type,
+        label,
+        json.dumps(resolved_metadata, sort_keys=True),
+        prefix="agent",
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO kg_asserting_agents (id, label, agent_type, metadata)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            resolved_id,
+            label,
+            agent_type,
+            _json_dumps(resolved_metadata, {}),
+        ),
+    )
+    return resolved_id
+
+
+def _stage_graph_proposal(
+    *,
+    proposal_type: str,
+    entity_id: str = "",
+    source_entity_id: str = "",
+    target_entity_id: str = "",
+    relationship_id: str = "",
+    rel_type: str = "",
+    annotation_type: str = "",
+    flag_type: str = "",
+    severity: str = "",
+    proposed_confidence: float = 0.0,
+    source_tier: str = "",
+    content: str = "",
+    reasoning: str = "",
+    evidence: list[dict] | list[str] | None = None,
+    supporting_claim_ids: list[str] | None = None,
+    structured_fields: dict | None = None,
+    vendor_id: str = "",
+    proposed_by: dict | None = None,
+) -> dict:
+    init_kg_db()
+    now = _utc_now()
+    normalized_evidence = [item for item in (evidence or []) if isinstance(item, (dict, str))]
+    normalized_claim_ids = [str(item).strip() for item in (supporting_claim_ids or []) if str(item).strip()]
+    normalized_fields = structured_fields or {}
+
+    with get_kg_conn() as conn:
+        agent_payload = proposed_by or {
+            "label": "AXIOM Graph Interface",
+            "agent_type": "agentic_analysis",
+            "metadata": {"proposal_type": proposal_type},
+        }
+        agent_id = _ensure_graph_agent(
+            conn,
+            label=str(agent_payload.get("label") or "AXIOM Graph Interface"),
+            agent_type=str(agent_payload.get("agent_type") or "agentic_analysis"),
+            metadata=agent_payload.get("metadata") if isinstance(agent_payload.get("metadata"), dict) else {},
+            agent_id=str(agent_payload.get("id") or ""),
+        )
+        staging_id = _stable_hash(
+            proposal_type,
+            entity_id,
+            source_entity_id,
+            target_entity_id,
+            relationship_id,
+            rel_type,
+            annotation_type,
+            flag_type,
+            severity,
+            content,
+            reasoning,
+            vendor_id,
+            json.dumps(normalized_fields, sort_keys=True),
+            prefix="kgstage",
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO kg_graph_staging (
+                id,
+                proposal_type,
+                status,
+                entity_id,
+                source_entity_id,
+                target_entity_id,
+                relationship_id,
+                rel_type,
+                annotation_type,
+                flag_type,
+                severity,
+                proposed_confidence,
+                source_tier,
+                content,
+                reasoning,
+                evidence,
+                supporting_claim_ids,
+                structured_fields,
+                vendor_id,
+                proposed_by_agent_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, 'staged', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                staging_id,
+                proposal_type,
+                entity_id or None,
+                source_entity_id or None,
+                target_entity_id or None,
+                relationship_id or None,
+                rel_type or None,
+                annotation_type or None,
+                flag_type or None,
+                severity or None,
+                max(0.0, min(float(proposed_confidence or 0.0), 1.0)),
+                source_tier or "",
+                content or "",
+                reasoning or "",
+                _json_dumps(normalized_evidence, []),
+                _json_dumps(normalized_claim_ids, []),
+                _json_dumps(normalized_fields, {}),
+                vendor_id or None,
+                agent_id,
+                now,
+                now,
+            ),
+        )
+
+    return {
+        "staging_id": staging_id,
+        "proposal_type": proposal_type,
+        "status": "staged",
+        "entity_id": entity_id,
+        "source_entity_id": source_entity_id,
+        "target_entity_id": target_entity_id,
+        "relationship_id": relationship_id,
+        "rel_type": rel_type,
+        "annotation_type": annotation_type,
+        "flag_type": flag_type,
+        "severity": severity,
+        "proposed_confidence": round(max(0.0, min(float(proposed_confidence or 0.0), 1.0)), 4),
+        "source_tier": source_tier or "",
+        "vendor_id": vendor_id or "",
+        "created_at": now,
+    }
+
+
+def graph_assert(
+    source_entity_id: str,
+    target_entity_id: str,
+    rel_type: str,
+    *,
+    confidence: float,
+    evidence: list[dict] | list[str] | None = None,
+    source_tier: str = "",
+    reasoning: str = "",
+    vendor_id: str = "",
+    supporting_claim_ids: list[str] | None = None,
+    proposed_by: dict | None = None,
+    structured_fields: dict | None = None,
+) -> dict:
+    return _stage_graph_proposal(
+        proposal_type="assert",
+        source_entity_id=str(source_entity_id or "").strip(),
+        target_entity_id=str(target_entity_id or "").strip(),
+        rel_type=str(rel_type or "").strip(),
+        proposed_confidence=confidence,
+        source_tier=source_tier,
+        reasoning=reasoning,
+        evidence=evidence,
+        vendor_id=vendor_id,
+        supporting_claim_ids=supporting_claim_ids,
+        proposed_by=proposed_by,
+        structured_fields=structured_fields,
+    )
+
+
+def graph_annotate(
+    entity_id: str,
+    annotation_type: str,
+    content: str,
+    *,
+    confidence: float = 0.0,
+    reasoning: str = "",
+    vendor_id: str = "",
+    proposed_by: dict | None = None,
+    structured_fields: dict | None = None,
+) -> dict:
+    return _stage_graph_proposal(
+        proposal_type="annotate",
+        entity_id=str(entity_id or "").strip(),
+        annotation_type=str(annotation_type or "").strip(),
+        content=str(content or "").strip(),
+        proposed_confidence=confidence,
+        reasoning=reasoning,
+        vendor_id=vendor_id,
+        proposed_by=proposed_by,
+        structured_fields=structured_fields,
+    )
+
+
+def graph_flag(
+    entity_id: str,
+    flag_type: str,
+    severity: str,
+    reasoning: str,
+    *,
+    confidence: float = 0.0,
+    vendor_id: str = "",
+    proposed_by: dict | None = None,
+    structured_fields: dict | None = None,
+) -> dict:
+    return _stage_graph_proposal(
+        proposal_type="flag",
+        entity_id=str(entity_id or "").strip(),
+        flag_type=str(flag_type or "").strip(),
+        severity=str(severity or "").strip(),
+        reasoning=str(reasoning or "").strip(),
+        proposed_confidence=confidence,
+        vendor_id=vendor_id,
+        proposed_by=proposed_by,
+        structured_fields=structured_fields,
+    )
+
+
+def graph_update_confidence(
+    relationship_id: str | int,
+    new_confidence: float,
+    *,
+    evidence: list[dict] | list[str] | None = None,
+    reasoning: str = "",
+    vendor_id: str = "",
+    supporting_claim_ids: list[str] | None = None,
+    proposed_by: dict | None = None,
+    structured_fields: dict | None = None,
+) -> dict:
+    return _stage_graph_proposal(
+        proposal_type="update_confidence",
+        relationship_id=str(relationship_id or "").strip(),
+        proposed_confidence=new_confidence,
+        reasoning=reasoning,
+        evidence=evidence,
+        vendor_id=vendor_id,
+        supporting_claim_ids=supporting_claim_ids,
+        proposed_by=proposed_by,
+        structured_fields=structured_fields,
+    )
+
+
+def list_graph_staging(
+    *,
+    status: str = "staged",
+    proposal_type: str = "",
+    vendor_id: str = "",
+    limit: int = 50,
+) -> list[dict]:
+    predicates: list[str] = []
+    params: list[object] = []
+    if str(status or "").strip():
+        predicates.append("s.status = ?")
+        params.append(str(status).strip())
+    if str(proposal_type or "").strip():
+        predicates.append("s.proposal_type = ?")
+        params.append(str(proposal_type).strip())
+    if str(vendor_id or "").strip():
+        predicates.append("COALESCE(s.vendor_id, '') = ?")
+        params.append(str(vendor_id).strip())
+    where_clause = f"WHERE {' AND '.join(predicates)}" if predicates else ""
+
+    with get_kg_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                s.*,
+                a.label AS proposed_by_label,
+                a.agent_type AS proposed_by_type
+            FROM kg_graph_staging s
+            LEFT JOIN kg_asserting_agents a ON a.id = s.proposed_by_agent_id
+            {where_clause}
+            ORDER BY s.updated_at DESC, s.created_at DESC
+            LIMIT ?
+            """,
+            (*params, max(1, int(limit or 50))),
+        ).fetchall()
+    results = []
+    for row in rows:
+        results.append(
+            {
+                "staging_id": row["id"],
+                "proposal_type": row["proposal_type"],
+                "status": row["status"],
+                "entity_id": row["entity_id"] or "",
+                "source_entity_id": row["source_entity_id"] or "",
+                "target_entity_id": row["target_entity_id"] or "",
+                "relationship_id": row["relationship_id"] or "",
+                "rel_type": row["rel_type"] or "",
+                "annotation_type": row["annotation_type"] or "",
+                "flag_type": row["flag_type"] or "",
+                "severity": row["severity"] or "",
+                "proposed_confidence": float(row["proposed_confidence"] or 0.0),
+                "source_tier": row["source_tier"] or "",
+                "content": row["content"] or "",
+                "reasoning": row["reasoning"] or "",
+                "evidence": _json_loads(row["evidence"], []),
+                "supporting_claim_ids": _json_loads(row["supporting_claim_ids"], []),
+                "structured_fields": _json_loads(row["structured_fields"], {}),
+                "vendor_id": row["vendor_id"] or "",
+                "proposed_by": {
+                    "label": row["proposed_by_label"] or "",
+                    "agent_type": row["proposed_by_type"] or "",
+                },
+                "created_at": row["created_at"] or "",
+                "updated_at": row["updated_at"] or "",
+                "reviewed_at": row["reviewed_at"] or "",
+                "reviewed_by": row["reviewed_by"] or "",
+                "review_outcome": row["review_outcome"] or "",
+                "review_notes": row["review_notes"] or "",
+            }
+        )
+    return results
+
+
+def review_graph_staging_entry(
+    staging_id: str,
+    *,
+    review_outcome: str,
+    reviewed_by: str = "",
+    review_notes: str = "",
+) -> dict:
+    normalized_id = str(staging_id or "").strip()
+    if not normalized_id:
+        raise ValueError("staging_id is required")
+
+    normalized_outcome = str(review_outcome or "").strip().lower()
+    status_map = {
+        "promote": "reviewed_promoted",
+        "promoted": "reviewed_promoted",
+        "approve": "reviewed_promoted",
+        "approved": "reviewed_promoted",
+        "hold": "reviewed_hold",
+        "held": "reviewed_hold",
+        "needs_review": "reviewed_hold",
+        "reject": "reviewed_rejected",
+        "rejected": "reviewed_rejected",
+        "deny": "reviewed_rejected",
+        "denied": "reviewed_rejected",
+    }
+    if normalized_outcome not in status_map:
+        raise ValueError("review_outcome must be one of promote, hold, or reject")
+
+    now = _utc_now()
+    with get_kg_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM kg_graph_staging WHERE id = ?",
+            (normalized_id,),
+        ).fetchone()
+        if existing is None:
+            raise ValueError(f"Staging entry not found: {normalized_id}")
+
+        conn.execute(
+            """
+            UPDATE kg_graph_staging
+            SET
+                status = ?,
+                updated_at = ?,
+                reviewed_at = ?,
+                reviewed_by = ?,
+                review_outcome = ?,
+                review_notes = ?
+            WHERE id = ?
+            """,
+            (
+                status_map[normalized_outcome],
+                now,
+                now,
+                str(reviewed_by or "").strip(),
+                normalized_outcome,
+                str(review_notes or "").strip(),
+                normalized_id,
+            ),
+        )
+
+    reviewed = list_graph_staging(status="", proposal_type="", vendor_id="", limit=500)
+    for item in reviewed:
+        if item.get("staging_id") == normalized_id:
+            return item
+    raise ValueError(f"Unable to load reviewed staging entry: {normalized_id}")
 
 
 def _fetch_claim_records_for_relationship(

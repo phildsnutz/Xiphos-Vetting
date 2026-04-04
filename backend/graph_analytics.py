@@ -44,11 +44,36 @@ Usage:
 import heapq
 import logging
 import math
+import sys
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Optional
 
 from graph_ingest import annotate_graph_relationship_intelligence
+
+try:
+    import networkx as nx
+    from networkx.algorithms import community as nx_community
+except ImportError:  # pragma: no cover
+    nx = None
+    nx_community = None
+
+_matplotlib_import_blocked = False
+if "matplotlib" not in sys.modules:
+    # python-igraph eagerly touches drawing imports. In our runtime, an
+    # incompatible matplotlib wheel can poison Leiden import even though we do
+    # not render graphs server-side. Force the optional drawing path to no-op.
+    sys.modules["matplotlib"] = None
+    _matplotlib_import_blocked = True
+try:
+    import igraph as ig
+    import leidenalg
+except ImportError:  # pragma: no cover
+    ig = None
+    leidenalg = None
+finally:  # pragma: no branch
+    if _matplotlib_import_blocked and sys.modules.get("matplotlib") is None:
+        del sys.modules["matplotlib"]
 
 logger = logging.getLogger(__name__)
 
@@ -471,23 +496,146 @@ class GraphAnalytics:
     # 2. COMMUNITY DETECTION
     # -------------------------------------------------------------------
 
-    def detect_communities(self, max_iterations: int = 50) -> dict:
-        """
-        Label propagation community detection.
+    def _community_nx_graph(self):
+        self._ensure_loaded()
+        if nx is None:
+            return None
+        graph = nx.Graph()
+        for nid in self.nodes:
+            graph.add_node(nid)
+        for edge in self.edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if not source or not target or source == target:
+                continue
+            weight = self._edge_strength(edge)
+            if graph.has_edge(source, target):
+                graph[source][target]["weight"] += weight
+            else:
+                graph.add_edge(source, target, weight=weight)
+        return graph
 
-        Each node starts with its own label, then iteratively adopts
-        the most common label among its neighbors (weighted by edge confidence).
+    def _finalize_community_result(self, community_members: list[set[str]], *, modularity: float, algorithm: str) -> dict:
+        ordered_sets = sorted(
+            [set(members) for members in community_members if members],
+            key=lambda members: (-len(members), sorted(members)),
+        )
+        node_labels: dict[str, str] = {}
+        enriched_communities: dict[str, dict] = {}
 
-        Returns: {
-            "communities": {community_id: [entity_ids]},
-            "node_labels": {entity_id: community_id},
-            "count": int,
-            "modularity": float
+        for idx, members in enumerate(ordered_sets):
+            label = f"community_{idx}"
+            member_data = []
+            bridge_candidates: list[dict] = []
+            internal_edge_count = 0
+            for mid in sorted(members):
+                node = self.nodes.get(mid, {})
+                member_data.append(
+                    {
+                        "id": mid,
+                        "name": node.get("canonical_name", ""),
+                        "type": node.get("entity_type", ""),
+                        "confidence": node.get("confidence", 0),
+                    }
+                )
+                node_labels[mid] = label
+                neighbors = self.adj.get(mid, [])
+                internal_neighbors = 0
+                external_neighbors = 0
+                for neighbor, eidx in neighbors:
+                    if neighbor in members:
+                        internal_neighbors += 1
+                        if mid < neighbor:
+                            internal_edge_count += 1
+                    else:
+                        external_neighbors += 1
+                if external_neighbors:
+                    bridge_candidates.append(
+                        {
+                            "id": mid,
+                            "name": node.get("canonical_name", ""),
+                            "type": node.get("entity_type", ""),
+                            "cross_community_edges": external_neighbors,
+                            "internal_edges": internal_neighbors,
+                        }
+                    )
+
+            possible_edges = max((len(members) * (len(members) - 1)) / 2.0, 1.0)
+            density = round(internal_edge_count / possible_edges, 4) if len(members) > 1 else 1.0
+            bridge_candidates.sort(
+                key=lambda item: (-int(item["cross_community_edges"]), -int(item["internal_edges"]), str(item["name"]))
+            )
+            enriched_communities[label] = {
+                "members": member_data,
+                "size": len(members),
+                "types": sorted({self.nodes.get(m, {}).get("entity_type", "") for m in members if self.nodes.get(m)}),
+                "density": density,
+                "bridge_entities": bridge_candidates[:5],
+            }
+
+        return {
+            "communities": enriched_communities,
+            "node_labels": node_labels,
+            "count": len(enriched_communities),
+            "modularity": round(float(modularity or 0.0), 4),
+            "algorithm": algorithm,
         }
-        """
+
+    def _detect_communities_leiden(self) -> dict | None:
+        if ig is None or leidenalg is None:
+            return None
         self._ensure_loaded()
         if not self.nodes:
-            return {"communities": {}, "node_labels": {}, "count": 0, "modularity": 0.0}
+            return {"communities": {}, "node_labels": {}, "count": 0, "modularity": 0.0, "algorithm": "leiden"}
+
+        node_ids = list(self.nodes.keys())
+        node_index = {node_id: idx for idx, node_id in enumerate(node_ids)}
+        graph = ig.Graph()
+        graph.add_vertices(len(node_ids))
+        graph.vs["name"] = node_ids
+        edge_weights: dict[tuple[int, int], float] = defaultdict(float)
+        for edge in self.edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if source not in node_index or target not in node_index or source == target:
+                continue
+            left = node_index[source]
+            right = node_index[target]
+            key = (left, right) if left < right else (right, left)
+            edge_weights[key] += self._edge_strength(edge)
+        if edge_weights:
+            graph.add_edges(list(edge_weights.keys()))
+            graph.es["weight"] = list(edge_weights.values())
+        partition = leidenalg.find_partition(
+            graph,
+            leidenalg.ModularityVertexPartition,
+            weights=graph.es["weight"] if graph.ecount() else None,
+            seed=42,
+        )
+        community_sets = [{node_ids[index] for index in community} for community in partition]
+        return self._finalize_community_result(
+            community_sets,
+            modularity=float(getattr(partition, "modularity", 0.0) or 0.0),
+            algorithm="leiden",
+        )
+
+    def _detect_communities_louvain(self) -> dict | None:
+        if nx is None or nx_community is None or not hasattr(nx_community, "louvain_communities"):
+            return None
+        graph = self._community_nx_graph()
+        if graph is None:
+            return None
+        if graph.number_of_nodes() == 0:
+            return {"communities": {}, "node_labels": {}, "count": 0, "modularity": 0.0, "algorithm": "louvain"}
+        communities = nx_community.louvain_communities(graph, weight="weight", seed=42)
+        modularity = nx_community.modularity(graph, communities, weight="weight") if communities else 0.0
+        return self._finalize_community_result([set(group) for group in communities], modularity=modularity, algorithm="louvain")
+
+    def _detect_communities_label_propagation(self, max_iterations: int = 50) -> dict:
+        """Weighted label propagation fallback when stronger community engines are unavailable."""
+        self._ensure_loaded()
+        if not self.nodes:
+            return {"communities": {}, "node_labels": {}, "count": 0, "modularity": 0.0, "algorithm": "label_propagation"}
 
         # Initialize: each node is its own community
         labels = {nid: nid for nid in self.nodes}
@@ -521,10 +669,9 @@ class GraphAnalytics:
             if not changed:
                 break
 
-        # Group into communities
-        communities = defaultdict(list)
+        communities = defaultdict(set)
         for nid, label in labels.items():
-            communities[label].append(nid)
+            communities[label].add(nid)
 
         # Compute modularity (quality metric for community structure)
         m = len(self.edges) or 1
@@ -539,30 +686,35 @@ class GraphAnalytics:
                         modularity += 1.0 - (ki * kj) / (2.0 * m)
         modularity /= (2.0 * m)
 
-        # Enrich community data
-        enriched_communities = {}
-        for label, members in communities.items():
-            member_data = []
-            for mid in members:
-                node = self.nodes.get(mid, {})
-                member_data.append({
-                    "id": mid,
-                    "name": node.get("canonical_name", ""),
-                    "type": node.get("entity_type", ""),
-                    "confidence": node.get("confidence", 0),
-                })
-            enriched_communities[label] = {
-                "members": member_data,
-                "size": len(members),
-                "types": list(set(self.nodes.get(m, {}).get("entity_type", "") for m in members)),
-            }
+        return self._finalize_community_result(
+            list(communities.values()),
+            modularity=modularity,
+            algorithm="label_propagation",
+        )
 
-        return {
-            "communities": enriched_communities,
-            "node_labels": labels,
-            "count": len(communities),
-            "modularity": round(modularity, 4),
-        }
+    def detect_communities(self, max_iterations: int = 50, algorithm: str = "auto") -> dict:
+        """
+        Detect communities using the strongest available algorithm.
+
+        Order:
+          1. Leiden when `igraph` + `leidenalg` are installed
+          2. NetworkX Louvain fallback
+          3. Weighted label propagation fallback
+        """
+        requested = str(algorithm or "auto").strip().lower()
+        if requested in {"auto", "leiden"}:
+            leiden_result = self._detect_communities_leiden()
+            if leiden_result is not None:
+                return leiden_result
+            if requested == "leiden":
+                logger.warning("graph_analytics: Leiden requested but igraph/leidenalg unavailable, falling back")
+        if requested in {"auto", "louvain"}:
+            louvain_result = self._detect_communities_louvain()
+            if louvain_result is not None:
+                return louvain_result
+            if requested == "louvain":
+                logger.warning("graph_analytics: Louvain requested but networkx support unavailable, falling back")
+        return self._detect_communities_label_propagation(max_iterations=max_iterations)
 
     # -------------------------------------------------------------------
     # 3. PATH ANALYSIS
