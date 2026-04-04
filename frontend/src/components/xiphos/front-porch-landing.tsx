@@ -232,11 +232,181 @@ function compactText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const ENTITY_NOISE_WORDS = new Set([
+  "inc",
+  "incorporated",
+  "corp",
+  "corporation",
+  "company",
+  "co",
+  "llc",
+  "ltd",
+  "limited",
+  "plc",
+  "lp",
+  "llp",
+  "gmbh",
+  "ag",
+  "sa",
+  "srl",
+  "bv",
+  "nv",
+  "public",
+]);
+
 function cleanEntityFragment(value: string) {
   return compactText(value)
     .replace(/^[,:;\-\s]+/, "")
     .replace(/[?.,]+$/, "")
     .trim();
+}
+
+function normalizeCandidateName(value: string) {
+  return compactText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token && !ENTITY_NOISE_WORDS.has(token))
+    .join(" ");
+}
+
+function candidateChoiceIndexWord(index: number) {
+  return ["first", "second", "third", "fourth"][index] || `${index + 1}th`;
+}
+
+function describeCandidateForDisambiguation(candidate: EntityCandidate) {
+  const details: string[] = [];
+  if (candidate.ticker) {
+    details.push(`public company with ticker ${candidate.ticker}`);
+  }
+  if (candidate.uei) {
+    details.push(`registered entity with UEI ${candidate.uei}`);
+  }
+  if (candidate.cage) {
+    details.push(`CAGE ${candidate.cage}`);
+  }
+  if (candidate.country) {
+    details.push(candidate.country === "US" || candidate.country === "USA" ? "US entity" : `${candidate.country} entity`);
+  }
+  if (candidate.source === "local_vendor_memory") {
+    details.push("already in Helios vendor memory");
+  }
+  return details.slice(0, 2).join(", ");
+}
+
+function inferCandidateRelationshipAnswer(candidates: EntityCandidate[]) {
+  if (candidates.length < 2) {
+    return "I only have one plausible entity in frame, so there is no disambiguation problem left.";
+  }
+
+  const groups = new Map<string, EntityCandidate[]>();
+  for (const candidate of candidates) {
+    const key = normalizeCandidateName(candidate.legal_name || "");
+    if (!key) continue;
+    const existing = groups.get(key) || [];
+    existing.push(candidate);
+    groups.set(key, existing);
+  }
+
+  const duplicateGroups = [...groups.values()].filter((group) => group.length > 1);
+  const duplicateLine = duplicateGroups.length > 0
+    ? `Two of these look like the same entity written in slightly different forms: ${duplicateGroups[0].map((candidate) => candidate.legal_name).join(" and ")}.`
+    : "";
+
+  const publicCandidate = candidates.find((candidate) => Boolean(candidate.ticker));
+  const servicesCandidate = candidates.find((candidate) => /services|consulting|tech|systems|solutions/i.test(candidate.legal_name || ""));
+  const localMemoryCandidate = candidates.find((candidate) => candidate.source === "local_vendor_memory");
+
+  if (localMemoryCandidate) {
+    return `${duplicateLine ? `${duplicateLine} ` : ""}${localMemoryCandidate.legal_name} is the one already anchored in Helios memory, so that is the strongest working candidate unless you meant a different entity.`;
+  }
+
+  if (publicCandidate && servicesCandidate && publicCandidate.legal_name !== servicesCandidate.legal_name) {
+    return `${duplicateLine ? `${duplicateLine} ` : ""}I do not have evidence that ${publicCandidate.legal_name} and ${servicesCandidate.legal_name} are the same company. The ticker-based public company looks separate from the services contractor naming.`;
+  }
+
+  if (duplicateLine) {
+    return `${duplicateLine} I do not have evidence yet that the remaining names are part of the same ownership chain.`;
+  }
+
+  return "Not from what I can support yet. These look like distinct plausible entities, not one clean company family.";
+}
+
+function recommendCandidateFromChoices(
+  candidates: EntityCandidate[],
+  session: IntakeSession,
+): { candidate: EntityCandidate | null; rationale: string | null } {
+  const localMemoryCandidate = candidates.find((candidate) => candidate.source === "local_vendor_memory");
+  if (localMemoryCandidate) {
+    return {
+      candidate: localMemoryCandidate,
+      rationale: `${localMemoryCandidate.legal_name} is already in Helios vendor memory, so it is the strongest working candidate.`,
+    };
+  }
+
+  const contractorCandidate = candidates.find((candidate) =>
+    Boolean(candidate.uei || candidate.cage) ||
+    /services|consulting|systems|solutions|defense|federal|technology|tech/i.test(candidate.legal_name || ""),
+  );
+  if (contractorCandidate) {
+    return {
+      candidate: contractorCandidate,
+      rationale: `${contractorCandidate.legal_name} looks most like the operating contractor rather than a public-market or registry-adjacent name.`,
+    };
+  }
+
+  const priorityCandidate = candidates.find((candidate) => {
+    const name = candidate.legal_name || "";
+    if (session.priorityFocus === "ownership") return Boolean(candidate.ticker || candidate.cik || candidate.lei);
+    if (session.priorityFocus === "teammate_network") return /services|consulting|systems|solutions/i.test(name);
+    return false;
+  });
+  if (priorityCandidate) {
+    return {
+      candidate: priorityCandidate,
+      rationale: `${priorityCandidate.legal_name} is the cleanest fit for the edge you asked me to weight first.`,
+    };
+  }
+
+  return { candidate: candidates[0] || null, rationale: null };
+}
+
+function matchCandidateChoiceFromText(text: string, candidates: EntityCandidate[]) {
+  const lower = text.toLowerCase();
+  const ordinalMap = ["first", "second", "third", "fourth"];
+  for (let index = 0; index < Math.min(candidates.length, ordinalMap.length); index += 1) {
+    if (lower.includes(ordinalMap[index]) || lower === String(index + 1) || lower.includes(`option ${index + 1}`)) {
+      return candidates[index];
+    }
+  }
+
+  for (const candidate of candidates) {
+    const legalName = candidate.legal_name || "";
+    if (!legalName) continue;
+    if (lower.includes(legalName.toLowerCase())) {
+      return candidate;
+    }
+    if (candidate.ticker && lower.includes(candidate.ticker.toLowerCase())) {
+      return candidate;
+    }
+    if (candidate.uei && lower.includes(candidate.uei.toLowerCase())) {
+      return candidate;
+    }
+    const normalized = normalizeCandidateName(legalName);
+    if (normalized && lower.includes(normalized)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function isCandidateRelationshipQuestion(text: string) {
+  return /\b(related|same company|same entity|same organization|connected|duplicates?|the same)\b/i.test(text);
+}
+
+function isCandidateRecommendationQuestion(text: string) {
+  return /\b(which one|which of these|what should i pick|what should i choose|which is the right one|which looks like|which seems like|best match)\b/i.test(text);
 }
 
 function cutBeforeCue(value: string, cues: RegExp[]) {
@@ -1395,6 +1565,53 @@ export function FrontPorchLanding({
     await startCaseCreation(candidate, session);
   }, [appendMessage, resolution, session, startCaseCreation]);
 
+  const handleCandidateDisambiguationTurn = useCallback(async (text: string) => {
+    if (candidateChoices.length === 0) return false;
+
+    const matchedCandidate = matchCandidateChoiceFromText(text, candidateChoices);
+    if (matchedCandidate) {
+      await handleCandidateChoice(matchedCandidate);
+      return true;
+    }
+
+    if (isCandidateRelationshipQuestion(text)) {
+      const relationshipAnswer = inferCandidateRelationshipAnswer(candidateChoices);
+      const recommendation = recommendCandidateFromChoices(candidateChoices, session);
+      appendMessage(
+        "axiom",
+        recommendation.candidate
+          ? `${relationshipAnswer} If you want me to keep moving, the strongest working candidate is ${recommendation.candidate.legal_name}.`
+          : relationshipAnswer,
+      );
+      return true;
+    }
+
+    if (isCandidateRecommendationQuestion(text)) {
+      const recommendation = recommendCandidateFromChoices(candidateChoices, session);
+      if (recommendation.candidate) {
+        const rationale = recommendation.rationale
+          ? `${recommendation.rationale} `
+          : "";
+        const descriptor = describeCandidateForDisambiguation(recommendation.candidate);
+        appendMessage(
+          "axiom",
+          `${rationale}${descriptor ? `That one reads as ${descriptor}. ` : ""}If that is the one you mean, say its name or pick the ${candidateChoiceIndexWord(
+            candidateChoices.indexOf(recommendation.candidate),
+          )} option.`,
+        );
+      } else {
+        appendMessage("axiom", "I do not have a clean recommendation yet. Give me one fact that separates the entity you mean from the others.");
+      }
+      return true;
+    }
+
+    appendMessage(
+      "axiom",
+      "I still need the right entity in frame. Pick one of the candidates or give me one fact that separates the one you mean from the others.",
+    );
+    return true;
+  }, [appendMessage, candidateChoices, handleCandidateChoice, session]);
+
   const startVendorFlow = useCallback(async (nextSession: IntakeSession) => {
     const name = compactText(nextSession.vendorName || "");
     if (!name) {
@@ -1624,6 +1841,12 @@ export function FrontPorchLanding({
 
     setLastUserInput(text);
     appendMessage("user", text);
+
+    if (candidateChoices.length > 0) {
+      await handleCandidateDisambiguationTurn(text);
+      return;
+    }
+
     resetArtifacts();
 
     const nextSession = { ...session };
@@ -1648,7 +1871,7 @@ export function FrontPorchLanding({
     }
 
     await decideVendorNext(text, nextSession);
-  }, [askFollowUp, decideVehicleNext, decideVendorNext, isWorking, resetArtifacts, session]);
+  }, [appendMessage, askFollowUp, candidateChoices.length, decideVehicleNext, decideVendorNext, handleCandidateDisambiguationTurn, isWorking, resetArtifacts, session]);
 
   const submitDraft = useCallback(async () => {
     const text = draft.trim();
