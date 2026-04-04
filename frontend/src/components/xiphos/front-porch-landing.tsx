@@ -51,6 +51,7 @@ interface IntakeSession {
 
 interface VendorArtifact {
   caseId: string;
+  phase: "warming" | "ready";
   title: string;
   eyebrow: string;
   framing: string;
@@ -99,6 +100,9 @@ function inferObjectType(value: string): ObjectType | null {
   }
   if (/\b[A-Z]{2,}[ -]?\d{1,3}[A-Z0-9-]*\b/.test(value) || /\b[A-Z]\d+[A-Z0-9-]{2,}\b/.test(value)) {
     return "vehicle";
+  }
+  if (/\b(read on|assessment on|screen|trust read|trust|partner with|team with|teammate|competitive read|compete against|vendor assessment)\b/.test(lower)) {
+    return "vendor";
   }
   if (/\b(vendor|supplier|teammate|partner|prime|subcontractor|company)\b/.test(lower)) {
     return "vendor";
@@ -317,6 +321,7 @@ function buildVendorArtifact(
 
   return {
     caseId,
+    phase,
     title: subject,
     eyebrow: phase === "ready" ? "Returned brief" : "Working brief",
     framing: phase === "ready"
@@ -468,6 +473,7 @@ export function FrontPorchLanding({
 
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
   const hasThreadDepth = messages.length > INITIAL_MESSAGES.length || candidateChoices.length > 0 || Boolean(vehicleArtifact || vendorArtifact || errorText);
+  const hasArtifactStage = Boolean(vehicleArtifact || vendorArtifact);
 
   const appendMessage = useCallback((role: MessageRole, content: string) => {
     setMessages((current) => [...current, { id: nextId(role), role, content }]);
@@ -827,6 +833,10 @@ export function FrontPorchLanding({
   const shellBackground = `radial-gradient(circle at 18% 20%, ${T.accent}${O["12"]}, transparent 28%), radial-gradient(circle at 82% 18%, ${T.statusQualified}${O["12"]}, transparent 22%), linear-gradient(180deg, ${T.bg} 0%, #06080c 100%)`;
 
   const openArtifactDossier = useCallback(async (caseId: string) => {
+    if (vendorArtifact?.phase !== "ready" || vendorArtifact.caseId !== caseId) {
+      appendMessage("axiom", "The dossier is still warming. Let me finish the returned brief before I hand you the full artifact.");
+      return;
+    }
     if (loginRequired) {
       appendMessage("axiom", "Sign in and I’ll open the returned dossier in the same thread.");
       onRequestLogin?.();
@@ -846,7 +856,7 @@ export function FrontPorchLanding({
     } finally {
       setOpeningDossierFor(null);
     }
-  }, [appendMessage, loginRequired, onRequestLogin]);
+  }, [appendMessage, loginRequired, onRequestLogin, vendorArtifact]);
 
   return (
     <div
@@ -1093,9 +1103,9 @@ export function FrontPorchLanding({
                 padding: isCompactViewport ? PAD.comfortable : PAD.spacious,
                 display: "grid",
                 gap: SP.lg,
-                position: hasThreadDepth && !isCompactViewport ? "sticky" : "relative",
-                top: hasThreadDepth && !isCompactViewport ? SP.lg : undefined,
-                zIndex: hasThreadDepth && !isCompactViewport ? 6 : undefined,
+                position: hasThreadDepth && !isCompactViewport && !hasArtifactStage ? "sticky" : "relative",
+                top: hasThreadDepth && !isCompactViewport && !hasArtifactStage ? SP.lg : undefined,
+                zIndex: hasThreadDepth && !isCompactViewport && !hasArtifactStage ? 6 : undefined,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
@@ -1437,24 +1447,25 @@ export function FrontPorchLanding({
                       <button
                         type="button"
                         onClick={() => { void openArtifactDossier(vendorArtifact.caseId); }}
-                        disabled={openingDossierFor === vendorArtifact.caseId}
+                        disabled={vendorArtifact.phase !== "ready" || openingDossierFor === vendorArtifact.caseId}
                         className="helios-focus-ring"
                         style={{
                           border: "none",
-                          background: T.textInverse,
-                          color: T.text,
+                          background: vendorArtifact.phase === "ready" ? T.textInverse : "rgba(7,16,26,0.12)",
+                          color: vendorArtifact.phase === "ready" ? T.text : T.textSecondary,
                           borderRadius: 999,
                           padding: "11px 16px",
-                          cursor: openingDossierFor === vendorArtifact.caseId ? "default" : "pointer",
+                          cursor: vendorArtifact.phase === "ready" && openingDossierFor !== vendorArtifact.caseId ? "pointer" : "default",
                           fontSize: FS.sm,
                           fontWeight: 700,
                           display: "inline-flex",
                           alignItems: "center",
                           gap: SP.xs,
+                          opacity: vendorArtifact.phase === "ready" ? 1 : 0.82,
                         }}
                       >
-                        {openingDossierFor === vendorArtifact.caseId ? <Loader2 size={14} className="animate-spin" /> : null}
-                        Read dossier
+                        {openingDossierFor === vendorArtifact.caseId || vendorArtifact.phase !== "ready" ? <Loader2 size={14} className={openingDossierFor === vendorArtifact.caseId ? "animate-spin" : ""} /> : null}
+                        {vendorArtifact.phase === "ready" ? "Read dossier" : "Warming dossier"}
                       </button>
                     </>
                   }
