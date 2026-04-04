@@ -1142,9 +1142,75 @@ export interface DossierResult {
   updated_at: string;
 }
 
+export interface AxiomSearchResult {
+  status?: string;
+  iteration?: number;
+  entities?: Array<{
+    name: string;
+    entity_type?: string;
+    type?: string;
+    confidence?: number;
+  }>;
+  relationships?: Array<{
+    source_entity?: string;
+    source?: string;
+    target_entity?: string;
+    target?: string;
+    rel_type?: string;
+    relationship_type?: string;
+    confidence?: number;
+  }>;
+  intelligence_gaps?: Array<{
+    gap_type?: string;
+    description?: string;
+    confidence?: number;
+  }>;
+  advisory_opportunities?: Array<{
+    opportunity_type?: string;
+    description?: string;
+    priority?: string;
+  }>;
+  advisory?: Array<{
+    opportunity_type?: string;
+    description?: string;
+    priority?: string;
+  }>;
+  total_queries?: number;
+  total_connector_calls?: number;
+  elapsed_ms?: number;
+  kg_ingestion?: {
+    entities_created?: number;
+    relationships_created?: number;
+    claims_created?: number;
+    evidence_created?: number;
+  };
+  neo4j_sync?: {
+    status?: string;
+    job_id?: string;
+    status_url?: string | null;
+    reused_existing_job?: boolean;
+    error?: string;
+  };
+}
+
 export async function generateDossier(caseId: string): Promise<DossierResult> {
   return json<DossierResult>(`/api/cases/${caseId}/dossier`, {
     method: "POST",
+  });
+}
+
+export async function runAxiomSearchIngest(payload: {
+  prime_contractor: string;
+  vehicle_name?: string;
+  installation?: string;
+  context?: string;
+  vendor_id?: string;
+  provider?: "anthropic" | "openai";
+  model?: string;
+}): Promise<AxiomSearchResult> {
+  return json<AxiomSearchResult>("/api/axiom/search/ingest", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

@@ -838,8 +838,12 @@ export default function App() {
           <FrontPorchLanding
             cases={cases}
             loginRequired={Boolean(authRequired && !user)}
+            onOpenWarRoomIntent={(intent) => setWarRoomSeed(intent)}
             onRequestLogin={requestLogin}
             onNavigate={(nextTab) => {
+              if (nextTab !== "axiom") {
+                setWarRoomSeed(null);
+              }
               setSelected(null);
               setTab(nextTab as Tab);
             }}
@@ -855,9 +859,13 @@ export default function App() {
           />
         ) : warRoomMode ? (
           <WarRoom
+            seed={warRoomSeed}
             cases={cases}
             onNavigate={(nextTab) => {
               setSelected(null);
+              if (nextTab !== "axiom") {
+                setWarRoomSeed(null);
+              }
               setTab(nextTab as Tab);
             }}
             onOpenCase={(caseId) => {

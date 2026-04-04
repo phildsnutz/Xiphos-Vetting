@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown, ExternalLink, Loader2, MessageSquareText } from "lucide-react";
 import {
+  fetchCaseGraph,
+  fetchCaseNetworkRisk,
+  fetchEnrichment,
+  fetchSupplierPassport,
   buildProtectedUrl,
   createCase,
   generateDossier,
   resolveEntity,
+  runAxiomSearchIngest,
   searchContractVehicle,
   submitResolveFeedback,
+  type EnrichmentReport,
   type EntityCandidate,
   type EntityResolution,
+  type NetworkRiskResult,
+  type SupplierPassport,
   type VehicleSearchResult,
+  type CaseGraphData,
 } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { EnrichmentStream } from "./enrichment-stream";
@@ -81,6 +90,20 @@ interface VendorArtifact {
   }>;
   note: string;
   provenance: string[];
+}
+
+interface VendorBriefReadiness {
+  enrichment: EnrichmentReport | null;
+  passport: SupplierPassport | null;
+  graph: CaseGraphData | null;
+  networkRisk: NetworkRiskResult | null;
+  axiomGapClosure: {
+    status: "completed" | "skipped" | "failed";
+    entitiesFound: number;
+    relationshipsFound: number;
+    gapCount: number;
+    note: string;
+  } | null;
 }
 
 type ResumeIntent =
@@ -444,6 +467,120 @@ function buildVendorArtifact(
   };
 }
 
+function shouldPressureVendorReadiness(readiness: VendorBriefReadiness) {
+  const findingsTotal = readiness.enrichment?.summary?.findings_total ?? readiness.passport?.identity.findings_total ?? 0;
+  const connectorsWithData = readiness.enrichment?.summary?.connectors_with_data ?? readiness.passport?.identity.connectors_with_data ?? 0;
+  const relationshipCount = readiness.graph?.relationship_count ?? readiness.passport?.graph.relationship_count ?? 0;
+  const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
+  const thinGraph = Boolean(readiness.passport?.graph.intelligence?.thin_graph);
+
+  const thinSignals = [
+    findingsTotal < 2,
+    connectorsWithData < 2,
+    relationshipCount < 2,
+    thinGraph,
+    controlPathCount === 0,
+  ].filter(Boolean).length;
+
+  return thinSignals >= 2;
+}
+
+function buildGapClosureContext(
+  session: IntakeSession,
+  subject: string,
+  readiness: VendorBriefReadiness,
+) {
+  const context: string[] = [
+    `Front Porch returned brief warming for ${subject}.`,
+    "Work the full entity picture and close the thinnest public-data gap before the brief freezes.",
+  ];
+  const weightedFirst = humanizePriorityFocus(session.priorityFocus);
+  if (weightedFirst) {
+    context.push(`Weight ${weightedFirst} first.`);
+  }
+  if (session.vehicleName) {
+    context.push(`Vehicle context already in frame: ${session.vehicleName}.`);
+  }
+  const relationshipCount = readiness.graph?.relationship_count ?? readiness.passport?.graph.relationship_count ?? 0;
+  if (relationshipCount > 0) {
+    context.push(`Current graph already holds ${relationshipCount} relationship${relationshipCount === 1 ? "" : "s"}. Use those relationships to guide the next thread, not just the surface record.`);
+  }
+  const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
+  if (controlPathCount > 0) {
+    context.push(`There are ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"} already visible in the graph.`);
+  }
+  return context.join(" ");
+}
+
+function buildReturnedVendorArtifact(
+  session: IntakeSession,
+  caseId: string,
+  subject: string,
+  readiness: VendorBriefReadiness,
+): VendorArtifact {
+  const weightedFirst = humanizePriorityFocus(session.priorityFocus);
+  const findingsTotal = readiness.enrichment?.summary?.findings_total ?? readiness.passport?.identity.findings_total ?? 0;
+  const connectorsWithData = readiness.enrichment?.summary?.connectors_with_data ?? readiness.passport?.identity.connectors_with_data ?? 0;
+  const connectorsRun = readiness.enrichment?.summary?.connectors_run ?? 0;
+  const relationshipCount = readiness.graph?.relationship_count ?? readiness.passport?.graph.relationship_count ?? 0;
+  const controlPathCount = readiness.passport?.graph.control_paths.length ?? 0;
+  const networkRiskLevel = String(readiness.networkRisk?.network_risk_level || "").toUpperCase();
+  const graphIntelligence = readiness.passport?.graph.intelligence;
+  const dominantEdgeFamily = String(graphIntelligence?.dominant_edge_family || "").replace(/_/g, " ");
+  const gapClosure = readiness.axiomGapClosure;
+
+  const whatHolds = connectorsWithData > 0 || findingsTotal > 0
+    ? `${connectorsWithData} of ${connectorsRun || connectorsWithData} sources produced data and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} survived into the first picture.`
+    : "The public record stayed unusually thin, so the brief is carrying the strongest visible holds without pretending the surface picture is complete.";
+
+  const graphDetail = relationshipCount > 0
+    ? `${relationshipCount} graph relationship${relationshipCount === 1 ? "" : "s"} and ${controlPathCount} control path${controlPathCount === 1 ? "" : "s"} are now informing the brief${dominantEdgeFamily ? `, with ${dominantEdgeFamily} as the dominant edge family.` : "."}`
+    : "The graph is still thin enough that silence should not be treated as comfort.";
+
+  const gapDetail = gapClosure?.status === "completed"
+    ? `AXIOM ran a second pass against the weak edge and surfaced ${gapClosure.entitiesFound} entities, ${gapClosure.relationshipsFound} relationships, and ${gapClosure.gapCount} residual gap${gapClosure.gapCount === 1 ? "" : "s"}.`
+    : gapClosure?.status === "failed"
+      ? gapClosure.note
+      : "AXIOM did not need a second pass because the first picture already had enough structure to freeze the brief honestly.";
+
+  return {
+    caseId,
+    phase: "ready",
+    title: subject,
+    eyebrow: "Returned brief",
+    framing: gapClosure?.status === "completed"
+      ? "The returned brief is ready. AXIOM used enrichment, graph relationships, and a second gap-closing pass before freezing the picture."
+      : "The returned brief is ready. AXIOM used enrichment and the current graph relationships before freezing the picture.",
+    sections: [
+      {
+        label: "What holds",
+        detail: weightedFirst ? `${whatHolds} ${weightedFirst} stayed weighted first without shrinking the scope.` : whatHolds,
+        tone: findingsTotal > 0 ? "success" : "warning",
+      },
+      {
+        label: "Graph pressure",
+        detail: networkRiskLevel && networkRiskLevel !== "NONE"
+          ? `${graphDetail} Network risk is currently ${networkRiskLevel.toLowerCase().replace(/_/g, " ")}.`
+          : graphDetail,
+        tone: relationshipCount > 0 ? "info" : "warning",
+      },
+      {
+        label: "Gap closure",
+        detail: gapDetail,
+        tone: gapClosure?.status === "failed" ? "warning" : "neutral",
+      },
+    ],
+    note: gapClosure?.status === "completed"
+      ? "Read the clean narrative here. Step into War Room when you want to challenge what still stayed thin after the second pass."
+      : "Read the clean narrative here. Step into War Room when you want to challenge the weak edge directly.",
+    provenance: [
+      `${connectorsWithData} sources with data`,
+      relationshipCount > 0 ? `${relationshipCount} graph relationships` : "Graph still thin",
+      gapClosure?.status === "completed" ? "AXIOM second pass" : "Single-pass public picture",
+    ],
+  };
+}
+
 function pressureOptionsForSession(session: IntakeSession): PriorityFocus[] {
   if (session.objectType === "vehicle") {
     return [
@@ -735,7 +872,7 @@ export function FrontPorchLanding({
       if (!targetEntity) return null;
       return {
         targetEntity,
-        domainFocus: humanizePriorityFocus(session.priorityFocus) || "full entity picture",
+        domainFocus: humanizePriorityFocus(session.priorityFocus) || undefined,
         seedLabel: targetEntity,
         autoRun: Boolean(isWorking || vendorArtifact || workingCaseId),
       };
@@ -775,18 +912,95 @@ export function FrontPorchLanding({
     appendMessage("axiom", `Understood. I’ll weight ${lead} first while I work the full picture.`);
   }, [appendMessage, session, vendorArtifact]);
 
+  const loadVendorReadiness = useCallback(async (caseId: string): Promise<VendorBriefReadiness> => {
+    const [enrichmentResult, passportResult, graphResult, networkRiskResult] = await Promise.allSettled([
+      fetchEnrichment(caseId),
+      fetchSupplierPassport(caseId),
+      fetchCaseGraph(caseId, 2),
+      fetchCaseNetworkRisk(caseId),
+    ]);
+
+    return {
+      enrichment: enrichmentResult.status === "fulfilled" ? enrichmentResult.value : null,
+      passport: passportResult.status === "fulfilled" ? passportResult.value : null,
+      graph: graphResult.status === "fulfilled" ? graphResult.value : null,
+      networkRisk: networkRiskResult.status === "fulfilled" ? networkRiskResult.value : null,
+      axiomGapClosure: null,
+    };
+  }, []);
+
+  const runVendorGapClosure = useCallback(async (
+    caseId: string,
+    subject: string,
+    nextSession: IntakeSession,
+    readiness: VendorBriefReadiness,
+  ) => {
+    try {
+      const response = await runAxiomSearchIngest({
+        prime_contractor: subject,
+        vehicle_name: nextSession.vehicleName || undefined,
+        context: buildGapClosureContext(nextSession, subject, readiness),
+        vendor_id: caseId,
+      });
+      return {
+        status: "completed" as const,
+        entitiesFound: response.entities?.length ?? 0,
+        relationshipsFound: response.relationships?.length ?? 0,
+        gapCount: response.intelligence_gaps?.length ?? 0,
+        note: "AXIOM pressured the thinnest thread before the brief froze.",
+      };
+    } catch (error) {
+      const message = humanizeApiError(error, "The second AXIOM pass did not close the weak edge cleanly.");
+      return {
+        status: "failed" as const,
+        entitiesFound: 0,
+        relationshipsFound: 0,
+        gapCount: 0,
+        note: message,
+      };
+    }
+  }, []);
+
+  const hydrateReturnedVendorBrief = useCallback(async (
+    caseId: string,
+    nextSession: IntakeSession,
+    subjectOverride?: string,
+  ) => {
+    const subject = subjectOverride || nextSession.vendorName || "Vendor assessment";
+    let readiness = await loadVendorReadiness(caseId);
+    let gapClosureMessageSent = false;
+
+    if (shouldPressureVendorReadiness(readiness)) {
+      gapClosureMessageSent = true;
+      appendMessage("axiom", "The first pass is still thin. I’m using the graph and a second AXIOM pass to close the weakest gap before I freeze the brief.");
+      const gapClosure = await runVendorGapClosure(caseId, subject, nextSession, readiness);
+      readiness = {
+        ...(await loadVendorReadiness(caseId)),
+        axiomGapClosure: gapClosure,
+      };
+      if (gapClosure.status === "failed") {
+        appendMessage("axiom", "The second pass did not close the weak edge cleanly. I’m freezing the brief with the ambiguity explicit instead of bluffing past it.");
+      }
+    }
+
+    setIsWorking(false);
+    setVendorArtifact(buildReturnedVendorArtifact(nextSession, caseId, subject, readiness));
+    appendMessage(
+      "axiom",
+      gapClosureMessageSent && readiness.axiomGapClosure?.status === "completed"
+        ? "The returned brief is ready. I used the graph and a second AXIOM pass to tighten the weak edge before freezing it."
+        : "The returned brief is ready. Open it here, or step into War Room if you want to challenge the weak edge.",
+    );
+  }, [appendMessage, loadVendorReadiness, runVendorGapClosure]);
+
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
-    setIsWorking(false);
-    appendMessage("axiom", "The returned brief is ready. Open it here, or step into War Room if you want to challenge the weak edge.");
-    setVendorArtifact((current) => buildVendorArtifact(
-      null,
-      current?.title ? { ...session, vendorName: current.title } : session,
-      "ready",
+    void hydrateReturnedVendorBrief(
       workingCaseId,
-      current?.title,
-    ));
-  }, [appendMessage, session, workingCaseId]);
+      vendorArtifact?.title ? { ...session, vendorName: vendorArtifact.title } : session,
+      vendorArtifact?.title,
+    );
+  }, [hydrateReturnedVendorBrief, session, vendorArtifact, workingCaseId]);
 
   const startCaseCreation = useCallback(async (candidate: EntityCandidate | null) => {
     const payload = buildCasePayload(candidate, session);

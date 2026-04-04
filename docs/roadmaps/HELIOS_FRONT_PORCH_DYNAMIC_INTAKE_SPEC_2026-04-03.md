@@ -343,7 +343,7 @@ Important hidden dimensions include:
   - vehicle_dossier
   - vulnerability_analysis
   - teammate_assessment
-  - partner_screen
+  - teammate_fit
   - unknown
 - `lineage_state`
   - follow_on

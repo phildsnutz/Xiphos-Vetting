@@ -697,6 +697,7 @@ def get_latest_analysis(vendor_id: str, user_id: str = "", input_hash: str = "")
 
 def compute_analysis_fingerprint(vendor_data: dict, score_data: dict, enrichment_data: Optional[dict] = None) -> str:
     sanitized_enrichment = _sanitize_enrichment_data(enrichment_data) or {}
+    graph_context = _sanitize_graph_context(vendor_data.get("id"))
     payload = {
         "vendor": {
             "id": vendor_data.get("id"),
@@ -709,6 +710,7 @@ def compute_analysis_fingerprint(vendor_data: dict, score_data: dict, enrichment
             "calibrated": score_data.get("calibrated", {}),
         },
         "enrichment": sanitized_enrichment,
+        "graph": graph_context,
         "prompt_version": _ANALYSIS_PROMPT_VERSION,
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
@@ -742,6 +744,7 @@ KEY FINDINGS:
 {findings}
 
 {enrichment_section}
+{graph_section}
 
 Provide your analysis in the following JSON format:
 {{
@@ -823,6 +826,61 @@ def _sanitize_enrichment_data(enrichment_data: Optional[dict]) -> Optional[dict]
         return None
 
 
+def _sanitize_graph_context(vendor_id: object) -> dict:
+    normalized_vendor_id = str(vendor_id or "").strip()
+    if not normalized_vendor_id:
+        return {}
+
+    try:
+        from graph_ingest import get_vendor_graph_summary
+    except ImportError:
+        return {}
+
+    network_risk = {}
+    try:
+        from network_risk import compute_network_risk
+
+        network_risk = compute_network_risk(normalized_vendor_id) or {}
+    except Exception:
+        network_risk = {}
+
+    try:
+        summary = get_vendor_graph_summary(
+            normalized_vendor_id,
+            depth=2,
+            include_provenance=False,
+            max_claim_records=1,
+            max_evidence_records=1,
+        ) or {}
+    except Exception:
+        return {}
+
+    relationships = summary.get("relationships") if isinstance(summary.get("relationships"), list) else []
+    entities = summary.get("entities") if isinstance(summary.get("entities"), list) else []
+    intelligence = summary.get("intelligence") if isinstance(summary.get("intelligence"), dict) else {}
+    top_relationships = []
+    for rel in relationships[:3]:
+        if not isinstance(rel, dict):
+            continue
+        top_relationships.append({
+            "source": _sanitize_prompt_fragment(rel.get("source_name") or rel.get("source_entity_name") or rel.get("source_entity_id"), 80),
+            "target": _sanitize_prompt_fragment(rel.get("target_name") or rel.get("target_entity_name") or rel.get("target_entity_id"), 80),
+            "type": _sanitize_prompt_fragment(rel.get("rel_type") or "related_entity", 48),
+            "confidence": round(float(rel.get("confidence") or 0.0), 3),
+        })
+
+    return {
+        "entity_count": int(summary.get("entity_count") or len(entities) or 0),
+        "relationship_count": int(summary.get("relationship_count") or len(relationships) or 0),
+        "control_path_count": int(intelligence.get("control_path_count") or 0),
+        "thin_graph": bool(intelligence.get("thin_graph")),
+        "dominant_edge_family": _sanitize_prompt_fragment(intelligence.get("dominant_edge_family") or "", 48),
+        "top_relationships": top_relationships,
+        "network_risk_level": _sanitize_prompt_fragment(network_risk.get("network_risk_level") or "", 32),
+        "high_risk_neighbors": int(network_risk.get("high_risk_neighbors") or 0),
+    }
+
+
 def _build_prompt(vendor_data: dict, score_data: dict,
                   enrichment_data: Optional[dict] = None) -> str:
     """Build the analysis prompt from vendor and scoring data.
@@ -880,6 +938,25 @@ OSINT ENRICHMENT RESULTS:
 - Status: Enrichment data format error -- insufficient data for detailed analysis
 """
 
+    graph_context = _sanitize_graph_context(vendor_data.get("id"))
+    graph_section = ""
+    if graph_context:
+        try:
+            top_relationships = json.dumps(graph_context.get("top_relationships", []), indent=2)
+        except Exception:
+            top_relationships = "[]"
+        graph_section = f"""
+GRAPH RELATIONSHIP CONTEXT:
+- Entity Count: {graph_context.get('entity_count', 0)}
+- Relationship Count: {graph_context.get('relationship_count', 0)}
+- Control Paths: {graph_context.get('control_path_count', 0)}
+- Thin Graph: {"yes" if graph_context.get('thin_graph') else "no"}
+- Dominant Edge Family: {graph_context.get('dominant_edge_family') or "unknown"}
+- Network Risk: {graph_context.get('network_risk_level') or "unknown"}
+- High-Risk Neighbors: {graph_context.get('high_risk_neighbors', 0)}
+- Top Relationships: {top_relationships}
+"""
+
     return RISK_ANALYSIS_PROMPT.format(
         vendor_name=vendor_data.get("name", "Unknown"),
         country=vendor_data.get("country", "Unknown"),
@@ -894,6 +971,7 @@ OSINT ENRICHMENT RESULTS:
         contributions=contributions,
         findings=findings,
         enrichment_section=enrichment_section,
+        graph_section=graph_section,
     )
 
 

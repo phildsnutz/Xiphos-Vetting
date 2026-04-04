@@ -246,16 +246,17 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
 
   useEffect(() => {
     if (!seed?.targetEntity) return;
+    const nextDomainFocus = seed.domainFocus === "full entity picture" ? "" : seed.domainFocus || "";
     setTargetEntity(seed.targetEntity);
     setVehicleName(seed.vehicleName || "");
-    setDomainFocus(seed.domainFocus || "");
+    setDomainFocus(nextDomainFocus);
     setInstallation("");
     if (!seed.autoRun) return;
 
     const seedKey = JSON.stringify({
       targetEntity: seed.targetEntity,
       vehicleName: seed.vehicleName || "",
-      domainFocus: seed.domainFocus || "",
+      domainFocus: nextDomainFocus,
     });
     if (autoRunSeedKeyRef.current === seedKey) return;
     autoRunSeedKeyRef.current = seedKey;
@@ -271,7 +272,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
         const data = await runSearch(false, {
           targetEntity: seed.targetEntity,
           vehicleName: seed.vehicleName || "",
-          domainFocus: seed.domainFocus || "",
+          domainFocus: nextDomainFocus,
         });
         if (data) {
           setStatus(data.status || "AXIOM finished the first pass.");

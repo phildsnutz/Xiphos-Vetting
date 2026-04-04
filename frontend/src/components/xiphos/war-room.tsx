@@ -174,8 +174,11 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
     if (searchResults) {
       return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
     }
+    if (seed?.targetEntity) {
+      return "Front Porch brief warming";
+    }
     return "Awaiting a live brief";
-  }, [activeWatchEntries.length, alerts.length, criticalAlerts.length, mode, searchResults]);
+  }, [activeWatchEntries.length, alerts.length, criticalAlerts.length, mode, searchResults, seed]);
 
   const currentFrame = useMemo(() => {
     if (mode === "watch") {
@@ -242,7 +245,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
           : `I picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and I’m working the first public picture from there.`,
         follow: seed.domainFocus
           ? `I’m weighting ${seed.domainFocus} first unless you redirect me.`
-          : "Redirect me only if the first thread is wrong. Otherwise I’ll keep pulling from the current brief.",
+          : "Redirect me only if the first thread is wrong. Otherwise I’ll work the full picture from the current brief.",
       };
     }
 
@@ -450,6 +453,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
               <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
                 <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.04em" }}>Helios</div>
                 <StatusPill tone="info">War Room</StatusPill>
+                {seed?.targetEntity ? <StatusPill tone="neutral">Brief carried from Front Porch</StatusPill> : null}
               </div>
               <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, maxWidth: 760 }}>
                 {leadStatement}
