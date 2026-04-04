@@ -149,6 +149,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
   const [error, setError] = useState<string>("");
   const [isIngesting, setIsIngesting] = useState(false);
   const [autoIngest, setAutoIngest] = useState(true);
+  const [showExecutionControls, setShowExecutionControls] = useState(false);
 
   useHotkey("cmd+f", () => {
     targetInputRef.current?.focus();
@@ -246,6 +247,13 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
     void handleSearch();
   };
 
+  const collectionBrief = [
+    targetEntity.trim() ? `Target ${targetEntity.trim()}` : null,
+    vehicleName.trim() ? `Vehicle ${vehicleName.trim()}` : null,
+    installation.trim() ? `Installation ${installation.trim()}` : null,
+    domainFocus.trim() ? `Context ${domainFocus.trim()}` : null,
+  ].filter(Boolean);
+
   return (
     <div
       className="flex flex-col gap-4 rounded-lg"
@@ -307,6 +315,15 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
             Prime, suspected teammate, sub, or entity that still carries dark space in the dossier.
           </div>
         </div>
+
+        {collectionBrief.length > 0 ? (
+          <InlineMessage
+            tone="info"
+            title="Collection brief"
+            message={collectionBrief.join(" • ")}
+            icon={Search}
+          />
+        ) : null}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -402,110 +419,151 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="autoIngestCheckbox"
-            checked={autoIngest}
-            onChange={(e) => setAutoIngest(e.target.checked)}
-            disabled={isRunning}
-            aria-label="Auto-ingest AXIOM results to knowledge graph"
+        <div
+          style={{
+            borderTop: `1px solid ${T.border}`,
+            paddingTop: SP.sm,
+            display: "flex",
+            flexDirection: "column",
+            gap: SP.sm,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowExecutionControls((current) => !current)}
+            className="helios-focus-ring"
+            aria-label={showExecutionControls ? "Hide AXIOM execution controls" : "Show AXIOM execution controls"}
+            aria-expanded={showExecutionControls}
             style={{
-              cursor: isRunning ? "not-allowed" : "pointer",
-              width: SP.lg,
-              height: SP.lg,
-            }}
-          />
-          <label
-            htmlFor="autoIngestCheckbox"
-            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: SP.xs,
+              alignSelf: "flex-start",
+              borderRadius: 999,
+              border: `1px solid ${T.border}`,
+              background: T.surface,
+              color: T.textSecondary,
+              padding: "8px 12px",
               fontSize: FS.sm,
-              fontWeight: 500,
-              color: T.text,
-              cursor: isRunning ? "not-allowed" : "pointer",
+              fontWeight: 700,
+              cursor: "pointer",
             }}
           >
-            Auto-ingest to Knowledge Graph
-          </label>
-        </div>
+            {showExecutionControls ? "Hide" : "Show"} execution controls
+          </button>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: FS.sm,
-                fontWeight: 500,
-                color: T.muted,
-                marginBottom: SP.sm,
-              }}
+          {showExecutionControls ? (
+            <div
+              className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3"
+              style={{ alignItems: "end" }}
             >
-              Provider
-            </label>
-            <select
-              value={provider}
-              onChange={(e) => {
-                const nextProvider = e.target.value as AxiomProvider;
-                setProvider(nextProvider);
-                setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4.1");
-              }}
-              disabled={isRunning}
-              aria-label="AXIOM provider"
-              className="w-full rounded border outline-none"
-              style={{
-                padding: PAD.default,
-                fontSize: FS.sm,
-                background: T.bg,
-                border: `1px solid ${T.border}`,
-                color: T.text,
-              }}
-            >
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </div>
-          <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: FS.sm,
-                fontWeight: 500,
-                color: T.muted,
-                marginBottom: SP.sm,
-              }}
-            >
-              Model
-            </label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              disabled={isRunning}
-              aria-label="AXIOM model"
-              className="w-full rounded border outline-none"
-              style={{
-                padding: PAD.default,
-                fontSize: FS.sm,
-                background: T.bg,
-                border: `1px solid ${T.border}`,
-                color: T.text,
-              }}
-            >
-              {provider === "anthropic" && (
-                <>
-                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                  <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                  <option value="claude-3-opus">Claude 3 Opus</option>
-                </>
-              )}
-              {provider === "openai" && (
-                <>
-                  <option value="gpt-4.1">GPT-4.1</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="gpt-4">GPT-4</option>
-                </>
-              )}
-            </select>
-          </div>
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: FS.sm,
+                    fontWeight: 500,
+                    color: T.muted,
+                    marginBottom: SP.sm,
+                  }}
+                >
+                  Provider
+                </label>
+                <select
+                  value={provider}
+                  onChange={(e) => {
+                    const nextProvider = e.target.value as AxiomProvider;
+                    setProvider(nextProvider);
+                    setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4.1");
+                  }}
+                  disabled={isRunning}
+                  aria-label="AXIOM provider"
+                  className="w-full rounded border outline-none"
+                  style={{
+                    padding: PAD.default,
+                    fontSize: FS.sm,
+                    background: T.bg,
+                    border: `1px solid ${T.border}`,
+                    color: T.text,
+                  }}
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: FS.sm,
+                    fontWeight: 500,
+                    color: T.muted,
+                    marginBottom: SP.sm,
+                  }}
+                >
+                  Model
+                </label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={isRunning}
+                  aria-label="AXIOM model"
+                  className="w-full rounded border outline-none"
+                  style={{
+                    padding: PAD.default,
+                    fontSize: FS.sm,
+                    background: T.bg,
+                    border: `1px solid ${T.border}`,
+                    color: T.text,
+                  }}
+                >
+                  {provider === "anthropic" && (
+                    <>
+                      <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                      <option value="claude-3-opus">Claude 3 Opus</option>
+                    </>
+                  )}
+                  {provider === "openai" && (
+                    <>
+                      <option value="gpt-4.1">GPT-4.1</option>
+                      <option value="gpt-4o">GPT-4o</option>
+                      <option value="gpt-4">GPT-4</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <label
+                htmlFor="autoIngestCheckbox"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: SP.sm,
+                  fontSize: FS.sm,
+                  fontWeight: 500,
+                  color: T.text,
+                  cursor: isRunning ? "not-allowed" : "pointer",
+                  minHeight: 40,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="autoIngestCheckbox"
+                  checked={autoIngest}
+                  onChange={(e) => setAutoIngest(e.target.checked)}
+                  disabled={isRunning}
+                  aria-label="Auto-ingest AXIOM results to knowledge graph"
+                  style={{
+                    cursor: isRunning ? "not-allowed" : "pointer",
+                    width: SP.lg,
+                    height: SP.lg,
+                  }}
+                />
+                Auto-ingest to graph
+              </label>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -569,7 +627,7 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
           >
             {[
               { label: "Entities", value: results.entities.length },
-              { label: "Relationships", value: results.relationships.length },
+              { label: "Leads", value: results.relationships.length },
               { label: "Queries", value: results.totalQueries },
               { label: "Elapsed", value: formatMillis(results.elapsedMs) },
             ].map((item) => (
@@ -581,6 +639,54 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
               </div>
             ))}
           </div>
+
+          {results.intelligenceGaps.length > 0 && (
+            <div>
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
+                Remaining gaps ({results.intelligenceGaps.length})
+              </h4>
+              <div className="space-y-2">
+                {results.intelligenceGaps.slice(0, 4).map((gap, index) => (
+                  <div
+                    key={`${gap.gap_type}-${index}`}
+                    className="rounded"
+                    style={{ background: `${T.amber}${O["08"]}`, border: `1px solid ${T.amber}${O["20"]}`, padding: PAD.default }}
+                  >
+                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.amber }}>
+                      {gap.gap_type}
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
+                      {gap.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {results.advisory.length > 0 && (
+            <div>
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
+                Collection next steps ({results.advisory.length})
+              </h4>
+              <div className="space-y-2">
+                {results.advisory.map((advisory, index) => (
+                  <div
+                    key={`${advisory.opportunity_type}-${index}`}
+                    className="rounded"
+                    style={{ background: `${T.accent}${O["08"]}`, border: `1px solid ${T.accent}${O["20"]}`, padding: PAD.default }}
+                  >
+                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.accent }}>
+                      {advisory.opportunity_type}
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
+                      {advisory.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {results.kgIngestion && (
             <InlineMessage
@@ -643,54 +749,6 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
                     </div>
                     <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
                       {relationship.relationship_type}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {results.intelligenceGaps.length > 0 && (
-            <div>
-              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Remaining gaps ({results.intelligenceGaps.length})
-              </h4>
-              <div className="space-y-2">
-                {results.intelligenceGaps.slice(0, 4).map((gap, index) => (
-                  <div
-                    key={`${gap.gap_type}-${index}`}
-                    className="rounded"
-                    style={{ background: `${T.amber}${O["08"]}`, border: `1px solid ${T.amber}${O["20"]}`, padding: PAD.default }}
-                  >
-                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.amber }}>
-                      {gap.gap_type}
-                    </div>
-                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
-                      {gap.description}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {results.advisory.length > 0 && (
-            <div>
-              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
-                Collection next steps ({results.advisory.length})
-              </h4>
-              <div className="space-y-2">
-                {results.advisory.map((advisory, index) => (
-                  <div
-                    key={`${advisory.opportunity_type}-${index}`}
-                    className="rounded"
-                    style={{ background: `${T.accent}${O["08"]}`, border: `1px solid ${T.accent}${O["20"]}`, padding: PAD.default }}
-                  >
-                    <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.accent }}>
-                      {advisory.opportunity_type}
-                    </div>
-                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
-                      {advisory.description}
                     </div>
                   </div>
                 ))}
