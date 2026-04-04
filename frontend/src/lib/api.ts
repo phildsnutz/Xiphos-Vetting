@@ -131,6 +131,8 @@ export interface HealthStatus {
   osint_connector_count?: number;
   regulatory_gate_count?: number;
   auth_enabled?: boolean;
+  dev_mode?: boolean;
+  login_required?: boolean;
 }
 
 export interface StorylineSourceRef {

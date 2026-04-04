@@ -4,7 +4,6 @@ import { T, FS, FX, PAD, SP, O } from "@/lib/tokens";
 import { CaseDetail } from "@/components/xiphos/case-detail";
 import { CommandPalette } from "@/components/xiphos/command-palette";
 import { useHotkey } from "@/lib/use-hotkeys";
-import { LoginScreen } from "@/components/xiphos/login-screen";
 import { AdminPanel } from "@/components/xiphos/admin-panel";
 import { FrontPorchLanding } from "@/components/xiphos/front-porch-landing";
 import { MissionThreadsScreen } from "@/components/xiphos/mission-threads-screen";
@@ -17,7 +16,7 @@ import { WarRoom } from "@/components/xiphos/war-room";
 import { PortfolioSkeleton } from "@/components/xiphos/skeletons";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
-import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission } from "@/lib/auth";
+import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission, login } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, ScreeningPolicyBasis, ScoringPolicyMetadata } from "@/lib/types";
 import { parseTier, tierToRisk } from "@/lib/tokens";
@@ -172,6 +171,11 @@ export default function App() {
   const [authRequired, setAuthRequired] = useState<boolean | null>(isFileMode ? false : null);
   const [user, setUser] = useState<AuthUser | null>(getUser());
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
 
   // App state -- start empty; cases load from backend after login
   const [cases, setCases] = useState<VettingCase[]>([]);
@@ -329,6 +333,9 @@ export default function App() {
   function handleLogin(u: AuthUser) {
     setUser(u);
     setApiAvailable(true);
+    setShowLoginDialog(false);
+    setLoginError(null);
+    setLoginPassword("");
     homeTabInitializedRef.current = false;
     loadCases();
   }
@@ -342,6 +349,25 @@ export default function App() {
     homeTabInitializedRef.current = false;
     setTab("helios");
   }
+
+  const requestLogin = useCallback(() => {
+    setLoginError(null);
+    setShowLoginDialog(true);
+  }, []);
+
+  const handleDialogLogin = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginSubmitting(true);
+    setLoginError(null);
+    try {
+      const result = await login(loginEmail, loginPassword);
+      handleLogin(result.user);
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setLoginSubmitting(false);
+    }
+  }, [handleLogin, loginEmail, loginPassword]);
 
   const emitBetaEvent = useCallback((eventName: string, payload: { workflow_lane?: WorkflowLane; screen?: string; case_id?: string; metadata?: Record<string, unknown> } = {}) => {
     if (!apiAvailable) return;
@@ -722,8 +748,20 @@ export default function App() {
   ) : (
     <FrontPorchLanding
       cases={cases}
-      onNavigate={(nextTab) => setTab(nextTab as Tab)}
+      loginRequired={Boolean(authRequired && !user)}
+      onRequestLogin={requestLogin}
+      onNavigate={(nextTab) => {
+        if (authRequired && !user && nextTab !== "helios") {
+          requestLogin();
+          return;
+        }
+        setTab(nextTab as Tab);
+      }}
       onOpenCase={(caseId) => {
+        if (authRequired && !user) {
+          requestLogin();
+          return;
+        }
         const found = cases.find((item) => item.id === caseId);
         if (found) {
           setSelected(found);
@@ -761,20 +799,26 @@ export default function App() {
     );
   }
 
-  if (authRequired && !user) {
-    return (
-      <ErrorBoundary>
-        <LoginScreen onLogin={handleLogin} needsSetup={false} />
-      </ErrorBoundary>
-    );
-  }
-
   return (
     <ErrorBoundary>
       <div className="h-screen overflow-hidden" style={{ background: T.bg, color: T.text }}>
-        {frontPorchMode ? (
+        {authRequired && !user ? (
           <FrontPorchLanding
             cases={cases}
+            loginRequired
+            onRequestLogin={requestLogin}
+            onNavigate={(nextTab) => {
+              if (nextTab !== "helios") {
+                requestLogin();
+              }
+            }}
+            onOpenCase={() => requestLogin()}
+          />
+        ) : frontPorchMode ? (
+          <FrontPorchLanding
+            cases={cases}
+            loginRequired={Boolean(authRequired && !user)}
+            onRequestLogin={requestLogin}
             onNavigate={(nextTab) => {
               setSelected(null);
               setTab(nextTab as Tab);
@@ -1397,6 +1441,105 @@ export default function App() {
             </div>
           </div>
         )}
+
+        <Dialog
+          open={showLoginDialog}
+          onOpenChange={(open) => {
+            setShowLoginDialog(open);
+            if (!open) {
+              setLoginError(null);
+              setLoginPassword("");
+            }
+          }}
+        >
+          <DialogContent style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, maxWidth: 480 }}>
+            <DialogHeader>
+              <DialogTitle style={{ color: T.text }}>Sign in to continue</DialogTitle>
+              <DialogDescription style={{ color: T.muted }}>
+                Front Porch stays simple. Sign in only when AXIOM needs to actually work the brief.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleDialogLogin} className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: FS.sm, color: T.muted }}>Email</span>
+                <input
+                  value={loginEmail}
+                  onChange={(event) => setLoginEmail(event.target.value)}
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className="helios-focus-ring"
+                  style={{
+                    background: T.bg,
+                    border: `1px solid ${T.border}`,
+                    color: T.text,
+                    borderRadius: 12,
+                    padding: `${SP.sm}px ${PAD.default}px`,
+                    fontSize: FS.sm,
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span style={{ fontSize: FS.sm, color: T.muted }}>Password</span>
+                <input
+                  value={loginPassword}
+                  onChange={(event) => setLoginPassword(event.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  className="helios-focus-ring"
+                  style={{
+                    background: T.bg,
+                    border: `1px solid ${T.border}`,
+                    color: T.text,
+                    borderRadius: 12,
+                    padding: `${SP.sm}px ${PAD.default}px`,
+                    fontSize: FS.sm,
+                  }}
+                />
+              </label>
+              {loginError ? (
+                <InlineMessage tone="danger" message={loginError} />
+              ) : null}
+              <DialogFooter>
+                <button
+                  type="button"
+                  onClick={() => setShowLoginDialog(false)}
+                  className="helios-focus-ring"
+                  style={{
+                    background: T.bg,
+                    color: T.text,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 999,
+                    padding: `${SP.sm}px ${PAD.default}px`,
+                    fontSize: FS.sm,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Not now
+                </button>
+                <button
+                  type="submit"
+                  disabled={loginSubmitting}
+                  className="helios-focus-ring"
+                  style={{
+                    background: loginSubmitting ? `${T.accent}${O["20"]}` : T.accent,
+                    color: T.textInverse,
+                    border: "none",
+                    borderRadius: 999,
+                    padding: `${SP.sm}px ${PAD.default}px`,
+                    fontSize: FS.sm,
+                    fontWeight: 800,
+                    cursor: loginSubmitting ? "default" : "pointer",
+                  }}
+                >
+                  {loginSubmitting ? "Signing in..." : "Continue"}
+                </button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
           <DialogContent style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, maxWidth: 640 }}>

@@ -105,11 +105,17 @@ export async function checkAuthEnabled(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE}/api/health`);
     if (res.status === 401) return true;
-    const data = await res.json();
+    const data = await res.json() as {
+      auth_enabled?: boolean;
+      login_required?: boolean;
+      dev_mode?: boolean;
+    };
+    if (typeof data.login_required === "boolean") {
+      return data.login_required;
+    }
     if (data.auth_enabled === true) return true;
     if (data.auth_enabled === false) {
-      const probe = await fetch(`${BASE}/api/cases?limit=1`);
-      return probe.status === 401;
+      return data.dev_mode !== true;
     }
     return true;
   } catch {

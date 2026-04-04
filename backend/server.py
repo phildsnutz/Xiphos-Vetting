@@ -2098,6 +2098,8 @@ register_mission_thread_routes(
 def health():
     stats = db.get_stats()
     _, db_label = get_active_db()
+    dev_mode = os.environ.get("XIPHOS_DEV_MODE", "false").lower() == "true"
+    login_required = AUTH_ENABLED or not dev_mode
 
     sanctions_status = {}
     if HAS_SYNC:
@@ -2144,6 +2146,8 @@ def health():
         "status": "ok",
         "version": "5.2.0",
         "auth_enabled": AUTH_ENABLED,
+        "dev_mode": dev_mode,
+        "login_required": login_required,
         "engine": "fgamlogit-dod-dual-vertical",
         "persistence": os.environ.get("HELIOS_DB_ENGINE", "sqlite"),
         "sanctions_db": db_label,

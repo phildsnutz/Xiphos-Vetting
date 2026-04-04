@@ -14,7 +14,7 @@ import {
 import type { VettingCase } from "@/lib/types";
 import { EnrichmentStream } from "./enrichment-stream";
 import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
-import { T, FS, SP, PAD, O, FX, MOTION } from "@/lib/tokens";
+import { T, FS, SP, PAD, O, MOTION } from "@/lib/tokens";
 
 type RoomMenu = "recent" | "examples" | null;
 type ObjectType = "vendor" | "vehicle";
@@ -26,8 +26,10 @@ type MessageRole = "axiom" | "user" | "status";
 
 interface FrontPorchLandingProps {
   cases?: VettingCase[];
+  loginRequired?: boolean;
   onNavigate: (tab: string) => void;
   onOpenCase: (caseId: string) => void;
+  onRequestLogin?: () => void;
 }
 
 interface ThreadMessage {
@@ -60,6 +62,10 @@ interface VendorArtifact {
   note: string;
   provenance: string[];
 }
+
+type ResumeIntent =
+  | { kind: "vendor"; session: IntakeSession }
+  | { kind: "vehicle"; session: IntakeSession };
 
 const FRONT_PORCH_EXAMPLES = [
   "ILS 2 follow-on. We think Amentum is the incumbent.",
@@ -417,7 +423,13 @@ const INITIAL_MESSAGES: ThreadMessage[] = [
   },
 ];
 
-export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontPorchLandingProps) {
+export function FrontPorchLanding({
+  cases = [],
+  loginRequired = false,
+  onNavigate,
+  onOpenCase,
+  onRequestLogin,
+}: FrontPorchLandingProps) {
   const [menu, setMenu] = useState<RoomMenu>(null);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ThreadMessage[]>(INITIAL_MESSAGES);
@@ -440,6 +452,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   const [vendorArtifact, setVendorArtifact] = useState<VendorArtifact | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [openingDossierFor, setOpeningDossierFor] = useState<string | null>(null);
+  const [resumeIntent, setResumeIntent] = useState<ResumeIntent | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -481,8 +494,20 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   }, [menu]);
 
   const openWarRoom = useCallback(() => {
+    if (loginRequired) {
+      onRequestLogin?.();
+      return;
+    }
     onNavigate("axiom");
-  }, [onNavigate]);
+  }, [loginRequired, onNavigate, onRequestLogin]);
+
+  const handoffToLogin = useCallback((kind: ResumeIntent["kind"], nextSession: IntakeSession, message: string) => {
+    setResumeIntent({ kind, session: nextSession });
+    setIsWorking(false);
+    setErrorText(null);
+    appendMessage("axiom", message);
+    onRequestLogin?.();
+  }, [appendMessage, onRequestLogin]);
 
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
@@ -535,6 +560,15 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       return;
     }
 
+    if (loginRequired) {
+      handoffToLogin(
+        "vendor",
+        nextSession,
+        `${buildVendorWorkingLead(nextSession)} Sign in and I’ll start the first picture without making you restate the brief.`.trim(),
+      );
+      return;
+    }
+
     setIsWorking(true);
     setProgressIndex(0);
     setErrorText(null);
@@ -584,12 +618,21 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       setErrorText(message);
       appendMessage("axiom", "The clean entity match did not hold. If you still want me to proceed, give me the vendor name again or add one more fact.");
     }
-  }, [appendMessage, startCaseCreation]);
+  }, [appendMessage, handoffToLogin, loginRequired, startCaseCreation]);
 
   const startVehicleFlow = useCallback(async (nextSession: IntakeSession) => {
     const vehicleName = compactText(nextSession.vehicleName || "");
     if (!vehicleName) {
       appendMessage("axiom", "Which vehicle are we looking at?");
+      return;
+    }
+
+    if (loginRequired) {
+      handoffToLogin(
+        "vehicle",
+        nextSession,
+        `${buildVehicleWorkingLead(nextSession)} Sign in and I’ll work the incumbent path and public ecosystem from there.`.trim(),
+      );
       return;
     }
 
@@ -614,7 +657,18 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
       setErrorText(message);
       appendMessage("axiom", "The vehicle search did not come back cleanly. Stay here and either refine the vehicle name or send me one more identifying detail.");
     }
-  }, [appendMessage]);
+  }, [appendMessage, handoffToLogin, loginRequired]);
+
+  useEffect(() => {
+    if (loginRequired || !resumeIntent) return;
+    const pending = resumeIntent;
+    setResumeIntent(null);
+    if (pending.kind === "vehicle") {
+      void startVehicleFlow(pending.session);
+      return;
+    }
+    void startVendorFlow(pending.session);
+  }, [loginRequired, resumeIntent, startVendorFlow, startVehicleFlow]);
 
   const decideVehicleNext = useCallback(async (input: string, current: IntakeSession) => {
     const nextSession = { ...current };
@@ -735,6 +789,11 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
   const shellBackground = `radial-gradient(circle at 18% 20%, ${T.accent}${O["12"]}, transparent 28%), radial-gradient(circle at 82% 18%, ${T.statusQualified}${O["12"]}, transparent 22%), linear-gradient(180deg, ${T.bg} 0%, #06080c 100%)`;
 
   const openArtifactDossier = useCallback(async (caseId: string) => {
+    if (loginRequired) {
+      appendMessage("axiom", "Sign in and I’ll open the dossier in the same thread.");
+      onRequestLogin?.();
+      return;
+    }
     setOpeningDossierFor(caseId);
     setErrorText(null);
     try {
@@ -749,7 +808,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
     } finally {
       setOpeningDossierFor(null);
     }
-  }, [appendMessage]);
+  }, [appendMessage, loginRequired, onRequestLogin]);
 
   return (
     <div
@@ -757,22 +816,17 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
         minHeight: "100vh",
         background: shellBackground,
         color: T.text,
-        padding: PAD.spacious,
+        padding: `${SP.xl}px ${PAD.spacious}px ${PAD.spacious}px`,
         overflow: "auto",
       }}
     >
       <div
         style={{
-          width: "min(1520px, 100%)",
+          width: "min(1180px, 100%)",
           margin: "0 auto",
           minHeight: `calc(100vh - ${SP.xxxl}px)`,
-          borderRadius: 36,
-          border: `1px solid ${T.borderStrong}`,
-          background: "linear-gradient(180deg, rgba(8, 11, 18, 0.94) 0%, rgba(5, 7, 11, 0.97) 100%)",
-          boxShadow: "0 40px 120px rgba(0,0,0,0.42)",
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
         }}
       >
         <header
@@ -782,8 +836,7 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
             alignItems: "center",
             justifyContent: "space-between",
             gap: SP.lg,
-            padding: `${SP.lg}px ${PAD.spacious}`,
-            borderBottom: `1px solid ${T.border}`,
+            padding: `${SP.sm}px 0 ${SP.xxxl}px`,
             position: "relative",
           }}
         >
@@ -793,23 +846,25 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, position: "relative" }}>
-            <button
-              type="button"
-              onClick={() => setMenu((current) => current === "recent" ? null : "recent")}
-              className="helios-focus-ring"
-              style={{
-                border: "none",
-                background: "transparent",
-                color: T.textSecondary,
-                fontSize: FS.sm,
-                fontWeight: 700,
-                padding: PAD.default,
-                borderRadius: 999,
-                cursor: "pointer",
-              }}
-            >
-              Recent
-            </button>
+            {!loginRequired ? (
+              <button
+                type="button"
+                onClick={() => setMenu((current) => current === "recent" ? null : "recent")}
+                className="helios-focus-ring"
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: T.textSecondary,
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  padding: PAD.default,
+                  borderRadius: 999,
+                  cursor: "pointer",
+                }}
+              >
+                Recent
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setMenu((current) => current === "examples" ? null : "examples")}
@@ -848,8 +903,27 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
               War Room
               <ArrowUpRight size={14} />
             </button>
+            {loginRequired ? (
+              <button
+                type="button"
+                onClick={() => onRequestLogin?.()}
+                className="helios-focus-ring"
+                style={{
+                  border: `1px solid ${T.border}`,
+                  background: "transparent",
+                  color: T.textSecondary,
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  padding: PAD.default,
+                  borderRadius: 999,
+                  cursor: "pointer",
+                }}
+              >
+                Sign in
+              </button>
+            ) : null}
 
-            {menu === "recent" ? (
+            {menu === "recent" && !loginRequired ? (
               <div
                 style={{
                   position: "absolute",
@@ -949,11 +1023,11 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            padding: `${SP.xxxl}px ${PAD.spacious}`,
-            gap: SP.lg,
+            padding: `${SP.lg}px 0 ${SP.xxxl}px`,
+            gap: SP.xl,
           }}
         >
-          <div style={{ width: "min(860px, 100%)", display: "flex", flexDirection: "column", alignItems: "center", gap: SP.lg }}>
+          <div style={{ width: "min(860px, 100%)", display: "flex", flexDirection: "column", alignItems: "center", gap: SP.xl }}>
             <div style={{ display: "grid", justifyItems: "center", gap: SP.xs, textAlign: "center" }}>
               <SectionEyebrow>Brief AXIOM</SectionEyebrow>
               <p
@@ -971,10 +1045,10 @@ export function FrontPorchLanding({ cases = [], onNavigate, onOpenCase }: FrontP
             <div
               style={{
                 width: "100%",
-                borderRadius: 32,
-                border: `1px solid ${T.borderStrong}`,
-                background: "linear-gradient(180deg, rgba(14,18,27,0.9) 0%, rgba(10,13,20,0.92) 100%)",
-                boxShadow: FX.cardHover,
+                borderRadius: 28,
+                border: `1px solid rgba(255,255,255,0.08)`,
+                background: "linear-gradient(180deg, rgba(10,13,20,0.88) 0%, rgba(8,10,16,0.9) 100%)",
+                boxShadow: "0 28px 80px rgba(0,0,0,0.28)",
                 padding: PAD.spacious,
                 display: "grid",
                 gap: SP.lg,
