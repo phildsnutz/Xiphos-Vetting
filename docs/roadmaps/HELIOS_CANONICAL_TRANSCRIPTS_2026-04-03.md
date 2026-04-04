@@ -146,7 +146,7 @@ The user starts with a messy pursuit problem instead of a clean object.
 
 ### Scenario
 
-The user wants a partner screen tied to a real effort.
+The user wants a teammate read tied to a real effort.
 
 ### Transcript
 
@@ -157,10 +157,10 @@ The user wants a partner screen tied to a real effort.
 `Understood. If there’s one edge you want weighted first, tell me now. Otherwise I’ll work the full picture on C3PO against DMATS.`
 
 **User**  
-`Weight fit and trust first`
+`Weight capability fit and ownership first`
 
 **AXIOM**  
-`Good. I’ll work the full picture, weight fit and trust first, and say directly where the record is thin instead of clean.`
+`Good. I’ll work the full picture, weight capability fit and ownership first, and say directly where the record is thin instead of clean.`
 
 ### Why it works
 

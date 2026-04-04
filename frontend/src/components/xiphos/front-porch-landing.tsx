@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { EnrichmentStream } from "./enrichment-stream";
+import { FrontPorchBriefView, type FrontPorchBriefViewModel } from "./front-porch-brief-view";
 import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
 import { T, FS, SP, PAD, O, MOTION } from "@/lib/tokens";
 
@@ -95,6 +96,7 @@ const PROGRESS_LINES = [
 const FRONT_PORCH_START_CONFIDENCE = 0.72;
 const FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE = 0.42;
 const FRONT_PORCH_MAX_FOLLOW_UPS = 2;
+const FRONT_PORCH_PRESSURE_THREAD_DELAY_MS = 3400;
 
 function nextId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -346,7 +348,8 @@ function vehiclePressureDetail(result: VehicleSearchResult, session: IntakeSessi
 }
 
 function buildVehicleArtifactSections(result: VehicleSearchResult, session: IntakeSession) {
-  return [
+  const weightedFirst = humanizePriorityFocus(session.priorityFocus);
+  const sections: VendorArtifact["sections"] = [
     {
       label: "What I found",
       detail: summarizeVehicle(result, session),
@@ -362,7 +365,15 @@ function buildVehicleArtifactSections(result: VehicleSearchResult, session: Inta
         ? `Spin the right vendor out of ${result.vehicle_name} into assessment, or step into War Room if you need to work the weak points directly.`
         : `Step into War Room if the public picture is still too thin to act on cleanly.`,
     },
-  ] as VendorArtifact["sections"];
+  ];
+  if (weightedFirst) {
+    sections.splice(1, 0, {
+      label: "Weighted first",
+      detail: `AXIOM is keeping the full vehicle picture in scope while weighting ${weightedFirst} first.`,
+      tone: "info",
+    });
+  }
+  return sections;
 }
 
 function buildVendorArtifact(
@@ -409,6 +420,57 @@ function buildVendorArtifact(
     provenance: phase === "ready"
       ? ["Resolution-backed", "Initial graph context", "Public record only"]
       : ["Entity resolution", "Warm graph context", "Public record only"],
+  };
+}
+
+function pressureOptionsForSession(session: IntakeSession): PriorityFocus[] {
+  if (session.objectType === "vehicle") {
+    return [
+      "incumbent_continuity",
+      "vehicle_ecosystem",
+      "teammate_network",
+      "competitive_weakness",
+    ];
+  }
+
+  const options: PriorityFocus[] = ["ownership", "adverse_history", "teammate_network"];
+  if (session.supportLayer === "cyber") {
+    options.push("cyber_posture");
+  } else if (session.supportLayer === "export") {
+    options.push("export_exposure");
+  } else {
+    options.push("capability_fit");
+  }
+  return options;
+}
+
+function buildVehicleBriefViewModel(result: VehicleSearchResult, session: IntakeSession): FrontPorchBriefViewModel {
+  return {
+    kind: "vehicle",
+    eyebrow: "Preliminary picture",
+    statusLine: session.vehicleTiming === "pre_solicitation" ? "Pre-solicitation picture" : "Vehicle picture",
+    title: result.vehicle_name,
+    framing: summarizeVehicle(result, session),
+    sections: buildVehicleArtifactSections(result, session),
+    provenance: [
+      `${result.total_primes} primes`,
+      `${result.total_subs} subcontractor traces`,
+      `${result.total_unique} unique vendors`,
+    ],
+    note: "Stay in this room for the clean public picture. Step into War Room or Graph when you want to press the weak edge instead of just reading it.",
+  };
+}
+
+function buildVendorBriefViewModel(artifact: VendorArtifact): FrontPorchBriefViewModel {
+  return {
+    kind: "vendor",
+    eyebrow: artifact.eyebrow,
+    statusLine: artifact.phase === "ready" ? "Returned brief ready" : "Working brief warming",
+    title: artifact.title,
+    framing: artifact.framing,
+    sections: artifact.sections,
+    provenance: artifact.provenance,
+    note: artifact.note,
   };
 }
 
@@ -510,9 +572,12 @@ export function FrontPorchLanding({
   const [candidateChoices, setCandidateChoices] = useState<EntityCandidate[]>([]);
   const [vehicleArtifact, setVehicleArtifact] = useState<VehicleSearchResult | null>(null);
   const [vendorArtifact, setVendorArtifact] = useState<VendorArtifact | null>(null);
+  const [activeBriefKind, setActiveBriefKind] = useState<"vendor" | "vehicle" | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [openingDossierFor, setOpeningDossierFor] = useState<string | null>(null);
   const [resumeIntent, setResumeIntent] = useState<ResumeIntent | null>(null);
+  const [pressureThreadVisible, setPressureThreadVisible] = useState(false);
+  const [pressureThreadDismissed, setPressureThreadDismissed] = useState(false);
   const [threadScrollState, setThreadScrollState] = useState({
     canScrollUp: false,
     canScrollDown: false,
@@ -526,6 +591,16 @@ export function FrontPorchLanding({
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
   const hasThreadDepth = messages.length > INITIAL_MESSAGES.length || candidateChoices.length > 0 || Boolean(vehicleArtifact || vendorArtifact || errorText);
   const hasArtifactStage = Boolean(vehicleArtifact || vendorArtifact);
+  const pressureThreadOptions = useMemo(() => pressureOptionsForSession(session), [session]);
+  const activeBriefView = useMemo<FrontPorchBriefViewModel | null>(() => {
+    if (activeBriefKind === "vendor" && vendorArtifact) {
+      return buildVendorBriefViewModel(vendorArtifact);
+    }
+    if (activeBriefKind === "vehicle" && vehicleArtifact) {
+      return buildVehicleBriefViewModel(vehicleArtifact, session);
+    }
+    return null;
+  }, [activeBriefKind, session, vendorArtifact, vehicleArtifact]);
 
   const appendMessage = useCallback((role: MessageRole, content: string) => {
     setMessages((current) => [...current, { id: nextId(role), role, content }]);
@@ -536,6 +611,7 @@ export function FrontPorchLanding({
     setResolution(null);
     setVehicleArtifact(null);
     setVendorArtifact(null);
+    setActiveBriefKind(null);
     setErrorText(null);
   }, []);
 
@@ -584,6 +660,31 @@ export function FrontPorchLanding({
   }, [isWorking]);
 
   useEffect(() => {
+    if (!isWorking) {
+      setPressureThreadVisible(false);
+      setPressureThreadDismissed(false);
+      return undefined;
+    }
+    if (pressureThreadDismissed || (session.priorityFocus && session.priorityFocus !== "full_picture")) {
+      setPressureThreadVisible(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setPressureThreadVisible(true);
+    }, FRONT_PORCH_PRESSURE_THREAD_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [isWorking, pressureThreadDismissed, session.priorityFocus]);
+
+  useEffect(() => {
+    if (activeBriefKind === "vendor" && !vendorArtifact) {
+      setActiveBriefKind(null);
+    }
+    if (activeBriefKind === "vehicle" && !vehicleArtifact) {
+      setActiveBriefKind(null);
+    }
+  }, [activeBriefKind, vendorArtifact, vehicleArtifact]);
+
+  useEffect(() => {
     if (!menu) return undefined;
     const handlePointerDown = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
@@ -610,10 +711,22 @@ export function FrontPorchLanding({
     onRequestLogin?.();
   }, [appendMessage, onRequestLogin]);
 
+  const handlePressureThread = useCallback((focus: PriorityFocus) => {
+    const nextSession = { ...session, priorityFocus: focus };
+    setSession(nextSession);
+    setPressureThreadDismissed(true);
+    setPressureThreadVisible(false);
+    if (vendorArtifact?.phase === "warming") {
+      setVendorArtifact(buildVendorArtifact(null, nextSession, "warming", vendorArtifact.caseId, vendorArtifact.title));
+    }
+    const lead = humanizePriorityFocus(focus) || "that thread";
+    appendMessage("axiom", `Understood. I’ll weight ${lead} first while I work the full picture.`);
+  }, [appendMessage, session, vendorArtifact]);
+
   const handleEnrichmentComplete = useCallback(() => {
     if (!workingCaseId) return;
     setIsWorking(false);
-    appendMessage("axiom", "The returned brief is ready. Read it here, or step into War Room if you want to challenge the weak edge.");
+    appendMessage("axiom", "The returned brief is ready. Open it here, or step into War Room if you want to challenge the weak edge.");
     setVendorArtifact((current) => buildVendorArtifact(
       null,
       current?.title ? { ...session, vendorName: current.title } : session,
@@ -1177,6 +1290,72 @@ export function FrontPorchLanding({
                 Start with whatever you know. AXIOM will narrow the problem and ask only what changes the work.
               </p>
             </div>
+            {activeBriefView ? (
+              <FrontPorchBriefView
+                artifact={activeBriefView}
+                isCompactViewport={isCompactViewport}
+                dossierLabel={
+                  activeBriefView.kind === "vendor"
+                    ? vendorArtifact?.phase === "ready"
+                      ? "Read dossier"
+                      : "Warming dossier"
+                    : undefined
+                }
+                dossierDisabled={
+                  activeBriefView.kind === "vendor"
+                    ? vendorArtifact?.phase !== "ready" || openingDossierFor === vendorArtifact?.caseId
+                    : true
+                }
+                dossierLoading={activeBriefView.kind === "vendor" ? openingDossierFor === vendorArtifact?.caseId : false}
+                onBack={() => setActiveBriefKind(null)}
+                onOpenWarRoom={openWarRoom}
+                onOpenGraph={activeBriefView.kind === "vehicle" ? () => onNavigate("graph") : undefined}
+                onOpenDossier={activeBriefView.kind === "vendor" && vendorArtifact
+                  ? () => { void openArtifactDossier(vendorArtifact.caseId); }
+                  : undefined}
+              >
+                {activeBriefView.kind === "vehicle" && vehicleArtifact && vehicleArtifact.unique_vendors.length > 0 ? (
+                  <div style={{ display: "grid", gap: SP.sm }}>
+                    <SectionEyebrow>Spin into assessment</SectionEyebrow>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+                      {vehicleArtifact.unique_vendors.slice(0, 4).map((vendor) => (
+                        <button
+                          key={`${vendor.vendor_name}-${vendor.role}`}
+                          type="button"
+                          onClick={async () => {
+                            setActiveBriefKind(null);
+                            setVehicleArtifact(null);
+                            const nextSession = {
+                              ...session,
+                              objectType: "vendor" as const,
+                              vendorName: vendor.vendor_name,
+                              priorityFocus: session.priorityFocus || "teammate_network",
+                            };
+                            setSession(nextSession);
+                            appendMessage("user", `Open a vendor assessment on ${vendor.vendor_name}.`);
+                            await startVendorFlow(nextSession);
+                          }}
+                          className="helios-focus-ring"
+                          style={{
+                            border: `1px solid rgba(255,255,255,0.08)`,
+                            background: "rgba(255,255,255,0.04)",
+                            color: T.text,
+                            borderRadius: 999,
+                            padding: "10px 14px",
+                            cursor: "pointer",
+                            fontSize: FS.sm,
+                            fontWeight: 700,
+                          }}
+                        >
+                          Assess {vendor.vendor_name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </FrontPorchBriefView>
+            ) : (
+              <>
             <div
               style={{
                 width: "100%",
@@ -1200,6 +1379,70 @@ export function FrontPorchLanding({
                   {isWorking ? PROGRESS_LINES[progressIndex] : "AXIOM will ask only what it needs to start."}
                 </div>
               </div>
+
+              {pressureThreadVisible && pressureThreadOptions.length > 0 ? (
+                <div
+                  style={{
+                    borderRadius: 22,
+                    border: `1px solid rgba(255,255,255,0.06)`,
+                    background: "rgba(255,255,255,0.025)",
+                    padding: PAD.comfortable,
+                    display: "grid",
+                    gap: SP.sm,
+                  }}
+                >
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>
+                      While I work the full picture, is there one thread you want me to weight first?
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+                      You can skip this. AXIOM is already working the full picture.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+                    {pressureThreadOptions.map((focus) => (
+                      <button
+                        key={`pressure-thread-${focus}`}
+                        type="button"
+                        onClick={() => handlePressureThread(focus)}
+                        className="helios-focus-ring"
+                        style={{
+                          border: `1px solid rgba(255,255,255,0.08)`,
+                          background: "rgba(255,255,255,0.04)",
+                          color: T.text,
+                          borderRadius: 999,
+                          padding: "10px 14px",
+                          cursor: "pointer",
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {humanizePriorityFocus(focus) || "Full picture"}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPressureThreadDismissed(true);
+                        setPressureThreadVisible(false);
+                      }}
+                      className="helios-focus-ring"
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: T.textSecondary,
+                        borderRadius: 999,
+                        padding: "10px 14px",
+                        cursor: "pointer",
+                        fontSize: FS.sm,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Keep working
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div style={{ position: "relative" }}>
                 {threadScrollState.canScrollUp ? (
@@ -1407,21 +1650,22 @@ export function FrontPorchLanding({
               <div style={{ width: "min(760px, 100%)" }}>
                 <BriefArtifact
                   surface="light"
-                  eyebrow="Preliminary picture"
+                  eyebrow="Vehicle brief"
                   title={vehicleArtifact.vehicle_name}
-                  framing={summarizeVehicle(vehicleArtifact, session)}
-                  sections={buildVehicleArtifactSections(vehicleArtifact, session)}
-                  provenance={[
-                    `${vehicleArtifact.total_primes} primes`,
-                    `${vehicleArtifact.total_subs} subcontractor traces`,
-                    `${vehicleArtifact.total_unique} unique vendors`,
+                  framing="The first public picture is ready. Open the brief room for the clean narrative, or move straight into War Room if you want to pressure the weak edge."
+                  sections={[
+                    {
+                      label: "Current read",
+                      detail: summarizeVehicle(vehicleArtifact, session),
+                    },
                   ]}
-                  note="If you want the clean picture, stay here. If you want to work the pressure points, step into War Room."
+                  provenance={["Separate brief room", "Public vehicle picture", "War Room one move away"]}
+                  note="The vehicle brief now has its own room so the conversation can stay clean."
                   actions={
                     <>
                       <button
                         type="button"
-                        onClick={() => onNavigate("graph")}
+                        onClick={() => setActiveBriefKind("vehicle")}
                         className="helios-focus-ring"
                         style={{
                           border: "none",
@@ -1434,7 +1678,7 @@ export function FrontPorchLanding({
                           fontWeight: 700,
                         }}
                       >
-                        Trace in Graph
+                        Open brief
                       </button>
                       <button
                         type="button"
@@ -1459,43 +1703,7 @@ export function FrontPorchLanding({
                       </button>
                     </>
                   }
-                >
-                  {vehicleArtifact.unique_vendors.length > 0 ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
-                      {vehicleArtifact.unique_vendors.slice(0, 4).map((vendor) => (
-                        <button
-                          key={`${vendor.vendor_name}-${vendor.role}`}
-                          type="button"
-                          onClick={async () => {
-                            setVehicleArtifact(null);
-                            const nextSession = {
-                              ...session,
-                              objectType: "vendor" as const,
-                              vendorName: vendor.vendor_name,
-                              priorityFocus: session.priorityFocus || "teammate_network",
-                            };
-                            setSession(nextSession);
-                            appendMessage("user", `Open a vendor assessment on ${vendor.vendor_name}.`);
-                            await startVendorFlow(nextSession);
-                          }}
-                          className="helios-focus-ring"
-                          style={{
-                            border: `1px solid rgba(7,16,26,0.12)`,
-                            background: "rgba(7,16,26,0.06)",
-                            color: T.textInverse,
-                            borderRadius: 999,
-                            padding: "10px 14px",
-                            cursor: "pointer",
-                            fontSize: FS.sm,
-                            fontWeight: 700,
-                          }}
-                        >
-                          Assess {vendor.vendor_name}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </BriefArtifact>
+                />
               </div>
             ) : null}
 
@@ -1503,17 +1711,26 @@ export function FrontPorchLanding({
               <div style={{ width: "min(760px, 100%)" }}>
                 <BriefArtifact
                   surface="light"
-                  eyebrow={vendorArtifact.eyebrow}
+                  eyebrow={vendorArtifact.phase === "ready" ? "Returned brief" : "Working brief"}
                   title={vendorArtifact.title}
-                  framing={vendorArtifact.framing}
-                  sections={vendorArtifact.sections}
-                  provenance={vendorArtifact.provenance}
-                  note={vendorArtifact.note}
+                  framing={vendorArtifact.phase === "ready"
+                    ? "The first returned brief is ready. Open the brief room for the clean narrative, or step into War Room if you want to challenge the weak edge."
+                    : "The working brief is open in its own room while AXIOM warms the dossier and keeps the thin parts explicit."}
+                  sections={[
+                    {
+                      label: "Current posture",
+                      detail: vendorArtifact.sections[0]?.detail ?? vendorArtifact.framing,
+                    },
+                  ]}
+                  provenance={vendorArtifact.phase === "ready"
+                    ? ["Returned brief ready", "Separate brief room", "War Room one move away"]
+                    : ["Working brief warming", "Conversation stays primary", "Dossier still under pressure"]}
+                  note="The brief now has its own room so the thread and the artifact stop competing with each other."
                   actions={
                     <>
                       <button
                         type="button"
-                        onClick={openWarRoom}
+                        onClick={() => setActiveBriefKind("vendor")}
                         className="helios-focus-ring"
                         style={{
                           border: "none",
@@ -1526,30 +1743,28 @@ export function FrontPorchLanding({
                           fontWeight: 700,
                         }}
                       >
-                        Take into War Room
+                        {vendorArtifact.phase === "ready" ? "Open returned brief" : "Open working brief"}
                       </button>
                       <button
                         type="button"
-                        onClick={() => { void openArtifactDossier(vendorArtifact.caseId); }}
-                        disabled={vendorArtifact.phase !== "ready" || openingDossierFor === vendorArtifact.caseId}
+                        onClick={openWarRoom}
                         className="helios-focus-ring"
                         style={{
                           border: "none",
-                          background: vendorArtifact.phase === "ready" ? T.textInverse : "rgba(7,16,26,0.12)",
-                          color: vendorArtifact.phase === "ready" ? T.text : T.textSecondary,
+                          background: T.textInverse,
+                          color: T.text,
                           borderRadius: 999,
                           padding: "11px 16px",
-                          cursor: vendorArtifact.phase === "ready" && openingDossierFor !== vendorArtifact.caseId ? "pointer" : "default",
+                          cursor: "pointer",
                           fontSize: FS.sm,
                           fontWeight: 700,
                           display: "inline-flex",
                           alignItems: "center",
                           gap: SP.xs,
-                          opacity: vendorArtifact.phase === "ready" ? 1 : 0.82,
                         }}
                       >
-                        {openingDossierFor === vendorArtifact.caseId || vendorArtifact.phase !== "ready" ? <Loader2 size={14} className={openingDossierFor === vendorArtifact.caseId ? "animate-spin" : ""} /> : null}
-                        {vendorArtifact.phase === "ready" ? "Read dossier" : "Warming dossier"}
+                        Take into War Room
+                        <ExternalLink size={14} />
                       </button>
                     </>
                   }
@@ -1562,6 +1777,8 @@ export function FrontPorchLanding({
                 <InlineMessage tone="danger" title="Front Porch hit a problem" message={errorText} />
               </div>
             ) : null}
+              </>
+            )}
           </div>
         </div>
 

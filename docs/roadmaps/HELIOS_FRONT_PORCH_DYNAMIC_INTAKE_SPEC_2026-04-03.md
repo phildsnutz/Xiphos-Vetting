@@ -398,8 +398,8 @@ They are reusable conversational moves.
 
 #### Goal clarification
 
-- “Are you trying to decide whether to pursue, partner, trust, or attack?”
-- “Is the real question vendor trust, vehicle vulnerability, or teammate fit?”
+- “If there’s one edge you want me to weight first, tell me now. Otherwise I’ll work the full picture.”
+- “What is the one thing most likely to change the call if it breaks the wrong way?”
 
 #### Evidence anchors
 
@@ -667,7 +667,7 @@ User:
 
 AXIOM:
 
-- `Which vehicle are we talking about, and are you trying to assess them as a partner, competitor, or incumbent challenger?`
+- `Which vehicle are we talking about? If there’s one edge you want weighted first, tell me now. Otherwise I’ll work the full picture.`
 
 ### Pattern 4: Recompete vulnerability
 
