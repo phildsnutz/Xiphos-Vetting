@@ -34,6 +34,14 @@ type RoomMenu = "recent" | "examples" | null;
 type ObjectType = "vendor" | "vehicle";
 type SupportLayer = "counterparty" | "cyber" | "export";
 type VehicleTiming = "current" | "expired" | "pre_solicitation";
+type PendingFollowUp =
+  | "object_type"
+  | "vendor_name"
+  | "vehicle_name"
+  | "vehicle_timing"
+  | "vehicle_follow_on_or_incumbent"
+  | "vehicle_incumbent_prime"
+  | "vendor_priority_focus";
 type PriorityFocus =
   | "full_picture"
   | "ownership"
@@ -79,6 +87,7 @@ interface IntakeSession {
   followOn: boolean | null;
   incumbentPrime: string | null;
   followUpCount: number;
+  pendingFollowUp: PendingFollowUp | null;
 }
 
 interface VendorArtifact {
@@ -545,6 +554,77 @@ function computeIntakeConfidence(session: IntakeSession): number {
   }
 
   return 0;
+}
+
+function applyPendingFollowUpAnswer(session: IntakeSession, value: string): IntakeSession {
+  const nextSession = { ...session, pendingFollowUp: null };
+  const stripped = compactText(stripObjectLabel(value));
+  const lower = value.toLowerCase();
+
+  switch (session.pendingFollowUp) {
+    case "object_type": {
+      const inferredObject = inferObjectType(value);
+      if (inferredObject) {
+        nextSession.objectType = inferredObject;
+      }
+      break;
+    }
+    case "vehicle_name":
+      if (stripped && !looksLikeObjectOnlyAnswer(value)) {
+        nextSession.objectType = "vehicle";
+        nextSession.vehicleName = extractVehicleName(value) || stripped;
+      }
+      break;
+    case "vendor_name":
+      if (stripped && !looksLikeObjectOnlyAnswer(value)) {
+        nextSession.objectType = "vendor";
+        nextSession.vendorName = extractVendorName(value) || stripped;
+      }
+      break;
+    case "vehicle_timing": {
+      const inferredTiming = inferVehicleTiming(value);
+      if (inferredTiming) {
+        nextSession.vehicleTiming = inferredTiming;
+      }
+      break;
+    }
+    case "vehicle_follow_on_or_incumbent": {
+      const followOnAnswer = inferBoolean(value);
+      if (followOnAnswer !== null) {
+        nextSession.followOn = followOnAnswer;
+      }
+      if (!/\b(no|nope|not sure|unsure|don't know|do not know)\b/i.test(lower)) {
+        const primeName = extractPrimeName(value);
+        if (primeName) {
+          nextSession.incumbentPrime = primeName;
+          nextSession.followOn = true;
+        }
+      }
+      break;
+    }
+    case "vehicle_incumbent_prime":
+      if (!/\b(no|nope|not sure|unsure|don't know|do not know)\b/i.test(lower)) {
+        const primeName = extractPrimeName(value);
+        if (primeName) {
+          nextSession.incumbentPrime = primeName;
+          nextSession.followOn ??= true;
+        }
+      }
+      break;
+    case "vendor_priority_focus": {
+      const inferredFocus = inferPriorityFocus(value);
+      if (inferredFocus) {
+        nextSession.priorityFocus = inferredFocus;
+      } else if (/\b(full picture|whole picture|overall read|broad read|everything|all of it|all of them|no preference|you decide|work it all)\b/i.test(lower)) {
+        nextSession.priorityFocus = "full_picture";
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return nextSession;
 }
 
 function missionBriefSummary(session: IntakeSession): string {
@@ -1192,6 +1272,7 @@ export function FrontPorchLanding({
     followOn: null,
     incumbentPrime: null,
     followUpCount: 0,
+    pendingFollowUp: null,
   });
   const [isWorking, setIsWorking] = useState(false);
   const [workingCaseId, setWorkingCaseId] = useState<string | null>(null);
@@ -1222,6 +1303,7 @@ export function FrontPorchLanding({
   const hasThreadDepth = messages.length > INITIAL_MESSAGES.length || candidateChoices.length > 0 || Boolean(vehicleArtifact || vendorArtifact || errorText);
   const hasArtifactStage = Boolean(vehicleArtifact || vendorArtifact);
   const isDisambiguatingEntity = candidateChoices.length > 0;
+  const isClarifyingIntake = !isDisambiguatingEntity && Boolean(session.pendingFollowUp);
   const pressureThreadOptions = useMemo(() => pressureOptionsForSession(session), [session]);
   const activeBriefView = useMemo<FrontPorchBriefViewModel | null>(() => {
     if (activeBriefKind === "vendor" && vendorArtifact) {
@@ -1234,11 +1316,15 @@ export function FrontPorchLanding({
   }, [activeBriefKind, session, vendorArtifact, vehicleArtifact]);
   const roomStatusText = isDisambiguatingEntity
     ? "AXIOM is narrowing the entity in frame."
+    : isClarifyingIntake
+      ? "AXIOM is tightening the brief before it starts."
     : isWorking
       ? PROGRESS_LINES[progressIndex]
       : "AXIOM will ask only what it needs to start.";
   const composerSupportText = isDisambiguatingEntity
     ? "Pick the right entity or ask one separating question. AXIOM will stay on the same thread."
+    : isClarifyingIntake
+      ? "Answer the question in plain language. AXIOM will treat the next turn as part of the same brief."
     : isWorking
       ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
       : "You can be messy. AXIOM will narrow it from there and ask only what changes the work.";
@@ -1256,8 +1342,12 @@ export function FrontPorchLanding({
     setErrorText(null);
   }, []);
 
-  const askFollowUp = useCallback((nextSession: IntakeSession, message: string) => {
-    setSession({ ...nextSession, followUpCount: nextSession.followUpCount + 1 });
+  const askFollowUp = useCallback((nextSession: IntakeSession, message: string, pendingFollowUp: PendingFollowUp) => {
+    setSession({
+      ...nextSession,
+      followUpCount: nextSession.followUpCount + 1,
+      pendingFollowUp,
+    });
     appendMessage("axiom", message);
   }, [appendMessage]);
 
@@ -1766,21 +1856,25 @@ export function FrontPorchLanding({
       nextSession.followOn = inferBoolean(input);
     }
     if (!nextSession.incumbentPrime && stripped) {
-      if (/\bprime\b/.test(lower) || nextSession.followOn === true) {
+      if (/\bprime\b/.test(lower) || nextSession.followOn === true || current.pendingFollowUp === "vehicle_follow_on_or_incumbent" || current.pendingFollowUp === "vehicle_incumbent_prime") {
         nextSession.incumbentPrime = extractPrimeName(input);
       }
     }
+    if (nextSession.vehicleTiming === "pre_solicitation" && nextSession.incumbentPrime && nextSession.followOn === null) {
+      nextSession.followOn = true;
+    }
+    nextSession.pendingFollowUp = null;
 
     setSession(nextSession);
 
     const confidence = computeIntakeConfidence(nextSession);
 
     if (!nextSession.vehicleName) {
-      askFollowUp(nextSession, "Which contract vehicle are we looking at?");
+      askFollowUp(nextSession, "Which contract vehicle are we looking at?", "vehicle_name");
       return;
     }
     if (!nextSession.vehicleTiming) {
-      askFollowUp(nextSession, "Is this current, expired, or still in pre-solicitation?");
+      askFollowUp(nextSession, "Is this current, expired, or still in pre-solicitation?", "vehicle_timing");
       return;
     }
     if (
@@ -1792,6 +1886,7 @@ export function FrontPorchLanding({
       askFollowUp(
         nextSession,
         "Good. If this is a follow-on, do you know the incumbent prime? If not, I can still start from the vehicle.",
+        "vehicle_follow_on_or_incumbent",
       );
       return;
     }
@@ -1801,7 +1896,7 @@ export function FrontPorchLanding({
       nextSession.followOn === true &&
       !nextSession.incumbentPrime
     ) {
-      askFollowUp(nextSession, "If you know who holds the prime position now, tell me. If not, I’ll keep the incumbent path open while I work.");
+      askFollowUp(nextSession, "If you know who holds the prime position now, tell me. If not, I’ll keep the incumbent path open while I work.", "vehicle_incumbent_prime");
       return;
     }
 
@@ -1829,7 +1924,7 @@ export function FrontPorchLanding({
     const confidence = computeIntakeConfidence(nextSession);
 
     if (!nextSession.vendorName) {
-      askFollowUp(nextSession, "Which vendor are we looking at?");
+      askFollowUp(nextSession, "Which vendor are we looking at?", "vendor_name");
       return;
     }
 
@@ -1841,6 +1936,7 @@ export function FrontPorchLanding({
       askFollowUp(
         nextSession,
         "If there’s one edge you want me to weight first, tell me now. Otherwise I’ll work the full picture.",
+        "vendor_priority_focus",
       );
       return;
     }
@@ -1862,12 +1958,12 @@ export function FrontPorchLanding({
 
     resetArtifacts();
 
-    const nextSession = { ...session };
+    const nextSession = applyPendingFollowUpAnswer(session, text);
 
     if (!nextSession.objectType) {
       const inferredObject = inferObjectType(text);
       if (!inferredObject) {
-        askFollowUp(nextSession, "Are we looking at a contract vehicle or a specific vendor?");
+        askFollowUp(nextSession, "Are we looking at a contract vehicle or a specific vendor?", "object_type");
         return;
       }
       nextSession.objectType = inferredObject;
