@@ -14,6 +14,13 @@ interface WarRoomProps {
   cases?: VettingCase[];
   onNavigate: (tab: string) => void;
   onOpenCase: (caseId: string) => void;
+  seed?: {
+    targetEntity: string;
+    vehicleName?: string;
+    domainFocus?: string;
+    seedLabel?: string;
+    autoRun?: boolean;
+  } | null;
 }
 
 interface SearchResultSnapshot {
@@ -106,7 +113,7 @@ function priorityTone(priority: string): "danger" | "warning" | "info" | "neutra
   return "neutral";
 }
 
-export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
+export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: WarRoomProps) {
   const [mode, setMode] = useState<RoomMode>("collection");
   const [menu, setMenu] = useState<RoomMenu>(null);
   const [searchResults, setSearchResults] = useState<SearchResultSnapshot | null>(null);
@@ -147,8 +154,11 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
     if (searchResults) {
       return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, and ${searchResults.intelligenceGaps.length} open gaps from the current brief.`;
     }
+    if (seed?.targetEntity) {
+      return `AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and is working the public picture from there.`;
+    }
     return "Bring the knot, not the taxonomy. AXIOM will work the public picture, keep the weak residue explicit, and only push what holds.";
-  }, [mode, searchResults]);
+  }, [mode, searchResults, seed]);
 
   const roomStatus = useMemo(() => {
     if (mode === "watch") {
@@ -223,13 +233,26 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
       };
     }
 
+    if (seed?.targetEntity) {
+      return {
+        eyebrow: "AXIOM exchange",
+        title: "The Front Porch brief is now live in the room.",
+        lead: seed.vehicleName
+          ? `I picked up ${seed.seedLabel || seed.targetEntity} with ${seed.vehicleName} already in frame. I’m working the thread from there.`
+          : `I picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and I’m working the first public picture from there.`,
+        follow: seed.domainFocus
+          ? `I’m weighting ${seed.domainFocus} first unless you redirect me.`
+          : "Redirect me only if the first thread is wrong. Otherwise I’ll keep pulling from the current brief.",
+      };
+    }
+
     return {
       eyebrow: "AXIOM exchange",
       title: "Bring me the knot, not the taxonomy.",
       lead: "Start with the entity, vehicle, incumbent, teammate, or weak point that still feels unresolved. I’ll work outward from there and keep the dark space explicit.",
       follow: "Reply with the redirect, the harder question, or the thread you want pressed first.",
     };
-  }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults]);
+  }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults, seed]);
 
   const openThreads = useMemo(() => {
     if (mode === "watch") {
@@ -689,7 +712,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase }: WarRoomProps) {
               }}
             >
               {mode === "collection" ? (
-                <AxiomSearchPanel onResultsChange={(next) => setSearchResults(next)} />
+                <AxiomSearchPanel seed={seed} onResultsChange={(next) => setSearchResults(next)} />
               ) : null}
               {mode === "watch" ? (
                 <AxiomWatchlist onEntriesChange={(next) => setWatchEntries(next)} />

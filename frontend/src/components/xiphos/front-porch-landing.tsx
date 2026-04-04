@@ -40,6 +40,13 @@ interface FrontPorchLandingProps {
   loginRequired?: boolean;
   onNavigate: (tab: string) => void;
   onOpenCase: (caseId: string) => void;
+  onOpenWarRoomIntent?: (intent: {
+    targetEntity: string;
+    vehicleName?: string;
+    domainFocus?: string;
+    seedLabel?: string;
+    autoRun?: boolean;
+  }) => void;
   onRequestLogin?: () => void;
 }
 
@@ -115,13 +122,27 @@ function inferObjectType(value: string): ObjectType | null {
   if (/\b(vehicle|recompete|follow-on|follow on|pre-solicitation|pre solicitation|solicitation|piid|award|task order)\b/.test(lower)) {
     return "vehicle";
   }
-  if (/\b[A-Z]{2,}[ -]?\d{1,3}[A-Z0-9-]*\b/.test(value) || /\b[A-Z]\d+[A-Z0-9-]{2,}\b/.test(value)) {
+  if (/\bunder\s+[A-Z]{3,}\b/.test(value)) {
+    return "vehicle";
+  }
+  if (/\b[A-Z]{2,}[ -]?\d{1,3}[A-Z0-9-]*\b/.test(value)) {
     return "vehicle";
   }
   if (/\b(read on|assessment on|screen|trust read|trust|partner with|team with|teammate|competitive read|compete against|vendor assessment)\b/.test(lower)) {
     return "vendor";
   }
   if (/\b(vendor|supplier|teammate|partner|prime|subcontractor|company)\b/.test(lower)) {
+    return "vendor";
+  }
+  const compact = compactText(value).replace(/[?!.]+$/g, "");
+  const tokens = compact.split(/\s+/).filter(Boolean);
+  const opener = tokens[0]?.toLowerCase() ?? "";
+  if (
+    compact &&
+    tokens.length <= 6 &&
+    /[A-Za-z]/.test(compact) &&
+    !["who", "what", "when", "where", "why", "how", "is", "are", "can", "do", "does", "should"].includes(opener)
+  ) {
     return "vendor";
   }
   return null;
@@ -549,6 +570,7 @@ export function FrontPorchLanding({
   loginRequired = false,
   onNavigate,
   onOpenCase,
+  onOpenWarRoomIntent,
   onRequestLogin,
 }: FrontPorchLandingProps) {
   const [menu, setMenu] = useState<RoomMenu>(null);
@@ -695,13 +717,43 @@ export function FrontPorchLanding({
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [menu]);
 
+  const buildWarRoomIntent = useCallback(() => {
+    if (session.objectType === "vehicle") {
+      const targetEntity = session.incumbentPrime || session.vehicleName || "";
+      const domainFocus = humanizePriorityFocus(session.priorityFocus) || "vehicle pressure";
+      if (!targetEntity) return null;
+      return {
+        targetEntity,
+        vehicleName: session.vehicleName || undefined,
+        domainFocus,
+        seedLabel: session.vehicleName || targetEntity,
+        autoRun: true,
+      };
+    }
+    if (session.objectType === "vendor") {
+      const targetEntity = vendorArtifact?.title || session.vendorName || "";
+      if (!targetEntity) return null;
+      return {
+        targetEntity,
+        domainFocus: humanizePriorityFocus(session.priorityFocus) || "full entity picture",
+        seedLabel: targetEntity,
+        autoRun: Boolean(isWorking || vendorArtifact || workingCaseId),
+      };
+    }
+    return null;
+  }, [isWorking, session, vendorArtifact, workingCaseId]);
+
   const openWarRoom = useCallback(() => {
     if (loginRequired) {
       onRequestLogin?.();
       return;
     }
+    const intent = buildWarRoomIntent();
+    if (intent) {
+      onOpenWarRoomIntent?.(intent);
+    }
     onNavigate("axiom");
-  }, [loginRequired, onNavigate, onRequestLogin]);
+  }, [buildWarRoomIntent, loginRequired, onNavigate, onOpenWarRoomIntent, onRequestLogin]);
 
   const handoffToLogin = useCallback((kind: ResumeIntent["kind"], nextSession: IntakeSession, message: string) => {
     setResumeIntent({ kind, session: nextSession });

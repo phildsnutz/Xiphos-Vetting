@@ -93,6 +93,13 @@ interface AxiomSearchResult {
 
 interface AxiomSearchPanelProps {
   onResultsChange?: (results: AxiomSearchResult) => void;
+  seed?: {
+    targetEntity: string;
+    vehicleName?: string;
+    domainFocus?: string;
+    seedLabel?: string;
+    autoRun?: boolean;
+  } | null;
 }
 
 function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
@@ -134,9 +141,10 @@ function formatMillis(elapsedMs: number): string {
   return `${(elapsedMs / 1000).toFixed(1)} s`;
 }
 
-export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
+export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPanelProps) {
   const targetInputRef = useRef<HTMLInputElement | null>(null);
   const resultsScrollRef = useRef<HTMLDivElement | null>(null);
+  const autoRunSeedKeyRef = useRef<string>("");
   const [targetEntity, setTargetEntity] = useState("");
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
@@ -178,8 +186,25 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
     targetInputRef.current?.select();
   }, { ignoreInputs: false });
 
-  const runSearch = async (ingest: boolean) => {
-    if (!targetEntity.trim()) {
+  const runSearch = useCallback(async (
+    ingest: boolean,
+    overrides?: Partial<{
+      targetEntity: string;
+      vehicleName: string;
+      installation: string;
+      domainFocus: string;
+      provider: AxiomProvider;
+      model: string;
+    }>,
+  ) => {
+    const nextTargetEntity = overrides?.targetEntity ?? targetEntity;
+    const nextVehicleName = overrides?.vehicleName ?? vehicleName;
+    const nextInstallation = overrides?.installation ?? installation;
+    const nextDomainFocus = overrides?.domainFocus ?? domainFocus;
+    const nextProvider = overrides?.provider ?? provider;
+    const nextModel = overrides?.model ?? model;
+
+    if (!nextTargetEntity.trim()) {
       setError("Target entity is required");
       return null;
     }
@@ -193,12 +218,12 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
         ...(token && { Authorization: `Bearer ${token}` }),
       },
       body: JSON.stringify({
-        prime_contractor: targetEntity,
-        vehicle_name: vehicleName || undefined,
-        installation: installation || undefined,
-        context: domainFocus || undefined,
-        provider,
-        model,
+        prime_contractor: nextTargetEntity,
+        vehicle_name: nextVehicleName || undefined,
+        installation: nextInstallation || undefined,
+        context: nextDomainFocus || undefined,
+        provider: nextProvider,
+        model: nextModel,
       }),
     });
 
@@ -217,7 +242,51 @@ export function AxiomSearchPanel({ onResultsChange }: AxiomSearchPanelProps) {
     setIteration(data.iteration);
     onResultsChange?.(data);
     return data;
-  };
+  }, [domainFocus, installation, model, onResultsChange, provider, targetEntity, vehicleName]);
+
+  useEffect(() => {
+    if (!seed?.targetEntity) return;
+    setTargetEntity(seed.targetEntity);
+    setVehicleName(seed.vehicleName || "");
+    setDomainFocus(seed.domainFocus || "");
+    setInstallation("");
+    if (!seed.autoRun) return;
+
+    const seedKey = JSON.stringify({
+      targetEntity: seed.targetEntity,
+      vehicleName: seed.vehicleName || "",
+      domainFocus: seed.domainFocus || "",
+    });
+    if (autoRunSeedKeyRef.current === seedKey) return;
+    autoRunSeedKeyRef.current = seedKey;
+
+    const runSeed = async () => {
+      setError("");
+      setIsRunning(true);
+      setStatus(`AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Front Porch and is working the thread.`);
+      setIteration(0);
+      setResults(null);
+
+      try {
+        const data = await runSearch(false, {
+          targetEntity: seed.targetEntity,
+          vehicleName: seed.vehicleName || "",
+          domainFocus: seed.domainFocus || "",
+        });
+        if (data) {
+          setStatus(data.status || "AXIOM finished the first pass.");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setError(message);
+        setStatus("");
+      } finally {
+        setIsRunning(false);
+      }
+    };
+
+    void runSeed();
+  }, [runSearch, seed]);
 
   const handleSearch = async () => {
     setError("");

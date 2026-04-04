@@ -155,6 +155,13 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
 }
 
 type Tab = "dashboard" | "helios" | "portfolio" | "threads" | "graph" | "axiom" | "admin";
+type WarRoomSeed = {
+  targetEntity: string;
+  vehicleName?: string;
+  domainFocus?: string;
+  seedLabel?: string;
+  autoRun?: boolean;
+} | null;
 
 function shellPriorityRank(disposition: ReturnType<typeof portfolioDisposition>): number {
   if (disposition === "blocked") return 3;
@@ -183,6 +190,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("helios");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
+  const [warRoomSeed, setWarRoomSeed] = useState<WarRoomSeed>(null);
   const [productFocus, setProductFocus] = useState<ProductPillar>("vendor_assessment");
   const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
@@ -731,6 +739,7 @@ export default function App() {
     <GraphIntelligenceDashboard />
   ) : tab === "axiom" ? (
     <WarRoom
+      seed={warRoomSeed}
       cases={cases}
       onNavigate={(nextTab) => setTab(nextTab as Tab)}
       onOpenCase={(caseId) => {
@@ -749,11 +758,15 @@ export default function App() {
     <FrontPorchLanding
       cases={cases}
       loginRequired={Boolean(authRequired && !user)}
+      onOpenWarRoomIntent={(intent) => setWarRoomSeed(intent)}
       onRequestLogin={requestLogin}
       onNavigate={(nextTab) => {
         if (authRequired && !user && nextTab !== "helios") {
           requestLogin();
           return;
+        }
+        if (nextTab !== "axiom") {
+          setWarRoomSeed(null);
         }
         setTab(nextTab as Tab);
       }}
