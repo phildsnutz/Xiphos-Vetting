@@ -56,25 +56,23 @@ def resolve_case_recommendation(
     supplier_passport: dict[str, Any] | None = None,
     latest_decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    signals = []
     score_posture = _tier_posture(score)
-    if score_posture != "pending":
-        signals.append(("score", score_posture))
+    passport_posture = _normalize_posture((supplier_passport or {}).get("posture"))
+    decision_posture = _normalize_posture((latest_decision or {}).get("decision"))
+    tribunal_posture = "pending"
 
     if isinstance(supplier_passport, dict):
-        posture = _normalize_posture(supplier_passport.get("posture"))
-        if posture != "pending":
-            signals.append(("passport", posture))
         tribunal = supplier_passport.get("tribunal") if isinstance(supplier_passport.get("tribunal"), dict) else {}
         label = tribunal.get("recommended_label") or tribunal.get("recommended_view")
-        label_posture = _normalize_posture(label)
-        if label_posture != "pending":
-            signals.append(("tribunal", label_posture))
+        tribunal_posture = _normalize_posture(label)
 
-    if isinstance(latest_decision, dict):
-        decision_posture = _normalize_posture(latest_decision.get("decision"))
-        if decision_posture != "pending":
-            signals.append(("decision", decision_posture))
+    signals = []
+    if score_posture != "pending":
+        signals.append(("score", score_posture))
+    if passport_posture != "pending":
+        signals.append(("passport", passport_posture))
+    if decision_posture != "pending":
+        signals.append(("decision", decision_posture))
 
     final_posture = "pending"
     final_sources: list[str] = []
@@ -86,12 +84,20 @@ def resolve_case_recommendation(
                 final_sources.append(source)
             final_posture = posture
 
+    if final_posture == "pending" and tribunal_posture != "pending":
+        final_posture = tribunal_posture
+        final_sources = ["tribunal"]
+    elif tribunal_posture == "blocked" and _RANK[final_posture] < _RANK["blocked"]:
+        final_posture = "blocked"
+        final_sources = sorted(set(final_sources + ["tribunal"]))
+
     return {
         "posture": final_posture,
         "label": _LABEL[final_posture],
         "summary": _SUMMARY[final_posture],
         "sources": final_sources,
         "score_posture": score_posture,
-        "passport_posture": _normalize_posture((supplier_passport or {}).get("posture")),
+        "passport_posture": passport_posture,
+        "decision_posture": decision_posture,
+        "tribunal_posture": tribunal_posture,
     }
-

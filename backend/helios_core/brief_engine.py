@@ -34,6 +34,20 @@ def _clean_detail(value: Any, fallback: str = "") -> str:
     return text or fallback
 
 
+def _join_sentences(*parts: Any) -> str:
+    cleaned: list[str] = []
+    for part in parts:
+        text = str(part or "").strip()
+        if not text:
+            continue
+        text = text.rstrip(". ")
+        if text:
+            cleaned.append(text)
+    if not cleaned:
+        return ""
+    return ". ".join(cleaned) + "."
+
+
 def _severity_rank(severity: str) -> int:
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     return order.get(str(severity or "info").lower(), 5)
@@ -112,29 +126,25 @@ def _collect_passport_gaps(context: dict[str, Any]) -> list[str]:
     passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
     gaps: list[str] = []
 
-    identity = passport.get("identity") if isinstance(passport.get("identity"), dict) else {}
-    identifier_status = identity.get("identifier_status") if isinstance(identity.get("identifier_status"), dict) else {}
-    for key, value in identifier_status.items():
-        if not isinstance(value, dict):
-            continue
-        state = str(value.get("state") or "")
-        if state in {"verified_present", "verified_partial"}:
-            continue
-        retry = _clean_detail(value.get("next_access_time"))
-        reason = _clean_detail(value.get("reason"))
-        line = f"{str(key).upper()} is still {state.replace('_', ' ') or 'unverified'}."
-        if retry:
-            line += f" Retry after {retry}."
-        elif reason:
-            line += f" {reason}"
-        gaps.append(line.strip())
-
     ownership = passport.get("ownership") if isinstance(passport.get("ownership"), dict) else {}
     workflow_control = ownership.get("workflow_control") if isinstance(ownership.get("workflow_control"), dict) else {}
     label = _clean_detail(workflow_control.get("label"))
     review_basis = _clean_detail(workflow_control.get("review_basis"))
     if label or review_basis:
-        gaps.append(". ".join(bit for bit in [label, review_basis] if bit) + ".")
+        gaps.append(_join_sentences(label, review_basis))
+
+    tribunal = passport.get("tribunal") if isinstance(passport.get("tribunal"), dict) else {}
+    views = tribunal.get("views") if isinstance(tribunal.get("views"), list) else []
+    if views:
+        top_view = views[0] if isinstance(views[0], dict) else {}
+        summary = _clean_detail(top_view.get("summary"))
+        reasons = top_view.get("reasons") if isinstance(top_view.get("reasons"), list) else []
+        if summary:
+            gaps.append("Tribunal counterview: " + summary)
+        elif reasons:
+            reason = _clean_detail(reasons[0])
+            if reason:
+                gaps.append("Tribunal counterview: " + reason)
 
     return gaps
 
@@ -322,17 +332,36 @@ def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, A
     elif analysis_state == "warming":
         summary = "Axiom is still warming the challenge layer against the current evidence bundle."
         support = "The deterministic posture, supplier passport, and graph-backed evidence below are current; the authored challenge layer has not landed yet."
-        confidence = f"{round(probability * 100)}% model-estimated risk with {round(claim_coverage_pct * 100)}% graph claim coverage while Axiom is still warming."
+        confidence = (
+            f"Model risk is {round(probability * 100)}%. "
+            f"The graph is carrying {round(claim_coverage_pct * 100)}% claim coverage while Axiom is still warming."
+        )
         concerns = []
         offsets = []
         actions = []
     else:
         lead_card = cards[0] if cards else {}
-        title = _clean_detail(lead_card.get("title"), f"Helios is holding this case at {recommendation['label']}.")
-        body = _clean_detail(lead_card.get("body"), recommendation["summary"])
-        summary = f"{title} {body}".strip()
+        title = _clean_detail(lead_card.get("title"))
+        body = _clean_detail(lead_card.get("body"))
+        if title and body:
+            summary = _join_sentences(title, body)
+        elif title:
+            summary = title
+        elif body:
+            summary = body
+        else:
+            summary = recommendation["summary"]
         support = recommendation["summary"]
-        confidence = f"{round(probability * 100)}% posterior risk with {round(claim_coverage_pct * 100)}% graph claim coverage."
+        if claim_coverage_pct > 0:
+            confidence = (
+                f"Model risk is {round(probability * 100)}%. "
+                f"The graph is carrying {round(claim_coverage_pct * 100)}% claim coverage."
+            )
+        else:
+            confidence = (
+                f"Model risk is {round(probability * 100)}%. "
+                "The graph has not yet added corroborated claim coverage."
+            )
         concerns = []
         offsets = []
         actions = []
@@ -421,7 +450,9 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         title = _clean_detail(card.get("title"))
         body = _clean_detail(card.get("body"))
         if title or body:
-            what_holds.append(f"{title}. {body}".strip(". "))
+            joined = _join_sentences(title, body)
+            if joined:
+                what_holds.append(joined)
     what_holds.extend(_collect_graph_holds(graph_summary))
     what_holds.extend(_collect_passport_holds(context))
 
@@ -444,7 +475,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
 
     summary_line = (
         f"{vendor.get('name', 'Unknown')} is currently held at {recommendation['label']} "
-        f"with {probability}% model-estimated risk and a {confidence_low}% to {confidence_high}% confidence band."
+        f"with {probability}% model risk and a {confidence_low}% to {confidence_high}% confidence band."
     )
 
     return {

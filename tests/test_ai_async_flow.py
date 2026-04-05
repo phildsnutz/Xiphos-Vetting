@@ -746,8 +746,8 @@ def test_dossier_includes_supplier_passport_section(client, monkeypatch):
     assert "Frontier Holdings" in html
     assert "Foreign interest in view" in html
     assert "Ownership Registry Extract" in html
-    assert "UEI is still unverified." in html
-    assert "Retry after 2026-Mar-28 00:00:00+0000 UTC" in html
+    assert "Identity anchors still thin on: UEI." in html
+    assert "Tribunal counterview:" in html
 
 
 def test_dossier_hero_uses_monitoring_change_language(client):
