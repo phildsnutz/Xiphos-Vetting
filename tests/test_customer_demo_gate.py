@@ -38,7 +38,7 @@ def test_validate_identifier_expectation_accepts_matching_cik():
 
 def test_check_dossier_text_flags_banned_phrase():
     failures, warnings = gate.check_dossier_text(
-        "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\n0 years of verifiable records",
+        "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\n0 years of verifiable records",
         gate.HTML_SECTION_CHECKS,
         include_ai=True,
         label="html dossier",
@@ -419,7 +419,7 @@ def test_run_demo_gate_uses_expected_domain_and_company_name(tmp_path):
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
 
         def request_bytes(self, method, path, **kwargs):
             from reportlab.pdfgen import canvas
@@ -427,11 +427,11 @@ def test_run_demo_gate_uses_expected_domain_and_company_name(tmp_path):
 
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.save()
             return buff.getvalue()
 
@@ -508,7 +508,7 @@ def test_run_demo_gate_normalizes_local_fixture_seed_paths_before_case_create(tm
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -517,11 +517,11 @@ def test_run_demo_gate_normalizes_local_fixture_seed_paths_before_case_create(tm
 
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.save()
             return buff.getvalue()
 
@@ -613,7 +613,7 @@ def test_run_demo_gate_auto_stabilizes_before_final_verdict(tmp_path):
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
 
         def request_bytes(self, method, path, **kwargs):
             from reportlab.pdfgen import canvas
@@ -621,11 +621,11 @@ def test_run_demo_gate_auto_stabilizes_before_final_verdict(tmp_path):
 
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.save()
             return buff.getvalue()
 
@@ -698,7 +698,7 @@ def test_run_demo_gate_surface_mode_accepts_pending_ai_without_warning(tmp_path)
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
 
         def request_bytes(self, method, path, **kwargs):
             from reportlab.pdfgen import canvas
@@ -706,11 +706,11 @@ def test_run_demo_gate_surface_mode_accepts_pending_ai_without_warning(tmp_path)
 
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.save()
             return buff.getvalue()
 
@@ -792,7 +792,7 @@ def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\nstill warming for this case"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\nstill warming for this case"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -801,11 +801,11 @@ def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path
 
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.drawString(72, 620, "still warming for this case")
             pdf.save()
             return buff.getvalue()
@@ -879,7 +879,7 @@ def test_run_demo_gate_surface_mode_skips_assistant_execute(tmp_path):
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -888,11 +888,11 @@ def test_run_demo_gate_surface_mode_skips_assistant_execute(tmp_path):
 
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.save()
             return buff.getvalue()
 
@@ -965,7 +965,7 @@ def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
 
         def request_text(self, method, path, **kwargs):
             calls["html_include_ai"] = (kwargs.get("json") or {}).get("include_ai")
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\nstill warming for this case"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\nstill warming for this case"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -975,11 +975,11 @@ def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
             calls["pdf_include_ai"] = (kwargs.get("json") or {}).get("include_ai")
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             pdf.drawString(72, 620, "still warming for this case")
             pdf.save()
             return buff.getvalue()
@@ -1058,8 +1058,8 @@ def test_run_demo_gate_surface_mode_emits_warming_and_final_artifacts(tmp_path, 
         def request_text(self, method, path, **kwargs):
             calls["html"] += 1
             if calls["html"] == 1:
-                return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment\nstill warming for this case"
-            return "Defense counterparty trust dossier\nRecent change\nRisk Storyline\nSupplier passport\nAI Narrative Brief\nExecutive judgment"
+                return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\nstill warming for this case"
+            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
 
         def request_bytes(self, method, path, **kwargs):
             from io import BytesIO
@@ -1069,11 +1069,11 @@ def test_run_demo_gate_surface_mode_emits_warming_and_final_artifacts(tmp_path, 
             calls["pdf"] += 1
             buff = BytesIO()
             pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "DEFENSE COUNTERPARTY TRUST DOSSIER")
+            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
             pdf.drawString(72, 700, "RECENT CHANGE")
             pdf.drawString(72, 680, "RISK STORYLINE")
             pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AI NARRATIVE BRIEF")
+            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
             if calls["pdf"] == 1:
                 pdf.drawString(72, 620, "still warming for this case")
             pdf.save()

@@ -249,19 +249,19 @@ def _workflow_lane_context(
     if has_export_lane:
         return {
             "label": "Export authorization",
-            "title": "Export authorization dossier",
-            "summary_name": "export authorization workflow",
+            "title": "Export authorization brief",
+            "summary_name": "export authorization brief",
         }
     if has_cyber_lane:
         return {
             "label": "Supply chain assurance",
-            "title": "Supply chain assurance dossier",
-            "summary_name": "supply chain assurance workflow",
+            "title": "Supply chain assurance brief",
+            "summary_name": "supply chain assurance brief",
         }
     return {
-        "label": "Defense counterparty trust",
-        "title": "Defense counterparty trust dossier",
-        "summary_name": "defense counterparty trust workflow",
+        "label": "Entity briefing",
+        "title": "Entity intelligence brief",
+        "summary_name": "entity intelligence brief",
     }
 
 
@@ -311,7 +311,7 @@ def _workflow_lane_brief(
         )
         classification = str(export_summary.get("classification_display") or export_input.get("classification_guess") or "Needs review")
         return {
-            "eyebrow": "Current workflow lane",
+            "eyebrow": "Decision frame",
             "title": "Export authorization",
             "question": "Can this item, technical-data release, or foreign-person access request move forward under current control posture?",
             "outputs": "Likely prohibited / License required / Exception path / Likely NLR / Escalate",
@@ -359,7 +359,7 @@ def _workflow_lane_brief(
         if current_level > 0:
             sprs_value = f"{sprs_value} • L{current_level}" if sprs_value != "Unknown" else f"L{current_level}"
         return {
-            "eyebrow": "Current workflow lane",
+            "eyebrow": "Decision frame",
             "title": "Supply chain assurance",
             "question": "Can this supplier, product, and dependency stack be trusted with CUI-sensitive or mission-critical work given attestation, remediation, provenance, and vulnerability evidence?",
             "outputs": "Ready / Qualified / Review / Blocked",
@@ -408,8 +408,8 @@ def _workflow_lane_brief(
         "Awaiting evidence"
     )
     return {
-        "eyebrow": "Current workflow lane",
-        "title": "Defense counterparty trust",
+        "eyebrow": "Decision frame",
+        "title": "Entity briefing",
         "question": "Can we award, keep, or qualify this supplier given ownership, foreign-influence, and network evidence?",
         "outputs": "Approved / Qualified / Review / Blocked",
         "evidence": "Form 328 records, ownership charts, mitigation instruments, SAM.gov registration, SAM.gov subaward reporting, and prime or sub relationship evidence.",
@@ -1841,7 +1841,7 @@ def _generate_foci_evidence_section(foci_summary: Optional[dict]) -> str:
                 <div class="storyline-topline">Customer ownership / control evidence</div>
                 <h2>FOCI Evidence Summary</h2>
                 <p class="storyline-intro">
-                    Helios incorporates customer-provided ownership and mitigation records into the counterparty trust narrative, not just public-source screening.
+                    Helios incorporates customer-provided ownership and mitigation records into the intelligence brief, not just public-source screening.
                 </p>
             </div>
             <div class="storyline-callout">{escape(posture)}</div>
@@ -2722,13 +2722,13 @@ def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = 
 
 
 def _generate_ai_narrative(vendor_id: str, vendor: dict, analysis_data: Optional[dict] = None) -> str:
-    """Generate a premium AI narrative brief section from cached or freshly hydrated analysis."""
+    """Generate a premium Axiom assessment section from cached or freshly hydrated analysis."""
     if not analysis_data:
         return '''
         <section style="page-break-inside: avoid; margin-bottom: 32px;">
             <h2 style="color: #0A1628; border-bottom: 2px solid #C4A052; padding-bottom: 10px;
                        margin-bottom: 16px; font-size: 16px;">
-                AI Narrative Brief
+                Axiom Assessment
             </h2>
             <div style="padding: 16px 18px; border-radius: 18px; background: linear-gradient(135deg, #0A1628 0%, #102033 100%);
                         color: white; box-shadow: 0 18px 36px rgba(10, 22, 40, 0.18);">
@@ -2742,8 +2742,8 @@ def _generate_ai_narrative(vendor_id: str, vendor: dict, analysis_data: Optional
                     </span>
                 </div>
                 <div style="font-size: 14px; line-height: 1.75; color: #F8FAFC;">
-                    The AI challenge layer is still warming for this case. The deterministic posture, supplier passport,
-                    and control evidence below are current; rerender once background analysis is ready.
+                    Axiom is still warming for this case. The current posture, supplier passport,
+                    and control evidence below are current; rerender once the assessment is ready.
                 </div>
             </div>
         </section>
@@ -2825,15 +2825,15 @@ def _generate_ai_narrative(vendor_id: str, vendor: dict, analysis_data: Optional
     <section style="page-break-inside: avoid; margin-bottom: 32px;">
         <h2 style="color: #0A1628; border-bottom: 2px solid #C4A052; padding-bottom: 10px;
                    margin-bottom: 16px; font-size: 16px;">
-            AI Narrative Brief
+            Axiom Assessment
         </h2>
         <div style="padding: 10px 14px; background: linear-gradient(135deg, #fff8e7 0%, #fffdf5 100%);
                     border: 1px solid rgba(196, 160, 82, 0.28); border-left: 4px solid #C4A052;
                     border-radius: 12px; margin-bottom: 18px; font-size: 10px; color: #6B7280;
                     line-height: 1.6;">
-            <strong style="color: #C4A052; letter-spacing: 0.06em;">ADVISORY LAYER</strong> &mdash;
-            This AI brief complements the deterministic scoring engine, regulatory gates, and evidence-backed storyline.
-            It never overrides hard stops or tier classification; it adds qualitative judgment, narrative synthesis, and diligence guidance.
+            <strong style="color: #C4A052; letter-spacing: 0.06em;">AXIOM</strong> &mdash;
+            This assessment complements the deterministic scoring engine, regulatory gates, and evidence-backed storyline.
+            It adds qualitative judgment, narrative synthesis, and diligence guidance without overriding hard stops or tier classification.
         </div>
 
         <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; margin-bottom: 18px;">

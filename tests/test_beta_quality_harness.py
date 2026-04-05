@@ -85,7 +85,7 @@ def test_run_case_harness_passes_happy_path(monkeypatch):
         Risk Storyline
         Supplier passport
         Graph Provenance Snapshot
-        AI Narrative Brief
+        Axiom Assessment
         Recommended Actions
         OSINT Findings
       </body>
@@ -96,7 +96,7 @@ def test_run_case_harness_passes_happy_path(monkeypatch):
     RISK STORYLINE
     SUPPLIER PASSPORT
     GRAPH PROVENANCE SNAPSHOT
-    AI NARRATIVE BRIEF
+    AXIOM ASSESSMENT
     EXECUTIVE ACTION
     EVIDENCE SNAPSHOT
     """

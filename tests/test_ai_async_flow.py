@@ -295,7 +295,7 @@ def test_dossier_executive_summary_includes_signal_strip():
     assert "Recent change" in html
     assert "New findings" in html
     assert "3 new findings" in html
-    assert "Current workflow lane" in html
+    assert "Decision frame" in html
     assert "Core question" in html
     assert "Immediate next action" in html
 
@@ -530,7 +530,7 @@ def test_ai_narrative_handles_datetime_created_at():
         },
     )
 
-    assert "AI Narrative Brief" in html
+    assert "Axiom Assessment" in html
     assert "Generated 2026-03-27 14:30:45" in html
     assert "Datetime-safe narrative." in html
 

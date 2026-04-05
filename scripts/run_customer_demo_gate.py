@@ -42,20 +42,20 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8080"
 DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "customer_demo_gate"
 
 HTML_SECTION_CHECKS = {
-    "hero": "Defense counterparty trust dossier",
+    "hero": "Helios Intelligence Brief",
     "executive_strip": "Recent change",
     "risk_storyline": "Risk Storyline",
     "supplier_passport": "Supplier passport",
-    "ai_brief": "AI Narrative Brief",
+    "ai_brief": "Axiom Assessment",
     "executive_judgment": "Executive judgment",
 }
 
 PDF_SECTION_CHECKS = {
-    "hero": "DEFENSE COUNTERPARTY TRUST DOSSIER",
+    "hero": "HELIOS INTELLIGENCE BRIEF",
     "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
-    "ai_brief": "AI NARRATIVE BRIEF",
+    "ai_brief": "AXIOM ASSESSMENT",
 }
 
 BANNED_DOSSIER_PHRASES = (

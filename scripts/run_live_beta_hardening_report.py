@@ -40,7 +40,7 @@ HTML_SECTION_CHECKS = {
     "executive_strip": "Recent change",
     "risk_storyline": "Risk Storyline",
     "supplier_passport": "Supplier passport",
-    "ai_brief": "AI Narrative Brief",
+    "ai_brief": "Axiom Assessment",
     "executive_judgment": "Executive judgment",
 }
 
@@ -48,7 +48,7 @@ PDF_SECTION_CHECKS = {
     "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
-    "ai_brief": "AI NARRATIVE BRIEF",
+    "ai_brief": "AXIOM ASSESSMENT",
 }
 
 
@@ -185,7 +185,7 @@ for case_id in request["case_ids"]:
         "html_markers": {k: (v in html) for k, v in {
             "executive_strip": "Recent change",
             "risk_storyline": "Risk Storyline",
-            "ai_brief": "AI Narrative Brief",
+            "ai_brief": "Axiom Assessment",
             "executive_judgment": "Executive judgment",
         }.items()},
         "ai_expected": bool(cached),

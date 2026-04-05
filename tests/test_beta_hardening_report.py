@@ -41,7 +41,7 @@ def test_validate_graph_payload_flags_missing_endpoints():
 def test_validate_section_checks_reports_missing_markers():
     ok, failures = module.validate_section_checks(
         "Risk Storyline only",
-        {"risk_storyline": "Risk Storyline", "ai_brief": "AI Narrative Brief"},
+        {"risk_storyline": "Risk Storyline", "ai_brief": "Axiom Assessment"},
         "html dossier",
     )
 

@@ -38,7 +38,7 @@ HTML_SECTION_CHECKS = {
     "risk_storyline": "Risk Storyline",
     "supplier_passport": "Supplier passport",
     "graph_provenance": "Graph Provenance Snapshot",
-    "ai_brief": "AI Narrative Brief",
+    "ai_brief": "Axiom Assessment",
     "recommended_actions": "Recommended Actions",
     "findings_table": "OSINT Findings",
 }
@@ -47,7 +47,7 @@ PDF_SECTION_CHECKS = {
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
     "graph_provenance": "GRAPH PROVENANCE SNAPSHOT",
-    "ai_brief": "AI NARRATIVE BRIEF",
+    "ai_brief": "AXIOM ASSESSMENT",
     "executive_action": "EXECUTIVE ACTION",
     "evidence_snapshot": "EVIDENCE SNAPSHOT",
 }

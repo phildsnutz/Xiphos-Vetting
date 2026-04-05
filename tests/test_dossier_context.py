@@ -64,6 +64,6 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
 
 def test_generate_ai_narrative_renders_pending_section_when_analysis_missing():
     html = dossier._generate_ai_narrative("c-ai", {"name": "AI Vendor"}, None)
-    assert "AI Narrative Brief" in html
+    assert "Axiom Assessment" in html
     assert "Executive judgment" in html
     assert "PENDING" in html

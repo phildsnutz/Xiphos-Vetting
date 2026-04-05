@@ -54,7 +54,7 @@ HTML_SECTION_CHECKS = {
     "executive_strip": "Recent change",
     "risk_storyline": "Risk Storyline",
     "supplier_passport": "Supplier passport",
-    "ai_brief": "AI Narrative Brief",
+    "ai_brief": "Axiom Assessment",
     "executive_judgment": "Executive judgment",
 }
 
@@ -62,7 +62,7 @@ PDF_SECTION_CHECKS = {
     "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
-    "ai_brief": "AI NARRATIVE BRIEF",
+    "ai_brief": "AXIOM ASSESSMENT",
 }
 
 
@@ -334,7 +334,7 @@ def run_case(vendor: dict[str, Any], graph_depth: int, *, warm_monitoring: bool 
     if not monitoring_ready:
         warnings.append("no monitoring history yet")
 
-    ai_ready = "AI Narrative Brief" in html
+    ai_ready = "Axiom Assessment" in html
     if ai_expected and not ai_ready:
         failures.append("ai narrative brief missing from html dossier")
     elif not ai_expected and not ai_ready:
