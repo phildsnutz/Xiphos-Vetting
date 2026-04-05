@@ -65,4 +65,34 @@ def test_brief_gap_language_groups_identity_thinness_and_keeps_tribunal_as_count
     assert all("verified absent" not in line for line in grouped_gaps)
     assert any(line.startswith("Tribunal counterview:") for line in passport_gaps)
     assert all("verified absent" not in line for line in passport_gaps)
+    assert axiom["support"].startswith("Axiom assesses")
+    assert axiom["graph_change"].startswith("Graph change:")
     assert "The graph has not yet added corroborated claim coverage." in axiom["confidence"]
+
+
+def test_axiom_assessment_calls_out_when_graph_tightens_the_read():
+    context = {
+        "vendor": {"name": "Example Entity"},
+        "score": {"calibrated": {"calibrated_probability": 0.16}},
+        "analysis_state": "idle",
+        "graph_summary": {
+            "relationship_count": 3,
+            "entity_count": 4,
+            "relationships": [{}, {}, {}],
+            "entities": [{}, {}, {}, {}],
+            "intelligence": {"claim_coverage_pct": 0.42},
+        },
+        "supplier_passport": {"identity": {"identifier_status": {}}},
+    }
+
+    axiom = _build_axiom_assessment(
+        context,
+        {
+            "label": "REVIEW",
+            "summary": "The visible record contains enough uncertainty, pressure, or unresolved control context that Helios should force analyst review.",
+        },
+    )
+
+    assert "Axiom assesses Example Entity at REVIEW" in axiom["support"]
+    assert "Graph change: the graph tightened the read with" in axiom["graph_change"]
+    assert "42% claim coverage" in axiom["graph_change"]

@@ -300,6 +300,38 @@ def _collect_gap_lines(context: dict[str, Any]) -> list[str]:
     return gaps
 
 
+def _graph_change_line(context: dict[str, Any]) -> str:
+    graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
+    intelligence = graph_summary.get("intelligence") if isinstance(graph_summary.get("intelligence"), dict) else {}
+    relationship_count = int(graph_summary.get("relationship_count") or len(graph_summary.get("relationships") or []))
+    entity_count = int(graph_summary.get("entity_count") or len(graph_summary.get("entities") or []))
+    claim_coverage_pct = round(float(intelligence.get("claim_coverage_pct") or 0.0) * 100)
+    contradicted = int(intelligence.get("contradicted_edge_count") or 0)
+    stale = int(intelligence.get("stale_edge_count") or 0)
+    missing_families = intelligence.get("missing_required_edge_families") if isinstance(intelligence.get("missing_required_edge_families"), list) else []
+
+    if contradicted > 0:
+        return (
+            f"Graph change: the graph surfaced {contradicted} contradicted claim"
+            f"{'s' if contradicted != 1 else ''}, so the read cannot be treated as settled."
+        )
+    if relationship_count > 0 or claim_coverage_pct > 0:
+        parts: list[str] = []
+        if relationship_count > 0:
+            parts.append(f"{relationship_count} corroborated relationship{'s' if relationship_count != 1 else ''}")
+        if entity_count > 0:
+            parts.append(f"{entity_count} mapped entit{'ies' if entity_count != 1 else 'y'}")
+        if claim_coverage_pct > 0:
+            parts.append(f"{claim_coverage_pct}% claim coverage")
+        return "Graph change: the graph tightened the read with " + ", ".join(parts) + "."
+    if missing_families:
+        families = ", ".join(str(family).replace("_", " ") for family in missing_families[:3])
+        return "Graph change: the graph did not materially change the read yet because key edge families are still missing: " + families + "."
+    if stale > 0:
+        return f"Graph change: the graph did not materially shift the read because {stale} stale edge{'s' if stale != 1 else ''} still need refresh."
+    return "Graph change: the graph has not materially changed the read beyond the visible evidence bundle yet."
+
+
 def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, Any]) -> dict[str, Any]:
     analysis_data = context.get("analysis_data") if isinstance(context.get("analysis_data"), dict) else {}
     analysis = analysis_data.get("analysis") if isinstance(analysis_data.get("analysis"), dict) else {}
@@ -312,6 +344,8 @@ def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, A
     graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
     graph_intelligence = graph_summary.get("intelligence") if isinstance(graph_summary.get("intelligence"), dict) else {}
     claim_coverage_pct = float(graph_intelligence.get("claim_coverage_pct") or 0.0)
+    vendor = context.get("vendor") if isinstance(context.get("vendor"), dict) else {}
+    vendor_name = _clean_detail(vendor.get("name"), "this entity")
 
     if analysis:
         summary = _clean_detail(
@@ -330,8 +364,11 @@ def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, A
         offsets = [str(item) for item in (analysis.get("mitigating_factors") or []) if str(item).strip()]
         actions = [str(item) for item in (analysis.get("recommended_actions") or []) if str(item).strip()]
     elif analysis_state == "warming":
-        summary = "Axiom is still warming the challenge layer against the current evidence bundle."
-        support = "The deterministic posture, supplier passport, and graph-backed evidence below are current; the authored challenge layer has not landed yet."
+        summary = "Axiom is still testing the working judgment against the current evidence bundle."
+        support = (
+            "The deterministic posture, supplier passport, and graph-backed evidence below are current, "
+            "but the authored challenge layer has not landed yet."
+        )
         confidence = (
             f"Model risk is {round(probability * 100)}%. "
             f"The graph is carrying {round(claim_coverage_pct * 100)}% claim coverage while Axiom is still warming."
@@ -351,7 +388,10 @@ def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, A
             summary = body
         else:
             summary = recommendation["summary"]
-        support = recommendation["summary"]
+        support = (
+            f"Axiom assesses {vendor_name} at {recommendation['label']} based on the visible record in hand. "
+            + recommendation["summary"]
+        )
         if claim_coverage_pct > 0:
             confidence = (
                 f"Model risk is {round(probability * 100)}%. "
@@ -376,6 +416,7 @@ def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, A
     return {
         "summary": summary,
         "support": support,
+        "graph_change": _graph_change_line(context),
         "confidence": confidence,
         "concerns": concerns[:4],
         "offsets": offsets[:4],
@@ -761,9 +802,10 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     <section class="grid">
       <article class="card">
         <h2>Axiom Assessment</h2>
-        <div class="support-line">{escape(payload['axiom']['confidence'])}</div>
         <div class="axiom-summary">{escape(payload['axiom']['summary'])}</div>
         <div class="subtle">{escape(payload['axiom']['support'])}</div>
+        <div class="support-line">{escape(payload['axiom']['graph_change'])}</div>
+        <div class="subtle">Confidence read: {escape(payload['axiom']['confidence'])}</div>
         <div class="split">
           <div>
             <h2 style="font-size:16px;">What holds</h2>
@@ -895,6 +937,7 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
     story.append(Paragraph("Axiom Assessment", heading))
     story.append(Paragraph(payload["axiom"]["summary"], body))
     story.append(Paragraph(payload["axiom"]["support"], body))
+    story.append(Paragraph(payload["axiom"]["graph_change"], body))
     story.append(Paragraph(f"Confidence read: {payload['axiom']['confidence']}", muted))
 
     if payload["what_holds"]:
