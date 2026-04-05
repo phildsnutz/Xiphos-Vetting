@@ -62,7 +62,7 @@ async (page) => {{
 
   const bodyAfterQuestion = await page.evaluate(() => document.body.innerText);
   if (!/Confirming prime|Clarifying incumbent/.test(bodyAfterQuestion)) {{
-    throw new Error("Front Porch did not show the clarifying-state cue while waiting on the prime answer");
+    throw new Error("Stoa did not show the clarifying-state cue while waiting on the prime answer");
   }}
 
   await composer.fill("Amentum");
@@ -77,7 +77,7 @@ async (page) => {{
   const finalBody = await page.evaluate(() => document.body.innerText);
   const repeatedQuestionCount = (finalBody.match(/Good\\. If this is a follow-on, do you know the incumbent prime\\?/g) || []).length;
   if (repeatedQuestionCount > 1) {{
-    throw new Error("Front Porch repeated the incumbent-prime question instead of consuming the answer");
+    throw new Error("Stoa repeated the incumbent-prime question instead of consuming the answer");
   }}
 
   return {{
@@ -100,7 +100,7 @@ async (page) => {{
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the Front Porch browser regression against a live Helios host.")
+    parser = argparse.ArgumentParser(description="Run the Stoa browser regression against a live Helios host.")
     parser.add_argument("--base-url", required=True, help="Base URL to verify, for example https://helios.xiphosllc.com")
     parser.add_argument("--wrapper", default=str(DEFAULT_WRAPPER), help="Path to the Playwright CLI wrapper")
     args = parser.parse_args()
@@ -109,7 +109,7 @@ def main() -> int:
     if not wrapper.exists():
         raise SystemExit(f"Playwright wrapper not found at {wrapper}")
     if shutil.which("npx") is None:
-        raise SystemExit("npx is required for the Front Porch browser regression")
+        raise SystemExit("npx is required for the Stoa browser regression")
 
     base_url = args.base_url.rstrip("/")
     health_url = f"{base_url}/api/health"
@@ -133,7 +133,7 @@ def main() -> int:
                 break
     if last_error is not None:
         raise last_error
-    print("PASS: Front Porch browser regression")
+    print("PASS: Stoa browser regression")
     print(output)
 
     return 0

@@ -52,7 +52,7 @@ def _run_regression_attempt(wrapper: pathlib.Path, base_url: str, *, login_requi
   await page.getByLabel("Password").fill({password!r});
   await page.getByRole("button", {{ name: "Continue" }}).click();
   await page.waitForFunction(
-    () => document.body.innerText.includes("Take into War Room"),
+    () => document.body.innerText.includes("Enter Aegis"),
     undefined,
     {{ timeout: 30000 }},
   );
@@ -60,7 +60,7 @@ def _run_regression_attempt(wrapper: pathlib.Path, base_url: str, *, login_requi
     else:
         auth_block = """
   await page.waitForFunction(
-    () => document.body.innerText.includes("Take into War Room"),
+    () => document.body.innerText.includes("Enter Aegis"),
     undefined,
     { timeout: 30000 },
   );
@@ -86,25 +86,23 @@ async (page) => {{
 
 {auth_block}
 
-  const takeIntoWarRoom = page.getByRole("button", {{ name: "Take into War Room" }});
+  const takeIntoWarRoom = page.getByRole("button", {{ name: "Enter Aegis" }});
   await takeIntoWarRoom.waitFor({{ state: "visible", timeout: 20000 }});
   await takeIntoWarRoom.click();
 
   await page.waitForFunction(
     () => (
-      (
-        document.body.innerText.includes("Brief carried from Briefing")
-        || document.body.innerText.includes("Brief carried from Front Porch")
-      )
-      && document.body.innerText.includes("War Room")
+      document.body.innerText.includes("Brief carried from Stoa")
+      && document.body.innerText.includes("Exit Aegis")
+      && document.body.innerText.toLowerCase().includes("axiom exchange")
     ),
     undefined,
-    {{ timeout: 20000 }},
+    {{ timeout: 45000 }},
   );
 
   const finalBody = await page.evaluate(() => document.body.innerText);
   if (!finalBody.toLowerCase().includes("axiom exchange")) {{
-    throw new Error(`War Room did not render the AXIOM exchange after carryover. Body was: ${{finalBody}}`);
+    throw new Error(`Aegis did not render the AXIOM exchange after carryover. Body was: ${{finalBody}}`);
   }}
 
   return {{
@@ -127,7 +125,7 @@ async (page) => {{
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the War Room carried-brief browser regression.")
+    parser = argparse.ArgumentParser(description="Run the Aegis carried-brief browser regression.")
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--email", default="")
     parser.add_argument("--password", default="")
@@ -138,13 +136,13 @@ def main() -> int:
     if not wrapper.exists():
         raise SystemExit(f"Playwright wrapper not found at {wrapper}")
     if shutil.which("npx") is None:
-        raise SystemExit("npx is required for the War Room browser regression")
+        raise SystemExit("npx is required for the Aegis browser regression")
 
     base_url = args.base_url.rstrip("/")
     health = _health_payload(base_url)
     login_required = bool(health.get("login_required", True))
     if login_required and (not args.email or not args.password):
-        raise SystemExit("War Room carryover regression requires --email and --password when login is enabled")
+        raise SystemExit("Aegis carryover regression requires --email and --password when login is enabled")
 
     last_error: Exception | None = None
     output = ""
@@ -165,7 +163,7 @@ def main() -> int:
                 break
     if last_error is not None:
         raise last_error
-    print("PASS: War Room carryover regression")
+    print("PASS: Aegis carryover regression")
     print(output)
 
     return 0

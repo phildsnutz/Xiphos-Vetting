@@ -4,8 +4,8 @@ Canonical current-product Helios stress harness.
 
 This is the baseline gate for the product as it exists now, not the legacy
 multi-lane platform. It validates:
-  - public Stoa / Front Porch intake behavior
-  - carried brief into War Room
+  - public Stoa intake behavior
+  - carried brief into Aegis
   - graph-backed AXIOM interrogation endpoints
   - current-product authenticated case workflow
 

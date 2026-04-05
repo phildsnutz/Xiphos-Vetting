@@ -708,7 +708,7 @@ export function MissionThreadsScreen({ onNavigate }: MissionThreadsScreenProps) 
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold text-slate-100">Seed more work through Briefing</div>
+                          <div className="text-sm font-semibold text-slate-100">Seed more work through Stoa</div>
                           <div className="mt-1 text-xs text-slate-400">Mission threads get stronger only if the underlying cases get richer.</div>
                         </div>
                         <Shield size={14} color={T.accent} />

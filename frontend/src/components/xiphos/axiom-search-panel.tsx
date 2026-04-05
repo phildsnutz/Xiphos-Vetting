@@ -3,6 +3,7 @@ import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { Play, Search, Upload, AlertCircle } from "lucide-react";
 import { getToken } from "@/lib/auth";
 import { useHotkey } from "@/lib/use-hotkeys";
+import { STOA_NAME } from "./room-names";
 import { EmptyPanel, InlineMessage, LoadingPanel, PanelHeader, ShortcutBadge, StatusPill } from "./shell-primitives";
 
 type AxiomProvider = "anthropic" | "openai";
@@ -273,7 +274,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
     const runSeed = async () => {
       setError("");
       setIsRunning(true);
-      setStatus(`AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Briefing and is working the thread.`);
+      setStatus(`AXIOM picked up ${seed.seedLabel || seed.targetEntity} from ${STOA_NAME} and is working the thread.`);
       setIteration(0);
       setResults(null);
 

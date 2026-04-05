@@ -29,6 +29,7 @@ import type { VettingCase } from "@/lib/types";
 import { EnrichmentStream } from "./enrichment-stream";
 import { FrontPorchBriefView, type FrontPorchBriefViewModel } from "./front-porch-brief-view";
 import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
+import { DEEP_ROOM_NAME, STOA_NAME } from "./room-names";
 import { T, FS, SP, PAD, O, MOTION } from "@/lib/tokens";
 
 type RoomMenu = "recent" | "examples" | null;
@@ -918,8 +919,8 @@ function buildVehicleArtifactSections(result: VehicleSearchResult, session: Inta
     {
       label: "Best next question",
       detail: result.unique_vendors.length > 0
-        ? `Spin the right vendor out of ${result.vehicle_name} into assessment, or step into War Room if you need to work the weak points directly.`
-        : `Step into War Room if the public picture is still too thin to act on cleanly.`,
+        ? `Spin the right vendor out of ${result.vehicle_name} into assessment, or step into ${DEEP_ROOM_NAME} if you need to work the weak points directly.`
+        : `Step into ${DEEP_ROOM_NAME} if the public picture is still too thin to act on cleanly.`,
     },
   ];
   if (weightedFirst) {
@@ -971,8 +972,8 @@ function buildVendorArtifact(
       },
     ],
     note: phase === "ready"
-      ? "Read the memo here. Step into War Room when you want to challenge the picture or pull a harder thread."
-      : "The working case is open and warming. Step into War Room when you want the trail instead of the summary.",
+      ? `Read the memo here. Step into ${DEEP_ROOM_NAME} when you want to challenge the picture or pull a harder thread.`
+      : `The working case is open and warming. Step into ${DEEP_ROOM_NAME} when you want the trail instead of the summary.`,
     provenance: phase === "ready"
       ? ["Resolution-backed", "Initial graph context", "Public record only"]
       : ["Entity resolution", "Warm graph context", "Public record only"],
@@ -1095,7 +1096,7 @@ function buildGapClosureContext(
 ) {
   const assessment = assessVendorThinness(readiness);
   const context: string[] = [
-    `Brief room warming for ${subject}.`,
+    `Brief view warming for ${subject}.`,
     options.escalated
       ? "The first AXIOM pressure pass still left the picture thin. Push harder against the unresolved edge before the brief freezes."
       : "Work the full entity picture and close the thinnest public-data gap before the brief freezes.",
@@ -1234,8 +1235,8 @@ function buildReturnedVendorArtifact(
       },
     ],
     note: gapClosure?.status === "completed"
-      ? "Read the judgment here. Step into War Room when you want to challenge what still stayed thin after AXIOM pressed the weak edge."
-      : "Read the judgment here. Step into War Room when you want to challenge the weak edge directly.",
+      ? `Read the judgment here. Step into ${DEEP_ROOM_NAME} when you want to challenge what still stayed thin after AXIOM pressed the weak edge.`
+      : `Read the judgment here. Step into ${DEEP_ROOM_NAME} when you want to challenge the weak edge directly.`,
     provenance: [
       `${connectorsWithData} sources with data`,
       relationshipCount > 0 ? `${relationshipCount} graph relationships` : "Graph still thin",
@@ -1278,7 +1279,7 @@ function buildVehicleBriefViewModel(result: VehicleSearchResult, session: Intake
       `${result.total_subs} subcontractor traces`,
       `${result.total_unique} unique vendors`,
     ],
-    note: "Stay in this room for the clean public picture. Step into War Room or Graph when you want to press the weak edge instead of just reading it.",
+    note: `Stay in this room for the clean public picture. Step into ${DEEP_ROOM_NAME} or Graph when you want to press the weak edge instead of just reading it.`,
   };
 }
 
@@ -1735,7 +1736,7 @@ export function FrontPorchLanding({
       "axiom",
       gapClosureMessageSent && readiness.axiomGapClosure?.status === "completed"
         ? `The returned brief is ready. I used the graph and ${readiness.axiomGapClosure.passes > 1 ? `${readiness.axiomGapClosure.passes} AXIOM pressure passes` : "an AXIOM pressure pass"} to tighten the weak edge before freezing it.`
-        : "The returned brief is ready. Open it here, or step into War Room if you want to challenge the weak edge.",
+        : `The returned brief is ready. Open it here, or step into ${DEEP_ROOM_NAME} if you want to challenge the weak edge.`,
     );
   }, [appendMessage, loadVendorReadiness, persistMissionBrief, runVendorGapClosure]);
 
@@ -2181,7 +2182,7 @@ export function FrontPorchLanding({
         >
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
             <div style={{ fontSize: FS.md, fontWeight: 800, letterSpacing: "-0.04em" }}>Helios</div>
-            <StatusPill tone="info">Briefing</StatusPill>
+            <StatusPill tone="info">{STOA_NAME}</StatusPill>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, position: "relative", flexWrap: "wrap", justifyContent: isCompactViewport ? "flex-start" : "flex-end" }}>
@@ -2239,7 +2240,7 @@ export function FrontPorchLanding({
                 gap: SP.xs,
               }}
             >
-              War Room
+              {DEEP_ROOM_NAME}
               <ArrowUpRight size={14} />
             </button>
             {loginRequired ? (
@@ -2767,15 +2768,15 @@ export function FrontPorchLanding({
                   surface="light"
                   eyebrow="Vehicle brief"
                   title={vehicleArtifact.vehicle_name}
-                  framing="The first public picture is ready. Open the brief room for the clean narrative, or move straight into War Room if you want to pressure the weak edge."
+                  framing={`The first public picture is ready. Open the brief view for the clean narrative, or move straight into ${DEEP_ROOM_NAME} if you want to pressure the weak edge.`}
                   sections={[
                     {
                       label: "Current read",
                       detail: summarizeVehicle(vehicleArtifact, session),
                     },
                   ]}
-                  provenance={["Separate brief room", "Public vehicle picture", "War Room one move away"]}
-                  note="The vehicle brief now has its own room so the conversation can stay clean."
+                  provenance={["Separate brief view", "Public vehicle picture", `${DEEP_ROOM_NAME} one move away`]}
+                  note="The vehicle brief now has its own view so the conversation can stay clean."
                   actions={
                     <>
                       <button
@@ -2813,7 +2814,7 @@ export function FrontPorchLanding({
                           gap: SP.xs,
                         }}
                       >
-                        Take into War Room
+                        Enter {DEEP_ROOM_NAME}
                         <ExternalLink size={14} />
                       </button>
                     </>
@@ -2829,8 +2830,8 @@ export function FrontPorchLanding({
                   eyebrow={vendorArtifact.phase === "ready" ? "Returned brief" : "Working brief"}
                   title={vendorArtifact.title}
                   framing={vendorArtifact.phase === "ready"
-                    ? "The first returned brief is ready. Open the brief room for the clean narrative, or step into War Room if you want to challenge the weak edge."
-                    : "The working brief is open in its own room while AXIOM warms the dossier and keeps the thin parts explicit."}
+                    ? `The first returned brief is ready. Open the brief view for the clean narrative, or step into ${DEEP_ROOM_NAME} if you want to challenge the weak edge.`
+                    : "The working brief is open in its own view while AXIOM warms the dossier and keeps the thin parts explicit."}
                   sections={[
                     {
                       label: "Current posture",
@@ -2838,9 +2839,9 @@ export function FrontPorchLanding({
                     },
                   ]}
                   provenance={vendorArtifact.phase === "ready"
-                    ? ["Returned brief ready", "Separate brief room", "War Room one move away"]
+                    ? ["Returned brief ready", "Separate brief view", `${DEEP_ROOM_NAME} one move away`]
                     : ["Working brief warming", "Conversation stays primary", "Dossier still under pressure"]}
-                  note="The brief now has its own room so the thread and the artifact stop competing with each other."
+                  note="The brief now has its own view so the thread and the artifact stop competing with each other."
                   actions={
                     <>
                       <button
@@ -2878,7 +2879,7 @@ export function FrontPorchLanding({
                           gap: SP.xs,
                         }}
                       >
-                        Take into War Room
+                        Enter {DEEP_ROOM_NAME}
                         <ExternalLink size={14} />
                       </button>
                     </>
@@ -2889,7 +2890,7 @@ export function FrontPorchLanding({
 
             {errorText ? (
               <div style={{ width: "min(760px, 100%)" }}>
-                <InlineMessage tone="danger" title="Briefing hit a problem" message={errorText} />
+                <InlineMessage tone="danger" title={`${STOA_NAME} hit a problem`} message={errorText} />
               </div>
             ) : null}
               </>

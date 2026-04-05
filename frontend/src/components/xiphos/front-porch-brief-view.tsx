@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ArrowLeft, ArrowUpRight, ExternalLink } from "lucide-react";
+import { DEEP_ROOM_NAME } from "./room-names";
 import { BriefArtifact, SectionEyebrow, StatusPill } from "./shell-primitives";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 
@@ -57,7 +58,7 @@ export function FrontPorchBriefView({
         }}
       >
         <div style={{ display: "grid", gap: SP.xs }}>
-          <SectionEyebrow>{artifact.kind === "vendor" ? "Brief room" : "Vehicle brief room"}</SectionEyebrow>
+          <SectionEyebrow>{artifact.kind === "vendor" ? "Memo view" : "Vehicle memo"}</SectionEyebrow>
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
             <button
               type="button"
@@ -122,7 +123,7 @@ export function FrontPorchBriefView({
               fontWeight: 700,
             }}
           >
-            Take into War Room
+            Enter {DEEP_ROOM_NAME}
             <ArrowUpRight size={14} />
           </button>
         </div>
@@ -150,7 +151,7 @@ export function FrontPorchBriefView({
               maxWidth: 720,
             }}
           >
-            Read AXIOM's first judgment here. This room keeps the assessment, the supporting holds, the thin edge, and the graph delta together without making you parse the machinery.
+            Read AXIOM's first judgment here. This view keeps the assessment, the supporting holds, the thin edge, and the graph delta together without making you parse the machinery.
           </p>
         </div>
 

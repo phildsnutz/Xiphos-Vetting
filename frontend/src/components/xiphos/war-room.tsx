@@ -5,6 +5,7 @@ import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { AxiomAlerts } from "./axiom-alerts";
 import { AxiomSearchPanel } from "./axiom-search-panel";
 import { AxiomWatchlist } from "./axiom-watchlist";
+import { DEEP_ROOM_NAME, STOA_NAME } from "./room-names";
 import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
 
 type RoomMode = "collection" | "watch" | "alerts";
@@ -155,7 +156,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
       return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, and ${searchResults.intelligenceGaps.length} open gaps from the current brief.`;
     }
     if (seed?.targetEntity) {
-      return `AXIOM picked up ${seed.seedLabel || seed.targetEntity} from Briefing and is working the public picture from there.`;
+      return `AXIOM picked up ${seed.seedLabel || seed.targetEntity} from ${STOA_NAME} and is working the public picture from there.`;
     }
     return "Bring the knot, not the taxonomy. AXIOM will work the public picture, keep the weak residue explicit, and only push what holds.";
   }, [mode, searchResults, seed]);
@@ -175,7 +176,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
       return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
     }
     if (seed?.targetEntity) {
-      return "Brief room warming";
+      return `${STOA_NAME} brief warming`;
     }
     return "Awaiting a live brief";
   }, [activeWatchEntries.length, alerts.length, criticalAlerts.length, mode, searchResults, seed]);
@@ -217,7 +218,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
         eyebrow: "AXIOM exchange",
         title: "Nothing is warm yet.",
         lead: "Give me the vendor or vehicle that needs quiet persistence between pulls, and I’ll keep the drift below the line until it matters.",
-        follow: "War Room should stay quiet until a warm target or material signal earns attention.",
+        follow: `${DEEP_ROOM_NAME} should stay quiet until a warm target or material signal earns attention.`,
       };
     }
 
@@ -239,10 +240,10 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
     if (seed?.targetEntity) {
       return {
         eyebrow: "AXIOM exchange",
-        title: "The briefing-room brief is now live in the room.",
+        title: `The ${STOA_NAME} brief is now live in the room.`,
         lead: seed.vehicleName
           ? `I picked up ${seed.seedLabel || seed.targetEntity} with ${seed.vehicleName} already in frame. I’m working the thread from there.`
-          : `I picked up ${seed.seedLabel || seed.targetEntity} from Briefing and I’m working the first public picture from there.`,
+          : `I picked up ${seed.seedLabel || seed.targetEntity} from ${STOA_NAME} and I’m working the first public picture from there.`,
         follow: seed.domainFocus
           ? `I’m weighting ${seed.domainFocus} first unless you redirect me.`
           : "Redirect me only if the first thread is wrong. Otherwise I’ll work the full picture from the current brief.",
@@ -458,7 +459,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                   type="button"
                   onClick={() => onNavigate("helios")}
                   className="helios-focus-ring"
-                  aria-label="Return to Briefing"
+                  aria-label={`Return to ${STOA_NAME}`}
                   style={{
                     border: "none",
                     background: "transparent",
@@ -472,12 +473,12 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                     fontWeight: 700,
                   }}
                 >
-                  Briefing
+                  {STOA_NAME}
                 </button>
                 <ChevronRight size={14} color={T.textTertiary} />
                 <div style={{ fontSize: FS.lg, fontWeight: 800, letterSpacing: "-0.04em" }}>Helios</div>
-                <StatusPill tone="info">War Room</StatusPill>
-                {seed?.targetEntity ? <StatusPill tone="neutral">Brief carried from Briefing</StatusPill> : null}
+                <StatusPill tone="info">{DEEP_ROOM_NAME}</StatusPill>
+                {seed?.targetEntity ? <StatusPill tone="neutral">{`Brief carried from ${STOA_NAME}`}</StatusPill> : null}
               </div>
               <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, maxWidth: 760 }}>
                 {leadStatement}
@@ -492,7 +493,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                 type="button"
                 onClick={() => onNavigate("helios")}
                 className="helios-focus-ring"
-                aria-label="Return to Briefing"
+                aria-label={`Return to ${STOA_NAME}`}
                 style={{
                   border: `1px solid ${T.border}`,
                   background: "transparent",
@@ -508,7 +509,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                 }}
               >
                 <ArrowLeft size={14} />
-                Exit War Room
+                Exit {DEEP_ROOM_NAME}
               </button>
               <button
                 type="button"
@@ -593,7 +594,7 @@ export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: War
                       </div>
                     </button>
                   )) : (
-                    <InlineMessage tone="neutral" message="No recent engagements yet. The first one starts in Briefing." />
+                    <InlineMessage tone="neutral" message={`No recent engagements yet. The first one starts in ${STOA_NAME}.`} />
                   )}
                 </div>
               ) : null}

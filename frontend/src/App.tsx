@@ -13,6 +13,7 @@ import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligen
 import ComplianceDashboard from "@/components/xiphos/compliance-dashboard";
 import { ErrorBoundary } from "@/components/xiphos/error-boundary";
 import { WarRoom } from "@/components/xiphos/war-room";
+import { DEEP_ROOM_NAME, STOA_NAME } from "@/components/xiphos/room-names";
 import { PortfolioSkeleton } from "@/components/xiphos/skeletons";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
@@ -519,7 +520,7 @@ export default function App() {
     : tab === "portfolio"
       ? "Workbench"
       : tab === "helios"
-        ? "Briefing"
+        ? STOA_NAME
         : tab === "dashboard"
           ? "Overview"
           : tab === "threads"
@@ -527,7 +528,7 @@ export default function App() {
             : tab === "graph"
               ? "Graph Intelligence"
               : tab === "axiom"
-                ? "War Room"
+                ? DEEP_ROOM_NAME
                 : "Admin";
 
   const screenSubtitle = selected
@@ -661,7 +662,7 @@ export default function App() {
     },
     {
       id: "helios",
-      label: "Briefing",
+      label: STOA_NAME,
       description: "Start from an entity, a vehicle, or the knot you cannot quite name yet.",
       icon: Shield,
     },
@@ -685,7 +686,7 @@ export default function App() {
     },
     {
       id: "axiom",
-      label: "War Room",
+      label: DEEP_ROOM_NAME,
       description: "Work collection, drift, and evidence at practitioner depth.",
       icon: Radar,
     },
@@ -1392,7 +1393,7 @@ export default function App() {
                             setTab("helios");
                           }}
                           className="helios-focus-ring"
-                          aria-label="Open briefing"
+                          aria-label={`Open ${STOA_NAME}`}
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -1408,7 +1409,7 @@ export default function App() {
                           }}
                         >
                           <Shield size={14} />
-                          Briefing
+                          {STOA_NAME}
                         </button>
                       ) : null}
 
@@ -1482,7 +1483,7 @@ export default function App() {
             <DialogHeader>
               <DialogTitle style={{ color: T.text }}>Sign in to continue</DialogTitle>
               <DialogDescription style={{ color: T.muted }}>
-                Briefing stays simple. Sign in only when AXIOM needs to actually work the brief.
+                {STOA_NAME} stays simple. Sign in only when AXIOM needs to actually work the brief.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleDialogLogin} className="flex flex-col gap-3">

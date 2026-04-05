@@ -152,7 +152,8 @@ ARCHIVE_EXCLUDES = {
 BUNDLE_MUST_HAVE = [
     "Helios | Xiphos",
     "Entity and vehicle intelligence",
-    "Briefing",
+    "Stoa",
+    "Aegis",
     "Brief AXIOM",
 ]
 BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "xiphos-dashboard"]
@@ -717,18 +718,46 @@ def verify() -> None:
             check=False,
         )
         if regression.returncode == 0:
-            print("  PASS: Front Porch browser regression")
+            print("  PASS: Stoa browser regression")
         else:
             detail = (regression.stderr or regression.stdout or "browser regression failed").strip()
-            print(f"  FAIL: Front Porch browser regression failed: {detail}")
-            issues.append(f"Front Porch browser regression failed: {detail}")
+            print(f"  FAIL: Stoa browser regression failed: {detail}")
+            issues.append(f"Stoa browser regression failed: {detail}")
     except Exception as exc:
-        print(f"  FAIL: Front Porch browser regression failed: {exc}")
-        issues.append(f"Front Porch browser regression failed: {exc}")
+        print(f"  FAIL: Stoa browser regression failed: {exc}")
+        issues.append(f"Stoa browser regression failed: {exc}")
 
     if not (ADMIN_EMAIL and ADMIN_PASS):
         print("  WARN: Skipping auth-verified API checks (set XIPHOS_DEPLOY_ADMIN_EMAIL/PASSWORD)")
     else:
+        try:
+            aegis_regression = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_DIR / "scripts" / "run_war_room_carryover_regression.py"),
+                    "--base-url",
+                    APP_URL,
+                    "--email",
+                    ADMIN_EMAIL,
+                    "--password",
+                    ADMIN_PASS,
+                ],
+                cwd=str(SCRIPT_DIR),
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+            if aegis_regression.returncode == 0:
+                print("  PASS: Aegis carryover regression")
+            else:
+                detail = (aegis_regression.stderr or aegis_regression.stdout or "carryover regression failed").strip()
+                print(f"  FAIL: Aegis carryover regression failed: {detail}")
+                issues.append(f"Aegis carryover regression failed: {detail}")
+        except Exception as exc:
+            print(f"  FAIL: Aegis carryover regression failed: {exc}")
+            issues.append(f"Aegis carryover regression failed: {exc}")
+
         try:
             auth_deadline = time.monotonic() + 90
             token = ""
