@@ -81,6 +81,10 @@ from server_graph_routes import register_graph_surface_routes
 from server_mission_thread_routes import register_mission_thread_routes
 from server_monitor_routes import register_monitor_routes
 from server_axiom_routes import register_axiom_routes
+from helios_core.mission_briefs import (
+    create_or_update_mission_brief,
+    get_mission_brief as get_core_mission_brief,
+)
 import mission_thread_briefing as mission_thread_briefing_module
 import mission_threads as mission_threads_module
 
@@ -2259,7 +2263,7 @@ def api_create_mission_brief():
         return jsonify({"error": "Case not found for mission brief linkage"}), 400
 
     brief_id = _truncate_text(body.get("id"), 64) or f"mb-{uuid.uuid4().hex[:10]}"
-    brief = db.save_mission_brief(
+    brief = create_or_update_mission_brief(
         brief_id,
         created_by=_current_user_id(),
         created_by_email=_current_user_email(),
@@ -2273,7 +2277,7 @@ def api_create_mission_brief():
 @app.route("/api/mission-briefs/<brief_id>", methods=["GET"])
 @rate_limit(max_requests=240, window_seconds=60)
 def api_get_mission_brief(brief_id):
-    brief = db.get_mission_brief(brief_id)
+    brief = get_core_mission_brief(brief_id)
     if not brief:
         return jsonify({"error": "Mission brief not found"}), 404
     return jsonify({"mission_brief": brief})
@@ -2282,14 +2286,14 @@ def api_get_mission_brief(brief_id):
 @app.route("/api/mission-briefs/<brief_id>", methods=["PUT"])
 @rate_limit(max_requests=120, window_seconds=60)
 def api_update_mission_brief(brief_id):
-    if not db.get_mission_brief(brief_id):
+    if not get_core_mission_brief(brief_id):
         return jsonify({"error": "Mission brief not found"}), 404
 
     body = request.get_json(silent=True) or {}
     payload = _normalize_mission_brief_payload(body)
     if payload["case_id"] and not db.get_vendor(payload["case_id"]):
         return jsonify({"error": "Case not found for mission brief linkage"}), 400
-    brief = db.save_mission_brief(
+    brief = create_or_update_mission_brief(
         brief_id,
         created_by=_current_user_id(),
         created_by_email=_current_user_email(),

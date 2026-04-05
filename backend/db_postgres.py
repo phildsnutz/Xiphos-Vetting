@@ -606,6 +606,34 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_enrichment_risk ON enrichment_reports(overall_risk);
             CREATE INDEX IF NOT EXISTS idx_enrichment_vendor_hash ON enrichment_reports(vendor_id, report_hash);
 
+            CREATE TABLE IF NOT EXISTS mission_briefs (
+                id TEXT PRIMARY KEY,
+                room TEXT NOT NULL DEFAULT 'stoa',
+                case_id TEXT REFERENCES vendors(id),
+                object_type TEXT,
+                engagement_type TEXT,
+                collection_depth TEXT NOT NULL DEFAULT 'full_picture',
+                timeline TEXT,
+                status TEXT NOT NULL DEFAULT 'scoped',
+                question_count INTEGER NOT NULL DEFAULT 0,
+                confidence_score REAL NOT NULL DEFAULT 0,
+                primary_targets TEXT NOT NULL DEFAULT '{}',
+                known_context TEXT NOT NULL DEFAULT '{}',
+                priority_requirements TEXT NOT NULL DEFAULT '[]',
+                authorized_tiers TEXT NOT NULL DEFAULT '[]',
+                summary TEXT,
+                notes TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                created_by_email TEXT,
+                created_by_role TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_mission_briefs_case ON mission_briefs(case_id);
+            CREATE INDEX IF NOT EXISTS idx_mission_briefs_room ON mission_briefs(room);
+            CREATE INDEX IF NOT EXISTS idx_mission_briefs_updated ON mission_briefs(updated_at);
+
             CREATE TABLE IF NOT EXISTS monitoring_log (
                 id SERIAL PRIMARY KEY,
                 vendor_id TEXT NOT NULL REFERENCES vendors(id),

@@ -2220,3 +2220,9 @@ def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = F
     # Return bytes
     pdf_buffer.seek(0)
     return pdf_buffer.getvalue()
+
+
+def generate_pdf_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False) -> bytes:
+    from helios_core.brief_engine import generate_pdf_brief
+
+    return generate_pdf_brief(vendor_id, user_id=user_id, hydrate_ai=hydrate_ai)

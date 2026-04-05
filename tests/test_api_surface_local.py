@@ -2027,7 +2027,7 @@ def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, m
         captured["vendor_id"] = vendor_id
         captured["user_id"] = user_id
         captured["hydrate_ai"] = hydrate_ai
-        return "<html><body>AI Narrative Brief</body></html>"
+        return "<html><body>Axiom Assessment</body></html>"
 
     def fake_prime(case_id_arg, user_id_arg):
         primed["case_id"] = case_id_arg
@@ -2045,7 +2045,7 @@ def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, m
         "hydrate_ai": True,
     }
     assert primed == {"case_id": case_id, "user_id": "dev"}
-    assert "AI Narrative Brief" in resp.get_data(as_text=True)
+    assert "Axiom Assessment" in resp.get_data(as_text=True)
 
 
 def test_dossier_route_returns_cache_busting_download_url(client, monkeypatch):
@@ -2105,7 +2105,7 @@ def test_dossier_routes_allow_explicit_non_hydrated_ai_generation(client, monkey
     monkeypatch.setattr(
         server,
         "generate_dossier",
-        lambda vendor_id, user_id="", hydrate_ai=False: captured.__setitem__("html", hydrate_ai) or "<html><body>AI Narrative Brief</body></html>",
+        lambda vendor_id, user_id="", hydrate_ai=False: captured.__setitem__("html", hydrate_ai) or "<html><body>Axiom Assessment</body></html>",
     )
     monkeypatch.setattr(
         server,
@@ -2320,7 +2320,7 @@ def test_access_ticket_opens_dossier_without_bearer_in_query(auth_client, monkey
     monkeypatch.setattr(
         server,
         "generate_dossier",
-        lambda vendor_id, user_id="", hydrate_ai=False: "<html><body>AI Narrative Brief</body></html>",
+        lambda vendor_id, user_id="", hydrate_ai=False: "<html><body>Axiom Assessment</body></html>",
     )
 
     dossier_resp = client.post(f"/api/cases/{case_id}/dossier", json={}, headers=headers)
@@ -2337,7 +2337,7 @@ def test_access_ticket_opens_dossier_without_bearer_in_query(auth_client, monkey
 
     served = client.get(f"{download_url}?access_ticket={access_ticket}")
     assert served.status_code == 200
-    assert "AI Narrative Brief" in served.get_data(as_text=True)
+    assert "Axiom Assessment" in served.get_data(as_text=True)
 
 
 def test_access_ticket_rejects_unsupported_path(auth_client):

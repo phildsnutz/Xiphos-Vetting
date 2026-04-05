@@ -2690,6 +2690,14 @@ def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = 
         user_id=user_id,
         hydrate_ai=hydrate_ai,
     )
+    analysis_state = "ready" if analysis_data and analysis_data.get("analysis") else "idle"
+    if hydrate_ai and user_id and score and not analysis_data:
+        try:
+            from ai_analysis import get_ai_config
+
+            analysis_state = "warming" if get_ai_config(user_id) else "idle"
+        except Exception:
+            analysis_state = "idle"
 
     context = {
         "vendor": vendor,
@@ -2707,6 +2715,7 @@ def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = 
         "graph_summary": graph_summary,
         "supplier_passport": supplier_passport,
         "analysis_data": analysis_data,
+        "analysis_state": analysis_state,
     }
     _store_cached_dossier_context(cache_key, context)
     return context
@@ -4596,3 +4605,9 @@ def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False
     '''
 
     return html
+
+
+def generate_dossier(vendor_id: str, user_id: str = "", hydrate_ai: bool = False) -> str:
+    from helios_core.brief_engine import generate_html_brief
+
+    return generate_html_brief(vendor_id, user_id=user_id, hydrate_ai=hydrate_ai)

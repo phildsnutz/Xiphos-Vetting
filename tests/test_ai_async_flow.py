@@ -390,10 +390,10 @@ def test_dossier_can_hydrate_live_ai_when_requested(client, monkeypatch):
 
     html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
     assert calls["count"] == 1
-    assert "AI Narrative Brief" in html
+    assert "Axiom Assessment" in html
     assert "AI executive judgment for hydrated dossier." in html
-    assert "Executive judgment" in html
-    assert "Critical concerns" in html
+    assert "What needs to be closed" in html
+    assert "Graph Read" in html
 
 
 def test_dossier_hydrate_keeps_warming_when_external_ai_is_configured(client, monkeypatch):
@@ -415,8 +415,8 @@ def test_dossier_hydrate_keeps_warming_when_external_ai_is_configured(client, mo
     monkeypatch.setattr(ai_analysis, "analyze_vendor", fail_if_called)
 
     html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
-    assert "AI Narrative Brief" in html
-    assert "still warming for this case" in html
+    assert "Axiom Assessment" in html
+    assert "still warming" in html.lower()
 
 
 def test_dossier_pdf_keeps_ai_warming_section_when_external_ai_is_configured(client, monkeypatch):
@@ -444,8 +444,8 @@ def test_dossier_pdf_keeps_ai_warming_section_when_external_ai_is_configured(cli
     pdf_bytes = dossier_pdf.generate_pdf_dossier(case_id, user_id="dev", hydrate_ai=True)
     pdf_text = "\n".join((page.extract_text() or "") for page in PdfReader(BytesIO(pdf_bytes)).pages)
 
-    assert "AI NARRATIVE BRIEF" in pdf_text.upper()
-    assert "still warming for this case" in pdf_text
+    assert "AXIOM ASSESSMENT" in pdf_text.upper()
+    assert "warming" in pdf_text.lower()
 
 
 def test_dossier_cache_refreshes_when_ai_analysis_becomes_ready(client, monkeypatch):
@@ -487,11 +487,11 @@ def test_dossier_cache_refreshes_when_ai_analysis_becomes_ready(client, monkeypa
     monkeypatch.setattr(ai_analysis, "analyze_vendor", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not sync hydrate external AI")))
 
     warming_html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
-    assert "still warming for this case" in warming_html
+    assert "warming" in warming_html.lower()
 
     state["ready"] = True
     ready_html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
-    assert "still warming for this case" not in ready_html
+    assert "Axiom is still warming the challenge layer" not in ready_html
     assert "Freshly ready AI summary." in ready_html
 
 
@@ -501,12 +501,12 @@ def test_dossier_includes_risk_storyline_section(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "How to read this dossier" in html
-    assert "Decision brief" in html
-    assert "Control evidence" in html
-    assert "Risk Storyline" in html
-    assert "What matters first" in html
-    assert "Regulatory gates pass cleanly" in html or "No material blockers detected" in html
+    assert "Helios Intelligence Brief" in html
+    assert "Axiom Assessment" in html
+    assert "What holds" in html
+    assert "What needs to be closed" in html
+    assert "Graph Read" in html
+    assert "Evidence Ledger" in html
 
 
 def test_ai_narrative_handles_datetime_created_at():
@@ -628,13 +628,13 @@ def test_dossier_includes_graph_provenance_section(client, monkeypatch):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Graph Provenance Snapshot" in html
+    assert "Graph Read" in html
     assert "Frontier Holdings" in html
     assert "Alpha Trade Bank" in html
-    assert "Corporate Registry (OpenCorporates)" in html
-    assert "Edge families" in html
-    assert "Claim-backed" in html
-    assert "trade and logistics" in html
+    assert "Ownership registry and standards-modeled control path point to the same parent chain." in html
+    assert "Edge Families" in html
+    assert "Claim Coverage" in html
+    assert "beneficially owned by" in html.lower()
 
 
 def test_dossier_includes_supplier_passport_section(client, monkeypatch):
@@ -738,17 +738,15 @@ def test_dossier_includes_supplier_passport_section(client, monkeypatch):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Supplier passport" in html
-    assert "Portable trust artifact" in html
-    assert "Identity anchors" in html
+    assert "Axiom Assessment" in html
+    assert "CAGE: 1ABC2" in html
+    assert "UEI: UEI123456" in html
     assert "Threat context" in html
     assert "AA24-057A" in html
     assert "Frontier Holdings" in html
     assert "Foreign interest in view" in html
-    assert "Decision tribunal" in html
-    assert "Claim health" in html
     assert "Ownership Registry Extract" in html
-    assert "Unverified" in html
+    assert "UEI is still unverified." in html
     assert "Retry after 2026-Mar-28 00:00:00+0000 UTC" in html
 
 
@@ -768,8 +766,8 @@ def test_dossier_hero_uses_monitoring_change_language(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Recent change" in html
-    assert "New findings" in html
+    assert "Helios Intelligence Brief" in html
+    assert "Evidence Ledger" in html
 
 
 def test_dossier_includes_customer_foci_evidence_section(client):
@@ -791,11 +789,8 @@ def test_dossier_includes_customer_foci_evidence_section(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Defense counterparty trust dossier" in html
-    assert "Current workflow lane" in html
-    assert "Defense counterparty trust" in html
-    assert "FOCI posture" in html
-    assert "FOCI Evidence Summary" in html
+    assert "Axiom Assessment" in html
+    assert "FOCI evidence" in html
     assert "Allied Parent Holdings" in html
     assert "25%" in html
     assert "SSA" in html
@@ -818,11 +813,8 @@ def test_dossier_includes_customer_cyber_evidence_section(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Supply chain assurance dossier" in html
-    assert "Current workflow lane" in html
-    assert "Supply chain assurance" in html
-    assert "SPRS / CMMC" in html
-    assert "Cyber Evidence Summary" in html
+    assert "Axiom Assessment" in html
+    assert "Cyber evidence" in html
     assert "CMMC Level 1" in html
     assert "POA&amp;M active" in html or "POA&M active" in html
 
@@ -851,14 +843,8 @@ def test_dossier_includes_export_evidence_section(client):
 
     html = dossier.generate_dossier(case_id, user_id="dev")
 
-    assert "Export authorization dossier" in html
-    assert "Current workflow lane" in html
-    assert "Export authorization" in html
-    assert "Control posture" in html
-    assert "Not legal advice and not a government approval." in html
-    assert "Authorization posture" in html
-    assert "Export Evidence Summary" in html
-    assert "Authorization posture:" in html
+    assert "Axiom Assessment" in html
+    assert "Export evidence" in html
     assert "3A001" in html
 
 
