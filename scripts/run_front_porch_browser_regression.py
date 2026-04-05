@@ -80,9 +80,41 @@ async (page) => {{
     throw new Error("Stoa repeated the incumbent-prime question instead of consuming the answer");
   }}
 
+  await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
+  await page.waitForLoadState("networkidle");
+
+  const secondComposer = page.getByLabel("Brief AXIOM");
+  await secondComposer.waitFor({{ state: "visible", timeout: 15000 }});
+  await secondComposer.fill("LEIA");
+  await secondComposer.press("Enter");
+
+  await page.waitForTimeout(1500);
+  const afterLeia = await page.evaluate(() => document.body.innerText);
+  const leiaAskedTiming = afterLeia.includes("Is this current, expired, or still in pre-solicitation?");
+  const leiaEnteredEntityNarrowing = afterLeia.includes("I found a few plausible matches.");
+
+  if (leiaEnteredEntityNarrowing) {{
+    await secondComposer.fill("LEIA contract vehicle");
+    await secondComposer.press("Enter");
+
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Is this current, expired, or still in pre-solicitation?"),
+      undefined,
+      {{ timeout: 15000 }},
+    );
+
+    const correctedBody = await page.evaluate(() => document.body.innerText);
+    if (correctedBody.includes("I still need the right entity in frame.")) {{
+      throw new Error("Stoa stayed stuck in entity narrowing after the user corrected the object to contract vehicle");
+    }}
+  }} else if (!leiaAskedTiming) {{
+    throw new Error("Stoa did not treat LEIA like a vehicle seed or ask the timing question");
+  }}
+
   return {{
     clarifying_state: "visible",
     handoff: {success_label!r},
+    leia_path: leiaEnteredEntityNarrowing ? "corrected_to_vehicle" : "vehicle_first",
   }};
 }}
 """.strip()

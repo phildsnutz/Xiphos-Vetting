@@ -146,6 +146,36 @@ const FRONT_PORCH_START_CONFIDENCE = 0.72;
 const FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE = 0.42;
 const FRONT_PORCH_MAX_FOLLOW_UPS = 2;
 const FRONT_PORCH_PRESSURE_THREAD_DELAY_MS = 3400;
+const KNOWN_CONTRACT_VEHICLE_SEEDS = new Set([
+  "leia",
+  "law enforcement innovation alliance",
+  "tacs",
+  "total administrative and compliance services",
+  "sewp",
+  "solutions for enterprise-wide procurement",
+  "oasis",
+  "one acquisition solution for integrated services",
+  "cio-sp3",
+  "chief information officer solutions and partners 3",
+  "cio-sp4",
+  "chief information officer solutions and partners 4",
+  "alliant 2",
+  "8(a) stars iii",
+  "polaris",
+  "vets 2",
+  "mas",
+  "multiple award schedule",
+  "ites-sw2",
+  "information technology enterprise solutions - software 2",
+  "ites-3s",
+  "information technology enterprise solutions 3 services",
+  "eagle ii",
+  "encore iii",
+  "deos",
+  "defense enterprise office solutions",
+  "ems",
+  "enterprise mission support",
+]);
 
 function nextId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -162,6 +192,9 @@ function sortRecentCases(cases: VettingCase[]): VettingCase[] {
 function inferObjectType(value: string): ObjectType | null {
   const lower = value.toLowerCase();
   if (/\b(vehicle|recompete|follow-on|follow on|pre-solicitation|pre solicitation|solicitation|piid|award|task order)\b/.test(lower)) {
+    return "vehicle";
+  }
+  if (looksLikeKnownContractVehicleSeed(value)) {
     return "vehicle";
   }
   if (/\bunder\s+[A-Z]{3,}\b/.test(value)) {
@@ -241,6 +274,29 @@ function looksLikeObjectOnlyAnswer(value: string) {
 
 function compactText(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeIntakeSeed(value: string) {
+  return compactText(value)
+    .replace(/[?!.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function looksLikeKnownContractVehicleSeed(value: string) {
+  return KNOWN_CONTRACT_VEHICLE_SEEDS.has(normalizeIntakeSeed(value));
+}
+
+function inferExplicitObjectCorrection(value: string): ObjectType | null {
+  const lower = value.toLowerCase();
+  if (/\b(contract vehicle|vehicle|solicitation|piid|task order|idiq|gwac|bpa)\b/.test(lower)) {
+    return "vehicle";
+  }
+  if (/\b(specific vendor|vendor|supplier|company|teammate|partner|prime contractor|subcontractor|entity)\b/.test(lower)) {
+    return "vendor";
+  }
+  return null;
 }
 
 const ENTITY_NOISE_WORDS = new Set([
@@ -1784,53 +1840,6 @@ export function FrontPorchLanding({
     await startCaseCreation(candidate, session);
   }, [appendMessage, resolution, session, startCaseCreation]);
 
-  const handleCandidateDisambiguationTurn = useCallback(async (text: string) => {
-    if (candidateChoices.length === 0) return false;
-
-    const matchedCandidate = matchCandidateChoiceFromText(text, candidateChoices);
-    if (matchedCandidate) {
-      await handleCandidateChoice(matchedCandidate);
-      return true;
-    }
-
-    if (isCandidateRelationshipQuestion(text)) {
-      const relationshipAnswer = inferCandidateRelationshipAnswer(candidateChoices);
-      const recommendation = recommendCandidateFromChoices(candidateChoices, session);
-      appendMessage(
-        "axiom",
-        recommendation.candidate
-          ? `${relationshipAnswer} If you want me to keep moving, the strongest working candidate is ${recommendation.candidate.legal_name}.`
-          : relationshipAnswer,
-      );
-      return true;
-    }
-
-    if (isCandidateRecommendationQuestion(text)) {
-      const recommendation = recommendCandidateFromChoices(candidateChoices, session);
-      if (recommendation.candidate) {
-        const rationale = recommendation.rationale
-          ? `${recommendation.rationale} `
-          : "";
-        const descriptor = describeCandidateForDisambiguation(recommendation.candidate);
-        appendMessage(
-          "axiom",
-          `${rationale}${descriptor ? `That one reads as ${descriptor}. ` : ""}If that is the one you mean, say its name or pick the ${candidateChoiceIndexWord(
-            candidateChoices.indexOf(recommendation.candidate),
-          )} option.`,
-        );
-      } else {
-        appendMessage("axiom", "I do not have a clean recommendation yet. Give me one fact that separates the entity you mean from the others.");
-      }
-      return true;
-    }
-
-    appendMessage(
-      "axiom",
-      "I still need the right entity in frame. Pick one of the candidates or give me one fact that separates the one you mean from the others.",
-    );
-    return true;
-  }, [appendMessage, candidateChoices, handleCandidateChoice, session]);
-
   const startVendorFlow = useCallback(async (nextSession: IntakeSession) => {
     const name = compactText(nextSession.vendorName || "");
     if (!name) {
@@ -1964,6 +1973,50 @@ export function FrontPorchLanding({
     void startVendorFlow(pending.session);
   }, [loginRequired, resumeIntent, startVendorFlow, startVehicleFlow]);
 
+  const continueVehicleIntake = useCallback(async (nextSession: IntakeSession) => {
+    const preparedSession = { ...nextSession, pendingFollowUp: null };
+    setSession(preparedSession);
+
+    const confidence = computeIntakeConfidence(preparedSession);
+
+    if (!preparedSession.vehicleName) {
+      askFollowUp(preparedSession, "Which contract vehicle are we looking at?", "vehicle_name");
+      return;
+    }
+    if (!preparedSession.vehicleTiming) {
+      askFollowUp(preparedSession, "Is this current, expired, or still in pre-solicitation?", "vehicle_timing");
+      return;
+    }
+    if (
+      preparedSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
+      confidence < FRONT_PORCH_START_CONFIDENCE &&
+      preparedSession.vehicleTiming === "pre_solicitation" &&
+      (preparedSession.followOn === null || !preparedSession.incumbentPrime)
+    ) {
+      askFollowUp(
+        preparedSession,
+        "Good. If this is a follow-on, do you know the incumbent prime? If not, I can still start from the vehicle.",
+        "vehicle_follow_on_or_incumbent",
+      );
+      return;
+    }
+    if (
+      preparedSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
+      confidence < FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE &&
+      preparedSession.followOn === true &&
+      !preparedSession.incumbentPrime
+    ) {
+      askFollowUp(
+        preparedSession,
+        "If you know who holds the prime position now, tell me. If not, I’ll keep the incumbent path open while I work.",
+        "vehicle_incumbent_prime",
+      );
+      return;
+    }
+
+    await startVehicleFlow(preparedSession);
+  }, [askFollowUp, startVehicleFlow]);
+
   const decideVehicleNext = useCallback(async (input: string, current: IntakeSession) => {
     const nextSession = { ...current };
     const stripped = compactText(stripObjectLabel(input));
@@ -1987,45 +2040,8 @@ export function FrontPorchLanding({
     if (nextSession.vehicleTiming === "pre_solicitation" && nextSession.incumbentPrime && nextSession.followOn === null) {
       nextSession.followOn = true;
     }
-    nextSession.pendingFollowUp = null;
-
-    setSession(nextSession);
-
-    const confidence = computeIntakeConfidence(nextSession);
-
-    if (!nextSession.vehicleName) {
-      askFollowUp(nextSession, "Which contract vehicle are we looking at?", "vehicle_name");
-      return;
-    }
-    if (!nextSession.vehicleTiming) {
-      askFollowUp(nextSession, "Is this current, expired, or still in pre-solicitation?", "vehicle_timing");
-      return;
-    }
-    if (
-      nextSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
-      confidence < FRONT_PORCH_START_CONFIDENCE &&
-      nextSession.vehicleTiming === "pre_solicitation" &&
-      (nextSession.followOn === null || !nextSession.incumbentPrime)
-    ) {
-      askFollowUp(
-        nextSession,
-        "Good. If this is a follow-on, do you know the incumbent prime? If not, I can still start from the vehicle.",
-        "vehicle_follow_on_or_incumbent",
-      );
-      return;
-    }
-    if (
-      nextSession.followUpCount < FRONT_PORCH_MAX_FOLLOW_UPS &&
-      confidence < FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE &&
-      nextSession.followOn === true &&
-      !nextSession.incumbentPrime
-    ) {
-      askFollowUp(nextSession, "If you know who holds the prime position now, tell me. If not, I’ll keep the incumbent path open while I work.", "vehicle_incumbent_prime");
-      return;
-    }
-
-    await startVehicleFlow(nextSession);
-  }, [askFollowUp, startVehicleFlow]);
+    await continueVehicleIntake(nextSession);
+  }, [continueVehicleIntake]);
 
   const decideVendorNext = useCallback(async (input: string, current: IntakeSession) => {
     const nextSession = { ...current };
@@ -2067,6 +2083,74 @@ export function FrontPorchLanding({
 
     await startVendorFlow(nextSession);
   }, [askFollowUp, startVendorFlow]);
+
+  const handleCandidateDisambiguationTurn = useCallback(async (text: string) => {
+    if (candidateChoices.length === 0) return false;
+
+    const explicitCorrection = inferExplicitObjectCorrection(text);
+    if (explicitCorrection === "vehicle") {
+      const correctedVehicleName = extractVehicleName(text)
+        || compactText(stripObjectLabel(text))
+        || session.vehicleName
+        || session.vendorName
+        || "";
+      const correctedSession: IntakeSession = {
+        ...session,
+        objectType: "vehicle",
+        vendorName: null,
+        vehicleName: correctedVehicleName,
+        pendingFollowUp: null,
+      };
+      setCandidateChoices([]);
+      setResolution(null);
+      appendMessage("axiom", "Understood. That is a contract vehicle, not the entity set I was narrowing. I’m switching the frame.");
+      await continueVehicleIntake(correctedSession);
+      return true;
+    }
+
+    const matchedCandidate = matchCandidateChoiceFromText(text, candidateChoices);
+    if (matchedCandidate) {
+      await handleCandidateChoice(matchedCandidate);
+      return true;
+    }
+
+    if (isCandidateRelationshipQuestion(text)) {
+      const relationshipAnswer = inferCandidateRelationshipAnswer(candidateChoices);
+      const recommendation = recommendCandidateFromChoices(candidateChoices, session);
+      appendMessage(
+        "axiom",
+        recommendation.candidate
+          ? `${relationshipAnswer} If you want me to keep moving, the strongest working candidate is ${recommendation.candidate.legal_name}.`
+          : relationshipAnswer,
+      );
+      return true;
+    }
+
+    if (isCandidateRecommendationQuestion(text)) {
+      const recommendation = recommendCandidateFromChoices(candidateChoices, session);
+      if (recommendation.candidate) {
+        const rationale = recommendation.rationale
+          ? `${recommendation.rationale} `
+          : "";
+        const descriptor = describeCandidateForDisambiguation(recommendation.candidate);
+        appendMessage(
+          "axiom",
+          `${rationale}${descriptor ? `That one reads as ${descriptor}. ` : ""}If that is the one you mean, say its name or pick the ${candidateChoiceIndexWord(
+            candidateChoices.indexOf(recommendation.candidate),
+          )} option.`,
+        );
+      } else {
+        appendMessage("axiom", "I do not have a clean recommendation yet. Give me one fact that separates the entity you mean from the others.");
+      }
+      return true;
+    }
+
+    appendMessage(
+      "axiom",
+      "I still need the right entity in frame. Pick one of the candidates or give me one fact that separates the one you mean from the others.",
+    );
+    return true;
+  }, [appendMessage, candidateChoices, continueVehicleIntake, handleCandidateChoice, session]);
 
   const handleUserTurn = useCallback(async (raw: string) => {
     const text = compactText(raw);
