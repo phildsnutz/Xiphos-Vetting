@@ -1870,6 +1870,35 @@ export interface ResolveResponse {
   resolution?: EntityResolution;
 }
 
+export interface IntakeRouteHypothesis {
+  kind: "vendor" | "vehicle";
+  score: number;
+  reasons: string[];
+}
+
+export interface IntakeRouteResponse {
+  raw_input: string;
+  winning_mode: "vendor" | "vehicle" | null;
+  confidence: number;
+  clarifier_needed: boolean;
+  override_applied: boolean;
+  anchor_text: string;
+  hypotheses: IntakeRouteHypothesis[];
+}
+
+export async function routeIntake(
+  text: string,
+  options?: {
+    current_object_type?: "vendor" | "vehicle" | null;
+    in_entity_narrowing?: boolean;
+  },
+): Promise<IntakeRouteResponse> {
+  return json("/api/intake/route", {
+    method: "POST",
+    body: JSON.stringify({ text, ...options }),
+  });
+}
+
 export async function resolveEntity(
   name: string,
   options?: {

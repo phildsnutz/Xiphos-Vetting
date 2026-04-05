@@ -85,6 +85,7 @@ from helios_core.mission_briefs import (
     create_or_update_mission_brief,
     get_mission_brief as get_core_mission_brief,
 )
+from intake_router import route_intake
 import mission_thread_briefing as mission_thread_briefing_module
 import mission_threads as mission_threads_module
 
@@ -2409,6 +2410,30 @@ def api_save_org_ai_config():
         return jsonify({"error": str(err)}), 400
     except RuntimeError as err:
         return jsonify({"error": str(err)}), 503
+
+@app.route("/api/intake/route", methods=["POST"])
+@rate_limit(max_requests=40, window_seconds=60)
+def api_intake_route():
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or body.get("query") or "").strip()
+    if not text:
+        return jsonify({"error": "Missing 'text' field"}), 400
+
+    current_object_type = str(body.get("current_object_type") or "").strip().lower() or None
+    in_entity_narrowing_raw = body.get("in_entity_narrowing", False)
+    if isinstance(in_entity_narrowing_raw, bool):
+        in_entity_narrowing = in_entity_narrowing_raw
+    elif isinstance(in_entity_narrowing_raw, str):
+        in_entity_narrowing = in_entity_narrowing_raw.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        in_entity_narrowing = bool(in_entity_narrowing_raw)
+
+    routed = route_intake(
+        text,
+        current_object_type=current_object_type,
+        in_entity_narrowing=in_entity_narrowing,
+    )
+    return jsonify(routed)
 
 
 @app.route("/api/resolve", methods=["POST"])

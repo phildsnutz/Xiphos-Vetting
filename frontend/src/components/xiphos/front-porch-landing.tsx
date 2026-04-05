@@ -10,6 +10,7 @@ import {
   createCase,
   generateDossier,
   resolveEntity,
+  routeIntake,
   runAxiomSearchIngest,
   searchContractVehicle,
   submitResolveFeedback,
@@ -146,36 +147,6 @@ const FRONT_PORCH_START_CONFIDENCE = 0.72;
 const FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE = 0.42;
 const FRONT_PORCH_MAX_FOLLOW_UPS = 2;
 const FRONT_PORCH_PRESSURE_THREAD_DELAY_MS = 3400;
-const KNOWN_CONTRACT_VEHICLE_SEEDS = new Set([
-  "leia",
-  "law enforcement innovation alliance",
-  "tacs",
-  "total administrative and compliance services",
-  "sewp",
-  "solutions for enterprise-wide procurement",
-  "oasis",
-  "one acquisition solution for integrated services",
-  "cio-sp3",
-  "chief information officer solutions and partners 3",
-  "cio-sp4",
-  "chief information officer solutions and partners 4",
-  "alliant 2",
-  "8(a) stars iii",
-  "polaris",
-  "vets 2",
-  "mas",
-  "multiple award schedule",
-  "ites-sw2",
-  "information technology enterprise solutions - software 2",
-  "ites-3s",
-  "information technology enterprise solutions 3 services",
-  "eagle ii",
-  "encore iii",
-  "deos",
-  "defense enterprise office solutions",
-  "ems",
-  "enterprise mission support",
-]);
 
 function nextId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -192,9 +163,6 @@ function sortRecentCases(cases: VettingCase[]): VettingCase[] {
 function inferObjectType(value: string): ObjectType | null {
   const lower = value.toLowerCase();
   if (/\b(vehicle|recompete|follow-on|follow on|pre-solicitation|pre solicitation|solicitation|piid|award|task order)\b/.test(lower)) {
-    return "vehicle";
-  }
-  if (looksLikeKnownContractVehicleSeed(value)) {
     return "vehicle";
   }
   if (/\bunder\s+[A-Z]{3,}\b/.test(value)) {
@@ -274,29 +242,6 @@ function looksLikeObjectOnlyAnswer(value: string) {
 
 function compactText(value: string) {
   return value.replace(/\s+/g, " ").trim();
-}
-
-function normalizeIntakeSeed(value: string) {
-  return compactText(value)
-    .replace(/[?!.]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function looksLikeKnownContractVehicleSeed(value: string) {
-  return KNOWN_CONTRACT_VEHICLE_SEEDS.has(normalizeIntakeSeed(value));
-}
-
-function inferExplicitObjectCorrection(value: string): ObjectType | null {
-  const lower = value.toLowerCase();
-  if (/\b(contract vehicle|vehicle|solicitation|piid|task order|idiq|gwac|bpa)\b/.test(lower)) {
-    return "vehicle";
-  }
-  if (/\b(specific vendor|vendor|supplier|company|teammate|partner|prime contractor|subcontractor|entity)\b/.test(lower)) {
-    return "vendor";
-  }
-  return null;
 }
 
 const ENTITY_NOISE_WORDS = new Set([
@@ -1962,6 +1907,29 @@ export function FrontPorchLanding({
     }
   }, [appendMessage, handoffToLogin, loginRequired, persistMissionBrief]);
 
+  const routeIntakeTurn = useCallback(async (
+    text: string,
+    options?: {
+      current_object_type?: ObjectType | null;
+      in_entity_narrowing?: boolean;
+    },
+  ) => {
+    try {
+      return await routeIntake(text, options);
+    } catch {
+      const fallback = inferObjectType(text);
+      return {
+        raw_input: text,
+        winning_mode: fallback,
+        confidence: fallback ? 0.5 : 0,
+        clarifier_needed: !fallback,
+        override_applied: false,
+        anchor_text: compactText(text),
+        hypotheses: [],
+      };
+    }
+  }, []);
+
   useEffect(() => {
     if (loginRequired || !resumeIntent) return;
     const pending = resumeIntent;
@@ -2087,9 +2055,13 @@ export function FrontPorchLanding({
   const handleCandidateDisambiguationTurn = useCallback(async (text: string) => {
     if (candidateChoices.length === 0) return false;
 
-    const explicitCorrection = inferExplicitObjectCorrection(text);
-    if (explicitCorrection === "vehicle") {
-      const correctedVehicleName = extractVehicleName(text)
+    const routed = await routeIntakeTurn(text, {
+      current_object_type: session.objectType,
+      in_entity_narrowing: true,
+    });
+    if (routed.override_applied && routed.winning_mode === "vehicle") {
+      const correctedVehicleName = routed.anchor_text
+        || extractVehicleName(text)
         || compactText(stripObjectLabel(text))
         || session.vehicleName
         || session.vendorName
@@ -2150,7 +2122,7 @@ export function FrontPorchLanding({
       "I still need the right entity in frame. Pick one of the candidates or give me one fact that separates the one you mean from the others.",
     );
     return true;
-  }, [appendMessage, candidateChoices, continueVehicleIntake, handleCandidateChoice, session]);
+  }, [appendMessage, candidateChoices, continueVehicleIntake, handleCandidateChoice, routeIntakeTurn, session]);
 
   const handleUserTurn = useCallback(async (raw: string) => {
     const text = compactText(raw);
@@ -2169,7 +2141,11 @@ export function FrontPorchLanding({
     const nextSession = applyPendingFollowUpAnswer(session, text);
 
     if (!nextSession.objectType) {
-      const inferredObject = inferObjectType(text);
+      const routed = await routeIntakeTurn(text, {
+        current_object_type: nextSession.objectType,
+        in_entity_narrowing: false,
+      });
+      const inferredObject = routed.clarifier_needed ? null : routed.winning_mode || inferObjectType(text);
       if (!inferredObject) {
         askFollowUp(nextSession, "Are we looking at a contract vehicle or a specific vendor?", "object_type");
         return;
@@ -2188,7 +2164,7 @@ export function FrontPorchLanding({
     }
 
     await decideVendorNext(text, nextSession);
-  }, [appendMessage, askFollowUp, candidateChoices.length, decideVehicleNext, decideVendorNext, handleCandidateDisambiguationTurn, isWorking, resetArtifacts, session]);
+  }, [appendMessage, askFollowUp, candidateChoices.length, decideVehicleNext, decideVendorNext, handleCandidateDisambiguationTurn, isWorking, resetArtifacts, routeIntakeTurn, session]);
 
   const submitDraft = useCallback(async () => {
     const text = draft.trim();
