@@ -9,16 +9,15 @@ This module is the only graph-facing contract AXIOM should need:
 
 from __future__ import annotations
 
-import threading
 from collections import Counter
 from typing import Any
 
 from graph_analytics import GraphAnalytics
 from graph_ingest import build_graph_intelligence_summary
+from graph_runtime import load_cached_graph_analytics
 from knowledge_graph import (
     get_entity,
     get_entity_network,
-    get_graph_snapshot_signature,
     get_vendor_entities,
     graph_annotate as stage_graph_annotation,
     graph_assert as stage_graph_assertion,
@@ -29,30 +28,8 @@ from knowledge_graph import (
 )
 
 
-_ANALYTICS_LOCK = threading.RLock()
-_ANALYTICS_RUNTIME: dict[str, Any] = {
-    "snapshot": "",
-    "analytics": None,
-}
-
-
 def _load_analytics() -> GraphAnalytics:
-    snapshot = get_graph_snapshot_signature()
-    with _ANALYTICS_LOCK:
-        cached = _ANALYTICS_RUNTIME.get("analytics")
-        cached_snapshot = str(_ANALYTICS_RUNTIME.get("snapshot") or "")
-        if isinstance(cached, GraphAnalytics) and cached.loaded and snapshot == cached_snapshot:
-            return cached
-
-        analytics = GraphAnalytics()
-        try:
-            analytics.load_graph(limit=50000)
-        except TypeError:
-            analytics.load_graph()
-
-        _ANALYTICS_RUNTIME["snapshot"] = snapshot
-        _ANALYTICS_RUNTIME["analytics"] = analytics
-        return analytics
+    return load_cached_graph_analytics(analytics_factory=GraphAnalytics)
 
 
 def resolve_primary_entity_id_for_vendor(vendor_id: str) -> str:
@@ -270,6 +247,21 @@ def _neighbor_rollup(
     return results
 
 
+def _targeted_exposure_slice(analytics: GraphAnalytics, entity_ids: list[str] | tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    normalized_ids = [str(entity_id or "").strip() for entity_id in (entity_ids or []) if str(entity_id or "").strip()]
+    if not normalized_ids:
+        return {}
+    if hasattr(analytics, "compute_targeted_sanctions_exposure"):
+        exposure = analytics.compute_targeted_sanctions_exposure(normalized_ids)
+        if isinstance(exposure, dict):
+            return exposure
+    exposure = analytics.compute_sanctions_exposure()
+    return {
+        entity_id: exposure.get(entity_id, {"exposure_score": 0.0, "risk_level": "CLEAR"})
+        for entity_id in normalized_ids
+    }
+
+
 def _build_explainable_rules(
     *,
     entity,
@@ -438,7 +430,19 @@ def graph_profile(
     analytics = _load_analytics()
     centrality = analytics.compute_interrogation_centrality(resolved_entity_id, mission_context=mission_context)
     community = _community_summary(analytics, resolved_entity_id)
-    exposure = analytics.compute_sanctions_exposure()
+    neighbor_ids = sorted(
+        {
+            str(row.get("target_entity_id") or "")
+            for row in relationships
+            if str(row.get("source_entity_id") or "") == resolved_entity_id and str(row.get("target_entity_id") or "")
+        }
+        | {
+            str(row.get("source_entity_id") or "")
+            for row in relationships
+            if str(row.get("target_entity_id") or "") == resolved_entity_id and str(row.get("source_entity_id") or "")
+        }
+    )
+    exposure = _targeted_exposure_slice(analytics, [resolved_entity_id, *neighbor_ids])
     sanctions = exposure.get(resolved_entity_id, {})
     reasoning = _build_explainable_rules(
         entity=entity,
@@ -550,7 +554,19 @@ def graph_neighborhood(
         network = {**network, "relationships": relationships, "relationship_count": len(relationships)}
     intelligence = build_graph_intelligence_summary(network, workflow_lane=workflow_lane)
     analytics = _load_analytics()
-    exposure = analytics.compute_sanctions_exposure()
+    neighbor_ids = sorted(
+        {
+            str(row.get("target_entity_id") or "")
+            for row in relationships
+            if str(row.get("source_entity_id") or "") == resolved_entity_id and str(row.get("target_entity_id") or "")
+        }
+        | {
+            str(row.get("source_entity_id") or "")
+            for row in relationships
+            if str(row.get("target_entity_id") or "") == resolved_entity_id and str(row.get("source_entity_id") or "")
+        }
+    )
+    exposure = _targeted_exposure_slice(analytics, [resolved_entity_id, *neighbor_ids])
     neighbors = _neighbor_rollup(
         resolved_entity_id,
         relationships,
@@ -703,7 +719,7 @@ def graph_anomalies(
     analytics = _load_analytics()
     centrality = analytics.compute_interrogation_centrality(resolved_entity_id, mission_context=mission_context)
     community = _community_summary(analytics, resolved_entity_id)
-    sanctions = analytics.compute_sanctions_exposure().get(resolved_entity_id, {})
+    sanctions = _targeted_exposure_slice(analytics, [resolved_entity_id]).get(resolved_entity_id, {})
     network = get_entity_network(
         resolved_entity_id,
         depth=1,
@@ -822,7 +838,7 @@ def graph_rules(
     analytics = _load_analytics()
     centrality = analytics.compute_interrogation_centrality(resolved_entity_id, mission_context=mission_context)
     community = _community_summary(analytics, resolved_entity_id)
-    sanctions = analytics.compute_sanctions_exposure().get(resolved_entity_id, {})
+    sanctions = _targeted_exposure_slice(analytics, [resolved_entity_id]).get(resolved_entity_id, {})
     network = get_entity_network(
         resolved_entity_id,
         depth=1,

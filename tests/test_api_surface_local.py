@@ -30,6 +30,8 @@ def client(tmp_path, monkeypatch):
         server = importlib.reload(sys.modules["server"])
     else:
         server = importlib.import_module("server")
+    graph_runtime = importlib.import_module("graph_runtime")
+    graph_runtime.reset_cached_graph_analytics()
 
     server.db.init_db()
     server.init_auth_db()
@@ -58,6 +60,8 @@ def auth_client(tmp_path, monkeypatch):
         server = importlib.reload(sys.modules["server"])
     else:
         server = importlib.import_module("server")
+    graph_runtime = importlib.import_module("graph_runtime")
+    graph_runtime.reset_cached_graph_analytics()
 
     server.db.init_db()
     server.init_auth_db()

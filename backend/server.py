@@ -111,9 +111,14 @@ except ImportError:
 
 try:
     from graph_analytics import GraphAnalytics
+    from graph_runtime import load_cached_graph_analytics
     HAS_GRAPH_ANALYTICS = True
 except ImportError:
     HAS_GRAPH_ANALYTICS = False
+
+def _get_graph_analytics():
+    return load_cached_graph_analytics(analytics_factory=GraphAnalytics)
+
 
 try:
     from export_monitor import ExportMonitor
@@ -5517,8 +5522,7 @@ def api_graph_intelligence():
         return jsonify({"error": "Graph analytics module not available"}), 501
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
         result = analytics.compute_graph_intelligence()
         return jsonify(result)
     except Exception as e:
@@ -5535,8 +5539,7 @@ def api_graph_centrality():
         return jsonify({"error": "Graph analytics module not available"}), 501
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
         result = analytics.compute_all_centrality()
         # Sort by decision importance for operator-facing use.
         sorted_entities = sorted(result.values(), key=lambda x: x.get("decision_importance", x.get("composite_importance", 0)), reverse=True)
@@ -5553,8 +5556,7 @@ def api_graph_communities():
         return jsonify({"error": "Graph analytics module not available"}), 501
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
         result = analytics.detect_communities()
         return jsonify(result)
     except Exception as e:
@@ -5579,8 +5581,7 @@ def api_graph_path():
         return jsonify({"error": "Both 'source' and 'target' entity IDs required"}), 400
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
 
         if mode == "critical":
             result = analytics.critical_path(source, target)
@@ -5605,8 +5606,7 @@ def api_graph_sanctions_exposure():
         return jsonify({"error": "Graph analytics module not available"}), 501
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
         result = analytics.compute_sanctions_exposure()
         # Return sorted by exposure
         sorted_entities = sorted(
@@ -5628,8 +5628,7 @@ def api_graph_temporal():
         return jsonify({"error": "Graph analytics module not available"}), 501
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
         result = analytics.compute_temporal_profile()
         return jsonify(result)
     except Exception as e:
@@ -5645,8 +5644,7 @@ def api_graph_full_intelligence():
         return jsonify({"error": "Graph analytics not available"}), 503
 
     try:
-        analytics = GraphAnalytics()
-        analytics.load_graph()
+        analytics = _get_graph_analytics()
     except Exception as e:
         return jsonify({"error": f"Graph load failed: {str(e)}"}), 500
 

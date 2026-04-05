@@ -87,6 +87,17 @@ def test_graph_analytics_sanctions_exposure_ignores_weak_noise_paths():
     assert exposure["c"]["risk_level"] == "CLEAR"
 
 
+def test_graph_analytics_targeted_sanctions_exposure_matches_requested_entities():
+    analytics = _build_loaded_graph()
+
+    targeted = analytics.compute_targeted_sanctions_exposure(["a", "b", "c"])
+
+    assert set(targeted.keys()) == {"a", "b", "c"}
+    assert targeted["a"]["risk_level"] in {"HIGH", "CRITICAL"}
+    assert targeted["b"]["exposure_score"] > 0.0
+    assert targeted["c"]["risk_level"] == "CLEAR"
+
+
 def test_graph_analytics_mission_importance_changes_with_focus_and_context():
     analytics = _build_loaded_graph()
 

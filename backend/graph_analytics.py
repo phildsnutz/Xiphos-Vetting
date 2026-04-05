@@ -207,6 +207,78 @@ class GraphAnalytics:
     def _edge_distance(self, edge: dict) -> float:
         return 1.0 / max(self._edge_strength(edge), 1e-6)
 
+    def _interrogation_degree_row(self, entity_id: str) -> dict:
+        neighbors = self.adj.get(entity_id, [])
+        n = len(self.nodes)
+        degree = len(neighbors)
+        weighted = sum(self._edge_strength(self.edges[eidx]) for _, eidx in neighbors)
+        avg_edge_strength = (weighted / degree) if degree else 0.0
+        normalized = degree / max(n - 1, 1) if n > 1 else 0.0
+        weighted_normalized = min(1.0, (normalized * 0.55) + (avg_edge_strength * 0.45))
+        return {
+            "degree": degree,
+            "weighted_degree": round(weighted, 4),
+            "normalized": round(normalized, 4),
+            "weighted_normalized": round(weighted_normalized, 4),
+        }
+
+    def _interrogation_bridge_row(self, entity_id: str) -> dict:
+        neighbors = [neighbor for neighbor, _ in self.adj.get(entity_id, [])]
+        if len(neighbors) <= 1:
+            return {"betweenness": 0.0, "normalized": 0.0}
+
+        neighbor_sets: list[set[str]] = []
+        two_hop_reach: set[str] = set()
+        for neighbor in neighbors[:24]:
+            reach = {candidate for candidate, _ in self.adj.get(neighbor, []) if candidate != entity_id}
+            neighbor_sets.append(reach)
+            two_hop_reach.update(reach)
+
+        pair_count = 0
+        total_overlap = 0.0
+        for index, left in enumerate(neighbor_sets):
+            for right in neighbor_sets[index + 1 :]:
+                union = left | right
+                overlap = (len(left & right) / len(union)) if union else 0.0
+                total_overlap += overlap
+                pair_count += 1
+
+        avg_overlap = (total_overlap / pair_count) if pair_count else 0.0
+        reach_ratio = len(two_hop_reach - set(neighbors) - {entity_id}) / max(len(self.nodes) - 1, 1)
+        bridge_score = min(1.0, max(0.0, ((1.0 - avg_overlap) * 0.72) + (reach_ratio * 0.28)))
+        return {
+            "betweenness": round(bridge_score, 4),
+            "normalized": round(bridge_score, 4),
+        }
+
+    def _interrogation_influence_row(self, entity_id: str, *, degree_score: float, closeness_score: float) -> dict:
+        neighbors = [neighbor for neighbor, _ in self.adj.get(entity_id, [])]
+        if not neighbors:
+            return {"pagerank": 0.0, "normalized": 0.0}
+
+        second_hop: set[str] = set()
+        neighbor_intelligence: list[float] = []
+        for neighbor in neighbors[:32]:
+            second_hop.update(candidate for candidate, _ in self.adj.get(neighbor, []) if candidate != entity_id)
+            neighbor_intelligence.append(self._node_local_edge_strength(neighbor))
+
+        second_hop_ratio = len(second_hop - {entity_id}) / max(len(self.nodes) - 1, 1)
+        neighbor_score = (sum(neighbor_intelligence) / len(neighbor_intelligence)) if neighbor_intelligence else 0.0
+        influence = min(
+            1.0,
+            max(
+                0.0,
+                (degree_score * 0.38)
+                + (closeness_score * 0.27)
+                + (second_hop_ratio * 0.2)
+                + (neighbor_score * 0.15),
+            ),
+        )
+        return {
+            "pagerank": round(influence, 6),
+            "normalized": round(influence, 4),
+        }
+
     def _mission_focus_proximity(self, focus_entity_ids: list[str]) -> dict[str, float]:
         if not focus_entity_ids:
             return {nid: 1.0 for nid in self.nodes}
@@ -568,21 +640,26 @@ class GraphAnalytics:
 
     def compute_interrogation_centrality(self, entity_id: str, mission_context: Optional[dict] = None) -> dict:
         """
-        Faster single-entity centrality for AXIOM interrogation.
+        Faster single-entity structural read for AXIOM interrogation.
 
-        This keeps the same output shape AXIOM expects without forcing a full
-        graph-wide closeness pass on every profile or anomaly request.
+        AXIOM needs a disciplined local topology read, not a full graph-wide
+        PageRank or sampled Brandes pass every time it asks about one entity.
+        Dedicated graph analytics routes still expose the heavier global
+        metrics when an operator explicitly opens that room.
         """
         self._ensure_loaded()
         normalized_entity_id = str(entity_id or "").strip()
         if normalized_entity_id not in self.nodes:
             return {}
 
-        sample_size = min(64, max(16, len(self.nodes) // 12 or 1))
-        degree = self.compute_degree_centrality().get(normalized_entity_id, {})
-        betweenness = self.compute_betweenness_centrality(sample_size=sample_size).get(normalized_entity_id, {})
+        degree = self._interrogation_degree_row(normalized_entity_id)
         closeness = self.compute_closeness_for_entity(normalized_entity_id)
-        pagerank = self.compute_pagerank(iterations=20).get(normalized_entity_id, {})
+        betweenness = self._interrogation_bridge_row(normalized_entity_id)
+        pagerank = self._interrogation_influence_row(
+            normalized_entity_id,
+            degree_score=float(degree.get("weighted_normalized") or 0.0),
+            closeness_score=float(closeness.get("closeness") or 0.0),
+        )
         return self._compose_centrality_row(
             normalized_entity_id,
             degree=degree,
@@ -610,32 +687,17 @@ class GraphAnalytics:
         if normalized_entity_id not in self.nodes:
             return {}
 
-        sample_size = min(64, max(16, len(self.nodes) // 12 or 1))
         centrality = self.compute_interrogation_centrality(normalized_entity_id, mission_context=mission_context)
-        degree_map = self.compute_degree_centrality()
-        betweenness_map = self.compute_betweenness_centrality(sample_size=sample_size)
-        pagerank_map = self.compute_pagerank(iterations=20)
-
-        degree_row = degree_map.get(normalized_entity_id, {})
-        betweenness_row = betweenness_map.get(normalized_entity_id, {})
-        pagerank_row = pagerank_map.get(normalized_entity_id, {})
+        degree_row = centrality.get("degree") if isinstance(centrality.get("degree"), dict) else {}
+        betweenness_row = centrality.get("betweenness") if isinstance(centrality.get("betweenness"), dict) else {}
+        pagerank_row = centrality.get("pagerank") if isinstance(centrality.get("pagerank"), dict) else {}
         degree_count = int(degree_row.get("degree") or 0)
         degree_score = float(degree_row.get("weighted_normalized") or 0.0)
         betweenness_score = float(betweenness_row.get("normalized") or 0.0)
         pagerank_score = float(pagerank_row.get("normalized") or 0.0)
-
-        degree_percentile = self._percentile_rank(
-            [float(row.get("weighted_normalized") or 0.0) for row in degree_map.values()],
-            degree_score,
-        )
-        betweenness_percentile = self._percentile_rank(
-            [float(row.get("normalized") or 0.0) for row in betweenness_map.values()],
-            betweenness_score,
-        )
-        pagerank_percentile = self._percentile_rank(
-            [float(row.get("normalized") or 0.0) for row in pagerank_map.values()],
-            pagerank_score,
-        )
+        degree_percentile = round(max(0.0, min(degree_score, 1.0)), 4)
+        betweenness_percentile = round(max(0.0, min(betweenness_score, 1.0)), 4)
+        pagerank_percentile = round(max(0.0, min(pagerank_score, 1.0)), 4)
 
         role = "contextual_node"
         tags: list[str] = []
@@ -1363,6 +1425,123 @@ class GraphAnalytics:
             return result
 
         return self._memoized(("sanctions_exposure",), _compute)
+
+    def compute_targeted_sanctions_exposure(self, entity_ids: list[str] | tuple[str, ...], max_hops: int = 4) -> dict:
+        """
+        Compute sanctions exposure only for the requested entities.
+
+        This is the interrogation path. AXIOM usually needs the target entity
+        and a small set of immediate neighbors, not a full graph-wide exposure
+        map. We search outward from each requested entity and stop once the best
+        reachable sanctions path is no longer improvable.
+        """
+        self._ensure_loaded()
+
+        normalized_ids = tuple(sorted({str(entity_id or "").strip() for entity_id in (entity_ids or []) if str(entity_id or "").strip()}))
+        if not normalized_ids:
+            return {}
+
+        cache_key = ("sanctions_exposure_targeted", normalized_ids, max(1, int(max_hops or 1)))
+
+        def _compute():
+            try:
+                from network_risk import _hop_decay_factor, _propagation_prior
+            except ImportError:
+                def _hop_decay_factor(hops):
+                    return 1.0 / float(hops + 1)
+
+                def _propagation_prior(_relationship):
+                    return 0.5
+
+            sanctions_nodes = {
+                nid
+                for nid, node in self.nodes.items()
+                if node.get("entity_type") in ("sanctions_list", "sanctions_entry")
+            }
+            if not sanctions_nodes:
+                return {entity_id: {"exposure_score": 0.0, "risk_level": "CLEAR"} for entity_id in normalized_ids}
+
+            def _classify(score: float) -> str:
+                if score >= 0.7:
+                    return "CRITICAL"
+                if score >= 0.4:
+                    return "HIGH"
+                if score >= 0.15:
+                    return "MEDIUM"
+                if score > 0:
+                    return "LOW"
+                return "CLEAR"
+
+            results: dict[str, dict] = {}
+            for entity_id in normalized_ids:
+                if entity_id not in self.nodes:
+                    results[entity_id] = {"exposure_score": 0.0, "risk_level": "CLEAR"}
+                    continue
+                if entity_id in sanctions_nodes:
+                    results[entity_id] = {
+                        "exposure_score": 1.0,
+                        "risk_level": "CRITICAL",
+                        "nearest_sanction": {
+                            "id": entity_id,
+                            "name": self.nodes.get(entity_id, {}).get("canonical_name", ""),
+                            "hops": 0,
+                        },
+                    }
+                    continue
+
+                best_score = 0.0
+                best_sanction = ""
+                best_hops = 0
+                best_seen: dict[str, float] = {entity_id: 1.0}
+                heap: list[tuple[float, int, str]] = [(-1.0, 0, entity_id)]
+
+                while heap:
+                    neg_score, hops, current = heapq.heappop(heap)
+                    current_score = -neg_score
+                    if current_score + 1e-12 < best_seen.get(current, 0.0):
+                        continue
+                    if hops > max_hops:
+                        continue
+                    if current in sanctions_nodes and current != entity_id:
+                        if current_score > best_score:
+                            best_score = current_score
+                            best_sanction = current
+                            best_hops = hops
+                        # Further traversal from a sanctions node can only reduce
+                        # the score, so this branch is done.
+                        continue
+                    if hops >= max_hops:
+                        continue
+                    if best_score > 0 and current_score <= best_score:
+                        continue
+
+                    for neighbor, eidx in self.adj.get(current, []):
+                        relationship = self.edges[eidx]
+                        rel_weight = _propagation_prior(relationship)
+                        edge_conf = self._edge_strength(relationship)
+                        propagated = current_score * rel_weight * edge_conf * _hop_decay_factor(hops)
+                        if propagated <= 0.01:
+                            continue
+                        if propagated <= best_seen.get(neighbor, 0.0):
+                            continue
+                        best_seen[neighbor] = propagated
+                        heapq.heappush(heap, (-propagated, hops + 1, neighbor))
+
+                entry = {
+                    "exposure_score": round(best_score, 4),
+                    "risk_level": _classify(best_score),
+                }
+                if best_sanction:
+                    entry["nearest_sanction"] = {
+                        "id": best_sanction,
+                        "name": self.nodes.get(best_sanction, {}).get("canonical_name", ""),
+                        "hops": best_hops,
+                    }
+                results[entity_id] = entry
+
+            return results
+
+        return self._memoized(cache_key, _compute)
 
     # -------------------------------------------------------------------
     # 6. SUMMARY / DASHBOARD DATA

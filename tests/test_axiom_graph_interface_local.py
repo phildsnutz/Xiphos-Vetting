@@ -79,6 +79,8 @@ def graph_env(tmp_path, monkeypatch):
         vendor_id="case-smx",
     )
 
+    graph_runtime = _reload_module("graph_runtime")
+    graph_runtime.reset_cached_graph_analytics()
     axiom_graph_interface = _reload_module("axiom_graph_interface")
     server = _reload_module("server")
     server.db.init_db()
@@ -88,6 +90,7 @@ def graph_env(tmp_path, monkeypatch):
 
     return {
         "kg": kg,
+        "graph_runtime": graph_runtime,
         "agi": axiom_graph_interface,
         "server": server,
     }
@@ -216,6 +219,7 @@ def test_detect_communities_reports_algorithm_and_bridge_entities():
 
 def test_graph_interrogation_reuses_cached_snapshot_and_skips_full_centrality(graph_env, monkeypatch):
     agi = graph_env["agi"]
+    graph_runtime = graph_env["graph_runtime"]
 
     class FakeAnalytics:
         load_calls = 0
@@ -296,9 +300,8 @@ def test_graph_interrogation_reuses_cached_snapshot_and_skips_full_centrality(gr
             return []
 
     monkeypatch.setattr(agi, "GraphAnalytics", FakeAnalytics)
-    monkeypatch.setattr(agi, "get_graph_snapshot_signature", lambda: "snapshot:test")
-    agi._ANALYTICS_RUNTIME["snapshot"] = ""
-    agi._ANALYTICS_RUNTIME["analytics"] = None
+    monkeypatch.setattr(graph_runtime, "get_graph_snapshot_signature", lambda: "snapshot:test")
+    graph_runtime.reset_cached_graph_analytics()
 
     profile = agi.graph_profile(vendor_id="case-smx", workflow_lane="counterparty")
     anomalies = agi.graph_anomalies(vendor_id="case-smx", workflow_lane="counterparty")
