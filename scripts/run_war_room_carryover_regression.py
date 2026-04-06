@@ -86,9 +86,9 @@ async (page) => {{
 
 {auth_block}
 
-  const takeIntoWarRoom = page.getByRole("button", {{ name: "Enter Aegis" }});
-  await takeIntoWarRoom.waitFor({{ state: "visible", timeout: 20000 }});
-  await takeIntoWarRoom.click();
+  const enterAegisButton = page.getByRole("button", {{ name: "Enter Aegis" }});
+  await enterAegisButton.waitFor({{ state: "visible", timeout: 20000 }});
+  await enterAegisButton.click();
 
   await page.waitForFunction(
     () => (

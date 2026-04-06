@@ -4,6 +4,11 @@ import json
 from typing import Any
 
 import db
+from helios_core.room_contract import (
+    DEFAULT_MISSION_BRIEF_ROOM,
+    canonicalize_mission_brief_room,
+    mission_brief_room_sql,
+)
 
 
 _MISSION_BRIEF_SCHEMA_SQL = """
@@ -53,7 +58,7 @@ def _row_to_mission_brief(row) -> dict[str, Any] | None:
         return None
     return {
         "id": row["id"],
-        "room": row["room"],
+        "room": canonicalize_mission_brief_room(row["room"]),
         "case_id": row["case_id"],
         "object_type": row["object_type"],
         "engagement_type": row["engagement_type"],
@@ -79,12 +84,13 @@ def _row_to_mission_brief(row) -> dict[str, Any] | None:
 def ensure_schema() -> None:
     with db.get_conn() as conn:
         conn.executescript(_MISSION_BRIEF_SCHEMA_SQL)
+        conn.execute(f"UPDATE mission_briefs SET room = {mission_brief_room_sql('room')}")
 
 
 def create_or_update_mission_brief(
     brief_id: str,
     *,
-    room: str = "stoa",
+    room: str = DEFAULT_MISSION_BRIEF_ROOM,
     case_id: str | None = None,
     object_type: str | None = None,
     engagement_type: str | None = None,
@@ -104,6 +110,7 @@ def create_or_update_mission_brief(
     created_by_role: str = "",
 ) -> dict[str, Any]:
     ensure_schema()
+    canonical_room = canonicalize_mission_brief_room(room)
     with db.get_conn() as conn:
         conn.execute(
             """
@@ -163,7 +170,7 @@ def create_or_update_mission_brief(
             """,
             (
                 brief_id,
-                room,
+                canonical_room,
                 case_id,
                 object_type,
                 engagement_type,
@@ -192,4 +199,3 @@ def get_mission_brief(brief_id: str) -> dict[str, Any] | None:
     with db.get_conn() as conn:
         row = conn.execute("SELECT * FROM mission_briefs WHERE id = ?", (brief_id,)).fetchone()
     return _row_to_mission_brief(row)
-

@@ -17,6 +17,11 @@ import logging
 from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
+from helios_core.room_contract import (
+    DEFAULT_MISSION_BRIEF_ROOM,
+    canonicalize_mission_brief_room,
+    mission_brief_room_sql,
+)
 from runtime_paths import get_main_db_path, get_secure_artifacts_dir
 from event_extraction import compute_report_hash
 
@@ -74,7 +79,7 @@ def _row_to_mission_brief(row) -> dict | None:
         return None
     return {
         "id": row["id"],
-        "room": row["room"],
+        "room": canonicalize_mission_brief_room(row["room"]),
         "case_id": row["case_id"],
         "object_type": row["object_type"],
         "engagement_type": row["engagement_type"],
@@ -533,7 +538,7 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS mission_briefs (
                 id TEXT PRIMARY KEY,
-                room TEXT NOT NULL DEFAULT 'front_porch',
+                room TEXT NOT NULL DEFAULT 'stoa',
                 case_id TEXT REFERENCES vendors(id),
                 object_type TEXT,
                 engagement_type TEXT,
@@ -559,6 +564,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mission_briefs_room ON mission_briefs(room);
             CREATE INDEX IF NOT EXISTS idx_mission_briefs_updated ON mission_briefs(updated_at);
         """)
+        conn.execute(f"UPDATE mission_briefs SET room = {mission_brief_room_sql('room')}")
 
         for statement in (
             "ALTER TABLE enrichment_reports ADD COLUMN report_hash TEXT",
@@ -694,7 +700,7 @@ def list_vendors_with_scores(limit: int = 100) -> list[dict]:
 def save_mission_brief(
     brief_id: str,
     *,
-    room: str = "front_porch",
+    room: str = DEFAULT_MISSION_BRIEF_ROOM,
     case_id: str | None = None,
     object_type: str | None = None,
     engagement_type: str | None = None,
@@ -713,6 +719,7 @@ def save_mission_brief(
     created_by_email: str = "",
     created_by_role: str = "",
 ) -> dict:
+    canonical_room = canonicalize_mission_brief_room(room)
     with get_conn() as conn:
         conn.execute(
             """
@@ -772,7 +779,7 @@ def save_mission_brief(
             """,
             (
                 brief_id,
-                room,
+                canonical_room,
                 case_id,
                 object_type,
                 engagement_type,

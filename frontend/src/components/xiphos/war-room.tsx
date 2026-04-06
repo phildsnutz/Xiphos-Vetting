@@ -11,7 +11,7 @@ import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shel
 type RoomMode = "collection" | "watch" | "alerts";
 type RoomMenu = "recent" | null;
 
-interface WarRoomProps {
+interface AegisRoomProps {
   cases?: VettingCase[];
   onNavigate: (tab: string) => void;
   onOpenCase: (caseId: string) => void;
@@ -114,7 +114,7 @@ function priorityTone(priority: string): "danger" | "warning" | "info" | "neutra
   return "neutral";
 }
 
-export function WarRoom({ cases = [], onNavigate, onOpenCase, seed = null }: WarRoomProps) {
+export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: AegisRoomProps) {
   const [mode, setMode] = useState<RoomMode>("collection");
   const [menu, setMenu] = useState<RoomMenu>(null);
   const [searchResults, setSearchResults] = useState<SearchResultSnapshot | null>(null);

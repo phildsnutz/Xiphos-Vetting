@@ -19,6 +19,7 @@ import {
   type EntityCandidate,
   type EntityResolution,
   type MissionBriefPayload,
+  type MissionBriefRoom,
   type MissionBriefRecord,
   type NetworkRiskResult,
   type SupplierPassport,
@@ -64,7 +65,7 @@ interface FrontPorchLandingProps {
   loginRequired?: boolean;
   onNavigate: (tab: string) => void;
   onOpenCase: (caseId: string) => void;
-  onOpenWarRoomIntent?: (intent: {
+  onOpenAegisIntent?: (intent: {
     targetEntity: string;
     vehicleName?: string;
     domainFocus?: string;
@@ -84,6 +85,7 @@ interface IntakeSession {
   objectType: ObjectType | null;
   vendorName: string | null;
   vehicleName: string | null;
+  seedText: string | null;
   priorityFocus: PriorityFocus | null;
   supportLayer: SupportLayer;
   vehicleTiming: VehicleTiming | null;
@@ -129,6 +131,7 @@ interface VendorBriefReadiness {
 type ResumeIntent =
   | { kind: "vendor"; session: IntakeSession }
   | { kind: "vehicle"; session: IntakeSession };
+type RoutedIntake = Awaited<ReturnType<typeof routeIntake>>;
 
 const FRONT_PORCH_EXAMPLES = [
   "ILS 2 follow-on. We think Amentum is the incumbent.",
@@ -147,6 +150,7 @@ const FRONT_PORCH_START_CONFIDENCE = 0.72;
 const FRONT_PORCH_SECOND_FOLLOW_UP_CONFIDENCE = 0.42;
 const FRONT_PORCH_MAX_FOLLOW_UPS = 2;
 const FRONT_PORCH_PRESSURE_THREAD_DELAY_MS = 3400;
+const STRONG_ROUTING_CORRECTION_CONFIDENCE = 0.84;
 
 function nextId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -180,6 +184,10 @@ function inferObjectType(value: string): ObjectType | null {
   const compact = compactText(value).replace(/[?!.]+$/g, "");
   const tokens = compact.split(/\s+/).filter(Boolean);
   const opener = tokens[0]?.toLowerCase() ?? "";
+  const ambiguousCompactAcronym = tokens.length === 1 && /^[A-Z0-9-]{2,8}$/.test(compact);
+  if (ambiguousCompactAcronym) {
+    return null;
+  }
   if (
     compact &&
     tokens.length <= 6 &&
@@ -623,16 +631,114 @@ function computeIntakeConfidence(session: IntakeSession): number {
   return 0;
 }
 
+function shouldPivotToVehicle(routed: RoutedIntake) {
+  return routed.winning_mode === "vehicle"
+    && !routed.clarifier_needed
+    && (routed.override_applied || routed.confidence >= STRONG_ROUTING_CORRECTION_CONFIDENCE);
+}
+
+function shouldPivotToVendor(routed: RoutedIntake, pendingFollowUp: PendingFollowUp | null) {
+  if (pendingFollowUp === "vehicle_follow_on_or_incumbent" || pendingFollowUp === "vehicle_incumbent_prime") {
+    return false;
+  }
+  return routed.winning_mode === "vendor" && !routed.clarifier_needed && routed.override_applied;
+}
+
+function hypothesisForKind(routed: RoutedIntake, kind: "vendor" | "vehicle") {
+  return routed.hypotheses.find((hypothesis) => hypothesis.kind === kind) || null;
+}
+
+function routeReasonMentionsMemory(reasons: string[]) {
+  return reasons.some((reason) => /\b(memory|graph)\b/i.test(reason));
+}
+
+function buildObjectTypeClarifier(input: string, routed: RoutedIntake) {
+  const seed = compactText(routed.raw_input || input).replace(/[?!.]+$/g, "");
+  const vehicle = hypothesisForKind(routed, "vehicle");
+  const vendor = hypothesisForKind(routed, "vendor");
+  const strongVehicle = (vehicle?.score || 0) >= 0.84;
+  const strongVendor = (vendor?.score || 0) >= 0.72;
+
+  if (seed && strongVehicle && strongVendor) {
+    if (routeReasonMentionsMemory(vendor?.reasons || [])) {
+      return `I can take ${seed} as either the contract vehicle or an entity already in Helios memory. Which one do you mean?`;
+    }
+    return `I can take ${seed} as either a contract vehicle or a specific entity. Which one do you mean?`;
+  }
+
+  return "Are we looking at a contract vehicle or a specific vendor?";
+}
+
+function buildVehicleCorrectionSession(session: IntakeSession, value: string, routed: RoutedIntake): IntakeSession {
+  const correctedVehicleName = compactText(
+    routed.anchor_text
+    || extractVehicleName(value)
+    || compactText(stripObjectLabel(value))
+    || session.vehicleName
+    || session.vendorName
+    || "",
+  );
+  const inferredTiming = inferVehicleTiming(value);
+  const correctedPrime = extractPrimeName(value);
+  const inferredFollowOn = inferBoolean(value);
+
+  return {
+    ...session,
+    objectType: "vehicle",
+    vendorName: null,
+    vehicleName: correctedVehicleName || null,
+    seedText: correctedVehicleName || session.seedText,
+    vehicleTiming: inferredTiming ?? session.vehicleTiming,
+    followOn: correctedPrime ? true : inferredFollowOn ?? session.followOn,
+    incumbentPrime: correctedPrime ?? session.incumbentPrime,
+    pendingFollowUp: null,
+    followUpCount: 0,
+  };
+}
+
+function buildVendorCorrectionSession(session: IntakeSession, value: string, routed: RoutedIntake): IntakeSession {
+  const correctedVendorName = compactText(
+    routed.anchor_text
+    || extractVendorName(value)
+    || compactText(stripObjectLabel(value))
+    || session.vendorName
+    || session.vehicleName
+    || "",
+  );
+
+  return {
+    ...session,
+    objectType: "vendor",
+    vendorName: correctedVendorName || null,
+    vehicleName: null,
+    seedText: correctedVendorName || session.seedText,
+    vehicleTiming: null,
+    followOn: null,
+    incumbentPrime: null,
+    supportLayer: inferSupportLayer(value) || session.supportLayer,
+    priorityFocus: inferPriorityFocus(value) || session.priorityFocus,
+    pendingFollowUp: null,
+    followUpCount: 0,
+  };
+}
+
 function applyPendingFollowUpAnswer(session: IntakeSession, value: string): IntakeSession {
   const nextSession = { ...session, pendingFollowUp: null };
   const stripped = compactText(stripObjectLabel(value));
   const lower = value.toLowerCase();
+  const preservedSeed = compactText(session.seedText || "");
 
   switch (session.pendingFollowUp) {
     case "object_type": {
       const inferredObject = inferObjectType(value);
       if (inferredObject) {
         nextSession.objectType = inferredObject;
+        if (inferredObject === "vehicle" && !nextSession.vehicleName && preservedSeed) {
+          nextSession.vehicleName = extractVehicleName(preservedSeed) || preservedSeed;
+        }
+        if (inferredObject === "vendor" && !nextSession.vendorName && preservedSeed) {
+          nextSession.vendorName = extractVendorName(preservedSeed) || preservedSeed;
+        }
       }
       break;
     }
@@ -793,7 +899,7 @@ function buildMissionBriefPayload(
   options: {
     caseId?: string | null;
     status?: string;
-    room?: "front_porch" | "war_room";
+    room?: MissionBriefRoom;
     readiness?: VendorBriefReadiness | null;
   } = {},
 ): MissionBriefPayload {
@@ -823,7 +929,7 @@ function buildMissionBriefPayload(
   }
 
   return {
-    room: options.room || "front_porch",
+    room: options.room || "stoa",
     case_id: options.caseId || null,
     object_type: session.objectType,
     engagement_type: isVehicle ? "contract_vehicle_intelligence" : "vendor_assessment",
@@ -1372,7 +1478,7 @@ export function FrontPorchLanding({
   loginRequired = false,
   onNavigate,
   onOpenCase,
-  onOpenWarRoomIntent,
+  onOpenAegisIntent,
   onRequestLogin,
 }: FrontPorchLandingProps) {
   const [menu, setMenu] = useState<RoomMenu>(null);
@@ -1382,6 +1488,7 @@ export function FrontPorchLanding({
     objectType: null,
     vendorName: null,
     vehicleName: null,
+    seedText: null,
     priorityFocus: null,
     supportLayer: "counterparty",
     vehicleTiming: null,
@@ -1543,7 +1650,7 @@ export function FrontPorchLanding({
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [menu]);
 
-  const buildWarRoomIntent = useCallback(() => {
+  const buildAegisIntent = useCallback(() => {
     if (session.objectType === "vehicle") {
       const targetEntity = session.incumbentPrime || session.vehicleName || "";
       const domainFocus = humanizePriorityFocus(session.priorityFocus) || "vehicle pressure";
@@ -1575,7 +1682,7 @@ export function FrontPorchLanding({
       caseId?: string | null;
       status?: string;
       readiness?: VendorBriefReadiness | null;
-      room?: "front_porch" | "war_room";
+      room?: MissionBriefRoom;
     } = {},
   ) => {
     if (loginRequired) {
@@ -1593,20 +1700,20 @@ export function FrontPorchLanding({
     }
   }, [lastUserInput, loginRequired, missionBrief]);
 
-  const openWarRoom = useCallback(() => {
+  const openAegis = useCallback(() => {
     if (loginRequired) {
       onRequestLogin?.();
       return;
     }
-    const intent = buildWarRoomIntent();
+    const intent = buildAegisIntent();
     if (intent) {
-      onOpenWarRoomIntent?.(intent);
+      onOpenAegisIntent?.(intent);
     }
     if (missionBrief) {
-      void persistMissionBrief(session, { room: "war_room", status: missionBrief.case_id ? "working" : "scoped" });
+      void persistMissionBrief(session, { room: "aegis", status: missionBrief.case_id ? "working" : "scoped" });
     }
     onNavigate("axiom");
-  }, [buildWarRoomIntent, loginRequired, missionBrief, onNavigate, onOpenWarRoomIntent, onRequestLogin, persistMissionBrief, session]);
+  }, [buildAegisIntent, loginRequired, missionBrief, onNavigate, onOpenAegisIntent, onRequestLogin, persistMissionBrief, session]);
 
   const handoffToLogin = useCallback((kind: ResumeIntent["kind"], nextSession: IntakeSession, message: string) => {
     setResumeIntent({ kind, session: nextSession });
@@ -2059,20 +2166,8 @@ export function FrontPorchLanding({
       current_object_type: session.objectType,
       in_entity_narrowing: true,
     });
-    if (routed.override_applied && routed.winning_mode === "vehicle") {
-      const correctedVehicleName = routed.anchor_text
-        || extractVehicleName(text)
-        || compactText(stripObjectLabel(text))
-        || session.vehicleName
-        || session.vendorName
-        || "";
-      const correctedSession: IntakeSession = {
-        ...session,
-        objectType: "vehicle",
-        vendorName: null,
-        vehicleName: correctedVehicleName,
-        pendingFollowUp: null,
-      };
+    if (shouldPivotToVehicle(routed)) {
+      const correctedSession = buildVehicleCorrectionSession(session, text, routed);
       setCandidateChoices([]);
       setResolution(null);
       appendMessage("axiom", "Understood. That is a contract vehicle, not the entity set I was narrowing. I’m switching the frame.");
@@ -2138,16 +2233,36 @@ export function FrontPorchLanding({
 
     resetArtifacts();
 
+    const routed = await routeIntakeTurn(text, {
+      current_object_type: session.objectType,
+      in_entity_narrowing: false,
+    });
     const nextSession = applyPendingFollowUpAnswer(session, text);
 
-    if (!nextSession.objectType) {
-      const routed = await routeIntakeTurn(text, {
-        current_object_type: nextSession.objectType,
-        in_entity_narrowing: false,
-      });
-      const inferredObject = routed.clarifier_needed ? null : routed.winning_mode || inferObjectType(text);
+    if ((session.objectType === "vendor" || nextSession.objectType === "vendor") && shouldPivotToVehicle(routed)) {
+      const correctedSession = buildVehicleCorrectionSession(nextSession, text, routed);
+      setCandidateChoices([]);
+      setResolution(null);
+      appendMessage("axiom", "Understood. That is a contract vehicle, not the vendor branch I had in frame. I’m switching the frame.");
+      await continueVehicleIntake(correctedSession);
+      return;
+    }
+
+    if ((session.objectType === "vehicle" || nextSession.objectType === "vehicle") && shouldPivotToVendor(routed, session.pendingFollowUp)) {
+      const correctedSession = buildVendorCorrectionSession(nextSession, text, routed);
+      appendMessage("axiom", "Understood. That is a specific vendor, not the contract-vehicle branch I had in frame. I’m switching the frame.");
+      await decideVendorNext(text, correctedSession);
+      return;
+    }
+
+    if (!nextSession.objectType || session.pendingFollowUp === "object_type") {
+      const inferredObject = routed.clarifier_needed ? nextSession.objectType : routed.winning_mode || nextSession.objectType || inferObjectType(text);
       if (!inferredObject) {
-        askFollowUp(nextSession, "Are we looking at a contract vehicle or a specific vendor?", "object_type");
+        const seededSession = {
+          ...nextSession,
+          seedText: nextSession.seedText || compactText(routed.anchor_text || stripObjectLabel(text) || text) || null,
+        };
+        askFollowUp(seededSession, buildObjectTypeClarifier(text, routed), "object_type");
         return;
       }
       nextSession.objectType = inferredObject;
@@ -2164,7 +2279,7 @@ export function FrontPorchLanding({
     }
 
     await decideVendorNext(text, nextSession);
-  }, [appendMessage, askFollowUp, candidateChoices.length, decideVehicleNext, decideVendorNext, handleCandidateDisambiguationTurn, isWorking, resetArtifacts, routeIntakeTurn, session]);
+  }, [appendMessage, askFollowUp, candidateChoices.length, continueVehicleIntake, decideVehicleNext, decideVendorNext, handleCandidateDisambiguationTurn, isWorking, resetArtifacts, routeIntakeTurn, session]);
 
   const submitDraft = useCallback(async () => {
     const text = draft.trim();
@@ -2284,7 +2399,7 @@ export function FrontPorchLanding({
             </button>
             <button
               type="button"
-              onClick={openWarRoom}
+              onClick={openAegis}
               className="helios-focus-ring"
               style={{
                 border: `1px solid ${T.accent}${O["20"]}`,
@@ -2460,7 +2575,7 @@ export function FrontPorchLanding({
                 }
                 dossierLoading={activeBriefView.kind === "vendor" ? openingDossierFor === vendorArtifact?.caseId : false}
                 onBack={() => setActiveBriefKind(null)}
-                onOpenWarRoom={openWarRoom}
+                onOpenAegis={openAegis}
                 onOpenGraph={activeBriefView.kind === "vehicle" ? () => onNavigate("graph") : undefined}
                 onOpenDossier={activeBriefView.kind === "vendor" && vendorArtifact
                   ? () => { void openArtifactDossier(vendorArtifact.caseId); }
@@ -2858,7 +2973,7 @@ export function FrontPorchLanding({
                       </button>
                       <button
                         type="button"
-                        onClick={openWarRoom}
+                        onClick={openAegis}
                         className="helios-focus-ring"
                         style={{
                           border: "none",
@@ -2923,7 +3038,7 @@ export function FrontPorchLanding({
                       </button>
                       <button
                         type="button"
-                        onClick={openWarRoom}
+                        onClick={openAegis}
                         className="helios-focus-ring"
                         style={{
                           border: "none",

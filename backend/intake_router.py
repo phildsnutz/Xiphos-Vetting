@@ -15,9 +15,22 @@ _VENDOR_CUE_RE = re.compile(
     r"\b(vendor|supplier|company|entity|teammate|partner|prime contractor|subcontractor|read on|assessment on|screen|trust read|competitive read|compete against)\b",
     re.IGNORECASE,
 )
+_VEHICLE_REVISION_CUE_RE = re.compile(
+    r"\b(not (?:a |the )?(?:company|vendor|entity)|(?:it'?s|it is) the vehicle|vehicle,? not (?:a |the )?(?:company|vendor|entity))\b",
+    re.IGNORECASE,
+)
+_VENDOR_REVISION_CUE_RE = re.compile(
+    r"\b(not (?:the )?vehicle|specific vendor|specific company|(?:it'?s|it is) the (?:vendor|company|entity))\b",
+    re.IGNORECASE,
+)
 _VEHICLE_TOKEN_RE = re.compile(r"\b[A-Z]{2,}[ -]?\d{1,3}[A-Z0-9-]*\b")
 _CORPORATE_SUFFIX_RE = re.compile(r"\b(inc|corp|corporation|llc|ltd|plc|lp|llp|co|company|gmbh|ag|sa|srl|bv|nv)\b", re.IGNORECASE)
 _QUESTION_OPENERS = {"who", "what", "when", "where", "why", "how", "is", "are", "can", "do", "does", "should"}
+_VEHICLE_ANCHOR_CUES = [
+    re.compile(r"\b(?:follow[- ]on|pre[- ]solicitation|incumbent|current prime|prime is|we think|current vehicle|expired vehicle|net new)\b", re.IGNORECASE),
+    re.compile(r"[?.!]"),
+    re.compile(r",\s"),
+]
 
 
 def _compact(value: str) -> str:
@@ -38,17 +51,57 @@ def _vehicle_aliases() -> set[str]:
 
 
 _KNOWN_VEHICLE_SEEDS = _vehicle_aliases()
+_KNOWN_VEHICLE_PATTERNS = tuple(
+    (alias, re.compile(rf"(?<!\w){re.escape(alias)}(?!\w)", re.IGNORECASE))
+    for alias in sorted(_KNOWN_VEHICLE_SEEDS, key=len, reverse=True)
+)
+
+
+def _cut_before_cue(value: str, cues: list[re.Pattern[str]]) -> str:
+    end = len(value)
+    for cue in cues:
+        match = cue.search(value)
+        if match and match.start() < end:
+            end = match.start()
+    return value[:end]
+
+
+def _clean_anchor_fragment(value: str) -> str:
+    cleaned = _compact(value).strip(" ,:-")
+    return cleaned.rstrip("?.! ").strip(" ,:-")
+
+
+def _find_known_vehicle_mention(text: str) -> str | None:
+    source = _compact(text)
+    if not source:
+        return None
+    for _, pattern in _KNOWN_VEHICLE_PATTERNS:
+        match = pattern.search(source)
+        if match:
+            return _clean_anchor_fragment(match.group(0))
+    return None
 
 
 def _extract_vehicle_anchor(text: str) -> str:
     source = _compact(text)
-    cleaned = re.sub(r"\b(contract vehicle|vehicle|solicitation|piid|task order|idiq|gwac|bpa)\b", "", source, flags=re.IGNORECASE)
-    cleaned = cleaned.strip(" ,:-")
+    known_vehicle = _find_known_vehicle_mention(source)
+    if known_vehicle:
+        return known_vehicle
+
+    token_match = _VEHICLE_TOKEN_RE.search(source)
+    if token_match:
+        return _clean_anchor_fragment(token_match.group(0))
+
+    candidate = re.sub(r"^(?:we(?:'re| are)?\s+looking\s+at|looking\s+at|it(?:'s| is)|the\s+follow[- ]on\s+to|follow[- ]on\s+to)\s+", "", source, flags=re.IGNORECASE)
+    candidate = re.sub(r"\b(contract vehicle|vehicle|solicitation|piid|task order|idiq|gwac|bpa)\b", "", candidate, flags=re.IGNORECASE)
+    candidate = _cut_before_cue(candidate, _VEHICLE_ANCHOR_CUES)
+    cleaned = _clean_anchor_fragment(candidate)
     return cleaned or source
 
 
 def _extract_vendor_anchor(text: str) -> str:
-    return _compact(re.sub(r"\b(vendor|supplier|company|entity)\b", "", text, flags=re.IGNORECASE).strip(" ,:-")) or _compact(text)
+    cleaned = re.sub(r"\b(vendor|supplier|company|entity)\b", "", text, flags=re.IGNORECASE)
+    return _clean_anchor_fragment(cleaned) or _compact(text)
 
 
 def _vendor_memory_signal(text: str) -> tuple[float, list[str]]:
@@ -93,6 +146,9 @@ def route_intake(
 
     explicit_vehicle = bool(_VEHICLE_CUE_RE.search(raw))
     explicit_vendor = bool(_VENDOR_CUE_RE.search(raw))
+    revision_to_vehicle = bool(_VEHICLE_REVISION_CUE_RE.search(raw))
+    revision_to_vendor = bool(_VENDOR_REVISION_CUE_RE.search(raw))
+    known_vehicle_mention = _find_known_vehicle_mention(raw)
 
     if explicit_vehicle:
         vehicle_score = max(vehicle_score, 0.94)
@@ -100,10 +156,21 @@ def route_intake(
     if explicit_vendor:
         vendor_score = max(vendor_score, 0.9)
         vendor_reasons.append("The user explicitly described the target as a vendor or company.")
+    if revision_to_vehicle:
+        vehicle_score = max(vehicle_score, 0.96)
+        vehicle_reasons.append("The user explicitly corrected the frame away from company or entity and back to a contract vehicle.")
+    if revision_to_vendor:
+        vendor_score = max(vendor_score, 0.96)
+        vendor_reasons.append("The user explicitly corrected the frame away from a vehicle and back to a specific company or entity.")
 
-    if normalized in _KNOWN_VEHICLE_SEEDS:
-        vehicle_score = max(vehicle_score, 0.9)
-        vehicle_reasons.append("The input matches a known contract-vehicle seed.")
+    if known_vehicle_mention:
+        known_vehicle_score = 0.9 if normalized == _normalize_seed(known_vehicle_mention) else 0.84
+        vehicle_score = max(vehicle_score, known_vehicle_score)
+        vehicle_reasons.append(
+            "The input matches a known contract-vehicle seed."
+            if known_vehicle_score >= 0.9
+            else "The input names a known contract vehicle inside a larger phrase."
+        )
 
     if _VEHICLE_TOKEN_RE.search(raw):
         vehicle_score = max(vehicle_score, 0.7)
@@ -128,18 +195,30 @@ def route_intake(
         vendor_reasons.extend(memory_reasons)
 
     current = str(current_object_type or "").strip().lower() or None
-    if current == "vendor" and explicit_vehicle:
+    strong_vehicle_revision = vehicle_score >= 0.84 and vehicle_score >= vendor_score + 0.18
+    strong_vendor_revision = vendor_score >= 0.84 and vendor_score >= vehicle_score + 0.18
+    explicit_vehicle_revision = explicit_vehicle or revision_to_vehicle
+    explicit_vendor_revision = explicit_vendor or revision_to_vendor
+    if current == "vendor" and explicit_vehicle_revision:
         override_applied = True
         vehicle_score = max(vehicle_score, 0.98)
         vehicle_reasons.append("The new turn explicitly overrides the earlier vendor assumption.")
-    if current == "vehicle" and explicit_vendor:
+    elif current == "vendor" and strong_vehicle_revision:
+        override_applied = True
+        vehicle_score = max(vehicle_score, 0.97)
+        vehicle_reasons.append("The new turn is strong enough to revise the earlier vendor frame back to a contract vehicle.")
+    if current == "vehicle" and explicit_vendor_revision:
         override_applied = True
         vendor_score = max(vendor_score, 0.98)
         vendor_reasons.append("The new turn explicitly overrides the earlier vehicle assumption.")
-    if in_entity_narrowing and explicit_vehicle:
+    elif current == "vehicle" and strong_vendor_revision:
+        override_applied = True
+        vendor_score = max(vendor_score, 0.97)
+        vendor_reasons.append("The new turn is strong enough to revise the earlier vehicle frame back to a specific company or entity.")
+    if in_entity_narrowing and (explicit_vehicle_revision or strong_vehicle_revision):
         override_applied = True
         vehicle_score = max(vehicle_score, 0.99)
-        vehicle_reasons.append("Entity narrowing should be abandoned because the user corrected the frame to a contract vehicle.")
+        vehicle_reasons.append("Entity narrowing should be abandoned because the new turn points back to a contract vehicle.")
 
     winning_mode: str | None = None
     max_score = max(vehicle_score, vendor_score)

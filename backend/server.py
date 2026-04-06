@@ -85,6 +85,7 @@ from helios_core.mission_briefs import (
     create_or_update_mission_brief,
     get_mission_brief as get_core_mission_brief,
 )
+from helios_core.room_contract import canonicalize_mission_brief_room
 from intake_router import route_intake
 import mission_thread_briefing as mission_thread_briefing_module
 import mission_threads as mission_threads_module
@@ -821,7 +822,7 @@ def _sanitize_mission_brief_value(value, *, depth: int = 0):
 
 
 def _normalize_mission_brief_payload(body: dict) -> dict:
-    room = _truncate_text(body.get("room") or "front_porch", 40).lower() or "front_porch"
+    room = canonicalize_mission_brief_room(body.get("room"))
     object_type = _truncate_text(body.get("object_type"), 24).lower() or None
     engagement_type = _truncate_text(body.get("engagement_type"), 64).lower() or None
     collection_depth = _truncate_text(body.get("collection_depth") or "full_picture", 64).lower() or "full_picture"
@@ -2255,6 +2256,7 @@ def health():
 
 @app.route("/api/mission-briefs", methods=["POST"])
 @rate_limit(max_requests=120, window_seconds=60)
+@require_auth("cases:read")
 def api_create_mission_brief():
     body = request.get_json(silent=True) or {}
     payload = _normalize_mission_brief_payload(body)
@@ -2277,6 +2279,7 @@ def api_create_mission_brief():
 
 @app.route("/api/mission-briefs/<brief_id>", methods=["GET"])
 @rate_limit(max_requests=240, window_seconds=60)
+@require_auth("cases:read")
 def api_get_mission_brief(brief_id):
     brief = get_core_mission_brief(brief_id)
     if not brief:
@@ -2286,6 +2289,7 @@ def api_get_mission_brief(brief_id):
 
 @app.route("/api/mission-briefs/<brief_id>", methods=["PUT"])
 @rate_limit(max_requests=120, window_seconds=60)
+@require_auth("cases:read")
 def api_update_mission_brief(brief_id):
     if not get_core_mission_brief(brief_id):
         return jsonify({"error": "Mission brief not found"}), 404

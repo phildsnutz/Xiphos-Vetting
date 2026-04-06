@@ -12,7 +12,7 @@ import { DemoCompare } from "@/components/xiphos/demo-compare";
 import { GraphIntelligenceDashboard } from "@/components/xiphos/graph-intelligence-dashboard";
 import ComplianceDashboard from "@/components/xiphos/compliance-dashboard";
 import { ErrorBoundary } from "@/components/xiphos/error-boundary";
-import { WarRoom } from "@/components/xiphos/war-room";
+import { AegisRoom } from "@/components/xiphos/war-room";
 import { DEEP_ROOM_NAME, STOA_NAME } from "@/components/xiphos/room-names";
 import { PortfolioSkeleton } from "@/components/xiphos/skeletons";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
@@ -156,7 +156,7 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
 }
 
 type Tab = "dashboard" | "helios" | "portfolio" | "threads" | "graph" | "axiom" | "admin";
-type WarRoomSeed = {
+type AegisSeed = {
   targetEntity: string;
   vehicleName?: string;
   domainFocus?: string;
@@ -191,7 +191,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("helios");
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(isFileMode ? false : null);
-  const [warRoomSeed, setWarRoomSeed] = useState<WarRoomSeed>(null);
+  const [aegisSeed, setAegisSeed] = useState<AegisSeed>(null);
   const [productFocus, setProductFocus] = useState<ProductPillar>("vendor_assessment");
   const [workflowMode, setWorkflowMode] = useState<WorkflowLane>("counterparty");
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
@@ -708,7 +708,7 @@ export default function App() {
   const activeShellTab = shellTabs.find((item) => item.id === tab) ?? shellTabs[0];
   const showSupportingLayerControls = false;
   const frontPorchMode = !selected && tab === "helios";
-  const warRoomMode = !selected && tab === "axiom";
+  const aegisMode = !selected && tab === "axiom";
   const shellContent = selected ? (
     <CaseDetail
       c={selected}
@@ -739,8 +739,8 @@ export default function App() {
   ) : tab === "graph" ? (
     <GraphIntelligenceDashboard />
   ) : tab === "axiom" ? (
-    <WarRoom
-      seed={warRoomSeed}
+    <AegisRoom
+      seed={aegisSeed}
       cases={cases}
       onNavigate={(nextTab) => setTab(nextTab as Tab)}
       onOpenCase={(caseId) => {
@@ -759,7 +759,7 @@ export default function App() {
     <FrontPorchLanding
       cases={cases}
       loginRequired={Boolean(authRequired && !user)}
-      onOpenWarRoomIntent={(intent) => setWarRoomSeed(intent)}
+      onOpenAegisIntent={(intent) => setAegisSeed(intent)}
       onRequestLogin={requestLogin}
       onNavigate={(nextTab) => {
         if (authRequired && !user && nextTab !== "helios") {
@@ -767,7 +767,7 @@ export default function App() {
           return;
         }
         if (nextTab !== "axiom") {
-          setWarRoomSeed(null);
+          setAegisSeed(null);
         }
         setTab(nextTab as Tab);
       }}
@@ -820,7 +820,7 @@ export default function App() {
         style={{
           background: T.bg,
           color: T.text,
-          overflow: warRoomMode ? "hidden" : authRequired && !user || frontPorchMode ? "auto" : "hidden",
+          overflow: aegisMode ? "hidden" : authRequired && !user || frontPorchMode ? "auto" : "hidden",
         }}
       >
         {authRequired && !user ? (
@@ -839,11 +839,11 @@ export default function App() {
           <FrontPorchLanding
             cases={cases}
             loginRequired={Boolean(authRequired && !user)}
-            onOpenWarRoomIntent={(intent) => setWarRoomSeed(intent)}
+            onOpenAegisIntent={(intent) => setAegisSeed(intent)}
             onRequestLogin={requestLogin}
             onNavigate={(nextTab) => {
               if (nextTab !== "axiom") {
-                setWarRoomSeed(null);
+                setAegisSeed(null);
               }
               setSelected(null);
               setTab(nextTab as Tab);
@@ -858,14 +858,14 @@ export default function App() {
               void handleCaseCreated(caseId);
             }}
           />
-        ) : warRoomMode ? (
-          <WarRoom
-            seed={warRoomSeed}
+        ) : aegisMode ? (
+          <AegisRoom
+            seed={aegisSeed}
             cases={cases}
             onNavigate={(nextTab) => {
               setSelected(null);
               if (nextTab !== "axiom") {
-                setWarRoomSeed(null);
+                setAegisSeed(null);
               }
               setTab(nextTab as Tab);
             }}

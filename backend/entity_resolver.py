@@ -251,10 +251,15 @@ def _search_knowledge_graph_memory(name: str) -> list[dict]:
     except Exception:
         return []
 
+    # PostgreSQL stores aliases as JSONB, so alias search must cast to text
+    # before applying LOWER(...). SQLite tolerates the cast and continues to
+    # store JSON as plain text, so one query shape works across both backends.
+    aliases_text_expr = "CAST(COALESCE(e.aliases, '[]') AS TEXT)"
+
     try:
         with get_kg_conn() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     e.*,
                     (
@@ -266,12 +271,12 @@ def _search_knowledge_graph_memory(name: str) -> list[dict]:
                 WHERE LOWER(e.canonical_name) = ?
                    OR LOWER(e.canonical_name) LIKE ?
                    OR LOWER(e.canonical_name) LIKE ?
-                   OR LOWER(COALESCE(e.aliases, '[]')) LIKE ?
+                   OR LOWER({aliases_text_expr}) LIKE ?
                 ORDER BY
                     CASE
                         WHEN LOWER(e.canonical_name) = ? THEN 0
                         WHEN LOWER(e.canonical_name) LIKE ? THEN 1
-                        WHEN LOWER(COALESCE(e.aliases, '[]')) LIKE ? THEN 2
+                        WHEN LOWER({aliases_text_expr}) LIKE ? THEN 2
                         ELSE 3
                     END,
                     relationship_count DESC,

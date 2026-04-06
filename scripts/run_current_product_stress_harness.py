@@ -31,7 +31,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONT_PORCH_SCRIPT = ROOT / "scripts" / "run_front_porch_browser_regression.py"
-WAR_ROOM_SCRIPT = ROOT / "scripts" / "run_war_room_carryover_regression.py"
+AEGIS_CARRYOVER_SCRIPT = ROOT / "scripts" / "run_war_room_carryover_regression.py"
 SMOKE_SCRIPT = ROOT / "scripts" / "run_local_smoke.py"
 DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "current_product_stress_harness"
 
@@ -80,7 +80,26 @@ def run_script(cmd: list[str]) -> tuple[int, str, str]:
     return completed.returncode, completed.stdout.strip(), completed.stderr.strip()
 
 
-def run_browser_regression(script_path: Path, base_url: str, email: str, password: str) -> CheckResult:
+def extract_result_payload(output: str) -> dict[str, Any] | None:
+    lines = output.splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip() != "### Result":
+            continue
+        for candidate in lines[idx + 1:]:
+            text = candidate.strip()
+            if not text:
+                continue
+            if not text.startswith("{"):
+                return None
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def run_browser_regression(script_path: Path, base_url: str, email: str, password: str, *, check_name: str | None = None) -> CheckResult:
     cmd = [sys.executable, str(script_path), "--base-url", base_url]
     if email:
         cmd.extend(["--email", email])
@@ -89,11 +108,57 @@ def run_browser_regression(script_path: Path, base_url: str, email: str, passwor
     code, stdout, stderr = run_script(cmd)
     status = "PASS" if code == 0 else "FAIL"
     detail = stdout or stderr
+    parsed_result = extract_result_payload(stdout)
+    details: dict[str, Any] = {"output": detail}
+    if parsed_result is not None:
+        details["result"] = parsed_result
     return CheckResult(
-        name=script_path.stem,
+        name=check_name or script_path.stem,
         status=status,
-        details={"output": detail},
+        details=details,
         failures=[] if code == 0 else [detail or f"{script_path.name} exited {code}"],
+    )
+
+
+def evaluate_room_contract(stoa_check: CheckResult, aegis_check: CheckResult) -> CheckResult:
+    failures: list[str] = []
+    details: dict[str, Any] = {}
+
+    stoa_result = stoa_check.details.get("result")
+    aegis_result = aegis_check.details.get("result")
+
+    if isinstance(stoa_result, dict):
+        details["stoa"] = stoa_result
+    if isinstance(aegis_result, dict):
+        details["aegis"] = aegis_result
+
+    if stoa_check.status != "PASS":
+        failures.append("Stoa browser regression did not pass")
+    elif not isinstance(stoa_result, dict):
+        failures.append("Stoa browser regression did not return structured room-contract data")
+    else:
+        if stoa_result.get("clarifying_state") != "visible":
+            failures.append(f"Stoa clarifying state drifted: {stoa_result.get('clarifying_state')}")
+        if stoa_result.get("leia_path") != "ambiguity_then_vehicle":
+            failures.append(f"LEIA path drifted: {stoa_result.get('leia_path')}")
+        if stoa_result.get("smx_path") != "vendor_first":
+            failures.append(f"SMX path drifted: {stoa_result.get('smx_path')}")
+        if stoa_result.get("handoff") not in {"brief_open", "ready"}:
+            failures.append(f"Unexpected Stoa handoff state: {stoa_result.get('handoff')}")
+
+    if aegis_check.status != "PASS":
+        failures.append("Aegis carryover regression did not pass")
+    elif not isinstance(aegis_result, dict):
+        failures.append("Aegis carryover regression did not return structured room-contract data")
+    else:
+        if aegis_result.get("carryover") != "passed":
+            failures.append(f"Aegis carryover drifted: {aegis_result.get('carryover')}")
+
+    return CheckResult(
+        name="room_contract",
+        status="FAIL" if failures else "PASS",
+        details=details,
+        failures=failures,
     )
 
 
@@ -306,8 +371,23 @@ def main() -> int:
         raise SystemExit("/api/health failed")
 
     checks: list[CheckResult] = []
-    checks.append(run_browser_regression(FRONT_PORCH_SCRIPT, base_url, "", ""))
-    checks.append(run_browser_regression(WAR_ROOM_SCRIPT, base_url, args.email, args.password))
+    stoa_check = run_browser_regression(
+        FRONT_PORCH_SCRIPT,
+        base_url,
+        "",
+        "",
+        check_name="stoa_browser_regression",
+    )
+    aegis_check = run_browser_regression(
+        AEGIS_CARRYOVER_SCRIPT,
+        base_url,
+        args.email,
+        args.password,
+        check_name="aegis_carryover_regression",
+    )
+    checks.append(stoa_check)
+    checks.append(aegis_check)
+    checks.append(evaluate_room_contract(stoa_check, aegis_check))
 
     headers = login_headers(base_url, args.email, args.password, args.token)
     checks.append(run_graph_timing(base_url, headers))

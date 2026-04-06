@@ -823,8 +823,10 @@ export interface CreateCaseResponse {
   calibrated: Record<string, unknown>;
 }
 
+export type MissionBriefRoom = "stoa" | "aegis";
+
 export interface MissionBriefPayload {
-  room?: "front_porch" | "war_room";
+  room?: MissionBriefRoom;
   case_id?: string | null;
   object_type?: "vendor" | "vehicle" | null;
   engagement_type?: string | null;

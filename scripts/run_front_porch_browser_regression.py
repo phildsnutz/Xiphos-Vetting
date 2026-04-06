@@ -51,8 +51,91 @@ async (page) => {{
 
   const composer = page.getByLabel("Brief AXIOM");
   await composer.waitFor({{ state: "visible", timeout: 15000 }});
-  await composer.fill("ILS 2 pre solicitation Amentum is prime");
+  await composer.fill("LEIA");
   await composer.press("Enter");
+
+  await page.waitForTimeout(1500);
+  const afterLeia = await page.evaluate(() => document.body.innerText);
+  const leiaAskedTiming = afterLeia.includes("Is this current, expired, or still in pre-solicitation?");
+  const leiaAskedAmbiguityClarifier =
+    afterLeia.includes("I can take LEIA as either the contract vehicle")
+    && afterLeia.includes("Which one do you mean?");
+  const leiaEnteredEntityNarrowing = afterLeia.includes("AXIOM has a few plausible entities in frame.");
+
+  if (leiaEnteredEntityNarrowing) {{
+    throw new Error("Stoa fell into entity narrowing on LEIA instead of asking one clean vehicle-vs-entity clarifier");
+  }}
+
+  if (leiaAskedAmbiguityClarifier) {{
+    await composer.fill("contract vehicle");
+    await composer.press("Enter");
+
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Is this current, expired, or still in pre-solicitation?"),
+      undefined,
+      {{ timeout: 15000 }},
+    );
+
+    const correctedBody = await page.evaluate(() => document.body.innerText);
+    if (correctedBody.includes("Which vehicle are we working?")) {{
+      throw new Error("Stoa lost the original seed after the user corrected the frame to contract vehicle");
+    }}
+    if (correctedBody.includes("AXIOM has a few plausible entities in frame.")) {{
+      throw new Error("Stoa returned to entity narrowing after the user corrected the object to contract vehicle");
+    }}
+  }} else if (!leiaAskedTiming) {{
+    throw new Error("Stoa did not ask either the clean ambiguity clarifier or the vehicle timing question for LEIA");
+  }}
+
+  await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
+  await page.waitForLoadState("networkidle");
+
+  const smxComposer = page.getByLabel("Brief AXIOM");
+  await smxComposer.waitFor({{ state: "visible", timeout: 15000 }});
+  await smxComposer.fill("SMX");
+  await smxComposer.press("Enter");
+
+  await page.waitForFunction(
+    () => {{
+      const text = document.body.innerText;
+      return text.includes("Sign in and I’ll start the first picture without making you restate the brief.")
+        || text.includes("I found a few plausible matches.")
+        || text.includes("I found a clean entity match on")
+        || text.includes("The entity resolution is still thin, but that is not a blocker.")
+        || text.includes("I believe you mean ")
+        || text.includes("Are we looking at a contract vehicle or a specific vendor?")
+        || text.includes("Is this current, expired, or still in pre-solicitation?");
+    }},
+    undefined,
+    {{ timeout: 15000 }},
+  );
+
+  const afterSmx = await page.evaluate(() => document.body.innerText);
+  if (afterSmx.includes("Is this current, expired, or still in pre-solicitation?")) {{
+    throw new Error("Stoa routed SMX into the contract-vehicle branch");
+  }}
+  if (afterSmx.includes("Are we looking at a contract vehicle or a specific vendor?")) {{
+    throw new Error("Stoa did not trust SMX enough to start the vendor branch");
+  }}
+
+  const smxVendorMarkers = [
+    "Sign in and I’ll start the first picture without making you restate the brief.",
+    "I found a few plausible matches.",
+    "I found a clean entity match on",
+    "The entity resolution is still thin, but that is not a blocker.",
+    "I believe you mean ",
+  ];
+  if (!smxVendorMarkers.some((marker) => afterSmx.includes(marker))) {{
+    throw new Error("Stoa did not acknowledge SMX as a vendor-style intake");
+  }}
+
+  await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
+  await page.waitForLoadState("networkidle");
+
+  const ilsComposer = page.getByLabel("Brief AXIOM");
+  await ilsComposer.waitFor({{ state: "visible", timeout: 15000 }});
+  await ilsComposer.fill("ILS 2 pre solicitation Amentum is prime");
+  await ilsComposer.press("Enter");
 
   await page.waitForFunction(
     () => document.body.innerText.includes("Good. If this is a follow-on, do you know the incumbent prime?"),
@@ -65,8 +148,8 @@ async (page) => {{
     throw new Error("Stoa did not show the clarifying-state cue while waiting on the prime answer");
   }}
 
-  await composer.fill("Amentum");
-  await composer.press("Enter");
+  await ilsComposer.fill("Amentum");
+  await ilsComposer.press("Enter");
 
   await page.waitForFunction(
     () => {success_condition},
@@ -80,41 +163,11 @@ async (page) => {{
     throw new Error("Stoa repeated the incumbent-prime question instead of consuming the answer");
   }}
 
-  await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
-  await page.waitForLoadState("networkidle");
-
-  const secondComposer = page.getByLabel("Brief AXIOM");
-  await secondComposer.waitFor({{ state: "visible", timeout: 15000 }});
-  await secondComposer.fill("LEIA");
-  await secondComposer.press("Enter");
-
-  await page.waitForTimeout(1500);
-  const afterLeia = await page.evaluate(() => document.body.innerText);
-  const leiaAskedTiming = afterLeia.includes("Is this current, expired, or still in pre-solicitation?");
-  const leiaEnteredEntityNarrowing = afterLeia.includes("I found a few plausible matches.");
-
-  if (leiaEnteredEntityNarrowing) {{
-    await secondComposer.fill("LEIA contract vehicle");
-    await secondComposer.press("Enter");
-
-    await page.waitForFunction(
-      () => document.body.innerText.includes("Is this current, expired, or still in pre-solicitation?"),
-      undefined,
-      {{ timeout: 15000 }},
-    );
-
-    const correctedBody = await page.evaluate(() => document.body.innerText);
-    if (correctedBody.includes("I still need the right entity in frame.")) {{
-      throw new Error("Stoa stayed stuck in entity narrowing after the user corrected the object to contract vehicle");
-    }}
-  }} else if (!leiaAskedTiming) {{
-    throw new Error("Stoa did not treat LEIA like a vehicle seed or ask the timing question");
-  }}
-
   return {{
     clarifying_state: "visible",
     handoff: {success_label!r},
-    leia_path: leiaEnteredEntityNarrowing ? "corrected_to_vehicle" : "vehicle_first",
+    leia_path: leiaAskedAmbiguityClarifier ? "ambiguity_then_vehicle" : "vehicle_first",
+    smx_path: "vendor_first",
   }};
 }}
 """.strip()

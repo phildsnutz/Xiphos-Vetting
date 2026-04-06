@@ -29,7 +29,7 @@ interface FrontPorchBriefViewProps {
   dossierLoading?: boolean;
   children?: ReactNode;
   onBack: () => void;
-  onOpenWarRoom: () => void;
+  onOpenAegis: () => void;
   onOpenGraph?: () => void;
   onOpenDossier?: () => void;
 }
@@ -42,7 +42,7 @@ export function FrontPorchBriefView({
   dossierLoading = false,
   children,
   onBack,
-  onOpenWarRoom,
+  onOpenAegis,
   onOpenGraph,
   onOpenDossier,
 }: FrontPorchBriefViewProps) {
@@ -107,7 +107,7 @@ export function FrontPorchBriefView({
           ) : null}
           <button
             type="button"
-            onClick={onOpenWarRoom}
+            onClick={onOpenAegis}
             className="helios-focus-ring"
             style={{
               border: `1px solid ${T.accent}${O["20"]}`,

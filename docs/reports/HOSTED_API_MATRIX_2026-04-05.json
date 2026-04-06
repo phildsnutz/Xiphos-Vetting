@@ -1,0 +1,205 @@
+{
+  "generated_at": "2026-04-05T18:02:47Z",
+  "base_url": "https://helios.xiphosllc.com",
+  "summary": {
+    "overall_verdict": "PASS",
+    "primary_failure": "",
+    "primary_failure_detail": "",
+    "root_cause": "PostgreSQL graph-memory alias search used LOWER(jsonb) in entity_resolver._search_knowledge_graph_memory, which failed on live and suppressed the existing LEIA graph hit until aliases were cast to text.",
+    "auth_enabled": true,
+    "login_required": true,
+    "connector_count": 50,
+    "version": "5.2.0"
+  },
+  "public_surfaces": {
+    "GET /api/health": {
+      "status": 200,
+      "auth_enabled": true,
+      "login_required": true,
+      "connector_count": 50,
+      "version": "5.2.0"
+    },
+    "POST /api/auth/setup": {
+      "status": 400,
+      "error": "Setup already complete. Users exist."
+    },
+    "POST /api/intake/route LEIA": {
+      "status": 200,
+      "winning_mode": "vehicle",
+      "clarifier_needed": false,
+      "anchor_text": "LEIA",
+      "hypotheses": {
+        "vehicle": 0.9,
+        "vendor": 0.42
+      }
+    },
+    "POST /api/intake/route LEIA contract vehicle": {
+      "status": 200,
+      "winning_mode": "vehicle",
+      "clarifier_needed": false,
+      "anchor_text": "LEIA",
+      "hypotheses": {
+        "vehicle": 0.94,
+        "vendor": 0.42
+      }
+    },
+    "POST /api/intake/route SMX": {
+      "status": 200,
+      "winning_mode": "vendor",
+      "clarifier_needed": false,
+      "anchor_text": "SMX",
+      "hypotheses": {
+        "vehicle": 0.0,
+        "vendor": 0.86
+      }
+    },
+    "POST /api/intake/route ILS 2 pre solicitation Amentum is prime": {
+      "status": 200,
+      "winning_mode": "vehicle",
+      "clarifier_needed": false,
+      "anchor_text": "ILS 2 pre  Amentum is prime",
+      "hypotheses": {
+        "vehicle": 0.94,
+        "vendor": 0.0
+      }
+    }
+  },
+  "authenticated_surfaces": {
+    "POST /api/auth/login": {
+      "status": 200,
+      "token_present": true,
+      "role": "admin"
+    },
+    "POST /api/resolve": {
+      "status": 200,
+      "candidate_count": 6
+    },
+    "GET /api/graph/analytics/communities": {
+      "status": 200,
+      "algorithm": "leiden"
+    },
+    "POST /api/axiom/graph/profile": {
+      "status": 200,
+      "status_text": "ok",
+      "summary_text_len": 272
+    },
+    "POST /api/axiom/graph/anomalies": {
+      "status": 200,
+      "status_text": "ok",
+      "summary_text_len": 98
+    }
+  },
+  "workflow_checks": {
+    "stoa_browser_regression": {
+      "status": "PASS",
+      "result": {
+        "clarifying_state": "visible",
+        "handoff": "ready",
+        "leia_path": "ambiguity_then_vehicle",
+        "smx_path": "vendor_first"
+      }
+    },
+    "aegis_carryover_regression": {
+      "status": "PASS",
+      "result": {
+        "carryover": "passed",
+        "login_required": true
+      }
+    },
+    "room_contract": {
+      "status": "PASS",
+      "failures": []
+    },
+    "graph_timing": {
+      "status": "PASS",
+      "metrics": {
+        "health_ms": 533.0,
+        "resolve_smx_ms": 922.2,
+        "resolve_vehicle_ms": 1780.8,
+        "communities_ms": 924.4,
+        "graph_profile_p95_ms": 147.6,
+        "graph_anomalies_p95_ms": 125.9
+      }
+    },
+    "authenticated_case_flow": {
+      "status": "PASS",
+      "surfaces": [
+        "health",
+        "neo4j",
+        "ai providers",
+        "compare",
+        "create case",
+        "decision create",
+        "decision list",
+        "supplier passport",
+        "assistant plan",
+        "assistant execute",
+        "assistant feedback",
+        "dossier pdf",
+        "batch upload/report"
+      ]
+    }
+  },
+  "final_live_payloads": {
+    "LEIA": {
+      "winning_mode": null,
+      "clarifier_needed": true
+    },
+    "LEIA contract vehicle": {
+      "winning_mode": "vehicle",
+      "clarifier_needed": false
+    },
+    "SMX": {
+      "winning_mode": "vendor",
+      "clarifier_needed": false
+    },
+    "ILS 2 pre solicitation Amentum is prime": {
+      "winning_mode": "vehicle",
+      "clarifier_needed": false,
+      "anchor_text": "ILS 2"
+    }
+  },
+  "local_vs_live_gap": {
+    "LEIA": {
+      "local_expected": {
+        "winning_mode": null,
+        "clarifier_needed": true,
+        "vehicle_score": 0.9,
+        "vendor_score": 0.78,
+        "reason": "Graph memory already has LEIA in frame."
+      },
+      "live_observed": {
+        "winning_mode": "vehicle",
+        "clarifier_needed": false,
+        "vehicle_score": 0.9,
+        "vendor_score": 0.42
+      }
+    },
+    "ILS 2 pre solicitation Amentum is prime": {
+      "local_expected_anchor": "ILS 2",
+      "live_observed_anchor": "ILS 2 pre  Amentum is prime"
+    }
+  },
+  "deployment_drift": {
+    "remote_repo": {
+      "path": "/opt/xiphos",
+      "branch": "codex/beta-ready-checkpoint",
+      "head": "9a0004e8bf1a13a5eb25c9215187aa67ecd5f6b8",
+      "dirty_worktree": true
+    },
+    "local_repo": {
+      "branch": "codex/helios-ui-beta-redesign",
+      "head": "0d88bbe0eaa0683bc0ee161b146a065b79292812"
+    },
+    "running_container": {
+      "name": "xiphos-xiphos-1",
+      "state": "running",
+      "created": "2026-04-05T14:54:59.478679987Z",
+      "started_at": "2026-04-05T14:55:01.097916612Z",
+      "image": "xiphos-xiphos",
+      "image_id": "sha256:4d4ac73e1a826b1aad8a9ee3d92faa0aaf88ed87e0d4217acb2d72400b22c5b7",
+      "repo_bind_mount_present": false,
+      "data_volume_only": true
+    }
+  }
+}
