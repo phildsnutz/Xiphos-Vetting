@@ -757,6 +757,79 @@ def _finding_rows(contexts: list[dict[str, Any]], limit: int = 6) -> list[dict[s
     return rows[:limit]
 
 
+def _evidence_footprint(contexts: list[dict[str, Any]]) -> dict[str, Any]:
+    connectors_run = 0
+    connectors_with_data = 0
+    source_counts: dict[str, int] = {}
+
+    for context in contexts:
+        enrichment = context.get("enrichment") if isinstance(context.get("enrichment"), dict) else {}
+        summary = enrichment.get("summary") if isinstance(enrichment.get("summary"), dict) else {}
+        connectors_run += int(summary.get("connectors_run") or 0)
+        connectors_with_data += int(summary.get("connectors_with_data") or 0)
+
+        graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
+        for rel in graph_summary.get("relationships") or []:
+            if not isinstance(rel, dict):
+                continue
+            for label in _relationship_sources(rel):
+                source_counts[label] = source_counts.get(label, 0) + 1
+
+        case_events = context.get("case_events") if isinstance(context.get("case_events"), list) else []
+        for event in case_events:
+            if not isinstance(event, dict):
+                continue
+            label = _source_display_name(_clean_text(event.get("connector"), "case_evidence"))
+            source_counts[label] = source_counts.get(label, 0) + 1
+
+        enrichment_findings = enrichment.get("findings") if isinstance(enrichment.get("findings"), list) else []
+        for finding in enrichment_findings:
+            if not isinstance(finding, dict):
+                continue
+            label = _source_display_name(_clean_text(finding.get("source"), "unknown"))
+            source_counts[label] = source_counts.get(label, 0) + 1
+
+    top_sources = sorted(source_counts.items(), key=lambda item: (-item[1], item[0].lower()))[:4]
+    return {
+        "linked_case_count": len(contexts),
+        "connectors_run": connectors_run,
+        "connectors_with_data": connectors_with_data,
+        "top_sources": top_sources,
+    }
+
+
+def _passport_snapshot(context: dict[str, Any] | None) -> dict[str, Any]:
+    if not context:
+        return {
+            "recommended_view": "Unresolved",
+            "consensus_level": "Unresolved",
+            "network_relationship_count": 0,
+            "missing_families": [],
+        }
+
+    supplier_passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
+    tribunal = supplier_passport.get("tribunal") if isinstance(supplier_passport.get("tribunal"), dict) else {}
+    passport_graph = supplier_passport.get("graph") if isinstance(supplier_passport.get("graph"), dict) else {}
+    graph_intelligence = passport_graph.get("intelligence") if isinstance(passport_graph.get("intelligence"), dict) else {}
+
+    recommended_view = _clean_text(tribunal.get("recommended_view"), "Unresolved").replace("_", " ").title()
+    consensus_level = _clean_text(tribunal.get("consensus_level"), "Unresolved").replace("_", " ").title()
+    network_relationship_count = int(
+        passport_graph.get("network_relationship_count")
+        or passport_graph.get("relationship_count")
+        or 0
+    )
+    missing_families = _dedupe_preserve(
+        [str(family).replace("_", " ") for family in (graph_intelligence.get("missing_required_edge_families") or []) if family]
+    )
+    return {
+        "recommended_view": recommended_view,
+        "consensus_level": consensus_level,
+        "network_relationship_count": network_relationship_count,
+        "missing_families": missing_families,
+    }
+
+
 def _case_recommendation(context: dict[str, Any] | None) -> str:
     if not context:
         return "Unresolved"
@@ -978,6 +1051,8 @@ def _build_vehicle_support(
         lineage_rows=lineage_rows,
         event_rows=event_rows,
     )
+    evidence_footprint = _evidence_footprint(contexts)
+    passport_snapshot = _passport_snapshot(primary_context)
     return {
         "vehicle_name": vehicle_name,
         "prime_contractor": prime_contractor,
@@ -994,6 +1069,8 @@ def _build_vehicle_support(
         "probability_pct": _case_probability_pct(primary_context),
         "claim_coverage_pct": _graph_claim_coverage_pct(primary_context),
         "relationship_count": _graph_relationship_count(primary_context),
+        "evidence_footprint": evidence_footprint,
+        "passport_snapshot": passport_snapshot,
     }
 
 
@@ -1120,6 +1197,53 @@ def _render_action_table(rows: list[dict[str, str]]) -> str:
         <tbody>{body}</tbody>
     </table>
     """
+
+
+def _render_teaming_intelligence_section(report: dict[str, Any] | None) -> str:
+    if not report:
+        return """
+        <div class="info-box">
+            <div class="info-box-label">Teaming Intelligence</div>
+            <p>Competitive teaming intelligence is not attached to this dossier render yet.</p>
+        </div>
+        """
+
+    top_conclusions = report.get("top_conclusions") or []
+    assessed_partners = report.get("assessed_partners") or []
+    if not assessed_partners:
+        message = escape(str(report.get("message") or "Helios could not build an assessed partner map from the current graph snapshot."))
+        return f"""
+        <div class="info-box">
+            <div class="info-box-label">Teaming Intelligence</div>
+            <p>{message}</p>
+        </div>
+        """
+
+    rows = []
+    for partner in assessed_partners[:6]:
+        evidence = partner.get("evidence") or []
+        strongest = evidence[0] if evidence else {}
+        rows.append(
+            {
+                "entity": partner.get("display_name") or partner.get("entity_name") or "Unknown",
+                "signal": f"{partner.get('classification', 'unknown')} · {partner.get('confidence_label', 'low')} confidence",
+                "corroboration": f"{len(evidence)} evidence rows",
+                "provenance": strongest.get("connector") or "knowledge_graph",
+                "assessment": partner.get("rationale") or strongest.get("snippet") or "Graph-backed signal",
+            }
+        )
+
+    summary_html = ""
+    if top_conclusions:
+        bullets = "".join(f"<li>{escape(str(item))}</li>" for item in top_conclusions[:4])
+        summary_html = f"""
+        <div class="info-box">
+            <div class="info-box-label">Aegis Teaming Read</div>
+            <ul>{bullets}</ul>
+        </div>
+        """
+
+    return summary_html + _render_signal_table(rows, "No assessed partner map survived the current graph snapshot.")
 
 
 def _render_findings_html(rows: list[dict[str, str]], empty_message: str) -> str:
@@ -1587,6 +1711,15 @@ def generate_vehicle_dossier(
         vendor_ids=vendor_ids,
         contract_data=contract_data,
     )
+    try:
+        from teaming_intelligence import build_teaming_intelligence
+
+        teaming_report = build_teaming_intelligence(
+            vehicle_name=vehicle_name,
+            observed_vendors=[{"vendor_name": prime_contractor, "role": "prime"}],
+        )
+    except Exception:
+        teaming_report = None
 
     ceiling = contract_data.get("total_ceiling")
     obligated = contract_data.get("total_obligated")
@@ -1671,6 +1804,7 @@ def generate_vehicle_dossier(
         vehicle_support["teaming_rows"],
         "No confirmed subcontractor or teaming relationships are attached to the current evidence bundle.",
     )
+    teaming_intelligence_html = _render_teaming_intelligence_section(teaming_report)
     lineage_html = _render_signal_table(
         vehicle_support["lineage_rows"],
         "No predecessor, successor, incumbent, competed-on, or award-under relationships are attached to this vehicle yet.",
@@ -1694,6 +1828,39 @@ def generate_vehicle_dossier(
             "for the supplied vendor IDs."
         )
     blocking_gap_notes = "; ".join(gap["notes"] for gap in vehicle_support["gaps"][:2])
+    evidence_footprint = vehicle_support["evidence_footprint"]
+    passport_snapshot = vehicle_support["passport_snapshot"]
+    top_source_text = ", ".join(
+        f"{source} ({count})" for source, count in evidence_footprint["top_sources"]
+    ) or "No concentrated public-source signal is attached yet."
+    missing_family_text = ", ".join(passport_snapshot["missing_families"]) or "No required capture graph families are currently flagged as missing."
+    evidence_footprint_html = f"""
+        <div class="info-box">
+            <div class="info-box-label">Evidence Footprint</div>
+            <ul>
+                <li>Linked Helios cases: {evidence_footprint['linked_case_count']}</li>
+                <li>Connectors run: {evidence_footprint['connectors_run']}</li>
+                <li>Connectors with signal: {evidence_footprint['connectors_with_data']}</li>
+                <li>Top contributing sources: {escape(top_source_text)}</li>
+            </ul>
+        </div>
+    """
+    supplier_passport_html = f"""
+        <table>
+            <thead>
+                <tr>
+                    <th>Supplier Passport Field</th>
+                    <th>Current Read</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>Recommended view</strong></td><td>{escape(passport_snapshot['recommended_view'])}</td></tr>
+                <tr><td><strong>Tribunal consensus</strong></td><td>{escape(passport_snapshot['consensus_level'])}</td></tr>
+                <tr><td><strong>Network relationships</strong></td><td>{passport_snapshot['network_relationship_count']}</td></tr>
+                <tr><td><strong>Required graph families</strong></td><td>{escape(missing_family_text)}</td></tr>
+            </tbody>
+        </table>
+    """
 
     # Assemble complete HTML
     html = f"""<!DOCTYPE html>
@@ -1740,6 +1907,7 @@ def generate_vehicle_dossier(
                 {escape(vehicle_name)} is currently being summarized through the live evidence Helios has for the linked vendor IDs plus the submitted award metadata. This section is intentionally factual: it does not invent scope language beyond what Helios can actually anchor.
             </p>
         </div>
+        {evidence_footprint_html}
         <div class="info-box">
             <div class="info-box-label">Key Constraints</div>
             <ul>
@@ -1776,6 +1944,7 @@ def generate_vehicle_dossier(
         <div class="narrative">
             <p>{escape(prime_narrative)}</p>
         </div>
+        {supplier_passport_html}
         {key_finding_html}
         
         <!-- Section 4: Subcontractor Intelligence -->
@@ -1789,37 +1958,52 @@ def generate_vehicle_dossier(
         </div>
         {subcontractor_html}
         
-        <!-- Section 5: Vehicle Lineage -->
+        <!-- Section 5: Competitive Teaming Map -->
         <div class="section-header">
             <span class="section-number">5.</span>
+            <span class="section-title">Competitive Teaming Map</span>
+        </div>
+        <div class="warning-box">
+            <div class="info-box-label">State Contract</div>
+            <p>This section separates observed graph signals from Helios assessed partner classes. It does not turn prediction into graph fact.</p>
+        </div>
+        {teaming_intelligence_html}
+
+        <!-- Section 6: Vehicle Lineage -->
+        <div class="section-header">
+            <span class="section-number">6.</span>
             <span class="section-title">Vehicle Lineage & Competitive Landscape</span>
         </div>
         {lineage_html}
         
-        <!-- Section 6: Litigation Profile -->
+        <!-- Section 7: Litigation Profile -->
         <div class="section-header">
-            <span class="section-number">6.</span>
+            <span class="section-number">7.</span>
             <span class="section-title">Litigation & Protest Profile</span>
         </div>
         {litigation_html}
         
-        <!-- Section 7: Risk Assessment -->
+        <!-- Section 8: Risk Assessment -->
         <div class="section-header">
-            <span class="section-number">7.</span>
+            <span class="section-number">8.</span>
             <span class="section-title">Aggregated Risk Signals</span>
+        </div>
+        <div class="info-box">
+            <div class="info-box-label">Source Concentration</div>
+            <p>{escape(top_source_text)}</p>
         </div>
         {_render_findings_html(vehicle_support['finding_rows'], "No material vehicle-specific findings survived curation on the linked case context.")}
         
-        <!-- Section 8: Gap Analysis -->
+        <!-- Section 9: Gap Analysis -->
         <div class="section-header">
-            <span class="section-number">8.</span>
+            <span class="section-number">9.</span>
             <span class="section-title">Gap Analysis: Intelligence Gaps</span>
         </div>
         {gaps_html}
         
-        <!-- Section 9: Preliminary Assessment -->
+        <!-- Section 10: Preliminary Assessment -->
         <div class="section-header">
-            <span class="section-number">9.</span>
+            <span class="section-number">10.</span>
             <span class="section-title">Preliminary Capture Viability Assessment</span>
         </div>
         <div class="narrative">

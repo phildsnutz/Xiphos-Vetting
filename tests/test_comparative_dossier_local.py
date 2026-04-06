@@ -1,5 +1,6 @@
 import os
 import sys
+import types
 
 
 BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
@@ -121,6 +122,11 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
     assert "Kauai Labs" in html
     assert "SAM subaward record" in html
     assert "ITEAMS award protest" in html
+    assert "Evidence Footprint" in html
+    assert "Connectors run: 6" in html
+    assert "Connectors with signal: 3" in html
+    assert "Tribunal consensus" in html
+    assert "Moderate" in html
     assert "TechFlow Defense" not in html
     assert "Pacific Experimentation Vehicle" not in html
     assert "Direct prime competition unlikely to succeed" not in html
@@ -139,8 +145,52 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
     assert "No linked Helios case context was found" in html
     assert "No confirmed subcontractor or teaming relationships are attached" in html
     assert "No predecessor, successor, incumbent, competed-on, or award-under relationships are attached" in html
+    assert "Connectors run: 0" in html
+    assert "Connectors with signal: 0" in html
     assert "TechFlow Defense" not in html
     assert "Acme Systems Integration" not in html
+
+
+def test_generate_vehicle_dossier_renders_teaming_intelligence_section(monkeypatch):
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id: None)
+    fake_module = types.SimpleNamespace(
+        build_teaming_intelligence=lambda **_: {
+            "top_conclusions": [
+                "Amentum remains the incumbent-core read on ITEAMS.",
+                "Kupono reads as locked to the incumbent.",
+            ],
+            "assessed_partners": [
+                {
+                    "entity_name": "Amentum Holdings, Inc.",
+                    "display_name": "Amentum",
+                    "classification": "incumbent-core",
+                    "confidence_label": "high",
+                    "rationale": "Observed as current prime on the vehicle.",
+                    "evidence": [{"connector": "sam_gov", "snippet": "Prime on ITEAMS"}],
+                },
+                {
+                    "entity_name": "Kupono Government Services",
+                    "display_name": "Kupono",
+                    "classification": "locked",
+                    "confidence_label": "medium",
+                    "rationale": "Confirmed teammate relationship to the incumbent.",
+                    "evidence": [{"connector": "sam_gov", "snippet": "JV partnership on PMRF"}],
+                },
+            ],
+        }
+    )
+    monkeypatch.setitem(sys.modules, "teaming_intelligence", fake_module)
+
+    html = comparative_dossier.generate_vehicle_dossier(
+        vehicle_name="ITEAMS",
+        prime_contractor="Amentum",
+        vendor_ids=["missing-case"],
+        contract_data={"naics": "541715"},
+    )
+
+    assert "Competitive Teaming Map" in html
+    assert "Aegis Teaming Read" in html
+    assert "Kupono" in html
 
 
 def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monkeypatch):
