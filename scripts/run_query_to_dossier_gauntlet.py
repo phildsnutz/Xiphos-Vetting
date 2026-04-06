@@ -71,7 +71,16 @@ DEFAULT_CASE_PAYLOAD = {
 }
 
 ASSISTANT_PROMPT = "Trace the strongest control path and explain the current risk posture."
-HTML_MARKERS = ("<html", "Supplier passport", "Risk Storyline")
+HTML_MARKERS = (
+    "<html",
+    "Helios Intelligence Brief",
+    "Axiom Assessment",
+    "Supplier Passport",
+    "Risk Storyline",
+    "Graph Read",
+    "Recommended Actions",
+    "Evidence Ledger",
+)
 DEFAULT_FORBIDDEN_DOSSIER_FRAGMENTS = [
     "Invalid Date",
     "Traceback (most recent call last)",

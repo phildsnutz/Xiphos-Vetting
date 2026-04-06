@@ -43,19 +43,22 @@ DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "customer_demo_gate"
 
 HTML_SECTION_CHECKS = {
     "hero": "Helios Intelligence Brief",
-    "executive_strip": "Recent change",
     "risk_storyline": "Risk Storyline",
-    "supplier_passport": "Supplier passport",
+    "supplier_passport": "Supplier Passport",
+    "graph_read": "Graph Read",
     "ai_brief": "Axiom Assessment",
-    "executive_judgment": "Executive judgment",
+    "recommended_actions": "Recommended Actions",
+    "evidence_ledger": "Evidence Ledger",
 }
 
 PDF_SECTION_CHECKS = {
     "hero": "HELIOS INTELLIGENCE BRIEF",
-    "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
+    "graph_read": "GRAPH READ",
     "ai_brief": "AXIOM ASSESSMENT",
+    "recommended_actions": "RECOMMENDED ACTIONS",
+    "evidence_ledger": "EVIDENCE LEDGER",
 }
 
 BANNED_DOSSIER_PHRASES = (
@@ -556,7 +559,6 @@ def check_dossier_text(document: str, checks: dict[str, str], *, include_ai: boo
     required = dict(checks)
     if not include_ai:
         required.pop("ai_brief", None)
-        required.pop("executive_judgment", None)
     for name, marker in required.items():
         if marker not in document:
             failures.append(f"{label} missing {name.replace('_', ' ')}")

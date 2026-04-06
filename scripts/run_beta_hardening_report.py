@@ -51,18 +51,22 @@ except Exception:  # pragma: no cover - graceful degradation
 
 
 HTML_SECTION_CHECKS = {
-    "executive_strip": "Recent change",
+    "hero": "Helios Intelligence Brief",
     "risk_storyline": "Risk Storyline",
-    "supplier_passport": "Supplier passport",
+    "supplier_passport": "Supplier Passport",
+    "graph_read": "Graph Read",
     "ai_brief": "Axiom Assessment",
-    "executive_judgment": "Executive judgment",
+    "recommended_actions": "Recommended Actions",
+    "evidence_ledger": "Evidence Ledger",
 }
 
 PDF_SECTION_CHECKS = {
-    "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
+    "graph_read": "GRAPH READ",
     "ai_brief": "AXIOM ASSESSMENT",
+    "recommended_actions": "RECOMMENDED ACTIONS",
+    "evidence_ledger": "EVIDENCE LEDGER",
 }
 
 
@@ -303,9 +307,6 @@ def run_case(vendor: dict[str, Any], graph_depth: int, *, warm_monitoring: bool 
     html_checks = dict(HTML_SECTION_CHECKS)
     cached_analysis, analysis_user_id = resolve_cached_analysis(case_id, ai_fingerprint)
     ai_expected = bool(cached_analysis)
-    if not ai_expected:
-        html_checks.pop("ai_brief", None)
-        html_checks.pop("executive_judgment", None)
     html_ok, html_failures = validate_section_checks(html, html_checks, "html dossier")
     failures.extend(html_failures)
 
@@ -315,8 +316,6 @@ def run_case(vendor: dict[str, Any], graph_depth: int, *, warm_monitoring: bool 
     pdf_text, pdf_warnings = extract_pdf_text(pdf_bytes)
     warnings.extend(pdf_warnings)
     pdf_checks = dict(PDF_SECTION_CHECKS)
-    if not ai_expected:
-        pdf_checks.pop("ai_brief", None)
     pdf_ok, pdf_failures = validate_section_checks(pdf_text.upper(), pdf_checks, "pdf dossier")
     failures.extend(pdf_failures)
 

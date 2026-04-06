@@ -13,6 +13,47 @@ sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
 
+STANDARD_DOSSIER_HTML = "\n".join(
+    [
+        "Helios Intelligence Brief",
+        "Risk Storyline",
+        "Supplier Passport",
+        "Graph Read",
+        "Axiom Assessment",
+        "Recommended Actions",
+        "Evidence Ledger",
+    ]
+)
+WARMING_DOSSIER_HTML = STANDARD_DOSSIER_HTML + "\nstill warming for this case"
+
+
+def _build_demo_pdf(*, warming: bool = False) -> bytes:
+    from io import BytesIO
+
+    from reportlab.pdfgen import canvas
+
+    lines = [
+        "HELIOS INTELLIGENCE BRIEF",
+        "RISK STORYLINE",
+        "SUPPLIER PASSPORT",
+        "GRAPH READ",
+        "AXIOM ASSESSMENT",
+        "RECOMMENDED ACTIONS",
+        "EVIDENCE LEDGER",
+    ]
+    if warming:
+        lines.append("still warming for this case")
+
+    buff = BytesIO()
+    pdf = canvas.Canvas(buff)
+    y = 720
+    for line in lines:
+        pdf.drawString(72, y, line)
+        y -= 20
+    pdf.save()
+    return buff.getvalue()
+
+
 def test_is_suspicious_website_rejects_recruiting_host():
     reason = gate.is_suspicious_website("https://ats.rippling.com/columbia-helicopters/jobs")
     assert reason == "suspicious website host: ats.rippling.com"
@@ -38,7 +79,7 @@ def test_validate_identifier_expectation_accepts_matching_cik():
 
 def test_check_dossier_text_flags_banned_phrase():
     failures, warnings = gate.check_dossier_text(
-        "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\n0 years of verifiable records",
+        STANDARD_DOSSIER_HTML + "\n0 years of verifiable records",
         gate.HTML_SECTION_CHECKS,
         include_ai=True,
         label="html dossier",
@@ -419,21 +460,10 @@ def test_run_demo_gate_uses_expected_domain_and_company_name(tmp_path):
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
+            return STANDARD_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from reportlab.pdfgen import canvas
-            from io import BytesIO
-
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf()
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -508,22 +538,10 @@ def test_run_demo_gate_normalizes_local_fixture_seed_paths_before_case_create(tm
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
+            return STANDARD_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from io import BytesIO
-
-            from reportlab.pdfgen import canvas
-
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf()
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -613,21 +631,10 @@ def test_run_demo_gate_auto_stabilizes_before_final_verdict(tmp_path):
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
+            return STANDARD_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from reportlab.pdfgen import canvas
-            from io import BytesIO
-
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf()
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -698,21 +705,10 @@ def test_run_demo_gate_surface_mode_accepts_pending_ai_without_warning(tmp_path)
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
+            return STANDARD_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from reportlab.pdfgen import canvas
-            from io import BytesIO
-
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf()
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -792,23 +788,10 @@ def test_run_demo_gate_surface_mode_allows_missing_ai_brief_until_ready(tmp_path
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\nstill warming for this case"
+            return WARMING_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from io import BytesIO
-
-            from reportlab.pdfgen import canvas
-
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.drawString(72, 620, "still warming for this case")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf(warming=True)
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -879,22 +862,10 @@ def test_run_demo_gate_surface_mode_skips_assistant_execute(tmp_path):
             raise AssertionError(path)
 
         def request_text(self, method, path, **kwargs):
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
+            return STANDARD_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from io import BytesIO
-
-            from reportlab.pdfgen import canvas
-
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf()
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -965,24 +936,11 @@ def test_run_demo_gate_surface_mode_keeps_ai_requested_while_warming(tmp_path):
 
         def request_text(self, method, path, **kwargs):
             calls["html_include_ai"] = (kwargs.get("json") or {}).get("include_ai")
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\nstill warming for this case"
+            return WARMING_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from io import BytesIO
-
-            from reportlab.pdfgen import canvas
-
             calls["pdf_include_ai"] = (kwargs.get("json") or {}).get("include_ai")
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            pdf.drawString(72, 620, "still warming for this case")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf(warming=True)
 
     args = argparse.Namespace(
         base_url="http://example.test",
@@ -1058,26 +1016,12 @@ def test_run_demo_gate_surface_mode_emits_warming_and_final_artifacts(tmp_path, 
         def request_text(self, method, path, **kwargs):
             calls["html"] += 1
             if calls["html"] == 1:
-                return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment\nstill warming for this case"
-            return "Helios Intelligence Brief\nRecent change\nRisk Storyline\nSupplier passport\nAxiom Assessment\nExecutive judgment"
+                return WARMING_DOSSIER_HTML
+            return STANDARD_DOSSIER_HTML
 
         def request_bytes(self, method, path, **kwargs):
-            from io import BytesIO
-
-            from reportlab.pdfgen import canvas
-
             calls["pdf"] += 1
-            buff = BytesIO()
-            pdf = canvas.Canvas(buff)
-            pdf.drawString(72, 720, "HELIOS INTELLIGENCE BRIEF")
-            pdf.drawString(72, 700, "RECENT CHANGE")
-            pdf.drawString(72, 680, "RISK STORYLINE")
-            pdf.drawString(72, 660, "SUPPLIER PASSPORT")
-            pdf.drawString(72, 640, "AXIOM ASSESSMENT")
-            if calls["pdf"] == 1:
-                pdf.drawString(72, 620, "still warming for this case")
-            pdf.save()
-            return buff.getvalue()
+            return _build_demo_pdf(warming=calls["pdf"] == 1)
 
     monkeypatch.setattr(gate.time, "sleep", lambda _seconds: None)
 

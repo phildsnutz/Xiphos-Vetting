@@ -324,8 +324,13 @@ def test_step_dossier_html_validates_expected_and_forbidden_fragments():
             html = """
             <html>
               <body>
-                <h1>Supplier passport</h1>
+                <h1>Helios Intelligence Brief</h1>
+                <h2>Axiom Assessment</h2>
+                <h1>Supplier Passport</h1>
                 <h2>Risk Storyline</h2>
+                <h2>Graph Read</h2>
+                <h2>Recommended Actions</h2>
+                <h2>Evidence Ledger</h2>
                 <p>Descriptor-only ownership evidence. No named beneficial owner resolved.</p>
                 <p>Owner class: Service-Disabled Veteran.</p>
               </body>

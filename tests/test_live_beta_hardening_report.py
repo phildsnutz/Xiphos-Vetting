@@ -65,8 +65,8 @@ def test_render_markdown_includes_readiness_section():
                 "monitoring_ready": True,
                 "graph": {"entity_count": 1, "relationship_count": 1, "corroborated_edges": 0},
                 "ai_expected": True,
-                "html_markers": {"executive_strip": True},
-                "pdf_markers": {"executive_strip": True},
+                "html_markers": {"hero": True, "risk_storyline": True, "supplier_passport": True},
+                "pdf_markers": {"risk_storyline": True, "supplier_passport": True, "graph_read": True},
                 "failures": [],
                 "warnings": [],
             }

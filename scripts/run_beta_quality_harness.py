@@ -34,22 +34,22 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "beta_quality_harness"
 
 HTML_SECTION_CHECKS = {
-    "executive_strip": "Recent change",
+    "hero": "Helios Intelligence Brief",
     "risk_storyline": "Risk Storyline",
-    "supplier_passport": "Supplier passport",
-    "graph_provenance": "Graph Provenance Snapshot",
+    "supplier_passport": "Supplier Passport",
+    "graph_read": "Graph Read",
     "ai_brief": "Axiom Assessment",
     "recommended_actions": "Recommended Actions",
-    "findings_table": "OSINT Findings",
+    "evidence_ledger": "Evidence Ledger",
 }
 
 PDF_SECTION_CHECKS = {
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
-    "graph_provenance": "GRAPH PROVENANCE SNAPSHOT",
+    "graph_read": "GRAPH READ",
     "ai_brief": "AXIOM ASSESSMENT",
-    "executive_action": "EXECUTIVE ACTION",
-    "evidence_snapshot": "EVIDENCE SNAPSHOT",
+    "recommended_actions": "RECOMMENDED ACTIONS",
+    "evidence_ledger": "EVIDENCE LEDGER",
 }
 
 

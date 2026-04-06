@@ -332,6 +332,109 @@ def _graph_change_line(context: dict[str, Any]) -> str:
     return "Graph change: the graph has not materially changed the read beyond the visible evidence bundle yet."
 
 
+def _recommendation_authority_line(recommendation: dict[str, Any]) -> str:
+    source_labels = {
+        "score": "deterministic score",
+        "passport": "supplier passport",
+        "decision": "decision history",
+        "tribunal": "tribunal counterview",
+    }
+    sources = [source_labels.get(str(source), str(source).replace("_", " ")) for source in recommendation.get("sources") or []]
+    if not sources:
+        return "Recommendation authority: the current posture is still provisional because no durable authority stack has fully landed."
+    joined = ", ".join(sources)
+    return f"Recommendation authority: {joined} currently carries the visible recommendation."
+
+
+def _build_passport_snapshot(context: dict[str, Any], recommendation: dict[str, Any], probability: int) -> dict[str, Any]:
+    passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
+    score = context.get("score") if isinstance(context.get("score"), dict) else {}
+    calibrated = score.get("calibrated") if isinstance(score.get("calibrated"), dict) else {}
+    enrichment = context.get("enrichment") if isinstance(context.get("enrichment"), dict) else {}
+
+    identity = passport.get("identity") if isinstance(passport.get("identity"), dict) else {}
+    official = identity.get("official_corroboration") if isinstance(identity.get("official_corroboration"), dict) else {}
+    verified_ids = [str(item).upper() for item in (official.get("official_identifiers_verified") or []) if str(item).strip()]
+    coverage = _clean_detail(official.get("coverage_level")).replace("_", " ").title()
+
+    ownership = passport.get("ownership") if isinstance(passport.get("ownership"), dict) else {}
+    workflow_control = ownership.get("workflow_control") if isinstance(ownership.get("workflow_control"), dict) else {}
+    workflow_label = _clean_detail(workflow_control.get("label"))
+    workflow_basis = _clean_detail(workflow_control.get("review_basis"))
+
+    tribunal = passport.get("tribunal") if isinstance(passport.get("tribunal"), dict) else {}
+    tribunal_view = _clean_detail(tribunal.get("recommended_view") or tribunal.get("recommended_label")).replace("_", " ").title()
+    tribunal_consensus = _clean_detail(tribunal.get("consensus_level")).replace("_", " ").title()
+    tribunal_gap = tribunal.get("decision_gap")
+
+    network_risk = passport.get("network_risk") if isinstance(passport.get("network_risk"), dict) else {}
+    network_level = _clean_detail(network_risk.get("level")).replace("_", " ").title()
+
+    graph = passport.get("graph") if isinstance(passport.get("graph"), dict) else {}
+    intelligence = graph.get("intelligence") if isinstance(graph.get("intelligence"), dict) else {}
+    workflow_lane = _clean_detail(intelligence.get("workflow_lane")).replace("_", " ").title()
+    missing_families = [
+        str(item).replace("_", " ")
+        for item in (intelligence.get("missing_required_edge_families") or [])
+        if str(item).strip()
+    ]
+
+    threat = passport.get("threat_intel") if isinstance(passport.get("threat_intel"), dict) else {}
+    advisories = [str(item) for item in (threat.get("cisa_advisory_ids") or []) if str(item).strip()]
+
+    enrichment_summary = enrichment.get("summary") if isinstance(enrichment.get("summary"), dict) else {}
+    connectors_with_data = enrichment_summary.get("connectors_with_data")
+
+    tier = _clean_detail(
+        (calibrated.get("calibrated_tier") if isinstance(calibrated, dict) else "")
+        or score.get("tier")
+        or score.get("calibrated_tier")
+    ).replace("_", " ").upper()
+
+    cards = [
+        ("Posture", recommendation["label"]),
+        ("Tier", tier or "PENDING"),
+        ("Risk estimate", f"{probability}%"),
+    ]
+    if workflow_lane:
+        cards.append(("Workflow lane", workflow_lane))
+    elif connectors_with_data not in (None, ""):
+        cards.append(("Sources with signal", str(connectors_with_data)))
+
+    lines: list[str] = []
+    if coverage or verified_ids:
+        verified_text = ", ".join(verified_ids[:4]) if verified_ids else "no official identifiers verified yet"
+        if coverage:
+            lines.append(f"Official corroboration is {coverage.lower()} with {verified_text}.")
+        else:
+            lines.append(f"Official corroboration currently verifies {verified_text}.")
+    if workflow_label or workflow_basis:
+        lines.append(_join_sentences(workflow_label, workflow_basis))
+    if tribunal_view or tribunal_consensus:
+        tribunal_bits = [bit for bit in [tribunal_view, tribunal_consensus] if bit]
+        tribunal_text = ", ".join(tribunal_bits)
+        if tribunal_gap not in (None, ""):
+            try:
+                tribunal_text += f", decision gap {float(tribunal_gap):.2f}"
+            except Exception:
+                tribunal_text += f", decision gap {tribunal_gap}"
+        lines.append(f"Tribunal view is {tribunal_text}.")
+    if network_level:
+        lines.append(f"Network risk is currently {network_level.lower()}.")
+    if advisories:
+        lines.append("Threat context includes " + ", ".join(advisories[:3]) + ".")
+    if missing_families:
+        lines.append("Passport graph still needs " + ", ".join(missing_families[:3]) + ".")
+
+    if not lines:
+        lines.append("Portable trust artifact is still thin and needs stronger identity, control, and graph corroboration.")
+
+    return {
+        "cards": cards,
+        "lines": lines[:5],
+    }
+
+
 def _build_axiom_assessment(context: dict[str, Any], recommendation: dict[str, Any]) -> dict[str, Any]:
     analysis_data = context.get("analysis_data") if isinstance(context.get("analysis_data"), dict) else {}
     analysis = analysis_data.get("analysis") if isinstance(analysis_data.get("analysis"), dict) else {}
@@ -519,6 +622,8 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         f"with {probability}% model risk and a {confidence_low}% to {confidence_high}% confidence band."
     )
 
+    recommended_actions = axiom["actions"][:4] if axiom["actions"] else gaps[:4]
+
     return {
         "vendor_name": vendor.get("name", "Unknown"),
         "country": vendor.get("country", "Unknown"),
@@ -528,8 +633,11 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "summary_line": summary_line,
         "identity_lines": identity_lines,
         "axiom": axiom,
+        "recommendation_authority": _recommendation_authority_line(recommendation),
+        "passport_snapshot": _build_passport_snapshot(context, recommendation, probability),
         "what_holds": what_holds[:6],
         "gaps": gaps[:6],
+        "recommended_actions": recommended_actions,
         "graph_read": graph_read,
         "findings": curated_findings,
     }
@@ -573,6 +681,25 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     ) or '<div class="graph-card"><div class="graph-card-body">The graph did not return a usable relationship set for this case.</div></div>'
 
     identity_html = "".join(f"<span class=\"identity-chip\">{escape(line)}</span>" for line in payload["identity_lines"]) or '<span class="identity-chip muted">Identity anchors are still thin.</span>'
+    passport_cards = "".join(
+        f"""
+        <div class="metric">
+          <div class="metric-label">{escape(label)}</div>
+          <div class="metric-value passport-metric-value">{escape(value)}</div>
+        </div>
+        """
+        for label, value in payload["passport_snapshot"]["cards"]
+    )
+    passport_lines = "".join(f"<li>{escape(line)}</li>" for line in payload["passport_snapshot"]["lines"])
+    action_rows = "".join(
+        f"""
+        <tr>
+          <td>{idx}</td>
+          <td>{escape(item)}</td>
+        </tr>
+        """
+        for idx, item in enumerate(payload["recommended_actions"], start=1)
+    ) or '<tr><td colspan="2" class="empty-line">No concrete next move is attached yet.</td></tr>'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -729,6 +856,10 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
       font-weight: 700;
       color: white;
     }}
+    .passport-metric-value {{
+      font-size: 18px;
+      line-height: 1.3;
+    }}
     .graph-grid {{
       display: grid;
       gap: 12px;
@@ -777,6 +908,13 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     .ledger {{
       margin-top: 20px;
     }}
+    .section-card {{
+      margin-top: 20px;
+      background: rgba(13,23,36,0.94);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px;
+    }}
     @media print {{
       body {{ background: white; color: black; }}
       .page {{ max-width: none; padding: 0; }}
@@ -804,6 +942,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
         <h2>Axiom Assessment</h2>
         <div class="axiom-summary">{escape(payload['axiom']['summary'])}</div>
         <div class="subtle">{escape(payload['axiom']['support'])}</div>
+        <div class="support-line">{escape(payload['recommendation_authority'])}</div>
         <div class="support-line">{escape(payload['axiom']['graph_change'])}</div>
         <div class="subtle">Confidence read: {escape(payload['axiom']['confidence'])}</div>
         <div class="split">
@@ -819,16 +958,59 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
       </article>
 
       <article class="card">
-        <h2>Graph Read</h2>
-        <div class="support-line">The graph is treated as the reasoning spine, not a sidebar.</div>
+        <h2>Supplier Passport</h2>
+        <div class="support-line">Portable trust artifact for analyst handoff, control posture, and review authority.</div>
         <div class="metrics">
-          <div class="metric"><div class="metric-label">Relationships</div><div class="metric-value">{graph_read['relationship_count']}</div></div>
-          <div class="metric"><div class="metric-label">Entities</div><div class="metric-value">{graph_read['entity_count']}</div></div>
-          <div class="metric"><div class="metric-label">Claim Coverage</div><div class="metric-value">{graph_read['claim_coverage_pct']}%</div></div>
-          <div class="metric"><div class="metric-label">Edge Families</div><div class="metric-value">{graph_read['edge_family_count']}</div></div>
+          {passport_cards}
         </div>
-        <div class="graph-grid">{graph_cards}</div>
+        <div class="split" style="margin-top: 16px;">
+          <div>
+            <h2 style="font-size:16px;">Portable trust artifact</h2>
+            <ul>{passport_lines or '<li class="empty-line">Supplier passport is still too thin to summarize cleanly.</li>'}</ul>
+          </div>
+          <div>
+            <h2 style="font-size:16px;">Recommended Actions</h2>
+            <table style="margin-top: 0;">
+              <thead>
+                <tr>
+                  <th style="width:56px;">Step</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {action_rows}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </article>
+    </section>
+
+    <section class="section-card">
+      <h2>Risk Storyline</h2>
+      <div class="support-line">Start with the strongest recommendation, the shortest risk storyline, and the portable trust artifact before dropping into raw evidence.</div>
+      <div class="split">
+        <div>
+          <h2 style="font-size:16px;">What holds</h2>
+          <ul>{_html_list(payload['what_holds'], 'No durable hold is ready to state cleanly yet.')}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">What needs to be closed</h2>
+          <ul>{_html_list(payload['gaps'], 'No material open gap is currently called out.')}</ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-card">
+      <h2>Graph Read</h2>
+      <div class="support-line">The graph is treated as the reasoning spine, not a sidebar.</div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Relationships</div><div class="metric-value">{graph_read['relationship_count']}</div></div>
+        <div class="metric"><div class="metric-label">Entities</div><div class="metric-value">{graph_read['entity_count']}</div></div>
+        <div class="metric"><div class="metric-label">Claim Coverage</div><div class="metric-value">{graph_read['claim_coverage_pct']}%</div></div>
+        <div class="metric"><div class="metric-label">Edge Families</div><div class="metric-value">{graph_read['edge_family_count']}</div></div>
+      </div>
+      <div class="graph-grid">{graph_cards}</div>
     </section>
 
     <section class="card ledger">
@@ -937,14 +1119,32 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
     story.append(Paragraph("Axiom Assessment", heading))
     story.append(Paragraph(payload["axiom"]["summary"], body))
     story.append(Paragraph(payload["axiom"]["support"], body))
+    story.append(Paragraph(payload["recommendation_authority"], body))
     story.append(Paragraph(payload["axiom"]["graph_change"], body))
     story.append(Paragraph(f"Confidence read: {payload['axiom']['confidence']}", muted))
 
+    story.append(Paragraph("Supplier Passport", heading))
+    passport_rows = [[Paragraph(f"<b>{label}</b>", body), Paragraph(value, body)] for label, value in payload["passport_snapshot"]["cards"]]
+    if passport_rows:
+        passport_table = Table(passport_rows, colWidths=[2.0 * inch, 5.1 * inch])
+        passport_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F8FAFC")),
+            ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#D8E0EA")),
+            ("GRID", (0, 0), (-1, -1), 0.4, HexColor("#D8E0EA")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(passport_table)
+    for line in payload["passport_snapshot"]["lines"]:
+        story.append(Paragraph(line, bullet, bulletText="•"))
+
+    story.append(Paragraph("Risk Storyline", heading))
     if payload["what_holds"]:
         story.append(Paragraph("What holds", heading))
         for item in payload["what_holds"]:
             story.append(Paragraph(item, bullet, bulletText="•"))
-
     if payload["gaps"]:
         story.append(Paragraph("What needs to be closed", heading))
         for item in payload["gaps"]:
@@ -973,6 +1173,10 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
     for rel in payload["graph_read"]["top_relationships"]:
         story.append(Paragraph(f"<b>{rel['source']} → {rel['target']}</b> | {rel['rel_type'].title()} | {rel['corroboration']} record{'s' if rel['corroboration'] != 1 else ''}", body))
         story.append(Paragraph(rel["evidence"] or "No narrative evidence summary is attached yet.", muted))
+
+    story.append(Paragraph("Recommended Actions", heading))
+    for item in payload["recommended_actions"]:
+        story.append(Paragraph(item, bullet, bulletText="•"))
 
     story.append(Paragraph("Evidence Ledger", heading))
     ledger_rows = [["Finding", "Source", "Severity", "Why it matters"]]

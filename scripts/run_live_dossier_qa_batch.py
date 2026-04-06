@@ -38,18 +38,22 @@ DEFAULT_USER_ID = "b24f39e7"
 DEFAULT_LIMIT = 24
 
 HTML_SECTION_CHECKS = {
-    "executive_strip": "Recent change",
+    "hero": "Helios Intelligence Brief",
     "risk_storyline": "Risk Storyline",
-    "supplier_passport": "Supplier passport",
+    "supplier_passport": "Supplier Passport",
+    "graph_read": "Graph Read",
     "ai_brief": "Axiom Assessment",
-    "executive_judgment": "Executive judgment",
+    "recommended_actions": "Recommended Actions",
+    "evidence_ledger": "Evidence Ledger",
 }
 
 PDF_SECTION_CHECKS = {
-    "executive_strip": "RECENT CHANGE",
     "risk_storyline": "RISK STORYLINE",
     "supplier_passport": "SUPPLIER PASSPORT",
+    "graph_read": "GRAPH READ",
     "ai_brief": "AXIOM ASSESSMENT",
+    "recommended_actions": "RECOMMENDED ACTIONS",
+    "evidence_ledger": "EVIDENCE LEDGER",
 }
 
 PACKET_LABELS = {
@@ -296,11 +300,8 @@ for case_id in case_ids:
         "country": vendor.get("country"),
         "tier": latest_tier,
         "warm_state": warm_states.get(case_id, {"status": "unknown"}),
-        "html_markers": {k: (v in html) for k, v in {
-            "executive_strip": "Recent change",
-            "risk_storyline": "Risk Storyline",
-            "ai_brief": "Axiom Assessment",
-            "executive_judgment": "Executive judgment",
+        "html_markers": {name: (marker in html) for name, marker in {
+            **HTML_SECTION_CHECKS,
         }.items()},
         "ai_ready": bool(cached),
         "monitoring_ready": bool(monitoring),
@@ -354,23 +355,15 @@ def validate_result(case: dict[str, Any]) -> dict[str, Any]:
         return {**case, "failures": failures, "warnings": warnings, "pdf_markers": {}}
 
     html_markers = case["html_markers"]
-    if not html_markers["executive_strip"]:
-        failures.append("html dossier missing recent change strip")
-    if not html_markers["risk_storyline"]:
-        failures.append("html dossier missing risk storyline")
-    if not html_markers["ai_brief"]:
-        failures.append("html dossier missing AI brief")
-    if not html_markers["executive_judgment"]:
-        failures.append("html dossier missing executive judgment")
+    for name, present in html_markers.items():
+        if not present:
+            failures.append(f"html dossier missing {name.replace('_', ' ')}")
 
     pdf_text = extract_pdf_text(case["pdf_base64"]).upper()
     pdf_markers = {name: marker in pdf_text for name, marker in PDF_SECTION_CHECKS.items()}
-    if not pdf_markers["executive_strip"]:
-        failures.append("pdf dossier missing recent change strip")
-    if not pdf_markers["risk_storyline"]:
-        failures.append("pdf dossier missing risk storyline")
-    if not pdf_markers["ai_brief"]:
-        failures.append("pdf dossier missing AI brief")
+    for name, present in pdf_markers.items():
+        if not present:
+            failures.append(f"pdf dossier missing {name.replace('_', ' ')}")
 
     warm_state = case.get("warm_state") or {}
     if warm_state.get("status") not in {"ready", "completed"} and not case.get("ai_ready"):

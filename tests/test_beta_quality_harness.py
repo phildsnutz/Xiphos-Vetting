@@ -81,24 +81,25 @@ def test_run_case_harness_passes_happy_path(monkeypatch):
     html = """
     <html>
       <body>
-        Recent change
+        Helios Intelligence Brief
         Risk Storyline
-        Supplier passport
-        Graph Provenance Snapshot
+        Supplier Passport
+        Graph Read
         Axiom Assessment
         Recommended Actions
-        OSINT Findings
+        Evidence Ledger
       </body>
     </html>
     """
     html = html + ("evidence " * 800)
     pdf_text = """
+    HELIOS INTELLIGENCE BRIEF
     RISK STORYLINE
     SUPPLIER PASSPORT
-    GRAPH PROVENANCE SNAPSHOT
+    GRAPH READ
     AXIOM ASSESSMENT
-    EXECUTIVE ACTION
-    EVIDENCE SNAPSHOT
+    RECOMMENDED ACTIONS
+    EVIDENCE LEDGER
     """
     monkeypatch.setattr(harness, "extract_pdf_text", lambda _: (pdf_text, []))
 

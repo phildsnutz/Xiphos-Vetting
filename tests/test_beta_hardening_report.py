@@ -50,8 +50,10 @@ def test_validate_section_checks_reports_missing_markers():
 
 
 def test_hardening_checks_include_supplier_passport_marker():
-    assert module.HTML_SECTION_CHECKS["supplier_passport"] == "Supplier passport"
+    assert module.HTML_SECTION_CHECKS["supplier_passport"] == "Supplier Passport"
     assert module.PDF_SECTION_CHECKS["supplier_passport"] == "SUPPLIER PASSPORT"
+    assert module.HTML_SECTION_CHECKS["graph_read"] == "Graph Read"
+    assert module.HTML_SECTION_CHECKS["evidence_ledger"] == "Evidence Ledger"
 
 
 def test_load_case_ids_from_cohort_reads_json(tmp_path):
