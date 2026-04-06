@@ -122,6 +122,10 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
     assert "Kauai Labs" in html
     assert "SAM subaward record" in html
     assert "ITEAMS award protest" in html
+    assert "Lineage Read" in html
+    assert "Legal Read" in html
+    assert "Competitive pressure is currently visible from Leidos." in html
+    assert "Protest pressure is attached in 1 case event." in html
     assert "Evidence Footprint" in html
     assert "Connectors run: 6" in html
     assert "Connectors with signal: 3" in html
@@ -249,7 +253,14 @@ def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monk
                     "intelligence_tier": "tentative",
                 },
             ],
-            events=[],
+            events=[
+                {
+                    "title": "C3PO corrective action protest",
+                    "status": "corrective_action",
+                    "connector": "courtlistener",
+                    "assessment": "A corrective-action signal is attached to the compared vehicle context.",
+                }
+            ],
             findings=[],
         ),
     }
@@ -275,6 +286,10 @@ def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monk
     assert "Kauai Labs" in html
     assert "Persistent across both compared vehicles." in html
     assert "Both vehicles are populated." in html
+    assert "Litigation & Protest Profile" in html
+    assert "C3PO corrective action protest" in html
+    assert "Lineage Read" in html
+    assert "Legal Read" in html
     assert "Acme Defense Systems" not in html
     assert "TechFlow Corp" not in html
     assert "Complete audit trail of vehicle evolution." not in html

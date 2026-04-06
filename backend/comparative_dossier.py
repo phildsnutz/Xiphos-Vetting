@@ -30,6 +30,7 @@ Usage:
     )
 """
 
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime
 from html import escape
@@ -732,6 +733,119 @@ def _event_rows(contexts: list[dict[str, Any]], limit: int = 6) -> list[dict[str
     return rows[:limit]
 
 
+def _lineage_bucket(signal: str) -> str:
+    normalized = signal.lower()
+    if "predecessor" in normalized:
+        return "predecessor"
+    if "successor" in normalized:
+        return "successor"
+    if "incumb" in normalized:
+        return "incumbency"
+    if "compet" in normalized:
+        return "competition"
+    if "fund" in normalized:
+        return "funding"
+    if "perform" in normalized:
+        return "performance"
+    if "award" in normalized:
+        return "award"
+    return "other"
+
+
+def _render_lineage_briefing(rows: list[dict[str, Any]], *, subject_label: str) -> str:
+    if not rows:
+        return f"""
+        <div class="info-box">
+            <div class="info-box-label">Lineage Read</div>
+            <p>No predecessor, successor, incumbent, competed-on, funding, or performance-path evidence is attached to {escape(subject_label)} yet. This is an evidence gap, not a clean lineage conclusion.</p>
+        </div>
+        """
+
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        buckets.setdefault(_lineage_bucket(row["signal"]), []).append(row)
+
+    bullets: list[str] = []
+    if buckets.get("predecessor"):
+        names = ", ".join(row["entity"] for row in buckets["predecessor"][:3])
+        bullets.append(f"Predecessor path observed through {names}.")
+    if buckets.get("successor"):
+        names = ", ".join(row["entity"] for row in buckets["successor"][:3])
+        bullets.append(f"Successor path observed through {names}.")
+    if buckets.get("incumbency"):
+        names = ", ".join(row["entity"] for row in buckets["incumbency"][:3])
+        bullets.append(f"Incumbency pressure appears against {names}.")
+    if buckets.get("competition"):
+        names = ", ".join(row["entity"] for row in buckets["competition"][:3])
+        bullets.append(f"Competitive pressure is currently visible from {names}.")
+    if buckets.get("performance"):
+        names = ", ".join(row["entity"] for row in buckets["performance"][:2])
+        bullets.append(f"Place-of-performance context is attached through {names}.")
+    if buckets.get("funding"):
+        names = ", ".join(row["entity"] for row in buckets["funding"][:2])
+        bullets.append(f"Funding-path context is attached through {names}.")
+    if not bullets:
+        bullets.append("Helios has lineage-related graph signals, but they are not yet strong enough to describe as a predecessor, successor, or competitive path.")
+
+    strongest = rows[0]
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Lineage Read</div>
+        <p>{escape(subject_label)} currently has {len(rows)} graph-backed lineage signal{'s' if len(rows) != 1 else ''}. Strongest observed path: {escape(strongest['signal'])} via {escape(strongest['entity'])}.</p>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
+
+
+def _event_bucket(row: dict[str, str]) -> str:
+    merged = f"{row.get('event', '')} {row.get('assessment', '')}".lower()
+    if "protest" in merged or "gao" in merged or "corrective action" in merged:
+        return "protest"
+    if "court" in merged or "litig" in merged or "docket" in merged or "complaint" in merged:
+        return "litigation"
+    return "other"
+
+
+def _render_event_briefing(rows: list[dict[str, str]], *, subject_label: str) -> str:
+    if not rows:
+        return f"""
+        <div class="warning-box">
+            <div class="info-box-label">Legal Read</div>
+            <p>No case-level protest or litigation events are attached to {escape(subject_label)} in the current evidence bundle. Helios should treat that as an unresolved legal picture, not as a clean bill of health.</p>
+        </div>
+        """
+
+    status_counts = Counter(row["status"] for row in rows)
+    bucket_counts = Counter(_event_bucket(row) for row in rows)
+    top_row = rows[0]
+    status_summary = ", ".join(
+        f"{count} {status.lower()}" for status, count in sorted(status_counts.items(), key=lambda item: (-item[1], item[0].lower()))
+    )
+    source_summary = ", ".join(_dedupe_preserve([row["source"] for row in rows])[:3])
+
+    bullets: list[str] = []
+    if bucket_counts.get("protest"):
+        bullets.append(f"Protest pressure is attached in {bucket_counts['protest']} case event{'s' if bucket_counts['protest'] != 1 else ''}.")
+    if bucket_counts.get("litigation"):
+        bullets.append(f"Federal litigation signal is attached in {bucket_counts['litigation']} event{'s' if bucket_counts['litigation'] != 1 else ''}.")
+    if top_row:
+        bullets.append(f"Top attached event: {top_row['event']} ({top_row['status'].lower()}).")
+    if source_summary:
+        bullets.append(f"Current legal signal is sourced through {source_summary}.")
+
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Legal Read</div>
+        <p>{escape(subject_label)} currently has {len(rows)} attached legal event{'s' if len(rows) != 1 else ''}. Status mix: {escape(status_summary)}.</p>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
+
+
 def _finding_rows(contexts: list[dict[str, Any]], limit: int = 6) -> list[dict[str, str]]:
     rows_by_key: dict[tuple[str, str], dict[str, str]] = {}
     for context in contexts:
@@ -1394,6 +1508,78 @@ def _render_comparative_teaming_table(vehicle_supports: list[dict[str, Any]]) ->
     """
 
 
+def _aggregated_lineage_rows(vehicle_supports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for support in vehicle_supports:
+        for row in support["lineage_rows"]:
+            rows.append(
+                {
+                    "vehicle": support["vehicle_name"],
+                    "entity": row["entity"],
+                    "signal": row["signal"],
+                    "provenance": row["provenance"],
+                    "assessment": row["assessment"],
+                }
+            )
+    return rows
+
+
+def _aggregated_event_rows(vehicle_supports: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for support in vehicle_supports:
+        for row in support["event_rows"]:
+            rows.append(
+                {
+                    "vehicle": support["vehicle_name"],
+                    "event": row["event"],
+                    "status": row["status"],
+                    "source": row["source"],
+                    "assessment": row["assessment"],
+                }
+            )
+    return rows
+
+
+def _render_comparative_event_table(vehicle_supports: list[dict[str, Any]]) -> str:
+    rows = _aggregated_event_rows(vehicle_supports)
+    if not rows:
+        rows = [
+            {
+                "vehicle": "Unresolved",
+                "event": "No attached protest or litigation event",
+                "status": "Unresolved",
+                "source": "Current evidence bundle",
+                "assessment": "The compared vehicles do not yet have case-level protest or litigation events attached.",
+            }
+        ]
+    body = "".join(
+        f"""
+        <tr>
+            <td><strong>{escape(row['vehicle'])}</strong></td>
+            <td>{escape(row['event'])}</td>
+            <td>{escape(row['status'])}</td>
+            <td>{escape(row['source'])}</td>
+            <td>{escape(row['assessment'])}</td>
+        </tr>
+        """
+        for row in rows[:10]
+    )
+    return f"""
+    <table>
+        <thead>
+            <tr>
+                <th>Vehicle</th>
+                <th>Event</th>
+                <th>Status</th>
+                <th>Source</th>
+                <th>Assessment</th>
+            </tr>
+        </thead>
+        <tbody>{body}</tbody>
+    </table>
+    """
+
+
 def generate_comparative_dossier(
     vehicle_configs: list[dict],
     title: str = "",
@@ -1505,18 +1691,7 @@ def generate_comparative_dossier(
         award_table += "</tr>"
     award_table += "</tbody></table>"
 
-    aggregated_lineage_rows = []
-    for support in vehicle_supports:
-        for row in support["lineage_rows"]:
-            aggregated_lineage_rows.append(
-                {
-                    "vehicle": support["vehicle_name"],
-                    "entity": row["entity"],
-                    "signal": row["signal"],
-                    "provenance": row["provenance"],
-                    "assessment": row["assessment"],
-                }
-            )
+    aggregated_lineage_rows = _aggregated_lineage_rows(vehicle_supports)
     if aggregated_lineage_rows:
         lineage_body = "".join(
             f"""
@@ -1554,6 +1729,31 @@ def generate_comparative_dossier(
         <tbody>{lineage_body}</tbody>
     </table>
     """
+    lineage_briefing_html = _render_lineage_briefing(
+        [
+            {
+                "entity": row["entity"],
+                "signal": row["signal"],
+                "provenance": row["provenance"],
+                "assessment": row["assessment"],
+            }
+            for row in aggregated_lineage_rows
+        ],
+        subject_label="the compared vehicles",
+    )
+    comparative_event_rows = _aggregated_event_rows(vehicle_supports)
+    litigation_briefing_html = _render_event_briefing(
+        [
+            {
+                "event": row["event"],
+                "status": row["status"],
+                "source": row["source"],
+                "assessment": row["assessment"],
+            }
+            for row in comparative_event_rows
+        ],
+        subject_label="the compared vehicles",
+    )
 
     aggregated_findings = []
     for support in vehicle_supports:
@@ -1637,6 +1837,7 @@ def generate_comparative_dossier(
             <span class="section-number">5.</span>
             <span class="section-title">Vehicle Lineage Map</span>
         </div>
+        {lineage_briefing_html}
         {lineage_table}
         <div class="narrative">
             <p>
@@ -1644,16 +1845,24 @@ def generate_comparative_dossier(
             </p>
         </div>
         
-        <!-- Section 6: Risk Signals -->
+        <!-- Section 6: Litigation & Protest Profile -->
         <div class="section-header">
             <span class="section-number">6.</span>
+            <span class="section-title">Litigation & Protest Profile</span>
+        </div>
+        {litigation_briefing_html}
+        {_render_comparative_event_table(vehicle_supports)}
+
+        <!-- Section 7: Risk Signals -->
+        <div class="section-header">
+            <span class="section-number">7.</span>
             <span class="section-title">OSINT Risk Signals</span>
         </div>
         {_render_findings_html(aggregated_findings, "No material comparative findings survived curation across the attached vehicle contexts.")}
         
-        <!-- Section 7: Recommendations -->
+        <!-- Section 8: Recommendations -->
         <div class="section-header">
-            <span class="section-number">7.</span>
+            <span class="section-number">8.</span>
             <span class="section-title">Preliminary Capture Viability Assessment</span>
         </div>
         <div class="narrative">
@@ -1809,9 +2018,17 @@ def generate_vehicle_dossier(
         vehicle_support["lineage_rows"],
         "No predecessor, successor, incumbent, competed-on, or award-under relationships are attached to this vehicle yet.",
     )
+    lineage_briefing_html = _render_lineage_briefing(
+        vehicle_support["lineage_rows"],
+        subject_label=vehicle_name,
+    )
     litigation_html = _render_event_table(
         vehicle_support["event_rows"],
         "No case-level protest or litigation events are attached to this vehicle in the current evidence bundle.",
+    )
+    litigation_briefing_html = _render_event_briefing(
+        vehicle_support["event_rows"],
+        subject_label=vehicle_name,
     )
     gaps_html = _render_gap_table(vehicle_support["gaps"])
     actions_html = _render_action_table(_action_rows(vehicle_support))
@@ -1974,6 +2191,7 @@ def generate_vehicle_dossier(
             <span class="section-number">6.</span>
             <span class="section-title">Vehicle Lineage & Competitive Landscape</span>
         </div>
+        {lineage_briefing_html}
         {lineage_html}
         
         <!-- Section 7: Litigation Profile -->
@@ -1981,6 +2199,7 @@ def generate_vehicle_dossier(
             <span class="section-number">7.</span>
             <span class="section-title">Litigation & Protest Profile</span>
         </div>
+        {litigation_briefing_html}
         {litigation_html}
         
         <!-- Section 8: Risk Assessment -->
