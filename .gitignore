@@ -29,6 +29,7 @@ tmp/
 /backend/*.txt
 /backend/*_results.json
 /docs/marketing/
+/docs/generated/
 /docs/reports/*
 /docs/reports/HELIOS_*
 /docs/reports/helios-*
@@ -91,6 +92,8 @@ tmp/
 /scripts/run_post_sam_bundle.py
 /scripts/render_export_ai_one_pager.py
 /scripts/render_hybrid_lane_proof_one_pager.py
+/artifacts/
+/scratch/
 /*.pdf
 /*.pptx
 /*.docx

@@ -141,17 +141,39 @@ def _memory_signals(text: str) -> tuple[float, list[str], float, list[str]]:
     except Exception:
         graph_hits = []
 
+    seen_local_hits: set[tuple[str, str]] = set()
     if local_hits:
         top = local_hits[0]
-        vendor_score = max(vendor_score, 0.86 if str(top.get("source")) == "local_vendor_memory" else 0.72)
-        vendor_reasons.append(f"Local vendor memory already has {top.get('legal_name', 'a matching entity')} in frame.")
+        legal_name = str(top.get("legal_name") or "a matching entity").strip()
+        local_key = (_normalize_seed(legal_name), str(top.get("source") or "").strip().lower())
+        if local_key not in seen_local_hits:
+            seen_local_hits.add(local_key)
+            vendor_score = max(vendor_score, 0.86 if str(top.get("source")) == "local_vendor_memory" else 0.72)
+            vendor_reasons.append(f"Local vendor memory already has {legal_name or 'a matching entity'} in frame.")
+
+    exact_vehicle_names: set[str] = set()
+    for hit in graph_hits:
+        if str(hit.get("entity_type") or "").strip().lower() != "contract_vehicle":
+            continue
+        legal_name = _normalize_seed(str(hit.get("legal_name") or ""))
+        if legal_name:
+            exact_vehicle_names.add(legal_name)
+
+    seen_graph_hits: set[tuple[str, str]] = set()
     for hit in graph_hits:
         legal_name = str(hit.get("legal_name") or "a matching entity").strip()
-        entity_type = str(hit.get("entity_type") or "").strip().lower()
+        normalized_legal_name = _normalize_seed(legal_name)
+        entity_type = str(hit.get("entity_type") or "").strip().lower() or "entity"
+        graph_key = (normalized_legal_name, entity_type)
+        if graph_key in seen_graph_hits:
+            continue
+        seen_graph_hits.add(graph_key)
         if entity_type == "contract_vehicle":
             exact_match = _normalize_seed(legal_name) == _normalize_seed(text)
             vehicle_score = max(vehicle_score, 0.9 if exact_match else 0.84)
             vehicle_reasons.append(f"Graph memory already has {legal_name or 'a matching entity'} in frame as a contract vehicle.")
+            continue
+        if normalized_legal_name and normalized_legal_name in exact_vehicle_names:
             continue
         vendor_score = max(vendor_score, 0.78)
         vendor_reasons.append(f"Graph memory already has {legal_name or 'a matching entity'} in frame as an entity.")

@@ -51,6 +51,36 @@ def test_stoa_acceptance_matrix_treats_contract_vehicle_graph_memory_as_vehicle_
     assert routed["hypotheses"][1]["score"] < routed["hypotheses"][0]["score"]
 
 
+def test_stoa_acceptance_matrix_ignores_duplicate_same_name_graph_hits_across_types(monkeypatch):
+    monkeypatch.setattr(
+        intake_router,
+        "_search_knowledge_graph_memory",
+        lambda text: [
+            {"legal_name": "ITEAMS", "source": "knowledge_graph", "entity_type": "contract_vehicle"},
+            {"legal_name": "ITEAMS", "source": "knowledge_graph", "entity_type": "contract_vehicle"},
+            {"legal_name": "ITEAMS", "source": "knowledge_graph", "entity_type": "entity"},
+            {"legal_name": "ITEAMS", "source": "knowledge_graph", "entity_type": "entity"},
+        ],
+    )
+
+    routed = intake_router.route_intake("ITEAMS")
+
+    assert routed["winning_mode"] == "vehicle"
+    assert routed["clarifier_needed"] is False
+    assert routed["hypotheses"][0]["reasons"] == ["Graph memory already has ITEAMS in frame as a contract vehicle."]
+    assert routed["hypotheses"][1]["score"] == 0.42
+    assert routed["hypotheses"][1]["reasons"] == ["The input reads like a named entity rather than a freeform question."]
+
+
+@pytest.mark.parametrize("text", ["SEWP", "OASIS", "CIO-SP4", "Alliant 2", "VETS 2"])
+def test_stoa_acceptance_matrix_routes_known_vehicle_seed_matrix_to_vehicle(text):
+    routed = intake_router.route_intake(text)
+
+    assert routed["winning_mode"] == "vehicle"
+    assert routed["clarifier_needed"] is False
+    assert routed["anchor_text"] == text
+
+
 @pytest.mark.parametrize(
     ("text", "expected_anchor"),
     [
