@@ -581,7 +581,7 @@ def _dedupe_preserve(values: list[str]) -> list[str]:
     return ordered
 
 
-def _load_case_contexts(vendor_ids: list[str] | None) -> list[dict[str, Any]]:
+def _load_case_contexts(vendor_ids: list[str] | None, *, vehicle_name: str = "") -> list[dict[str, Any]]:
     contexts: list[dict[str, Any]] = []
     seen: set[str] = set()
     for vendor_id in vendor_ids or []:
@@ -590,12 +590,52 @@ def _load_case_contexts(vendor_ids: list[str] | None) -> list[dict[str, Any]]:
             continue
         seen.add(normalized)
         try:
-            context = build_dossier_context(normalized)
+            context = build_dossier_context(normalized, vehicle_name=vehicle_name)
         except Exception:
             context = None
         if isinstance(context, dict):
             contexts.append(context)
     return contexts
+
+
+def _context_vehicle_intelligence(context: dict[str, Any]) -> dict[str, Any]:
+    vehicle_intelligence = context.get("vehicle_intelligence")
+    return vehicle_intelligence if isinstance(vehicle_intelligence, dict) else {}
+
+
+def _context_relationships(context: dict[str, Any]) -> list[dict[str, Any]]:
+    relationships: list[dict[str, Any]] = []
+    graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
+    for rel in graph_summary.get("relationships") or []:
+        if isinstance(rel, dict):
+            relationships.append(rel)
+    for rel in _context_vehicle_intelligence(context).get("relationships") or []:
+        if isinstance(rel, dict):
+            relationships.append(rel)
+    return relationships
+
+
+def _context_case_events(context: dict[str, Any]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for event in context.get("case_events") if isinstance(context.get("case_events"), list) else []:
+        if isinstance(event, dict):
+            events.append(event)
+    for event in _context_vehicle_intelligence(context).get("events") or []:
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _context_findings(context: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    enrichment = context.get("enrichment") if isinstance(context.get("enrichment"), dict) else {}
+    for finding in enrichment.get("findings") if isinstance(enrichment.get("findings"), list) else []:
+        if isinstance(finding, dict):
+            findings.append(finding)
+    for finding in _context_vehicle_intelligence(context).get("findings") or []:
+        if isinstance(finding, dict):
+            findings.append(finding)
+    return findings
 
 
 def _pick_primary_context(contexts: list[dict[str, Any]], prime_contractor: str) -> dict[str, Any] | None:
@@ -669,8 +709,7 @@ def _relationship_rows(
 
     rows_by_key: dict[tuple[str, str], dict[str, Any]] = {}
     for context in contexts:
-        graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
-        for rel in graph_summary.get("relationships") or []:
+        for rel in _context_relationships(context):
             if not isinstance(rel, dict):
                 continue
             rel_type = _clean_text(rel.get("rel_type")).lower()
@@ -713,23 +752,33 @@ def _relationship_rows(
 def _event_rows(contexts: list[dict[str, Any]], limit: int = 6) -> list[dict[str, str]]:
     rows_by_key: dict[tuple[str, str], dict[str, str]] = {}
     for context in contexts:
-        case_events = context.get("case_events") if isinstance(context.get("case_events"), list) else []
-        for event in case_events:
+        for event in _context_case_events(context):
             if not isinstance(event, dict):
                 continue
             title = _clean_text(event.get("title") or event.get("subject") or event.get("event_type"), "Observed event")
             source = _source_display_name(_clean_text(event.get("connector"), "case_evidence"))
             status = _clean_text(event.get("status"), "observed").replace("_", " ").title()
             assessment = _clean_text(event.get("assessment"), "No analyst narrative is attached yet.")
+            event_date = _clean_text(event.get("event_date") or event.get("date") or event.get("observed_at"))
             key = (_normalize_name(title), source.lower())
             rows_by_key[key] = {
                 "event": title,
                 "status": status,
                 "source": source,
                 "assessment": assessment,
+                "_event_date": event_date,
             }
     rows = list(rows_by_key.values())
-    rows.sort(key=lambda item: (item["status"].lower(), item["event"].lower()))
+    rows.sort(
+        key=lambda item: (
+            item.get("_event_date", ""),
+            item["status"].lower(),
+            item["event"].lower(),
+        ),
+        reverse=True,
+    )
+    for row in rows:
+        row.pop("_event_date", None)
     return rows[:limit]
 
 
@@ -778,6 +827,9 @@ def _render_lineage_briefing(rows: list[dict[str, Any]], *, subject_label: str) 
     if buckets.get("competition"):
         names = ", ".join(row["entity"] for row in buckets["competition"][:3])
         bullets.append(f"Competitive pressure is currently visible from {names}.")
+    if buckets.get("award"):
+        names = ", ".join(row["entity"] for row in buckets["award"][:3])
+        bullets.append(f"Award scaffold remains attached through {names}.")
     if buckets.get("performance"):
         names = ", ".join(row["entity"] for row in buckets["performance"][:2])
         bullets.append(f"Place-of-performance context is attached through {names}.")
@@ -866,6 +918,22 @@ def _finding_rows(contexts: list[dict[str, Any]], limit: int = 6) -> list[dict[s
                 "severity": severity,
                 "detail": detail,
             }
+        for finding in _context_vehicle_intelligence(context).get("findings") or []:
+            if not isinstance(finding, dict):
+                continue
+            title = _clean_text(finding.get("title"), "Material finding")
+            source = _source_display_name(_clean_text(finding.get("source"), "unknown"))
+            severity = _clean_text(finding.get("severity"), "info").lower()
+            detail = _clean_text(
+                finding.get("detail") or finding.get("assessment"),
+                "No analyst detail was attached to this finding.",
+            )
+            rows_by_key[(_normalize_name(title), source.lower())] = {
+                "title": title,
+                "source": source,
+                "severity": severity,
+                "detail": detail,
+            }
     rows = list(rows_by_key.values())
     rows.sort(key=lambda item: (_SEVERITY_PRIORITY.get(item["severity"], 5), item["title"].lower()))
     return rows[:limit]
@@ -881,23 +949,23 @@ def _evidence_footprint(contexts: list[dict[str, Any]]) -> dict[str, Any]:
         summary = enrichment.get("summary") if isinstance(enrichment.get("summary"), dict) else {}
         connectors_run += int(summary.get("connectors_run") or 0)
         connectors_with_data += int(summary.get("connectors_with_data") or 0)
+        vehicle_intelligence = _context_vehicle_intelligence(context)
+        connectors_run += int(vehicle_intelligence.get("connectors_run") or 0)
+        connectors_with_data += int(vehicle_intelligence.get("connectors_with_data") or 0)
 
-        graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
-        for rel in graph_summary.get("relationships") or []:
+        for rel in _context_relationships(context):
             if not isinstance(rel, dict):
                 continue
             for label in _relationship_sources(rel):
                 source_counts[label] = source_counts.get(label, 0) + 1
 
-        case_events = context.get("case_events") if isinstance(context.get("case_events"), list) else []
-        for event in case_events:
+        for event in _context_case_events(context):
             if not isinstance(event, dict):
                 continue
             label = _source_display_name(_clean_text(event.get("connector"), "case_evidence"))
             source_counts[label] = source_counts.get(label, 0) + 1
 
-        enrichment_findings = enrichment.get("findings") if isinstance(enrichment.get("findings"), list) else []
-        for finding in enrichment_findings:
+        for finding in _context_findings(context):
             if not isinstance(finding, dict):
                 continue
             label = _source_display_name(_clean_text(finding.get("source"), "unknown"))
@@ -1141,7 +1209,7 @@ def _build_vehicle_support(
     contract_data: dict[str, Any] | None,
 ) -> dict[str, Any]:
     payload = contract_data or {}
-    contexts = _load_case_contexts(vendor_ids)
+    contexts = _load_case_contexts(vendor_ids, vehicle_name=vehicle_name)
     primary_context = _pick_primary_context(contexts, prime_contractor)
     teaming_rows = _relationship_rows(
         contexts,

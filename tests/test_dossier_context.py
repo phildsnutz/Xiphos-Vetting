@@ -12,9 +12,18 @@ import dossier  # type: ignore  # noqa: E402
 
 def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch):
     vendor_id = "c-cache"
-    calls = {"graph": 0, "passport": 0}
+    calls = {"graph": 0, "passport": 0, "vehicle_intelligence": 0}
 
-    monkeypatch.setattr(dossier.db, "get_vendor", lambda _vendor_id: {"id": vendor_id, "name": "Cache Vendor", "vendor_input": {}})
+    monkeypatch.setattr(
+        dossier.db,
+        "get_vendor",
+        lambda _vendor_id: {
+            "id": vendor_id,
+            "name": "Cache Vendor",
+            "updated_at": "2026-03-27T12:02:00Z",
+            "vendor_input": {"seed_metadata": {"contract_vehicle_name": "ITEAMS"}},
+        },
+    )
     monkeypatch.setattr(dossier.db, "get_latest_score", lambda _vendor_id: {"scored_at": "2026-03-27T12:00:00Z"})
     monkeypatch.setattr(dossier.db, "get_latest_enrichment", lambda _vendor_id: {"enriched_at": "2026-03-27T12:01:00Z"})
     monkeypatch.setattr(dossier.db, "get_monitoring_history", lambda _vendor_id, limit=10: [])
@@ -47,19 +56,37 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
         assert kwargs.get("vendor", {}).get("id") == vendor_id
         return {"identity": {}, "graph": {"entity_count": 1, "relationship_count": 1}}
 
+    def fake_vehicle_intelligence(*, vehicle_name, vendor):
+        calls["vehicle_intelligence"] += 1
+        assert vehicle_name == "ITEAMS"
+        assert vendor["id"] == vendor_id
+        return {
+            "vehicle_name": vehicle_name,
+            "connectors_run": 2,
+            "connectors_with_data": 1,
+            "relationships": [],
+            "events": [],
+            "findings": [],
+        }
+
     monkeypatch.setattr(dossier, "HAS_GRAPH_SUMMARY", True)
     monkeypatch.setattr(dossier, "get_vendor_graph_summary", fake_graph_summary)
     monkeypatch.setattr(dossier, "HAS_SUPPLIER_PASSPORT", True)
     monkeypatch.setattr(dossier, "build_supplier_passport", fake_passport)
+    monkeypatch.setattr(dossier, "HAS_VEHICLE_INTEL_SUPPORT", True)
+    monkeypatch.setattr(dossier, "build_vehicle_intelligence_support", fake_vehicle_intelligence)
 
     dossier.clear_dossier_context_cache()
-    first = dossier.build_dossier_context(vendor_id, user_id="dev", hydrate_ai=False)
-    second = dossier.build_dossier_context(vendor_id, user_id="dev", hydrate_ai=False)
+    first = dossier.build_dossier_context(vendor_id, user_id="dev", hydrate_ai=False, vehicle_name="ITEAMS")
+    second = dossier.build_dossier_context(vendor_id, user_id="dev", hydrate_ai=False, vehicle_name="ITEAMS")
+    third = dossier.build_dossier_context(vendor_id, user_id="dev", hydrate_ai=False, vehicle_name="LEIA")
 
     assert first is not None
     assert second is not None
-    assert calls == {"graph": 1, "passport": 1}
+    assert third is not None
+    assert calls == {"graph": 2, "passport": 2, "vehicle_intelligence": 2}
     assert second["vendor"]["id"] == vendor_id
+    assert first["vehicle_intelligence"]["vehicle_name"] == "ITEAMS"
 
 
 def test_generate_ai_narrative_renders_pending_section_when_analysis_missing():

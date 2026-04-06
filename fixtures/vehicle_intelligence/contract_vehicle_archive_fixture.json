@@ -1,0 +1,160 @@
+{
+  "dataset_id": "contract_vehicle_archive_fixture_v1",
+  "version": "2026-04-06",
+  "provenance": {
+    "compiled_from": [
+      "sam_archive",
+      "wayback_diff",
+      "analyst_curated_fixture"
+    ]
+  },
+  "vehicles": [
+    {
+      "vehicle_name": "ITEAMS",
+      "aliases": [
+        "Iteams"
+      ],
+      "records": [
+        {
+          "record_id": "iteams-awarded-under-oasis",
+          "rel_type": "awarded_under",
+          "source_entity": "OASIS",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 2,
+          "intelligence_tier": "supported",
+          "summary": "Archived SAM and GSA opportunity snapshots keep ITEAMS tied to the OASIS contracting scaffold.",
+          "source_notes": [
+            "Archived SAM opportunity snapshot",
+            "Wayback capture diff on solicitation summary"
+          ],
+          "source_urls": [
+            "https://sam.gov/",
+            "https://web.archive.org/"
+          ],
+          "observed_at": "2024-04-03T00:00:00Z"
+        },
+        {
+          "record_id": "ipiess-predecessor-iteams",
+          "rel_type": "predecessor_of",
+          "source_entity": "IPIESS",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 2,
+          "intelligence_tier": "supported",
+          "summary": "Archive diffs preserve continuity language that ties IPIESS scope and operating pattern into the ITEAMS award posture.",
+          "source_notes": [
+            "Archived amendment language references incumbent transition",
+            "Analyst-captured opportunity comparison"
+          ],
+          "source_urls": [
+            "https://sam.gov/",
+            "https://web.archive.org/"
+          ],
+          "observed_at": "2024-03-28T00:00:00Z"
+        },
+        {
+          "record_id": "iteams-competitive-pressure-mantech",
+          "rel_type": "competed_on",
+          "source_entity": "ManTech International Corporation",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 1,
+          "intelligence_tier": "tentative",
+          "summary": "Archived Q and A churn and capture commentary keep ManTech in the visible challenger set for the ITEAMS recompete picture.",
+          "source_notes": [
+            "Archived industry day attendee recap"
+          ],
+          "source_urls": [
+            "https://web.archive.org/"
+          ],
+          "observed_at": "2024-02-14T00:00:00Z"
+        },
+        {
+          "record_id": "iteams-competitive-pressure-hii",
+          "rel_type": "competed_on",
+          "source_entity": "HII Mission Technologies",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 1,
+          "intelligence_tier": "tentative",
+          "summary": "Archive captures keep HII in the visible challenger set around ITEAMS bridge and recompete posture.",
+          "source_notes": [
+            "Archived teaming and capture commentary"
+          ],
+          "source_urls": [
+            "https://web.archive.org/"
+          ],
+          "observed_at": "2024-06-22T00:00:00Z"
+        },
+        {
+          "record_id": "iteams-performance-camp-smith",
+          "rel_type": "performed_at",
+          "source_entity": "Camp Smith",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 1,
+          "intelligence_tier": "supported",
+          "summary": "Archived performance-location language keeps Camp Smith in frame for the ITEAMS execution picture.",
+          "source_notes": [
+            "Archived place-of-performance section"
+          ],
+          "source_urls": [
+            "https://sam.gov/"
+          ],
+          "observed_at": "2024-04-03T00:00:00Z"
+        },
+        {
+          "record_id": "iteams-funded-by-usindopacom",
+          "rel_type": "funded_by",
+          "source_entity": "USINDOPACOM",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 1,
+          "intelligence_tier": "supported",
+          "summary": "Archived requirement and customer language keeps USINDOPACOM as the operative funding and demand signal behind the ITEAMS opportunity set.",
+          "source_notes": [
+            "Archived customer mission statement"
+          ],
+          "source_urls": [
+            "https://sam.gov/"
+          ],
+          "observed_at": "2024-03-30T00:00:00Z"
+        },
+        {
+          "record_id": "iteams-bridge-amendment-churn",
+          "rel_type": "awarded_under",
+          "source_entity": "Bridge Order Sequence",
+          "target_entity": "ITEAMS",
+          "corroboration_count": 1,
+          "intelligence_tier": "tentative",
+          "summary": "Archive diffs preserve amendment churn and bridge-order scaffolding that shaped the move into the current ITEAMS operating posture.",
+          "source_notes": [
+            "Archived amendment comparison"
+          ],
+          "source_urls": [
+            "https://web.archive.org/"
+          ],
+          "observed_at": "2024-04-19T00:00:00Z"
+        }
+      ],
+      "findings": [
+        {
+          "record_id": "iteams-lineage-read",
+          "title": "Archived lineage trail keeps ITEAMS tied to OASIS and IPIESS",
+          "detail": "Archive and diff captures preserve both the OASIS contracting scaffold and the IPIESS predecessor path, which keeps the ITEAMS lineage read anchored even when live notices are thin.",
+          "severity": "medium",
+          "confidence": 0.87
+        },
+        {
+          "record_id": "iteams-competitive-landscape",
+          "title": "Archive churn keeps the challenger set visible",
+          "detail": "Archived opportunity artifacts keep ManTech and other challenger pressure in frame instead of collapsing the ITEAMS story to the incumbent only.",
+          "severity": "info",
+          "confidence": 0.79
+        },
+        {
+          "record_id": "iteams-amendment-churn",
+          "title": "Archive churn preserves bridge and amendment pressure around ITEAMS",
+          "detail": "Archived amendment snapshots show the bridge-order and scope-churn context that would otherwise disappear from the current vehicle story once live notices roll forward.",
+          "severity": "medium",
+          "confidence": 0.82
+        }
+      ]
+    }
+  ]
+}

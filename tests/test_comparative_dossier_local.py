@@ -59,6 +59,7 @@ def _make_context(*, vendor_name: str, relationships: list[dict], events: list[d
                 "consensus_level": "moderate",
             },
         },
+        "vehicle_intelligence": None,
     }
 
 
@@ -103,7 +104,45 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
         ],
     )
 
-    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id: context if vendor_id == "case-1" else None)
+    context["vehicle_intelligence"] = {
+        "vehicle_name": "ITEAMS",
+        "connectors_run": 2,
+        "connectors_with_data": 2,
+        "relationships": [
+            {
+                "rel_type": "awarded_under",
+                "source_name": "OASIS",
+                "target_name": "ITEAMS",
+                "evidence": "Archived SAM opportunity snapshot",
+                "evidence_summary": "Archived SAM opportunity snapshot",
+                "corroboration_count": 2,
+                "data_sources": ["contract_opportunities_archive_fixture"],
+                "intelligence_tier": "supported",
+            }
+        ],
+        "events": [
+            {
+                "title": "ITEAMS task-order protest",
+                "status": "dismissed",
+                "connector": "gao_bid_protests_fixture",
+                "assessment": "Protester: Leidos. GAO dismissed the protest after limited corrective action.",
+            }
+        ],
+        "findings": [
+            {
+                "title": "Archived lineage trail keeps ITEAMS tied to OASIS",
+                "detail": "Archive and diff captures preserve the OASIS scaffolding around ITEAMS.",
+                "severity": "medium",
+                "source": "contract_opportunities_archive_fixture",
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        comparative_dossier,
+        "build_dossier_context",
+        lambda vendor_id, **_: context if vendor_id == "case-1" else None,
+    )
 
     html = comparative_dossier.generate_vehicle_dossier(
         vehicle_name="ITEAMS",
@@ -122,13 +161,18 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
     assert "Kauai Labs" in html
     assert "SAM subaward record" in html
     assert "ITEAMS award protest" in html
+    assert "ITEAMS task-order protest" in html
     assert "Lineage Read" in html
     assert "Legal Read" in html
+    assert "Award scaffold remains attached through OASIS." in html
     assert "Competitive pressure is currently visible from Leidos." in html
-    assert "Protest pressure is attached in 1 case event." in html
+    assert "Protest pressure is attached in 2 case events." in html
+    assert "Protester: Leidos" in html
     assert "Evidence Footprint" in html
-    assert "Connectors run: 6" in html
-    assert "Connectors with signal: 3" in html
+    assert "Connectors run: 8" in html
+    assert "Connectors with signal: 5" in html
+    assert "Contract Opportunities Archive Fixture" in html
+    assert "GAO Bid Protests Fixture" in html
     assert "Tribunal consensus" in html
     assert "Moderate" in html
     assert "TechFlow Defense" not in html
@@ -137,7 +181,7 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
 
 
 def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(monkeypatch):
-    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id: None)
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
 
     html = comparative_dossier.generate_vehicle_dossier(
         vehicle_name="ITEAMS",
@@ -156,7 +200,7 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
 
 
 def test_generate_vehicle_dossier_renders_teaming_intelligence_section(monkeypatch):
-    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id: None)
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
     fake_module = types.SimpleNamespace(
         build_teaming_intelligence=lambda **_: {
             "top_conclusions": [
@@ -264,7 +308,7 @@ def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monk
             findings=[],
         ),
     }
-    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id: contexts.get(vendor_id))
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: contexts.get(vendor_id))
 
     html = comparative_dossier.generate_comparative_dossier(
         vehicle_configs=[

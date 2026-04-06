@@ -1,0 +1,59 @@
+{
+  "dataset_id": "gao_bid_protests_fixture_v1",
+  "version": "2026-04-06",
+  "provenance": {
+    "compiled_from": [
+      "gao_bid_protest_docket",
+      "analyst_curated_fixture"
+    ]
+  },
+  "vehicles": [
+    {
+      "vehicle_name": "ITEAMS",
+      "aliases": [
+        "Iteams"
+      ],
+      "events": [
+        {
+          "event_id": "b-422345",
+          "title": "ITEAMS task-order protest",
+          "status": "dismissed",
+          "forum": "GAO",
+          "protester": "Leidos",
+          "agency": "Department of the Navy",
+          "decision_date": "2024-05-17",
+          "summary": "Leidos protested the ITEAMS task-order award. GAO dismissed after the agency elected limited corrective action without pausing overall performance.",
+          "assessment": "The protest shows live competitive pressure around the vehicle, but the dismissal posture points to limited disruption rather than a full reset.",
+          "url": "https://www.gao.gov/products/b-422345",
+          "confidence": 0.9
+        },
+        {
+          "event_id": "b-422611",
+          "title": "ITEAMS bridge-order protest",
+          "status": "denied",
+          "forum": "GAO",
+          "protester": "HII Mission Technologies",
+          "agency": "Department of the Navy",
+          "decision_date": "2024-07-02",
+          "summary": "HII challenged a bridge-order execution decision tied to the ITEAMS vehicle. GAO denied the protest on the merits.",
+          "assessment": "The denial still matters because it names an active challenger and confirms sustained legal interest around the bridge posture.",
+          "url": "https://www.gao.gov/products/b-422611",
+          "confidence": 0.86
+        },
+        {
+          "event_id": "b-422744",
+          "title": "ITEAMS corrective-action protest",
+          "status": "corrective_action",
+          "forum": "GAO",
+          "protester": "ManTech International Corporation",
+          "agency": "Department of the Navy",
+          "decision_date": "2024-08-09",
+          "summary": "ManTech filed a protest tied to a corrective-action phase on the ITEAMS vehicle. The agency took targeted corrective action before a full merits ruling.",
+          "assessment": "Corrective action indicates live process friction even without a final merits decision, which matters for recompete timing and challenger persistence.",
+          "url": "https://www.gao.gov/products/b-422744",
+          "confidence": 0.84
+        }
+      ]
+    }
+  ]
+}

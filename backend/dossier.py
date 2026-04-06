@@ -15,6 +15,7 @@ Usage:
 from copy import deepcopy
 from datetime import datetime
 from html import escape
+import json
 import threading
 import time
 from typing import Optional
@@ -70,8 +71,14 @@ try:
 except ImportError:
     HAS_SUPPLIER_PASSPORT = False
 
+try:
+    from vehicle_intel_support import build_vehicle_intelligence_support
+    HAS_VEHICLE_INTEL_SUPPORT = True
+except ImportError:
+    HAS_VEHICLE_INTEL_SUPPORT = False
 
-_DOSSIER_CONTEXT_CACHE: dict[tuple[str, str, str, str, str, bool], dict] = {}
+
+_DOSSIER_CONTEXT_CACHE: dict[tuple[str, str, str, str, str, bool, str, str, str], dict] = {}
 _DOSSIER_CONTEXT_CACHE_LOCK = threading.Lock()
 _DOSSIER_CONTEXT_TTL_SECONDS = 120
 
@@ -424,6 +431,8 @@ def _workflow_lane_brief(
 
 # Human-readable source names for dossier display
 SOURCE_DISPLAY_NAMES = {
+    "contract_opportunities_archive_fixture": "Contract Opportunities Archive Fixture",
+    "gao_bid_protests_fixture": "GAO Bid Protests Fixture",
     "dod_sam_exclusions": "SAM.gov Exclusions",
     "trade_csl": "Consolidated Screening List",
     "un_sanctions": "UN Security Council Sanctions",
@@ -472,6 +481,25 @@ SOURCE_DISPLAY_NAMES = {
 def _source_display_name(source: str) -> str:
     """Convert a connector ID to a human-readable source name."""
     return SOURCE_DISPLAY_NAMES.get(source, source.replace("_", " ").title())
+
+
+def _seed_metadata_cache_stamp(vendor: dict | None) -> str:
+    if not isinstance(vendor, dict):
+        return ""
+    seed_metadata: dict[str, object] = {}
+    if isinstance(vendor.get("seed_metadata"), dict):
+        seed_metadata.update(vendor.get("seed_metadata") or {})
+    vendor_input = vendor.get("vendor_input") if isinstance(vendor.get("vendor_input"), dict) else {}
+    nested = vendor_input.get("seed_metadata") if isinstance(vendor_input.get("seed_metadata"), dict) else {}
+    seed_metadata.update(nested)
+    visible_seed_metadata = {
+        str(key): value
+        for key, value in seed_metadata.items()
+        if not str(key).startswith("__") and value not in (None, "", [])
+    }
+    if not visible_seed_metadata:
+        return ""
+    return json.dumps(visible_seed_metadata, sort_keys=True, default=str)
 
 
 def _summarize_connector_error(error: str) -> str:
@@ -1499,14 +1527,18 @@ def _dossier_ai_cache_stamp(
 def _dossier_context_cache_key(
     vendor_id: str,
     *,
+    vendor: Optional[dict],
     user_id: str,
     score: Optional[dict],
     enrichment: Optional[dict],
     hydrate_ai: bool,
-) -> tuple[str, str, str, str, str, bool, str]:
+    vehicle_name: str = "",
+) -> tuple[str, str, str, str, str, bool, str, str, str]:
     score_stamp = str((score or {}).get("scored_at") or "")
     enrichment_stamp = str((enrichment or {}).get("enriched_at") or "")
     report_hash = compute_report_hash(enrichment) if enrichment else ""
+    vendor_stamp = str((vendor or {}).get("updated_at") or "")
+    seed_stamp = _seed_metadata_cache_stamp(vendor)
     ai_stamp = _dossier_ai_cache_stamp(
         vendor_id,
         user_id=user_id,
@@ -1514,10 +1546,20 @@ def _dossier_context_cache_key(
         enrichment=enrichment,
         hydrate_ai=hydrate_ai,
     )
-    return (vendor_id, user_id, score_stamp, enrichment_stamp, report_hash, bool(hydrate_ai), ai_stamp)
+    return (
+        vendor_id,
+        user_id,
+        score_stamp,
+        enrichment_stamp,
+        report_hash,
+        bool(hydrate_ai),
+        ai_stamp,
+        vehicle_name.strip(),
+        f"{vendor_stamp}|{seed_stamp}",
+    )
 
 
-def _get_cached_dossier_context(cache_key: tuple[str, str, str, str, str, bool, str]) -> Optional[dict]:
+def _get_cached_dossier_context(cache_key: tuple[str, str, str, str, str, bool, str, str, str]) -> Optional[dict]:
     now = time.time()
     with _DOSSIER_CONTEXT_CACHE_LOCK:
         expired = [
@@ -1534,7 +1576,7 @@ def _get_cached_dossier_context(cache_key: tuple[str, str, str, str, str, bool, 
 
 
 def _store_cached_dossier_context(
-    cache_key: tuple[str, str, str, str, str, bool, str],
+    cache_key: tuple[str, str, str, str, str, bool, str, str, str],
     context: dict,
 ) -> None:
     with _DOSSIER_CONTEXT_CACHE_LOCK:
@@ -1544,7 +1586,12 @@ def _store_cached_dossier_context(
         }
 
 
-def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = False) -> Optional[dict]:
+def build_dossier_context(
+    vendor_id: str,
+    user_id: str = "",
+    hydrate_ai: bool = False,
+    vehicle_name: str = "",
+) -> Optional[dict]:
     vendor = db.get_vendor(vendor_id)
     if not vendor:
         return None
@@ -1553,10 +1600,12 @@ def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = 
     enrichment = db.get_latest_enrichment(vendor_id)
     cache_key = _dossier_context_cache_key(
         vendor_id,
+        vendor=vendor,
         user_id=user_id,
         score=score,
         enrichment=enrichment,
         hydrate_ai=hydrate_ai,
+        vehicle_name=vehicle_name,
     )
     cached = _get_cached_dossier_context(cache_key)
     if cached is not None:
@@ -1606,6 +1655,16 @@ def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = 
         except Exception as err:
             print(f"[dossier] Supplier passport build failed: {err}")
             supplier_passport = None
+    vehicle_intelligence = None
+    if HAS_VEHICLE_INTEL_SUPPORT and vehicle_name:
+        try:
+            vehicle_intelligence = build_vehicle_intelligence_support(
+                vehicle_name=vehicle_name,
+                vendor=vendor,
+            )
+        except Exception as err:
+            print(f"[dossier] Vehicle intelligence support build failed: {err}")
+            vehicle_intelligence = None
 
     analysis_data = _get_dossier_analysis_data(
         vendor_id,
@@ -1639,6 +1698,7 @@ def build_dossier_context(vendor_id: str, user_id: str = "", hydrate_ai: bool = 
         "storyline": storyline,
         "graph_summary": graph_summary,
         "supplier_passport": supplier_passport,
+        "vehicle_intelligence": vehicle_intelligence,
         "analysis_data": analysis_data,
         "analysis_state": analysis_state,
     }

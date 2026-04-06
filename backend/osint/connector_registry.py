@@ -36,6 +36,22 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         access_model="local_json_fixture",
         runtime_active=True,
     ),
+    "contract_opportunities_archive_fixture": ConnectorRegistryEntry(
+        label="Contract Opportunities Archive Fixture",
+        category="Collector",
+        description="Replayable archive-and-diff fixture for contract vehicle lineage and recompete context",
+        source_class="analyst_fixture",
+        authority_level="analyst_curated_fixture",
+        access_model="local_json_fixture",
+    ),
+    "gao_bid_protests_fixture": ConnectorRegistryEntry(
+        label="GAO Bid Protests Fixture",
+        category="Collector",
+        description="Replayable GAO bid protest fixture for contract vehicle legal pressure and protest posture",
+        source_class="analyst_fixture",
+        authority_level="official_program_system",
+        access_model="local_json_fixture",
+    ),
     "dod_sam_exclusions": ConnectorRegistryEntry(
         label="DoD EPLS Exclusions",
         category="Sanctions",
