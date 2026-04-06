@@ -6,6 +6,7 @@ from typing import Any
 
 from osint.contract_opportunities_archive_fixture import enrich as archive_fixture_enrich
 from osint.gao_bid_protests_fixture import enrich as gao_fixture_enrich
+from osint.public_html_contract_vehicle import enrich as public_html_contract_vehicle_enrich
 
 
 def _seed_metadata(vendor: dict[str, Any] | None) -> dict[str, Any]:
@@ -31,6 +32,24 @@ def _support_vehicle_name(vehicle_name: str, vendor: dict[str, Any] | None) -> s
     return resolved
 
 
+_PUBLIC_HTML_VEHICLE_KEYS = {
+    "contract_vehicle_page",
+    "contract_vehicle_pages",
+    "contract_vehicle_public_html_page",
+    "contract_vehicle_public_html_pages",
+    "contract_vehicle_public_html_fixture_page",
+    "contract_vehicle_public_html_fixture_pages",
+}
+
+
+def _public_html_vehicle_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in seed_metadata.items()
+        if key in _PUBLIC_HTML_VEHICLE_KEYS and value not in (None, "", [])
+    }
+
+
 def _finding_to_dict(finding: Any) -> dict[str, Any]:
     return {
         "source": getattr(finding, "source", ""),
@@ -48,12 +67,13 @@ def _finding_to_dict(finding: Any) -> dict[str, Any]:
     }
 
 
-def _archive_relationships(result: Any) -> list[dict[str, Any]]:
+def _result_relationships(results: list[Any]) -> list[dict[str, Any]]:
     relationships = []
-    for relationship in getattr(result, "relationships", []) or []:
-        if not isinstance(relationship, dict):
-            continue
-        relationships.append(dict(relationship))
+    for result in results:
+        for relationship in getattr(result, "relationships", []) or []:
+            if not isinstance(relationship, dict):
+                continue
+            relationships.append(dict(relationship))
     return relationships
 
 
@@ -103,15 +123,19 @@ def build_vehicle_intelligence_support(
     if not scoped_vehicle_name:
         return None
 
+    seed_metadata = _seed_metadata(vendor)
     archive_result = archive_fixture_enrich(scoped_vehicle_name)
     gao_result = gao_fixture_enrich(scoped_vehicle_name)
     results = [archive_result, gao_result]
+    public_html_ids = _public_html_vehicle_ids(seed_metadata)
+    if public_html_ids:
+        results.append(public_html_contract_vehicle_enrich(scoped_vehicle_name, **public_html_ids))
 
     findings = []
     for result in results:
         findings.extend(_finding_to_dict(finding) for finding in getattr(result, "findings", []) or [])
 
-    relationships = _archive_relationships(archive_result)
+    relationships = _result_relationships(results)
     events = _gao_events(gao_result)
     connectors_with_data = sum(
         1

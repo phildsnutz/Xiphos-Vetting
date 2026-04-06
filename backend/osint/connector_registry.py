@@ -52,6 +52,14 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="official_program_system",
         access_model="local_json_fixture",
     ),
+    "public_html_contract_vehicle": ConnectorRegistryEntry(
+        label="Public HTML Contract Vehicle",
+        category="Collector",
+        description="Analyst-seeded public or archived contract-vehicle pages parsed for lineage, customer, and performance signals",
+        source_class="public_connector",
+        authority_level="third_party_public",
+        access_model="public_html",
+    ),
     "dod_sam_exclusions": ConnectorRegistryEntry(
         label="DoD EPLS Exclusions",
         category="Sanctions",
