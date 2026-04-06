@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from osint.contract_opportunities_archive_fixture import enrich as archive_fixture_enrich
+from osint.contract_vehicle_wayback import enrich as contract_vehicle_wayback_enrich
 from osint.gao_bid_protests_fixture import enrich as gao_fixture_enrich
 from osint.public_html_contract_vehicle import enrich as public_html_contract_vehicle_enrich
 
@@ -40,6 +41,14 @@ _PUBLIC_HTML_VEHICLE_KEYS = {
     "contract_vehicle_public_html_fixture_page",
     "contract_vehicle_public_html_fixture_pages",
 }
+_WAYBACK_VEHICLE_KEYS = {
+    "contract_vehicle_archive_url",
+    "contract_vehicle_archive_urls",
+    "contract_vehicle_archive_seed_url",
+    "contract_vehicle_archive_seed_urls",
+    "contract_vehicle_wayback_fixture",
+    "contract_vehicle_wayback_fixture_path",
+}
 
 
 def _public_html_vehicle_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
@@ -47,6 +56,14 @@ def _public_html_vehicle_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
         key: value
         for key, value in seed_metadata.items()
         if key in _PUBLIC_HTML_VEHICLE_KEYS and value not in (None, "", [])
+    }
+
+
+def _wayback_vehicle_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in seed_metadata.items()
+        if key in _WAYBACK_VEHICLE_KEYS and value not in (None, "", [])
     }
 
 
@@ -127,6 +144,9 @@ def build_vehicle_intelligence_support(
     archive_result = archive_fixture_enrich(scoped_vehicle_name)
     gao_result = gao_fixture_enrich(scoped_vehicle_name)
     results = [archive_result, gao_result]
+    wayback_ids = _wayback_vehicle_ids(seed_metadata)
+    if wayback_ids:
+        results.append(contract_vehicle_wayback_enrich(scoped_vehicle_name, **wayback_ids))
     public_html_ids = _public_html_vehicle_ids(seed_metadata)
     if public_html_ids:
         results.append(public_html_contract_vehicle_enrich(scoped_vehicle_name, **public_html_ids))

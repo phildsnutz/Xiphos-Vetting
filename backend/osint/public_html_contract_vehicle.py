@@ -222,15 +222,22 @@ def _relationship_orientation(rel_type: str, vehicle_name: str, entity_name: str
     return entity_name, vehicle_name
 
 
-def enrich(vendor_name: str, **ids) -> EnrichmentResult:
+def enrich_pages(
+    vendor_name: str,
+    pages: list[str],
+    *,
+    source_name: str = SOURCE_NAME,
+    source_class: str = "public_connector",
+    default_authority_level: str = "third_party_public",
+    default_access_model: str = "public_html",
+) -> EnrichmentResult:
     started = time.perf_counter()
-    pages = _resolve_pages(ids)
     result = EnrichmentResult(
-        source=SOURCE_NAME,
+        source=source_name,
         vendor_name=vendor_name,
-        source_class="public_connector",
-        authority_level="third_party_public",
-        access_model="public_html",
+        source_class=source_class,
+        authority_level=default_authority_level,
+        access_model=default_access_model,
     )
     if not pages:
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -258,7 +265,7 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
         artifact_refs.append(resolved_page_url)
         page_title = _extract_title(markup)
         text = _extract_text(markup)
-        authority_level, access_model = _authority_for_page(resolved_page_url)
+        page_authority_level, page_access_model = _authority_for_page(resolved_page_url)
 
         if not text:
             continue
@@ -272,17 +279,17 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
                 normalized_vehicle = _normalize_name(vendor_name)
                 if not normalized_entity or normalized_entity == normalized_vehicle:
                     continue
-                source_name, target_name = _relationship_orientation(rel_type, vendor_name, entity_name)
+                rel_source_name, target_name = _relationship_orientation(rel_type, vendor_name, entity_name)
                 sentence = _extract_sentence(text, match.start(), match.end())
-                key = (rel_type, _normalize_name(source_name), _normalize_name(target_name))
+                key = (rel_type, _normalize_name(rel_source_name), _normalize_name(target_name))
                 record = relationships_by_key.get(key)
                 if record is None:
                     record = {
                         "rel_type": rel_type,
-                        "source_name": source_name,
+                        "source_name": rel_source_name,
                         "target_name": target_name,
-                        "data_source": SOURCE_NAME,
-                        "data_sources": [SOURCE_NAME],
+                        "data_source": source_name,
+                        "data_sources": [source_name],
                         "corroboration_count": 0,
                         "intelligence_tier": "supported" if confidence >= 0.72 else "tentative",
                         "evidence": sentence,
@@ -290,9 +297,9 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
                         "observed_at": "",
                         "source_urls": [],
                         "source_notes": [],
-                        "source_class": "public_connector",
-                        "authority_level": authority_level,
-                        "access_model": access_model,
+                        "source_class": source_class,
+                        "authority_level": page_authority_level,
+                        "access_model": page_access_model,
                     }
                     relationships_by_key[key] = record
                 record["corroboration_count"] += 1
@@ -307,8 +314,8 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
                 if len(sentence) > len(str(record.get("evidence_summary") or "")):
                     record["evidence"] = sentence
                     record["evidence_summary"] = sentence
-                record["authority_level"] = authority_level
-                record["access_model"] = access_model
+                record["authority_level"] = page_authority_level
+                record["access_model"] = page_access_model
 
     for relationship in relationships_by_key.values():
         artifact_ref = next(iter(relationship.get("source_urls") or []), "")
@@ -316,7 +323,7 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
         signal = relationship["rel_type"].replace("_", " ")
         findings.append(
             Finding(
-                source=SOURCE_NAME,
+                source=source_name,
                 category="vehicle_lineage",
                 title=f"Public vehicle signal: {signal} {counterpart}",
                 detail=str(relationship.get("evidence_summary") or ""),
@@ -330,9 +337,9 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
                     "target_name": relationship["target_name"],
                     "corroboration_count": relationship["corroboration_count"],
                 },
-                source_class="public_connector",
-                authority_level=str(relationship.get("authority_level") or "third_party_public"),
-                access_model=str(relationship.get("access_model") or "public_html"),
+                source_class=source_class,
+                authority_level=str(relationship.get("authority_level") or default_authority_level),
+                access_model=str(relationship.get("access_model") or default_access_model),
                 artifact_ref=artifact_ref,
                 structured_fields={
                     "relationship_type": relationship["rel_type"],
@@ -361,7 +368,7 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
             "third_party_public",
         )
         result.authority_level = str(max_authority)
-        result.access_model = str(result.relationships[0].get("access_model") or "public_html")
+        result.access_model = str(result.relationships[0].get("access_model") or default_access_model)
     result.structured_fields.update(
         {
             "page_count": len(pages),
@@ -369,3 +376,8 @@ def enrich(vendor_name: str, **ids) -> EnrichmentResult:
         }
     )
     return result
+
+
+def enrich(vendor_name: str, **ids) -> EnrichmentResult:
+    pages = _resolve_pages(ids)
+    return enrich_pages(vendor_name, pages, source_name=SOURCE_NAME)

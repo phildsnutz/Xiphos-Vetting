@@ -12,6 +12,7 @@ import vehicle_intel_support  # noqa: E402
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "public_html"
+WAYBACK_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "contract_vehicle_wayback_fixture.json"
 
 
 def test_contract_opportunities_archive_fixture_returns_lineage_relationships():
@@ -74,3 +75,25 @@ def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seede
     assert support["connectors_with_data"] == 3
     assert any(rel["data_source"] == "public_html_contract_vehicle" for rel in support["relationships"])
     assert any(finding["source"] == "public_html_contract_vehicle" for finding in support["findings"])
+
+
+def test_vehicle_intel_support_includes_wayback_vehicle_connector_when_seeded():
+    support = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name="ITEAMS",
+        vendor={
+            "id": "case-1",
+            "name": "Amentum",
+            "vendor_input": {
+                "seed_metadata": {
+                    "contract_vehicle_archive_seed_urls": ["https://sam.gov/opportunity/ITEAMS"],
+                    "contract_vehicle_wayback_fixture_path": str(WAYBACK_FIXTURE_PATH),
+                }
+            },
+        },
+    )
+
+    assert support is not None
+    assert support["connectors_run"] == 3
+    assert support["connectors_with_data"] == 3
+    assert any(rel["data_source"] == "contract_vehicle_wayback" for rel in support["relationships"])
+    assert any(finding["source"] == "contract_vehicle_wayback" for finding in support["findings"])

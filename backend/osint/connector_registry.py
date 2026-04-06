@@ -60,6 +60,14 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="third_party_public",
         access_model="public_html",
     ),
+    "contract_vehicle_wayback": ConnectorRegistryEntry(
+        label="Contract Vehicle Wayback",
+        category="Collector",
+        description="Seeded Internet Archive capture retrieval for contract-vehicle lineage and recompete context",
+        source_class="public_connector",
+        authority_level="third_party_public",
+        access_model="public_archive",
+    ),
     "dod_sam_exclusions": ConnectorRegistryEntry(
         label="DoD EPLS Exclusions",
         category="Sanctions",

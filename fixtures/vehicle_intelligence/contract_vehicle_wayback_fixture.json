@@ -1,0 +1,21 @@
+{
+  "dataset_id": "vehicle-wayback-seeded-2026-04-06",
+  "captures_by_seed": {
+    "https://sam.gov/opportunity/ITEAMS": [
+      {
+        "timestamp": "20240403120000",
+        "original": "https://sam.gov/opportunity/ITEAMS",
+        "capture_path": "fixtures/vehicle_intelligence/public_html/iteams_lineage_snapshot.html",
+        "statuscode": "200",
+        "mimetype": "text/html"
+      },
+      {
+        "timestamp": "20240419120000",
+        "original": "https://sam.gov/opportunity/ITEAMS",
+        "capture_path": "fixtures/vehicle_intelligence/public_html/iteams_archive_notice.html",
+        "statuscode": "200",
+        "mimetype": "text/html"
+      }
+    ]
+  }
+}
