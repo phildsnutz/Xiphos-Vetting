@@ -3,6 +3,7 @@ flask-cors>=4.0
 gunicorn>=21.2
 PyJWT>=2.8
 requests
+truststore>=0.10
 reportlab>=4.0
 pypdf>=4.0
 cryptography>=42.0

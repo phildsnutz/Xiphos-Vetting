@@ -90,6 +90,43 @@ async (page) => {{
   await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
   await page.waitForLoadState("networkidle");
 
+  const iteamComposer = page.getByLabel("Brief AXIOM");
+  await iteamComposer.waitFor({{ state: "visible", timeout: 15000 }});
+  await iteamComposer.fill("ITEAMS");
+  await iteamComposer.press("Enter");
+
+  await page.waitForTimeout(1500);
+  const afterIteams = await page.evaluate(() => document.body.innerText);
+  const iteamAskedTiming = afterIteams.includes("Is this current, expired, or still in pre-solicitation?");
+  const iteamAskedAmbiguityClarifier =
+    afterIteams.includes("I can take ITEAMS as either the contract vehicle")
+    && afterIteams.includes("Which one do you mean?");
+  const iteamEnteredEntityNarrowing = afterIteams.includes("AXIOM has a few plausible entities in frame.");
+  const iteamEnteredVendorBranch =
+    afterIteams.includes("I found a clean entity match on")
+    || afterIteams.includes("I found a few plausible matches.")
+    || afterIteams.includes("Sign in and I’ll start the first picture without making you restate the brief.");
+
+  if (iteamEnteredEntityNarrowing || iteamEnteredVendorBranch) {{
+    throw new Error("Stoa treated ITEAMS like a vendor-style intake instead of a vehicle read or clean ambiguity clarifier");
+  }}
+
+  if (iteamAskedAmbiguityClarifier) {{
+    await iteamComposer.fill("contract vehicle");
+    await iteamComposer.press("Enter");
+
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Is this current, expired, or still in pre-solicitation?"),
+      undefined,
+      {{ timeout: 15000 }},
+    );
+  }} else if (!iteamAskedTiming) {{
+    throw new Error("Stoa did not ask either the clean ambiguity clarifier or the vehicle timing question for ITEAMS");
+  }}
+
+  await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
+  await page.waitForLoadState("networkidle");
+
   const smxComposer = page.getByLabel("Brief AXIOM");
   await smxComposer.waitFor({{ state: "visible", timeout: 15000 }});
   await smxComposer.fill("SMX");
@@ -167,6 +204,7 @@ async (page) => {{
     clarifying_state: "visible",
     handoff: {success_label!r},
     leia_path: leiaAskedAmbiguityClarifier ? "ambiguity_then_vehicle" : "vehicle_first",
+    iteams_path: iteamAskedAmbiguityClarifier ? "ambiguity_then_vehicle" : "vehicle_first",
     smx_path: "vendor_first",
   }};
 }}

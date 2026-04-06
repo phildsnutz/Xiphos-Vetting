@@ -35,15 +35,32 @@ def test_stoa_acceptance_matrix_admits_ambiguity_for_vehicle_seed_when_graph_ent
     assert routed["hypotheses"][1]["score"] >= 0.78
 
 
+def test_stoa_acceptance_matrix_treats_contract_vehicle_graph_memory_as_vehicle_signal(monkeypatch):
+    monkeypatch.setattr(
+        intake_router,
+        "_search_knowledge_graph_memory",
+        lambda text: [{"legal_name": "ITEAMS", "source": "knowledge_graph", "entity_type": "contract_vehicle"}],
+    )
+
+    routed = intake_router.route_intake("ITEAMS")
+
+    assert routed["winning_mode"] == "vehicle"
+    assert routed["clarifier_needed"] is False
+    assert routed["anchor_text"] == "ITEAMS"
+    assert routed["hypotheses"][0]["score"] >= 0.9
+    assert routed["hypotheses"][1]["score"] < routed["hypotheses"][0]["score"]
+
+
 @pytest.mark.parametrize(
-    "text",
+    ("text", "expected_anchor"),
     [
-        "LEIA contract vehicle",
-        "LEIA vehicle",
-        "LEIA not a company",
+        ("LEIA contract vehicle", "LEIA"),
+        ("LEIA vehicle", "LEIA"),
+        ("LEIA not a company", "LEIA"),
+        ("ITEAMS not a company", "ITEAMS"),
     ],
 )
-def test_stoa_acceptance_matrix_vehicle_corrections_pivot_immediately_from_entity_narrowing(text):
+def test_stoa_acceptance_matrix_vehicle_corrections_pivot_immediately_from_entity_narrowing(text, expected_anchor):
     routed = intake_router.route_intake(
         text,
         current_object_type="vendor",
@@ -53,7 +70,7 @@ def test_stoa_acceptance_matrix_vehicle_corrections_pivot_immediately_from_entit
     assert routed["winning_mode"] == "vehicle"
     assert routed["override_applied"] is True
     assert routed["clarifier_needed"] is False
-    assert routed["anchor_text"] == "LEIA"
+    assert routed["anchor_text"] == expected_anchor
 
 
 def test_stoa_acceptance_matrix_prefers_vendor_when_local_memory_is_strong(monkeypatch):

@@ -82,11 +82,33 @@ def _find_known_vehicle_mention(text: str) -> str | None:
     return None
 
 
+def _find_graph_vehicle_mention(text: str) -> str | None:
+    try:
+        graph_hits = _search_knowledge_graph_memory(text)
+    except Exception:
+        graph_hits = []
+    normalized_text = _normalize_seed(text)
+    for hit in graph_hits:
+        if str(hit.get("entity_type") or "").strip().lower() != "contract_vehicle":
+            continue
+        legal_name = _clean_anchor_fragment(str(hit.get("legal_name") or ""))
+        if not legal_name:
+            continue
+        normalized_legal_name = _normalize_seed(legal_name)
+        if normalized_legal_name == normalized_text or normalized_text.startswith(normalized_legal_name) or normalized_legal_name in normalized_text:
+            return legal_name
+    return None
+
+
 def _extract_vehicle_anchor(text: str) -> str:
     source = _compact(text)
     known_vehicle = _find_known_vehicle_mention(source)
     if known_vehicle:
         return known_vehicle
+
+    graph_vehicle = _find_graph_vehicle_mention(source)
+    if graph_vehicle:
+        return graph_vehicle
 
     token_match = _VEHICLE_TOKEN_RE.search(source)
     if token_match:
@@ -94,6 +116,7 @@ def _extract_vehicle_anchor(text: str) -> str:
 
     candidate = re.sub(r"^(?:we(?:'re| are)?\s+looking\s+at|looking\s+at|it(?:'s| is)|the\s+follow[- ]on\s+to|follow[- ]on\s+to)\s+", "", source, flags=re.IGNORECASE)
     candidate = re.sub(r"\b(contract vehicle|vehicle|solicitation|piid|task order|idiq|gwac|bpa)\b", "", candidate, flags=re.IGNORECASE)
+    candidate = re.sub(r"\bnot (?:a |the )?(?:company|vendor|entity)\b", "", candidate, flags=re.IGNORECASE)
     candidate = _cut_before_cue(candidate, _VEHICLE_ANCHOR_CUES)
     cleaned = _clean_anchor_fragment(candidate)
     return cleaned or source
@@ -104,9 +127,11 @@ def _extract_vendor_anchor(text: str) -> str:
     return _clean_anchor_fragment(cleaned) or _compact(text)
 
 
-def _vendor_memory_signal(text: str) -> tuple[float, list[str]]:
-    reasons: list[str] = []
-    score = 0.0
+def _memory_signals(text: str) -> tuple[float, list[str], float, list[str]]:
+    vehicle_reasons: list[str] = []
+    vendor_reasons: list[str] = []
+    vehicle_score = 0.0
+    vendor_score = 0.0
     try:
         local_hits = _search_local_vendor_memory(text)
     except Exception:
@@ -118,13 +143,19 @@ def _vendor_memory_signal(text: str) -> tuple[float, list[str]]:
 
     if local_hits:
         top = local_hits[0]
-        score = max(score, 0.86 if str(top.get("source")) == "local_vendor_memory" else 0.72)
-        reasons.append(f"Local vendor memory already has {top.get('legal_name', 'a matching entity')} in frame.")
-    if graph_hits:
-        top = graph_hits[0]
-        score = max(score, 0.78)
-        reasons.append(f"Graph memory already has {top.get('legal_name', 'a matching entity')} in frame.")
-    return score, reasons
+        vendor_score = max(vendor_score, 0.86 if str(top.get("source")) == "local_vendor_memory" else 0.72)
+        vendor_reasons.append(f"Local vendor memory already has {top.get('legal_name', 'a matching entity')} in frame.")
+    for hit in graph_hits:
+        legal_name = str(hit.get("legal_name") or "a matching entity").strip()
+        entity_type = str(hit.get("entity_type") or "").strip().lower()
+        if entity_type == "contract_vehicle":
+            exact_match = _normalize_seed(legal_name) == _normalize_seed(text)
+            vehicle_score = max(vehicle_score, 0.9 if exact_match else 0.84)
+            vehicle_reasons.append(f"Graph memory already has {legal_name or 'a matching entity'} in frame as a contract vehicle.")
+            continue
+        vendor_score = max(vendor_score, 0.78)
+        vendor_reasons.append(f"Graph memory already has {legal_name or 'a matching entity'} in frame as an entity.")
+    return vehicle_score, vehicle_reasons, vendor_score, vendor_reasons
 
 
 def route_intake(
@@ -150,10 +181,10 @@ def route_intake(
     revision_to_vendor = bool(_VENDOR_REVISION_CUE_RE.search(raw))
     known_vehicle_mention = _find_known_vehicle_mention(raw)
 
-    if explicit_vehicle:
+    if explicit_vehicle and not revision_to_vendor:
         vehicle_score = max(vehicle_score, 0.94)
         vehicle_reasons.append("The user explicitly described the target as a contract vehicle.")
-    if explicit_vendor:
+    if explicit_vendor and not revision_to_vehicle:
         vendor_score = max(vendor_score, 0.9)
         vendor_reasons.append("The user explicitly described the target as a vendor or company.")
     if revision_to_vehicle:
@@ -189,10 +220,13 @@ def route_intake(
         vendor_score = max(vendor_score, 0.42)
         vendor_reasons.append("The input reads like a named entity rather than a freeform question.")
 
-    memory_score, memory_reasons = _vendor_memory_signal(raw)
-    if memory_score > 0:
-        vendor_score = max(vendor_score, memory_score)
-        vendor_reasons.extend(memory_reasons)
+    memory_vehicle_score, memory_vehicle_reasons, memory_vendor_score, memory_vendor_reasons = _memory_signals(raw)
+    if memory_vehicle_score > 0:
+        vehicle_score = max(vehicle_score, memory_vehicle_score)
+        vehicle_reasons.extend(memory_vehicle_reasons)
+    if memory_vendor_score > 0:
+        vendor_score = max(vendor_score, memory_vendor_score)
+        vendor_reasons.extend(memory_vendor_reasons)
 
     current = str(current_object_type or "").strip().lower() or None
     strong_vehicle_revision = vehicle_score >= 0.84 and vehicle_score >= vendor_score + 0.18

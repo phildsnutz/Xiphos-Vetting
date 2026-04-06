@@ -8,6 +8,9 @@ from datetime import datetime
 from typing import Any
 
 import requests
+from requests import exceptions as requests_exceptions
+
+from http_trust import resolve_verify_target
 
 TIMEOUT = 20
 BASE_URL = "https://api.usaspending.gov/api/v2"
@@ -34,16 +37,18 @@ VEHICLE_ALIASES = {
 }
 
 
-def _verify_ssl() -> bool:
-    raw = os.environ.get("XIPHOS_USASPENDING_VERIFY_SSL", "true").strip().lower()
-    return raw not in {"0", "false", "no", "off"}
+def _verify_ssl() -> bool | str:
+    return resolve_verify_target(
+        verify_env="XIPHOS_USASPENDING_VERIFY_SSL",
+        bundle_envs=("XIPHOS_USASPENDING_CA_BUNDLE",),
+    )
 
 
 def _error(source: str, message: str) -> dict[str, str]:
     return {"source": source, "message": message[:300]}
 
 
-def _post_json(endpoint: str, payload: dict[str, Any], *, verify_ssl: bool) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+def _post_json(endpoint: str, payload: dict[str, Any], *, verify_ssl: bool | str) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
     try:
         resp = requests.post(
             f"{BASE_URL}{endpoint}",
@@ -58,6 +63,11 @@ def _post_json(endpoint: str, payload: dict[str, Any], *, verify_ssl: bool) -> t
         )
         resp.raise_for_status()
         return resp.json(), None
+    except requests_exceptions.SSLError as exc:
+        return None, _error(
+            endpoint,
+            f"{exc}. Set XIPHOS_USASPENDING_CA_BUNDLE, REQUESTS_CA_BUNDLE, or SSL_CERT_FILE if your network uses a custom trust chain.",
+        )
     except requests.HTTPError as exc:
         body = exc.response.text[:300] if exc.response is not None else ""
         return None, _error(endpoint, f"HTTP {exc.response.status_code if exc.response is not None else 'error'}: {body}")
@@ -82,7 +92,7 @@ def _normalize_vehicle_terms(vehicle_name: str) -> list[str]:
     return ordered
 
 
-def _search_prime_awards(term: str, limit: int, *, verify_ssl: bool) -> tuple[list[dict[str, Any]], set[str], list[dict[str, str]]]:
+def _search_prime_awards(term: str, limit: int, *, verify_ssl: bool | str) -> tuple[list[dict[str, Any]], set[str], list[dict[str, str]]]:
     payload = {
         "filters": {
             "keywords": [term],
@@ -129,7 +139,7 @@ def _search_prime_awards(term: str, limit: int, *, verify_ssl: bool) -> tuple[li
     return results, award_ids, []
 
 
-def _search_subawards(term: str, limit: int, *, verify_ssl: bool) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def _search_subawards(term: str, limit: int, *, verify_ssl: bool | str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     payload = {
         'filters': {
             'keywords': [term],
@@ -169,7 +179,7 @@ def _search_subawards(term: str, limit: int, *, verify_ssl: bool) -> tuple[list[
     return results, []
 
 
-def _search_idv_children(award_id: str, limit: int, *, verify_ssl: bool) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def _search_idv_children(award_id: str, limit: int, *, verify_ssl: bool | str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     payload = {
         'award_id': award_id,
         'limit': limit,
