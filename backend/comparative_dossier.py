@@ -52,6 +52,12 @@ try:
 except ImportError:
     HAS_KG = False
 
+try:
+    from vehicle_intel_support import build_vehicle_intelligence_support
+    HAS_VEHICLE_INTEL_SUPPORT = True
+except ImportError:
+    HAS_VEHICLE_INTEL_SUPPORT = False
+
 
 # Light-theme color palette
 COLORS = {
@@ -596,6 +602,75 @@ def _load_case_contexts(vendor_ids: list[str] | None, *, vehicle_name: str = "")
         if isinstance(context, dict):
             contexts.append(context)
     return contexts
+
+
+def _build_support_only_context(*, vehicle_name: str, prime_contractor: str) -> dict[str, Any] | None:
+    if not HAS_VEHICLE_INTEL_SUPPORT:
+        return None
+    vendor = {
+        "id": f"support-{_normalize_name(vehicle_name).replace(' ', '-') or 'vehicle'}",
+        "name": prime_contractor,
+        "country": "US",
+        "program": "dod_unclassified",
+        "profile": "defense_acquisition",
+        "vendor_input": {
+            "seed_metadata": {
+                "contract_vehicle_name": vehicle_name,
+            }
+        },
+    }
+    try:
+        vehicle_support = build_vehicle_intelligence_support(vehicle_name=vehicle_name, vendor=vendor)
+    except Exception:
+        vehicle_support = None
+    if not isinstance(vehicle_support, dict):
+        return None
+    if not any(vehicle_support.get(key) for key in ("relationships", "events", "findings")):
+        return None
+    return {
+        "__support_only_context": True,
+        "vendor": vendor,
+        "score": {
+            "calibrated": {
+                "calibrated_probability": 0.38,
+                "calibrated_tier": "watch",
+                "program_recommendation": "watch",
+            }
+        },
+        "graph_summary": {
+            "relationship_count": 0,
+            "entity_count": 0,
+            "relationships": [],
+            "intelligence": {
+                "claim_coverage_pct": 0.0,
+                "missing_required_edge_families": [],
+            },
+        },
+        "case_events": [],
+        "enrichment": {
+            "summary": {
+                "connectors_run": 0,
+                "connectors_with_data": 0,
+            },
+            "findings": [],
+        },
+        "supplier_passport": {
+            "graph": {
+                "relationship_count": 0,
+                "network_relationship_count": 0,
+                "control_paths": [],
+                "intelligence": {
+                    "claim_coverage_pct": 0.0,
+                    "missing_required_edge_families": [],
+                },
+            },
+            "tribunal": {
+                "recommended_view": "watch",
+                "consensus_level": "low",
+            },
+        },
+        "vehicle_intelligence": vehicle_support,
+    }
 
 
 def _context_vehicle_intelligence(context: dict[str, Any]) -> dict[str, Any]:
@@ -1367,6 +1442,15 @@ def _build_vehicle_support(
 ) -> dict[str, Any]:
     payload = contract_data or {}
     contexts = _load_case_contexts(vendor_ids, vehicle_name=vehicle_name)
+    support_mode = "case_context" if contexts else "unresolved"
+    if not contexts:
+        support_only_context = _build_support_only_context(
+            vehicle_name=vehicle_name,
+            prime_contractor=prime_contractor,
+        )
+        if support_only_context:
+            contexts = [support_only_context]
+            support_mode = "vehicle_support_only"
     primary_context = _pick_primary_context(contexts, prime_contractor)
     teaming_rows = _relationship_rows(
         contexts,
@@ -1397,6 +1481,7 @@ def _build_vehicle_support(
         "prime_contractor": prime_contractor,
         "vendor_ids": list(vendor_ids or []),
         "contract_data": payload,
+        "support_mode": support_mode,
         "contexts": contexts,
         "primary_context": primary_context,
         "teaming_rows": teaming_rows,
@@ -2273,11 +2358,16 @@ def generate_vehicle_dossier(
     )
     award_details += "</tbody></table>"
 
-    if vehicle_support["contexts"]:
+    if vehicle_support["support_mode"] == "case_context":
         prime_narrative = (
             f"{prime_contractor} is linked to {vehicle_support['relationship_count']} graph relationships with "
             f"{vehicle_support['claim_coverage_pct']}% claim coverage. Current Helios posture is "
             f"{vehicle_support['recommendation']} at {vehicle_support['probability_pct']}% modeled risk."
+        )
+    elif vehicle_support["support_mode"] == "vehicle_support_only":
+        prime_narrative = (
+            "No linked Helios case context was found for the requested vendor IDs. This prime section is using "
+            "vehicle-scoped support evidence only, with graph truth left unresolved where no linked case exists."
         )
     else:
         prime_narrative = (
@@ -2335,11 +2425,16 @@ def generate_vehicle_dossier(
     actions_html = _render_action_table(_action_rows(vehicle_support))
     capture_outlook_html = _render_capture_outlook(vehicle_support)
 
-    if vehicle_support["contexts"]:
+    if vehicle_support["support_mode"] == "case_context":
         assessment_copy = (
             f"{vehicle_name} currently reads as {vehicle_support['recommendation']} with "
             f"{vehicle_support['probability_pct']}% modeled risk. The graph is carrying "
             f"{vehicle_support['relationship_count']} relationships at {vehicle_support['claim_coverage_pct']}% claim coverage."
+        )
+    elif vehicle_support["support_mode"] == "vehicle_support_only":
+        assessment_copy = (
+            f"{vehicle_name} is currently being worked from vehicle-scoped support evidence. The dossier is using "
+            "archive, notice, and protest support where available while leaving case-bound graph truth unresolved."
         )
     else:
         assessment_copy = (

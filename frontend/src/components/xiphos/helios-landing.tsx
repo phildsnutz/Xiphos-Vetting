@@ -9,10 +9,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowRight, CheckCircle, Loader2, XCircle, Building2, Truck, GitBranch, Zap, Sparkles, ChevronDown, Globe2 } from "lucide-react";
 import { T, FS, FX, O, PAD, SP, displayName } from "@/lib/tokens";
-import { createCase, resolveEntity, searchContractVehicle, batchAssessVehicle, submitResolveFeedback, fetchHealth } from "@/lib/api";
-import type { EntityCandidate, VehicleVendor, VehicleSearchResult, EntityResolution, ExportAuthorizationCaseInput } from "@/lib/api";
+import { createCase, resolveEntity, searchContractVehicle, batchAssessVehicle, submitResolveFeedback, fetchHealth, fetchVehicleTeamingIntelligence } from "@/lib/api";
+import type { EntityCandidate, VehicleVendor, VehicleSearchResult, EntityResolution, ExportAuthorizationCaseInput, VehicleTeamingIntelligenceReport } from "@/lib/api";
 import type { VettingCase } from "@/lib/types";
 import { SupplyChainGraph } from "./supply-chain-graph";
+import { CompetitiveTeamingMap } from "./competitive-teaming-map";
 import { EnrichmentStream } from "./enrichment-stream";
 import { PRODUCT_PILLAR_META, WORKFLOW_LANE_META, portfolioDisposition, workflowLaneForCase } from "./portfolio-utils";
 import type { ProductPillar } from "./portfolio-utils";
@@ -253,6 +254,10 @@ export function HeliosLanding({
   const [confirmed, setConfirmed] = useState<ConfirmedEntity | null>(null);
   const [vehicleResults, setVehicleResults] = useState<VehicleSearchResult | null>(null);
   const [showGraph, setShowGraph] = useState(false);
+  const [vehicleTeamingReport, setVehicleTeamingReport] = useState<VehicleTeamingIntelligenceReport | null>(null);
+  const [vehicleTeamingLoading, setVehicleTeamingLoading] = useState(false);
+  const [vehicleTeamingError, setVehicleTeamingError] = useState<string | null>(null);
+  const [vehicleScenarioPartner, setVehicleScenarioPartner] = useState("");
   const [batchStatus, setBatchStatus] = useState<"idle" | "running" | "done">("idle");
   const [batchResults, setBatchResults] = useState<{total: number; created: number} | null>(null);
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
@@ -338,6 +343,40 @@ export function HeliosLanding({
     }, 0);
     return () => window.clearTimeout(syncTimer);
   }, [phase, preferredLane, preferredPillar]);
+
+  useEffect(() => {
+    if (phase !== "vehicle-results" || !vehicleResults) {
+      setVehicleTeamingReport(null);
+      setVehicleTeamingLoading(false);
+      setVehicleTeamingError(null);
+      return;
+    }
+    let cancelled = false;
+    setVehicleTeamingLoading(true);
+    setVehicleTeamingError(null);
+    void fetchVehicleTeamingIntelligence(
+      vehicleResults.vehicle_name,
+      vehicleResults.unique_vendors,
+      vehicleScenarioPartner ? { recruit_partner: vehicleScenarioPartner } : undefined,
+    )
+      .then((report) => {
+        if (cancelled) return;
+        setVehicleTeamingReport(report);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setVehicleTeamingError(err instanceof Error ? err.message.replace(/^API \d+:\s*/, "") : "Competitive teaming map failed to load.");
+        setVehicleTeamingReport(null);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setVehicleTeamingLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, vehicleResults, vehicleScenarioPartner]);
 
   useEffect(() => {
     if (phase !== "idle") return;
@@ -594,6 +633,9 @@ export function HeliosLanding({
     if (!term || phase !== "idle") return;
     setInput("");
     setEntityName(term);
+    setVehicleScenarioPartner("");
+    setVehicleTeamingReport(null);
+    setVehicleTeamingError(null);
     setPhase("vehicle-searching");
     setStatusText(`Searching USAspending for "${term}" awards...`);
 
@@ -658,6 +700,9 @@ export function HeliosLanding({
     setEntityName(""); setCandidates([]); setConfirmed(null);
     setResolution(null); setShowRationale(false);
     setVehicleResults(null);
+    setVehicleTeamingReport(null);
+    setVehicleTeamingError(null);
+    setVehicleScenarioPartner("");
     setShowGraph(false); setBatchStatus("idle"); setBatchResults(null);
     setActiveCaseId(null);
     if (preferredPillar !== "contract_vehicle" && preferredLane !== "export") {
@@ -1468,6 +1513,16 @@ export function HeliosLanding({
               Some upstream contract data calls returned warnings: {vehicleResults.errors.slice(0, 2).map((item) => item.message).join(" | ")}
             </div>
           )}
+
+          <div style={{ marginBottom: 20 }}>
+            <CompetitiveTeamingMap
+              report={vehicleTeamingReport}
+              loading={vehicleTeamingLoading}
+              error={vehicleTeamingError}
+              scenarioPartner={vehicleScenarioPartner}
+              onScenarioPartnerChange={setVehicleScenarioPartner}
+            />
+          </div>
 
           {/* Supply chain graph */}
           {showGraph && vehicleResults.total_unique > 0 && (

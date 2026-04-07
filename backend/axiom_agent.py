@@ -131,6 +131,7 @@ class AgentResult:
     total_connector_calls: int = 0  # Track total connector executions
     intelligence_gaps: list[dict] = field(default_factory=list)
     advisory_opportunities: list[dict] = field(default_factory=list)
+    vehicle_mode_support: dict = field(default_factory=dict)
     elapsed_ms: int = 0
     error: str = ""
 
@@ -405,9 +406,187 @@ or fill critical intelligence gaps."""
 SYSTEM_PROMPT = _build_system_prompt_with_connectors()
 
 
+def _support_relationship_digest(relationships: list[dict]) -> list[dict]:
+    digested: list[dict] = []
+    for relationship in relationships[:6]:
+        if not isinstance(relationship, dict):
+            continue
+        digested.append(
+            {
+                "rel_type": str(relationship.get("rel_type") or ""),
+                "source": str(relationship.get("source_name") or ""),
+                "target": str(relationship.get("target_name") or ""),
+                "summary": str(relationship.get("evidence_summary") or relationship.get("evidence") or ""),
+                "connector": str(relationship.get("data_source") or ""),
+            }
+        )
+    return digested
+
+
+def _support_event_digest(events: list[dict]) -> list[dict]:
+    digested: list[dict] = []
+    for event in events[:4]:
+        if not isinstance(event, dict):
+            continue
+        digested.append(
+            {
+                "title": str(event.get("title") or event.get("subject") or "Observed event"),
+                "status": str(event.get("status") or ""),
+                "connector": str(event.get("connector") or ""),
+                "assessment": str(event.get("assessment") or ""),
+            }
+        )
+    return digested
+
+
+def _support_finding_digest(findings: list[dict]) -> list[dict]:
+    digested: list[dict] = []
+    for finding in findings[:4]:
+        if not isinstance(finding, dict):
+            continue
+        digested.append(
+            {
+                "title": str(finding.get("title") or ""),
+                "detail": str(finding.get("detail") or ""),
+                "source": str(finding.get("source") or ""),
+                "severity": str(finding.get("severity") or ""),
+            }
+        )
+    return digested
+
+
+def _build_vehicle_mode_support(target: SearchTarget) -> dict:
+    if not str(target.vehicle_name or "").strip():
+        return {}
+
+    state_contract = {
+        "graph_facts": "Observed graph relationships and provenance-backed edges only.",
+        "support_evidence": "Vehicle-scoped archive, notice, and protest support that is useful but not graph truth.",
+        "predictions": "Forward-looking teaming and capture judgments only.",
+        "unknowns": "Conflicts or missing evidence that should lower confidence.",
+    }
+
+    teaming_builder = globals().get("build_teaming_intelligence")
+    if teaming_builder is None:
+        try:
+            from teaming_intelligence import build_teaming_intelligence as teaming_builder
+        except Exception:
+            teaming_builder = None
+
+    support_builder = globals().get("build_vehicle_intelligence_support")
+    if support_builder is None:
+        try:
+            from vehicle_intel_support import build_vehicle_intelligence_support as support_builder
+        except Exception:
+            support_builder = None
+
+    observed_vendors = [{"vendor_name": target.prime_contractor, "role": "prime"}]
+    observed_vendors.extend({"vendor_name": name, "role": "subcontractor"} for name in target.known_subs[:4])
+
+    teaming_report = None
+    if teaming_builder is not None:
+        try:
+            teaming_report = teaming_builder(
+                vehicle_name=target.vehicle_name,
+                observed_vendors=observed_vendors,
+            )
+        except Exception:
+            teaming_report = None
+
+    support_bundle = None
+    if support_builder is not None:
+        try:
+            support_bundle = support_builder(
+                vehicle_name=target.vehicle_name,
+                vendor={
+                    "id": "",
+                    "name": target.prime_contractor,
+                    "vendor_input": {
+                        "seed_metadata": {
+                            "contract_vehicle_name": target.vehicle_name,
+                        }
+                    },
+                },
+            )
+        except Exception:
+            support_bundle = None
+
+    graph_facts = []
+    predictions: list[str] = []
+    unknowns: list[str] = []
+    if isinstance(teaming_report, dict):
+        for signal in teaming_report.get("observed_signals") or []:
+            if not isinstance(signal, dict):
+                continue
+            graph_facts.append(
+                {
+                    "source": str(signal.get("source") or ""),
+                    "target": str(signal.get("target") or ""),
+                    "rel_type": str(signal.get("rel_type") or ""),
+                    "connector": str(signal.get("connector") or ""),
+                    "snippet": str(signal.get("snippet") or ""),
+                }
+            )
+        predictions.extend(str(item) for item in (teaming_report.get("top_conclusions") or [])[:4] if str(item or "").strip())
+        if not teaming_report.get("supported", True):
+            unknowns.append(str(teaming_report.get("message") or "Vehicle teaming intelligence is not yet supported for this vehicle scope."))
+
+    support_evidence = {
+        "connectors_run": int((support_bundle or {}).get("connectors_run") or 0),
+        "connectors_with_data": int((support_bundle or {}).get("connectors_with_data") or 0),
+        "relationships": _support_relationship_digest((support_bundle or {}).get("relationships") or []),
+        "events": _support_event_digest((support_bundle or {}).get("events") or []),
+        "findings": _support_finding_digest((support_bundle or {}).get("findings") or []),
+    }
+
+    if not graph_facts:
+        unknowns.append("No graph-backed vehicle facts are attached strongly enough to drive the thread yet.")
+    if support_evidence["connectors_with_data"] == 0:
+        unknowns.append("No vehicle-scoped support evidence is attached yet.")
+    if not support_evidence["events"]:
+        unknowns.append("No protest or litigation signal is attached to this vehicle yet.")
+    if not support_evidence["relationships"]:
+        unknowns.append("No lineage or notice-derived relationship signal is attached to this vehicle yet.")
+
+    return {
+        "vehicle_name": target.vehicle_name,
+        "state_contract": state_contract,
+        "graph_facts": graph_facts[:6],
+        "support_evidence": support_evidence,
+        "predictions": predictions[:4],
+        "unknowns": unknowns[:5],
+    }
+
+
 def _build_analysis_prompt(target: SearchTarget, raw_findings: list[dict],
-                           iteration: int, previous_entities: list[str]) -> str:
+                           iteration: int, previous_entities: list[str],
+                           vehicle_mode_support: dict | None = None) -> str:
     """Build the LLM prompt for analyzing scraper results and requesting connectors."""
+    vehicle_support_block = ""
+    if vehicle_mode_support:
+        vehicle_support_block = f"""
+
+VEHICLE MODE SUPPORT (Aegis contract-vehicle context):
+Treat the four blocks below as separate truth states. Do not silently merge them.
+
+GRAPH_FACTS:
+{json.dumps(vehicle_mode_support.get("graph_facts") or [], indent=2, default=str)}
+
+SUPPORT_EVIDENCE:
+{json.dumps(vehicle_mode_support.get("support_evidence") or {}, indent=2, default=str)}
+
+PREDICTIONS:
+{json.dumps(vehicle_mode_support.get("predictions") or [], indent=2, default=str)}
+
+UNKNOWNS:
+{json.dumps(vehicle_mode_support.get("unknowns") or [], indent=2, default=str)}
+
+Rules:
+- support_evidence can strengthen or weaken a hypothesis, but it is not graph fact
+- predictions stay forward-looking unless independently confirmed
+- if support_evidence conflicts with graph_facts, say so explicitly and lower confidence
+"""
+
     return f"""Analyze the following job board scraping results and connector findings for intelligence value.
 
 TARGET:
@@ -416,6 +595,7 @@ TARGET:
 - Installation: {target.installation or 'Not specified'}
 - Known Subcontractors: {', '.join(target.known_subs) if target.known_subs else 'None'}
 - Context: {target.context or 'General contract vehicle intelligence'}
+{vehicle_support_block}
 
 ITERATION: {iteration} of {MAX_ITERATIONS}
 PREVIOUSLY DISCOVERED ENTITIES: {', '.join(previous_entities) if previous_entities else 'None yet'}
@@ -719,6 +899,8 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     all_entities: dict[str, DiscoveredEntity] = {}
     all_relationships: list[DiscoveredRelationship] = []
     all_findings: list[dict] = []
+    vehicle_mode_support = _build_vehicle_mode_support(target)
+    result.vehicle_mode_support = vehicle_mode_support
 
     try:
         for iteration in range(1, MAX_ITERATIONS + 1):
@@ -769,7 +951,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
             # LLM analysis
             previous_entity_names = list(all_entities.keys())
             analysis_prompt = _build_analysis_prompt(
-                target, iter_findings, iteration, previous_entity_names
+                target, iter_findings, iteration, previous_entity_names, vehicle_mode_support
             )
 
             llm_response = _call_llm(

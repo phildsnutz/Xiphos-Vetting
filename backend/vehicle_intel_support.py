@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 from osint.contract_opportunities_archive_fixture import enrich as archive_fixture_enrich
+from osint.contract_opportunities_public import enrich as contract_opportunities_public_enrich
 from osint.contract_vehicle_wayback import enrich as contract_vehicle_wayback_enrich
 from osint.gao_bid_protests_fixture import enrich as gao_fixture_enrich
 from osint.gao_bid_protests_public import enrich as gao_public_enrich
 from osint.public_html_contract_vehicle import enrich as public_html_contract_vehicle_enrich
+
+
+SUPPORT_CATALOG_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "vehicle_intelligence"
+    / "vehicle_support_catalog.json"
+)
 
 
 def _seed_metadata(vendor: dict[str, Any] | None) -> dict[str, Any]:
@@ -62,6 +74,43 @@ _GAO_PUBLIC_KEYS = {
     "gao_public_html_fixture_page",
     "gao_public_html_fixture_pages",
 }
+_CONTRACT_OPPORTUNITY_NOTICE_KEYS = {
+    "contract_opportunity_notice_url",
+    "contract_opportunity_notice_urls",
+    "contract_opportunity_notice_page",
+    "contract_opportunity_notice_pages",
+    "contract_opportunity_notice_fixture_page",
+    "contract_opportunity_notice_fixture_pages",
+}
+
+
+def _normalize_vehicle_name(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
+
+
+def _catalog_seed_metadata(vehicle_name: str) -> dict[str, Any]:
+    if not SUPPORT_CATALOG_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(SUPPORT_CATALOG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    normalized = _normalize_vehicle_name(vehicle_name)
+    for record in payload.get("vehicles", []) or []:
+        if not isinstance(record, dict):
+            continue
+        names = [record.get("vehicle_name", ""), *(record.get("aliases") or [])]
+        if any(_normalize_vehicle_name(name) == normalized for name in names):
+            seed_metadata = record.get("seed_metadata")
+            return dict(seed_metadata) if isinstance(seed_metadata, dict) else {}
+    return {}
+
+
+def _merged_seed_metadata(vehicle_name: str, vendor: dict[str, Any] | None) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    merged.update(_catalog_seed_metadata(vehicle_name))
+    merged.update(_seed_metadata(vendor))
+    return merged
 
 
 def _public_html_vehicle_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
@@ -85,6 +134,14 @@ def _gao_public_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
         key: value
         for key, value in seed_metadata.items()
         if key in _GAO_PUBLIC_KEYS and value not in (None, "", [])
+    }
+
+
+def _contract_opportunity_notice_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in seed_metadata.items()
+        if key in _CONTRACT_OPPORTUNITY_NOTICE_KEYS and value not in (None, "", [])
     }
 
 
@@ -164,10 +221,13 @@ def build_vehicle_intelligence_support(
     if not scoped_vehicle_name:
         return None
 
-    seed_metadata = _seed_metadata(vendor)
+    seed_metadata = _merged_seed_metadata(scoped_vehicle_name, vendor)
     archive_result = archive_fixture_enrich(scoped_vehicle_name)
     gao_result = gao_fixture_enrich(scoped_vehicle_name)
     results = [archive_result, gao_result]
+    contract_notice_ids = _contract_opportunity_notice_ids(seed_metadata)
+    if contract_notice_ids:
+        results.append(contract_opportunities_public_enrich(scoped_vehicle_name, **contract_notice_ids))
     gao_public_ids = _gao_public_ids(seed_metadata)
     if gao_public_ids:
         results.append(gao_public_enrich(scoped_vehicle_name, **gao_public_ids))

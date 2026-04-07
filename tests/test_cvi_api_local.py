@@ -49,6 +49,7 @@ def test_cvi_health_route_reports_components(client):
     assert set(payload["components"]) == {
         "comparative",
         "vehicle_dossier",
+        "teaming_intelligence",
         "gap_advisory",
         "gap_filler",
     }
@@ -78,6 +79,47 @@ def test_cvi_vehicle_dossier_route_returns_html(client, monkeypatch):
     assert payload["status"] == "completed"
     assert "vehicle dossier" in payload["html"]
     assert payload["metadata"]["title"] == "ITEAMS Vehicle Dossier"
+
+
+def test_cvi_teaming_intelligence_route_returns_report(client, monkeypatch):
+    import teaming_intelligence
+
+    monkeypatch.setattr(
+        teaming_intelligence,
+        "build_teaming_intelligence",
+        lambda **_: {
+            "analysis_scope": "iteams_recompete_v1",
+            "supported": True,
+            "generated_at": "2026-04-06T00:00:00Z",
+            "vehicle_name": "ITEAMS",
+            "state_contract": {
+                "observed": "facts",
+                "assessed": "assessment",
+                "predicted": "prediction",
+            },
+            "graph_snapshot_signature": "kgsnapshot:test",
+            "observed_signals": [],
+            "assessed_partners": [],
+            "top_conclusions": ["Amentum remains the incumbent core."],
+            "map": {"nodes": [], "edges": []},
+            "scenario": None,
+        },
+    )
+
+    response = client.post(
+        "/api/cvi/teaming-intelligence",
+        json={
+            "vehicle_name": "ITEAMS",
+            "observed_vendors": [{"vendor_name": "Amentum", "role": "prime"}],
+            "scenario": {"recruit_partner": "SMX"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert payload["report"]["analysis_scope"] == "iteams_recompete_v1"
+    assert payload["report"]["top_conclusions"] == ["Amentum remains the incumbent core."]
 
 
 def test_cvi_gap_advisory_route_serializes_pipeline_result(client, monkeypatch):

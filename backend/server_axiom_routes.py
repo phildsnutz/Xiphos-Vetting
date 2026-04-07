@@ -33,6 +33,7 @@ def register_axiom_routes(*, app, require_auth, db):
     def _build_local_axiom_fallback(*, target, vendor_id: str = "", error: str = "", include_ingestion: bool = False):
         graph_context = {}
         graph_toolkit = {}
+        vehicle_mode_support = {}
         try:
             if vendor_id:
                 from ai_analysis import _sanitize_graph_context
@@ -55,6 +56,12 @@ def register_axiom_routes(*, app, require_auth, db):
         except Exception:
             graph_context = {}
             graph_toolkit = {}
+        try:
+            from axiom_agent import _build_vehicle_mode_support
+
+            vehicle_mode_support = _build_vehicle_mode_support(target)
+        except Exception:
+            vehicle_mode_support = {}
 
         entities = [
             {
@@ -221,6 +228,8 @@ def register_axiom_routes(*, app, require_auth, db):
                 "reason": error or "No external provider key available in dev mode.",
             },
         }
+        if vehicle_mode_support:
+            response["vehicle_mode_support"] = vehicle_mode_support
         if graph_toolkit:
             response["graph_interrogation"] = graph_toolkit
         if include_ingestion:

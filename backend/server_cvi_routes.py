@@ -278,6 +278,49 @@ def api_cvi_comparative():
 
 
 # -------------------------------------------------------------------
+# Vehicle Teaming Intelligence
+# -------------------------------------------------------------------
+
+@cvi_bp.route("/teaming-intelligence", methods=["POST"])
+def api_cvi_teaming_intelligence():
+    """Return the v1 competitive teaming map for a named vehicle."""
+    try:
+        from teaming_intelligence import build_teaming_intelligence
+
+        body = request.get_json(silent=True) or {}
+        vehicle_name = str(body.get("vehicle_name", "")).strip()
+        if not vehicle_name:
+            return jsonify({"error": "Missing required field: vehicle_name"}), 400
+
+        observed_vendors = body.get("observed_vendors", [])
+        if not isinstance(observed_vendors, list):
+            return jsonify({"error": "observed_vendors must be an array when provided"}), 400
+
+        scenario = body.get("scenario")
+        if scenario is not None and not isinstance(scenario, dict):
+            return jsonify({"error": "scenario must be an object when provided"}), 400
+
+        report = build_teaming_intelligence(
+            vehicle_name=vehicle_name,
+            observed_vendors=observed_vendors,
+            scenario=scenario,
+        )
+
+        return jsonify(
+            {
+                "status": "completed",
+                "report": report,
+            }
+        ), 200
+    except ImportError as e:
+        logger.error("cvi_routes: teaming_intelligence module not available: %s", e)
+        return jsonify({"error": "CVI teaming intelligence module not available"}), 503
+    except Exception as exc:
+        logger.exception("cvi_routes: teaming intelligence failed: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+# -------------------------------------------------------------------
 # Single Vehicle Dossier Generation
 # -------------------------------------------------------------------
 
@@ -638,6 +681,7 @@ def api_cvi_health():
     status = {
         "comparative": False,
         "vehicle_dossier": False,
+        "teaming_intelligence": False,
         "gap_advisory": False,
         "gap_filler": False,
     }
@@ -646,6 +690,12 @@ def api_cvi_health():
         import comparative_dossier
         status["comparative"] = True
         status["vehicle_dossier"] = True
+    except ImportError:
+        pass
+
+    try:
+        import teaming_intelligence
+        status["teaming_intelligence"] = True
     except ImportError:
         pass
 
@@ -665,4 +715,4 @@ def api_cvi_health():
     return jsonify({"status": "ok" if all_ok else "degraded", "components": status}), 200
 
 
-logger.info("cvi_bp: Blueprint initialized with 5 CVI API endpoints")
+logger.info("cvi_bp: Blueprint initialized with 6 CVI API endpoints")

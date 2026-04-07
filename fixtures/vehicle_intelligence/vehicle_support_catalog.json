@@ -1,0 +1,22 @@
+{
+  "vehicles": [
+    {
+      "vehicle_name": "ITEAMS",
+      "aliases": ["Iteams"],
+      "seed_metadata": {
+        "contract_opportunity_notice_fixture_pages": [
+          "fixtures/vehicle_intelligence/public_html/iteams_notice_live_fixture.html"
+        ]
+      }
+    },
+    {
+      "vehicle_name": "LEIA",
+      "aliases": ["Leia"],
+      "seed_metadata": {
+        "contract_opportunity_notice_fixture_pages": [
+          "fixtures/vehicle_intelligence/public_html/leia_notice_live_fixture.html"
+        ]
+      }
+    }
+  ]
+}

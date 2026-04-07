@@ -155,6 +155,96 @@
           "confidence": 0.82
         }
       ]
+    },
+    {
+      "vehicle_name": "LEIA",
+      "aliases": [
+        "Leia"
+      ],
+      "records": [
+        {
+          "record_id": "leia-awarded-under-astro",
+          "rel_type": "awarded_under",
+          "source_entity": "ASTRO",
+          "target_entity": "LEIA",
+          "corroboration_count": 2,
+          "intelligence_tier": "supported",
+          "summary": "Archived opportunity and task-order references keep LEIA tied to the ASTRO contracting scaffold.",
+          "source_notes": [
+            "Archived award reference",
+            "Analyst-captured task-order comparison"
+          ],
+          "source_urls": [
+            "https://sam.gov/",
+            "https://web.archive.org/"
+          ],
+          "observed_at": "2024-10-17T00:00:00Z"
+        },
+        {
+          "record_id": "leia-funded-by-usindopacom",
+          "rel_type": "funded_by",
+          "source_entity": "USINDOPACOM",
+          "target_entity": "LEIA",
+          "corroboration_count": 1,
+          "intelligence_tier": "supported",
+          "summary": "Archived requirement language keeps USINDOPACOM as the operating customer behind LEIA.",
+          "source_notes": [
+            "Archived customer language"
+          ],
+          "source_urls": [
+            "https://sam.gov/"
+          ],
+          "observed_at": "2024-10-20T00:00:00Z"
+        },
+        {
+          "record_id": "leia-performed-at-camp-smith",
+          "rel_type": "performed_at",
+          "source_entity": "Camp Smith",
+          "target_entity": "LEIA",
+          "corroboration_count": 1,
+          "intelligence_tier": "supported",
+          "summary": "Archived place-of-performance language keeps Camp Smith in frame for LEIA execution pressure.",
+          "source_notes": [
+            "Archived performance-location section"
+          ],
+          "source_urls": [
+            "https://sam.gov/"
+          ],
+          "observed_at": "2024-10-20T00:00:00Z"
+        },
+        {
+          "record_id": "leia-competitive-pressure-smx",
+          "rel_type": "prime_contractor_of",
+          "source_entity": "SMX",
+          "target_entity": "LEIA",
+          "corroboration_count": 1,
+          "intelligence_tier": "supported",
+          "summary": "Archived award reporting keeps SMX as the current prime contractor in the LEIA picture.",
+          "source_notes": [
+            "Archived award announcement"
+          ],
+          "source_urls": [
+            "https://sam.gov/"
+          ],
+          "observed_at": "2024-10-18T00:00:00Z"
+        }
+      ],
+      "findings": [
+        {
+          "record_id": "leia-lineage-read",
+          "title": "Archived lineage trail keeps LEIA attached to ASTRO and INDOPACOM demand",
+          "detail": "Archive captures preserve both the ASTRO award scaffold and the INDOPACOM customer signal, which keeps LEIA readable even when live notices are sparse.",
+          "severity": "medium",
+          "confidence": 0.84
+        },
+        {
+          "record_id": "leia-mission-posture",
+          "title": "Archive captures preserve LEIA mission posture",
+          "detail": "The archived notice set keeps zero-trust modernization, Camp Smith performance, and the SMX prime position in frame.",
+          "severity": "info",
+          "confidence": 0.76
+        }
+      ]
     }
   ]
 }

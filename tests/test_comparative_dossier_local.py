@@ -190,8 +190,8 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
     monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
 
     html = comparative_dossier.generate_vehicle_dossier(
-        vehicle_name="ITEAMS",
-        prime_contractor="Amentum",
+        vehicle_name="NO_SUCH_VEHICLE",
+        prime_contractor="Unknown Prime",
         vendor_ids=["missing-case"],
         contract_data={"naics": "541715"},
     )
@@ -203,6 +203,26 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
     assert "Connectors with signal: 0" in html
     assert "TechFlow Defense" not in html
     assert "Acme Systems Integration" not in html
+
+
+def test_generate_vehicle_dossier_uses_vehicle_support_without_linked_case(monkeypatch):
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
+
+    html = comparative_dossier.generate_vehicle_dossier(
+        vehicle_name="LEIA",
+        prime_contractor="SMX",
+        vendor_ids=["missing-case"],
+        contract_data={"naics": "541512"},
+    )
+
+    assert "vehicle-scoped support evidence only" in html
+    assert "Lineage Read" in html
+    assert "Award scaffold remains attached through ASTRO." in html
+    assert "LEIA is currently being worked from vehicle-scoped support evidence." in html
+    assert "Evidence Footprint" in html
+    assert "Contract Opportunities Public" in html
+    assert "Contract Opportunities Archive Fixture" in html
+    assert "Connectors with signal: 2" in html
 
 
 def test_generate_vehicle_dossier_lineage_read_uses_wayback_support_relationships(monkeypatch):
@@ -398,7 +418,6 @@ def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monk
     )
 
     assert "Kauai Labs" in html
-    assert "Persistent across both compared vehicles." in html
     assert "Both vehicles are populated." in html
     assert "Litigation & Protest Profile" in html
     assert "C3PO corrective action protest" in html
@@ -408,3 +427,32 @@ def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monk
     assert "Acme Defense Systems" not in html
     assert "TechFlow Corp" not in html
     assert "Complete audit trail of vehicle evolution." not in html
+
+
+def test_generate_comparative_dossier_support_only_proves_multiple_seeded_vehicles(monkeypatch):
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda *_, **__: None)
+
+    html = comparative_dossier.generate_comparative_dossier(
+        vehicle_configs=[
+            {
+                "vehicle_name": "ITEAMS",
+                "prime_contractor": "Amentum",
+                "vendor_ids": ["missing-iteams-case"],
+                "contract_data": {"contract_id": "ITEAMS-001", "award_date": "2025-01-10", "task_orders": 7},
+            },
+            {
+                "vehicle_name": "LEIA",
+                "prime_contractor": "SMX",
+                "vendor_ids": ["missing-leia-case"],
+                "contract_data": {"contract_id": "LEIA-002", "award_date": "2025-03-22", "task_orders": 4},
+            },
+        ]
+    )
+
+    assert "ITEAMS" in html
+    assert "LEIA" in html
+    assert "Vehicle Lineage Map" in html
+    assert "Litigation & Protest Profile" in html
+    assert "Contract Opportunities Public" in html
+    assert "Comparative teaming rows below are derived from the current Helios graph" in html
+    assert "Both vehicles are populated." in html

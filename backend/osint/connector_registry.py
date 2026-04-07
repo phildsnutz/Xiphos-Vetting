@@ -44,6 +44,14 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="analyst_curated_fixture",
         access_model="local_json_fixture",
     ),
+    "contract_opportunities_public": ConnectorRegistryEntry(
+        label="Contract Opportunities Public",
+        category="Collector",
+        description="Seeded official opportunity notice pages parsed for contract family, customer, and performance signals",
+        source_class="public_connector",
+        authority_level="official_program_system",
+        access_model="public_html",
+    ),
     "gao_bid_protests_fixture": ConnectorRegistryEntry(
         label="GAO Bid Protests Fixture",
         category="Collector",

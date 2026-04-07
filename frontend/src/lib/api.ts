@@ -1978,6 +1978,102 @@ export async function searchContractVehicle(
   });
 }
 
+export interface TeamingSignalEvidence {
+  source: string;
+  target: string;
+  rel_type: string;
+  confidence: number;
+  connector: string;
+  observed_at: string;
+  snippet: string;
+  corroboration_count: number;
+}
+
+export interface TeamingAssessedPartner {
+  entity_id: string;
+  entity_name: string;
+  display_name: string;
+  classification: "incumbent-core" | "locked" | "swing" | "recruitable" | "cooling" | "emerging";
+  state: "assessed";
+  confidence: number;
+  confidence_label: "high" | "medium" | "low";
+  rationale: string;
+  observed_signals: string[];
+  observed_role?: string | null;
+  observed_award_amount?: number | null;
+  evidence: TeamingSignalEvidence[];
+}
+
+export interface TeamingScenarioAssessment {
+  state: "predicted";
+  recruit_partner: string;
+  classification_basis?: string;
+  recommendation: string;
+  confidence: number;
+  confidence_label: "high" | "medium" | "low";
+  rationale: string;
+}
+
+export interface TeamingMapNode {
+  id: string;
+  label: string;
+  kind: string;
+  state: string;
+  classification: string;
+  confidence?: number;
+}
+
+export interface TeamingMapEdge {
+  source: string;
+  target: string;
+  kind: string;
+  state: string;
+  classification?: string;
+}
+
+export interface VehicleTeamingIntelligenceReport {
+  analysis_scope: string;
+  supported: boolean;
+  generated_at: string;
+  vehicle_name: string;
+  state_contract: {
+    observed: string;
+    assessed: string;
+    predicted: string;
+  };
+  graph_snapshot_signature: string;
+  message?: string;
+  vehicle_entity_id?: string;
+  incumbent_prime?: {
+    entity_id: string;
+    name: string;
+  };
+  observed_signals: TeamingSignalEvidence[];
+  assessed_partners: TeamingAssessedPartner[];
+  top_conclusions: string[];
+  map: {
+    nodes: TeamingMapNode[];
+    edges: TeamingMapEdge[];
+  };
+  scenario?: TeamingScenarioAssessment | null;
+}
+
+export async function fetchVehicleTeamingIntelligence(
+  vehicleName: string,
+  observedVendors: VehicleVendor[] = [],
+  scenario?: { recruit_partner: string },
+): Promise<VehicleTeamingIntelligenceReport> {
+  const response = await json<{ status: string; report: VehicleTeamingIntelligenceReport }>("/api/cvi/teaming-intelligence", {
+    method: "POST",
+    body: JSON.stringify({
+      vehicle_name: vehicleName,
+      observed_vendors: observedVendors,
+      scenario,
+    }),
+  });
+  return response.report;
+}
+
 export interface BatchAssessResult {
   total: number;
   created: number;

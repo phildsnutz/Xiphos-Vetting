@@ -46,7 +46,7 @@ TAGS = re.compile(r"<[^>]+>")
 WHITESPACE = re.compile(r"\s+")
 TITLE_PATTERN = re.compile(r"<title[^>]*>(?P<title>.*?)</title>", re.IGNORECASE | re.DOTALL)
 
-_ENTITY_PATTERN = r"(?P<entity>[A-Z][A-Za-z0-9/&().,' -]{2,120}?)"
+_ENTITY_PATTERN = r"(?P<entity>[A-Z][A-Za-z0-9/&().,' -]{2,120})"
 _SIGNALS: tuple[tuple[re.Pattern[str], str, float, str], ...] = (
     (
         re.compile(

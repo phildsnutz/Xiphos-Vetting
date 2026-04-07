@@ -59,6 +59,26 @@ interface RawAxiomSearchResult {
     reused_existing_job?: boolean;
     error?: string;
   };
+  vehicle_mode_support?: {
+    vehicle_name?: string;
+    state_contract?: Record<string, string>;
+    graph_facts?: Array<{
+      source?: string;
+      target?: string;
+      rel_type?: string;
+      connector?: string;
+      snippet?: string;
+    }>;
+    support_evidence?: {
+      connectors_run?: number;
+      connectors_with_data?: number;
+      relationships?: Array<{ rel_type?: string; source?: string; target?: string; connector?: string; summary?: string }>;
+      events?: Array<{ title?: string; status?: string; connector?: string; assessment?: string }>;
+      findings?: Array<{ title?: string; detail?: string; source?: string; severity?: string }>;
+    };
+    predictions?: string[];
+    unknowns?: string[];
+  };
 }
 
 interface AxiomSearchResult {
@@ -90,6 +110,7 @@ interface AxiomSearchResult {
   elapsedMs: number;
   kgIngestion?: RawAxiomSearchResult["kg_ingestion"];
   neo4jSync?: RawAxiomSearchResult["neo4j_sync"];
+  vehicleModeSupport?: RawAxiomSearchResult["vehicle_mode_support"];
 }
 
 interface AxiomSearchPanelProps {
@@ -133,6 +154,7 @@ function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
     elapsedMs: raw.elapsed_ms ?? 0,
     kgIngestion: raw.kg_ingestion,
     neo4jSync: raw.neo4j_sync,
+    vehicleModeSupport: raw.vehicle_mode_support,
   };
 }
 
@@ -795,6 +817,56 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
               </div>
             ))}
           </div>
+
+          {results.vehicleModeSupport ? (
+            <div
+              className="rounded-lg"
+              style={{ background: `${T.accent}${O["08"]}`, border: `1px solid ${T.accent}${O["20"]}`, padding: PAD.default }}
+            >
+              <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.accent, marginBottom: SP.sm }}>
+                Vehicle-mode support {results.vehicleModeSupport.vehicle_name ? `· ${results.vehicleModeSupport.vehicle_name}` : ""}
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.dim, lineHeight: 1.6, marginBottom: SP.sm }}>
+                Graph facts stay separate from support evidence. AXIOM can use archive, notice, and protest support to deepen the thread without treating it as graph truth.
+              </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4" style={{ marginBottom: SP.sm }}>
+                <div>
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>Graph facts</div>
+                  <div style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>
+                    {results.vehicleModeSupport.graph_facts?.length ?? 0}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>Support connectors</div>
+                  <div style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>
+                    {results.vehicleModeSupport.support_evidence?.connectors_with_data ?? 0}/{results.vehicleModeSupport.support_evidence?.connectors_run ?? 0}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>Predictions</div>
+                  <div style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>
+                    {results.vehicleModeSupport.predictions?.length ?? 0}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: FS.sm, color: T.muted }}>Unknowns</div>
+                  <div style={{ fontSize: FS.base, fontWeight: 600, color: T.text }}>
+                    {results.vehicleModeSupport.unknowns?.length ?? 0}
+                  </div>
+                </div>
+              </div>
+              {results.vehicleModeSupport.predictions?.length ? (
+                <div style={{ fontSize: FS.sm, color: T.text, marginBottom: SP.xs }}>
+                  {results.vehicleModeSupport.predictions[0]}
+                </div>
+              ) : null}
+              {results.vehicleModeSupport.unknowns?.length ? (
+                <div style={{ fontSize: FS.sm, color: T.dim }}>
+                  {results.vehicleModeSupport.unknowns[0]}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {results.intelligenceGaps.length > 0 && (
             <div>
