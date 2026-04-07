@@ -9,7 +9,7 @@ BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from osint import contract_opportunities_archive_fixture, contract_opportunities_public, gao_bid_protests_fixture, usaspending_vehicle_live  # noqa: E402
+from osint import EnrichmentResult, contract_opportunities_archive_fixture, contract_opportunities_public, gao_bid_protests_fixture, usaspending_vehicle_live  # noqa: E402
 import vehicle_intel_support  # noqa: E402
 
 
@@ -208,6 +208,83 @@ def test_vehicle_intel_support_syncs_official_relationships_without_duplicates(t
     with knowledge_graph.get_kg_conn() as conn:
         second_count = conn.execute("SELECT COUNT(*) FROM kg_relationships").fetchone()[0]
     assert second_count == first_count
+
+
+def test_vehicle_intel_support_caches_identical_support_bundle(monkeypatch):
+    vehicle_intel_support.clear_vehicle_intelligence_support_cache()
+    calls = {"archive": 0, "gao": 0, "live": 0, "sync": 0}
+
+    def fake_archive(vehicle_name):
+        calls["archive"] += 1
+        return EnrichmentResult(source="contract_opportunities_archive_fixture", vendor_name=vehicle_name)
+
+    def fake_gao(vehicle_name):
+        calls["gao"] += 1
+        return EnrichmentResult(source="gao_bid_protests_fixture", vendor_name=vehicle_name)
+
+    def fake_live(vehicle_name, **ids):
+        calls["live"] += 1
+        result = EnrichmentResult(
+            source="usaspending_vehicle_live",
+            vendor_name=vehicle_name,
+            structured_fields={
+                "observed_vendors": [
+                    {
+                        "vendor_name": "Science Applications International Corporation",
+                        "role": "prime",
+                        "award_amount": 188000000,
+                    }
+                ]
+            },
+        )
+        result.findings = []
+        result.relationships = [
+            {
+                "rel_type": "prime_contractor_of",
+                "source_name": "Science Applications International Corporation",
+                "target_name": vehicle_name,
+                "data_source": "usaspending_vehicle_live",
+                "authority_level": "official_program_system",
+                "source_class": "public_connector",
+                "access_model": "public_api",
+                "confidence": 0.8,
+                "evidence": "Observed prime relationship.",
+                "evidence_summary": "Observed prime relationship.",
+                "source_urls": ["https://www.usaspending.gov/search/"],
+            }
+        ]
+        return result
+
+    def fake_sync(*, vehicle_name, support_bundle):
+        calls["sync"] += 1
+        return {
+            "enabled": True,
+            "relationship_count": len(support_bundle.get("relationships") or []),
+            "reused_relationship_count": 0,
+            "syncable_relationship_count": len(support_bundle.get("relationships") or []),
+        }
+
+    monkeypatch.setattr(vehicle_intel_support, "archive_fixture_enrich", fake_archive)
+    monkeypatch.setattr(vehicle_intel_support, "gao_fixture_enrich", fake_gao)
+    monkeypatch.setattr(vehicle_intel_support, "usaspending_vehicle_live_enrich", fake_live)
+    monkeypatch.setattr(vehicle_intel_support, "sync_vehicle_support_graph", fake_sync)
+
+    first = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor=_vendor("Science Applications International Corporation"),
+        sync_graph=True,
+    )
+    second = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor=_vendor("Science Applications International Corporation"),
+        sync_graph=True,
+    )
+
+    assert first["observed_vendors"][0]["vendor_name"] == "Science Applications International Corporation"
+    assert second["graph_sync"]["relationship_count"] == 0
+    assert second["graph_sync"]["reused_relationship_count"] == 1
+    assert second["graph_sync"]["cached"] is True
+    assert calls == {"archive": 1, "gao": 1, "live": 1, "sync": 1}
 
 
 def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seeded():

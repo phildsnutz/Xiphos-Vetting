@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
+import os
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +28,9 @@ SUPPORT_CATALOG_PATH = (
     / "vehicle_intelligence"
     / "vehicle_support_catalog.json"
 )
+_SUPPORT_CACHE_TTL_SECONDS = max(int(os.environ.get("XIPHOS_VEHICLE_SUPPORT_CACHE_TTL_SECONDS", "600") or 600), 0)
+_SUPPORT_CACHE_LOCK = threading.Lock()
+_SUPPORT_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 
 def _seed_metadata(vendor: dict[str, Any] | None) -> dict[str, Any]:
@@ -121,6 +128,86 @@ def _merged_seed_metadata(vehicle_name: str, vendor: dict[str, Any] | None) -> d
     merged.update(_catalog_seed_metadata(vehicle_name))
     merged.update(_seed_metadata(vendor))
     return merged
+
+
+def _seed_metadata_stamp(seed_metadata: dict[str, Any]) -> str:
+    visible = {
+        str(key): value
+        for key, value in (seed_metadata or {}).items()
+        if not str(key).startswith("__") and value not in (None, "", [])
+    }
+    if not visible:
+        return ""
+    return json.dumps(visible, sort_keys=True, default=str)
+
+
+def _support_cache_key(
+    *,
+    scoped_vehicle_name: str,
+    vendor: dict[str, Any] | None,
+    seed_metadata: dict[str, Any],
+) -> tuple[str, str, str]:
+    vendor_name = ""
+    if isinstance(vendor, dict):
+        vendor_name = str(vendor.get("name") or "").strip()
+    return (
+        _normalize_vehicle_name(scoped_vehicle_name),
+        _normalize_vehicle_name(vendor_name),
+        _seed_metadata_stamp(seed_metadata),
+    )
+
+
+def _get_cached_support_entry(cache_key: tuple[str, str, str]) -> dict[str, Any] | None:
+    if _SUPPORT_CACHE_TTL_SECONDS <= 0:
+        return None
+    now = time.time()
+    with _SUPPORT_CACHE_LOCK:
+        expired = [
+            key
+            for key, value in _SUPPORT_CACHE.items()
+            if now - float(value.get("cached_at", 0.0) or 0.0) > _SUPPORT_CACHE_TTL_SECONDS
+        ]
+        for key in expired:
+            _SUPPORT_CACHE.pop(key, None)
+        cached = _SUPPORT_CACHE.get(cache_key)
+        if not cached:
+            return None
+        return {
+            "bundle": deepcopy(cached.get("bundle") or {}),
+            "graph_sync": deepcopy(cached.get("graph_sync")),
+        }
+
+
+def _store_cached_support_entry(
+    cache_key: tuple[str, str, str],
+    *,
+    bundle: dict[str, Any],
+    graph_sync: dict[str, Any] | None = None,
+) -> None:
+    if _SUPPORT_CACHE_TTL_SECONDS <= 0:
+        return
+    with _SUPPORT_CACHE_LOCK:
+        _SUPPORT_CACHE[cache_key] = {
+            "cached_at": time.time(),
+            "bundle": deepcopy(bundle),
+            "graph_sync": deepcopy(graph_sync) if isinstance(graph_sync, dict) else None,
+        }
+
+
+def _store_cached_support_graph_sync(cache_key: tuple[str, str, str], graph_sync: dict[str, Any]) -> None:
+    if _SUPPORT_CACHE_TTL_SECONDS <= 0:
+        return
+    with _SUPPORT_CACHE_LOCK:
+        cached = _SUPPORT_CACHE.get(cache_key)
+        if not cached:
+            return
+        cached["graph_sync"] = deepcopy(graph_sync)
+        cached["cached_at"] = time.time()
+
+
+def clear_vehicle_intelligence_support_cache() -> None:
+    with _SUPPORT_CACHE_LOCK:
+        _SUPPORT_CACHE.clear()
 
 
 def _public_html_vehicle_ids(seed_metadata: dict[str, Any]) -> dict[str, Any]:
@@ -529,6 +616,35 @@ def build_vehicle_intelligence_support(
         return None
 
     seed_metadata = _merged_seed_metadata(scoped_vehicle_name, vendor)
+    cache_key = _support_cache_key(
+        scoped_vehicle_name=scoped_vehicle_name,
+        vendor=vendor,
+        seed_metadata=seed_metadata,
+    )
+    cached = _get_cached_support_entry(cache_key)
+    if cached is not None:
+        support_bundle = dict(cached.get("bundle") or {})
+        if sync_graph:
+            graph_sync = cached.get("graph_sync")
+            if not isinstance(graph_sync, dict):
+                graph_sync = sync_vehicle_support_graph(
+                    vehicle_name=scoped_vehicle_name,
+                    support_bundle=support_bundle,
+                )
+                _store_cached_support_graph_sync(cache_key, graph_sync)
+            else:
+                graph_sync = {
+                    **graph_sync,
+                    "relationship_count": 0,
+                    "reused_relationship_count": max(
+                        int(graph_sync.get("reused_relationship_count") or 0),
+                        int(graph_sync.get("syncable_relationship_count") or 0),
+                    ),
+                    "cached": True,
+                }
+            support_bundle["graph_sync"] = graph_sync
+        return support_bundle
+
     archive_result = archive_fixture_enrich(scoped_vehicle_name)
     gao_result = gao_fixture_enrich(scoped_vehicle_name)
     live_vehicle_result = usaspending_vehicle_live_enrich(
@@ -572,9 +688,13 @@ def build_vehicle_intelligence_support(
         "observed_vendors": observed_vendors,
         "sources": [getattr(result, "source", "") for result in results if getattr(result, "source", "")],
     }
+    graph_sync = None
     if sync_graph:
-        support_bundle["graph_sync"] = sync_vehicle_support_graph(
+        graph_sync = sync_vehicle_support_graph(
             vehicle_name=scoped_vehicle_name,
             support_bundle=support_bundle,
         )
+        support_bundle["graph_sync"] = graph_sync
+    cached_bundle = {key: value for key, value in support_bundle.items() if key != "graph_sync"}
+    _store_cached_support_entry(cache_key, bundle=cached_bundle, graph_sync=graph_sync)
     return support_bundle

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import concurrent.futures
+from copy import deepcopy
 import os
+import threading
+import time
 from datetime import datetime
 from typing import Any
 
@@ -15,6 +18,9 @@ from http_trust import resolve_verify_target
 TIMEOUT = 20
 BASE_URL = "https://api.usaspending.gov/api/v2"
 UA = "Xiphos/5.0 (support@xiphos.example)"
+_SEARCH_CACHE_TTL_SECONDS = max(int(os.environ.get("XIPHOS_VEHICLE_SEARCH_CACHE_TTL_SECONDS", "600") or 600), 0)
+_SEARCH_CACHE_LOCK = threading.Lock()
+_SEARCH_CACHE: dict[tuple[tuple[str, ...], bool, int, str], dict[str, Any]] = {}
 
 VEHICLE_ALIASES = {
     "leia": ["LEIA", "Law Enforcement Innovation Alliance"],
@@ -90,6 +96,54 @@ def _normalize_vehicle_terms(vehicle_name: str) -> list[str]:
             seen.add(key)
             ordered.append(term.strip())
     return ordered
+
+
+def _search_cache_key(
+    vehicle_name: str,
+    *,
+    include_subs: bool,
+    limit: int,
+    verify_ssl: bool | str,
+) -> tuple[tuple[str, ...], bool, int, str]:
+    return (
+        tuple(_normalize_vehicle_terms(vehicle_name)),
+        bool(include_subs),
+        int(limit),
+        str(verify_ssl),
+    )
+
+
+def _get_cached_search_result(cache_key: tuple[tuple[str, ...], bool, int, str]) -> dict[str, Any] | None:
+    if _SEARCH_CACHE_TTL_SECONDS <= 0:
+        return None
+    now = time.time()
+    with _SEARCH_CACHE_LOCK:
+        expired = [
+            key
+            for key, value in _SEARCH_CACHE.items()
+            if now - float(value.get("cached_at", 0.0) or 0.0) > _SEARCH_CACHE_TTL_SECONDS
+        ]
+        for key in expired:
+            _SEARCH_CACHE.pop(key, None)
+        cached = _SEARCH_CACHE.get(cache_key)
+        if not cached:
+            return None
+        return deepcopy(cached.get("payload"))
+
+
+def _store_cached_search_result(cache_key: tuple[tuple[str, ...], bool, int, str], payload: dict[str, Any]) -> None:
+    if _SEARCH_CACHE_TTL_SECONDS <= 0:
+        return
+    with _SEARCH_CACHE_LOCK:
+        _SEARCH_CACHE[cache_key] = {
+            "cached_at": time.time(),
+            "payload": deepcopy(payload),
+        }
+
+
+def clear_contract_vehicle_search_cache() -> None:
+    with _SEARCH_CACHE_LOCK:
+        _SEARCH_CACHE.clear()
 
 
 def _search_prime_awards(term: str, limit: int, *, verify_ssl: bool | str) -> tuple[list[dict[str, Any]], set[str], list[dict[str, str]]]:
@@ -215,6 +269,15 @@ def _search_idv_children(award_id: str, limit: int, *, verify_ssl: bool | str) -
 def search_contract_vehicle(vehicle_name: str, include_subs: bool = True, limit: int = 30) -> dict[str, Any]:
     search_terms = _normalize_vehicle_terms(vehicle_name)
     verify_ssl = _verify_ssl()
+    cache_key = _search_cache_key(
+        vehicle_name,
+        include_subs=include_subs,
+        limit=limit,
+        verify_ssl=verify_ssl,
+    )
+    cached = _get_cached_search_result(cache_key)
+    if cached is not None:
+        return cached
     all_primes: list[dict[str, Any]] = []
     all_subs: list[dict[str, Any]] = []
     idv_award_ids: set[str] = set()
@@ -296,7 +359,7 @@ def search_contract_vehicle(vehicle_name: str, include_subs: bool = True, limit:
         seen_errors.add(item)
         normalized_errors.append({'source': item[0], 'message': item[1]})
 
-    return {
+    payload = {
         'vehicle_name': vehicle_name,
         'search_terms': search_terms,
         'timestamp': datetime.utcnow().isoformat() + 'Z',
@@ -309,3 +372,5 @@ def search_contract_vehicle(vehicle_name: str, include_subs: bool = True, limit:
         'idv_awards_checked': len(idv_candidates),
         'errors': normalized_errors,
     }
+    _store_cached_search_result(cache_key, payload)
+    return payload
