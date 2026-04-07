@@ -48,6 +48,8 @@ CLASS_ORDER = [
     "cooling",
     "emerging",
 ]
+TEAMING_GRAPH_DEPTH = 1
+TEAMING_INCLUDE_PROVENANCE = False
 
 
 @dataclass
@@ -767,10 +769,22 @@ def build_teaming_intelligence(
         )
         return report
 
-    vehicle_network = get_multi_entity_network([vehicle_id], depth=1, include_provenance=True, max_claim_records=4, max_evidence_records=2)
+    vehicle_network = get_multi_entity_network(
+        [vehicle_id],
+        depth=TEAMING_GRAPH_DEPTH,
+        include_provenance=TEAMING_INCLUDE_PROVENANCE,
+        max_claim_records=1,
+        max_evidence_records=1,
+    )
     incumbent_ids = _collect_incumbents(vehicle_id, vehicle_network.get("relationships") or [], entities)
     roots = [vehicle_id, *incumbent_ids]
-    full_network = get_multi_entity_network(roots, depth=2, include_provenance=True, max_claim_records=4, max_evidence_records=2)
+    full_network = get_multi_entity_network(
+        roots,
+        depth=TEAMING_GRAPH_DEPTH,
+        include_provenance=TEAMING_INCLUDE_PROVENANCE,
+        max_claim_records=1,
+        max_evidence_records=1,
+    )
     relationships = full_network.get("relationships") or []
     full_entities = full_network.get("entities") or {}
     for entity_id in roots:
