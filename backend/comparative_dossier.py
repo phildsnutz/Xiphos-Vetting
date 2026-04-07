@@ -713,6 +713,51 @@ def _context_findings(context: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
+def _context_observed_vendors(context: dict[str, Any]) -> list[dict[str, Any]]:
+    observed_rows: list[dict[str, Any]] = []
+    for row in _context_vehicle_intelligence(context).get("observed_vendors") or []:
+        if isinstance(row, dict):
+            observed_rows.append(dict(row))
+    return observed_rows
+
+
+def _observed_vendor_rows(contexts: list[dict[str, Any]], prime_contractor: str) -> list[dict[str, Any]]:
+    rows_by_name: dict[str, dict[str, Any]] = {}
+    for context in contexts:
+        for row in _context_observed_vendors(context):
+            vendor_name = _clean_text(row.get("vendor_name"))
+            if not vendor_name:
+                continue
+            key = _normalize_name(vendor_name)
+            try:
+                award_amount = float(row.get("award_amount") or 0.0)
+            except (TypeError, ValueError):
+                award_amount = 0.0
+            candidate = {
+                "vendor_name": vendor_name,
+                "role": _clean_text(row.get("role"), "prime"),
+                "award_amount": award_amount,
+            }
+            existing = rows_by_name.get(key)
+            if existing is None:
+                rows_by_name[key] = candidate
+                continue
+            if existing["role"] != candidate["role"]:
+                existing["role"] = "prime+sub"
+            if candidate["award_amount"] > existing["award_amount"]:
+                existing.update(candidate)
+    prime_key = _normalize_name(prime_contractor)
+    if prime_key and prime_key not in rows_by_name:
+        rows_by_name[prime_key] = {
+            "vendor_name": prime_contractor,
+            "role": "prime",
+            "award_amount": 0.0,
+        }
+    rows = list(rows_by_name.values())
+    rows.sort(key=lambda item: (-float(item.get("award_amount") or 0.0), item["vendor_name"].lower()))
+    return rows
+
+
 def _pick_primary_context(contexts: list[dict[str, Any]], prime_contractor: str) -> dict[str, Any] | None:
     prime_key = _normalize_name(prime_contractor)
     for context in contexts:
@@ -1488,6 +1533,7 @@ def _build_vehicle_support(
         "lineage_rows": lineage_rows,
         "event_rows": event_rows,
         "finding_rows": finding_rows,
+        "observed_vendors": _observed_vendor_rows(contexts, prime_contractor),
         "gaps": gaps,
         "recommendation": _case_recommendation(primary_context),
         "probability_pct": _case_probability_pct(primary_context),
@@ -2301,9 +2347,12 @@ def generate_vehicle_dossier(
     try:
         from teaming_intelligence import build_teaming_intelligence
 
+        observed_vendors = vehicle_support.get("observed_vendors") if isinstance(vehicle_support.get("observed_vendors"), list) else []
+        if not observed_vendors:
+            observed_vendors = [{"vendor_name": prime_contractor, "role": "prime"}]
         teaming_report = build_teaming_intelligence(
             vehicle_name=vehicle_name,
-            observed_vendors=[{"vendor_name": prime_contractor, "role": "prime"}],
+            observed_vendors=observed_vendors,
         )
     except Exception:
         teaming_report = None

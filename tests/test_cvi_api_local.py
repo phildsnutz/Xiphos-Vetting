@@ -122,6 +122,59 @@ def test_cvi_teaming_intelligence_route_returns_report(client, monkeypatch):
     assert payload["report"]["top_conclusions"] == ["Amentum remains the incumbent core."]
 
 
+def test_cvi_teaming_intelligence_route_hydrates_observed_vendors_from_vehicle_support(client, monkeypatch):
+    import teaming_intelligence
+    import vehicle_intel_support
+
+    captured = {}
+
+    monkeypatch.setattr(
+        vehicle_intel_support,
+        "build_vehicle_intelligence_support",
+        lambda **_: {
+            "observed_vendors": [
+                {"vendor_name": "Science Applications International Corporation", "role": "prime", "award_amount": 188000000},
+                {"vendor_name": "Torch Technologies, Inc.", "role": "prime", "award_amount": 76000000},
+            ]
+        },
+        raising=False,
+    )
+
+    def fake_build_teaming_intelligence(**kwargs):
+        captured["observed_vendors"] = kwargs.get("observed_vendors", [])
+        return {
+            "analysis_scope": "multi_vehicle_capture_v1",
+            "supported": True,
+            "generated_at": "2026-04-07T00:00:00Z",
+            "vehicle_name": kwargs.get("vehicle_name"),
+            "state_contract": {
+                "observed": "facts",
+                "assessed": "assessment",
+                "predicted": "prediction",
+            },
+            "graph_snapshot_signature": "kgsnapshot:test",
+            "observed_signals": [],
+            "assessed_partners": [],
+            "top_conclusions": ["Hydrated observed vendor roster used."],
+            "map": {"nodes": [], "edges": []},
+            "scenario": None,
+        }
+
+    monkeypatch.setattr(teaming_intelligence, "build_teaming_intelligence", fake_build_teaming_intelligence)
+
+    response = client.post(
+        "/api/cvi/teaming-intelligence",
+        json={
+            "vehicle_name": "OASIS",
+            "prime_contractor": "Science Applications International Corporation",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["observed_vendors"][0]["vendor_name"] == "Science Applications International Corporation"
+    assert len(captured["observed_vendors"]) == 2
+
+
 def test_cvi_gap_advisory_route_serializes_pipeline_result(client, monkeypatch):
     import gap_advisory_pipeline
 

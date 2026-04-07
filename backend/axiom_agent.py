@@ -480,19 +480,6 @@ def _build_vehicle_mode_support(target: SearchTarget) -> dict:
         except Exception:
             support_builder = None
 
-    observed_vendors = [{"vendor_name": target.prime_contractor, "role": "prime"}]
-    observed_vendors.extend({"vendor_name": name, "role": "subcontractor"} for name in target.known_subs[:4])
-
-    teaming_report = None
-    if teaming_builder is not None:
-        try:
-            teaming_report = teaming_builder(
-                vehicle_name=target.vehicle_name,
-                observed_vendors=observed_vendors,
-            )
-        except Exception:
-            teaming_report = None
-
     support_bundle = None
     if support_builder is not None:
         try:
@@ -510,6 +497,48 @@ def _build_vehicle_mode_support(target: SearchTarget) -> dict:
             )
         except Exception:
             support_bundle = None
+
+    observed_vendors = [{"vendor_name": target.prime_contractor, "role": "prime"}]
+    observed_vendors.extend({"vendor_name": name, "role": "subcontractor"} for name in target.known_subs[:4])
+    if isinstance(support_bundle, dict):
+        observed_vendors.extend(
+            dict(row)
+            for row in (support_bundle.get("observed_vendors") or [])
+            if isinstance(row, dict)
+        )
+
+    deduped_observed: dict[str, dict] = {}
+    for row in observed_vendors:
+        vendor_name = str(row.get("vendor_name") or "").strip()
+        if not vendor_name:
+            continue
+        key = vendor_name.upper()
+        existing = deduped_observed.get(key)
+        try:
+            candidate_amount = float(row.get("award_amount") or 0.0)
+        except (TypeError, ValueError):
+            candidate_amount = 0.0
+        if existing is None:
+            deduped_observed[key] = {
+                "vendor_name": vendor_name,
+                "role": str(row.get("role") or "prime"),
+                "award_amount": candidate_amount,
+            }
+            continue
+        if existing["role"] != str(row.get("role") or "prime"):
+            existing["role"] = "prime+sub"
+        if candidate_amount > existing["award_amount"]:
+            existing["award_amount"] = candidate_amount
+
+    teaming_report = None
+    if teaming_builder is not None:
+        try:
+            teaming_report = teaming_builder(
+                vehicle_name=target.vehicle_name,
+                observed_vendors=list(deduped_observed.values()),
+            )
+        except Exception:
+            teaming_report = None
 
     graph_facts = []
     predictions: list[str] = []
@@ -534,6 +563,7 @@ def _build_vehicle_mode_support(target: SearchTarget) -> dict:
     support_evidence = {
         "connectors_run": int((support_bundle or {}).get("connectors_run") or 0),
         "connectors_with_data": int((support_bundle or {}).get("connectors_with_data") or 0),
+        "observed_vendors": list(deduped_observed.values())[:8],
         "relationships": _support_relationship_digest((support_bundle or {}).get("relationships") or []),
         "events": _support_event_digest((support_bundle or {}).get("events") or []),
         "findings": _support_finding_digest((support_bundle or {}).get("findings") or []),

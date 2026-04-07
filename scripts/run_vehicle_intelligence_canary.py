@@ -360,6 +360,13 @@ def main() -> int:
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="LEIA", prime_contractor="SMX", markers=LEIA_DOSSIER_MARKERS),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="SEWP", prime_contractor="NASA SEWP Program Office", markers=SUPPORT_ONLY_DOSSIER_MARKERS),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="CIO-SP4", prime_contractor="NITAAC", markers=SUPPORT_ONLY_DOSSIER_MARKERS),
+        _check_vehicle_dossier(
+            args.base_url,
+            headers,
+            vehicle_name="OASIS",
+            prime_contractor="Science Applications International Corporation",
+            markers=SUPPORT_ONLY_DOSSIER_MARKERS,
+        ),
         _check_comparative(args.base_url, headers),
         _check_axiom_vehicle_mode(args.base_url, headers),
     ]

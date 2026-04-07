@@ -1,6 +1,7 @@
 import os
 import sys
 import types
+from pathlib import Path
 
 
 BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
@@ -8,6 +9,10 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 import comparative_dossier
+import vehicle_intel_support
+
+
+LIVE_VEHICLE_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "usaspending_vehicle_live_fixture.json"
 
 
 def _make_context(*, vendor_name: str, relationships: list[dict], events: list[dict], findings: list[dict]):
@@ -61,6 +66,22 @@ def _make_context(*, vendor_name: str, relationships: list[dict], events: list[d
         },
         "vehicle_intelligence": None,
     }
+
+
+def _support_with_live_fixture(vehicle_name: str, prime_contractor: str) -> dict:
+    return vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name=vehicle_name,
+        vendor={
+            "id": f"support-{vehicle_name.lower().replace(' ', '-')}",
+            "name": prime_contractor,
+            "vendor_input": {
+                "seed_metadata": {
+                    "contract_vehicle_name": vehicle_name,
+                    "contract_vehicle_live_fixture_path": str(LIVE_VEHICLE_FIXTURE_PATH),
+                }
+            },
+        },
+    )
 
 
 def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
@@ -207,6 +228,11 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
 
 def test_generate_vehicle_dossier_uses_vehicle_support_without_linked_case(monkeypatch):
     monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
+    monkeypatch.setattr(
+        comparative_dossier,
+        "build_vehicle_intelligence_support",
+        lambda *, vehicle_name, vendor=None: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or "SMX")),
+    )
 
     html = comparative_dossier.generate_vehicle_dossier(
         vehicle_name="LEIA",
@@ -222,11 +248,16 @@ def test_generate_vehicle_dossier_uses_vehicle_support_without_linked_case(monke
     assert "Evidence Footprint" in html
     assert "Contract Opportunities Public" in html
     assert "Contract Opportunities Archive Fixture" in html
-    assert "Connectors with signal: 2" in html
+    assert "Connectors with signal: 3" in html
 
 
 def test_generate_vehicle_dossier_uses_support_only_path_for_broader_seeded_vehicle_set(monkeypatch):
     monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
+    monkeypatch.setattr(
+        comparative_dossier,
+        "build_vehicle_intelligence_support",
+        lambda *, vehicle_name, vendor=None: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or vehicle_name)),
+    )
 
     sewp_html = comparative_dossier.generate_vehicle_dossier(
         vehicle_name="SEWP",
@@ -248,13 +279,37 @@ def test_generate_vehicle_dossier_uses_support_only_path_for_broader_seeded_vehi
         assert "Capture Outlook" in html
         assert "Evidence Footprint" in html
         assert "Contract Opportunities Public" in html
-        assert "Connectors with signal: 1" in html
+        assert "Connectors with signal: 2" in html
         assert "No case-level protest or litigation events are attached" in html
 
     assert "SEWP V" in sewp_html
     assert "NASA SEWP Program Office" in sewp_html
     assert "CIO-SP3" in cio_html
     assert "NIH Information Technology Acquisition and Assessment Center" in cio_html
+
+
+def test_generate_vehicle_dossier_support_only_non_seeded_vehicle_uses_live_award_support(monkeypatch):
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
+    monkeypatch.setattr(
+        comparative_dossier,
+        "build_vehicle_intelligence_support",
+        lambda *, vehicle_name, vendor=None: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or "Science Applications International Corporation")),
+    )
+
+    html = comparative_dossier.generate_vehicle_dossier(
+        vehicle_name="OASIS",
+        prime_contractor="Science Applications International Corporation",
+        vendor_ids=["support-only-oasis"],
+        contract_data={"naics": "541611"},
+    )
+
+    assert "vehicle-scoped support evidence only" in html
+    assert "Live award picture" in html
+    assert "USAspending" in html
+    assert "Vehicle Live" in html
+    assert "General Services Administration" in html
+    assert "OASIS Systems, LLC" in html
+    assert "Connectors with signal: 1" in html
 
 
 def test_generate_vehicle_dossier_lineage_read_uses_wayback_support_relationships(monkeypatch):

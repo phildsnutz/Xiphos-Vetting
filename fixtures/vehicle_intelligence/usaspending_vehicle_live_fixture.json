@@ -1,0 +1,286 @@
+{
+  "vehicles": [
+    {
+      "vehicle_name": "ITEAMS",
+      "search_terms": ["ITEAMS"],
+      "primes": [
+        {
+          "vendor_name": "Amentum Services, Inc.",
+          "award_id": "N00164-24-F-3004",
+          "award_amount": 182000000,
+          "awarding_agency": "Department of the Navy",
+          "awarding_sub_agency": "Naval Information Warfare Center Pacific",
+          "description": "ITEAMS task order supporting INDOPACOM mission engineering and technical services.",
+          "role": "prime",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "ManTech Advanced Systems International, Inc.",
+          "award_id": "N00164-23-F-1188",
+          "award_amount": 94000000,
+          "awarding_agency": "Department of the Navy",
+          "awarding_sub_agency": "Naval Information Warfare Center Pacific",
+          "description": "ITEAMS mission support and engineering services task order.",
+          "role": "prime",
+          "source": "usaspending"
+        }
+      ],
+      "subs": [
+        {
+          "vendor_name": "Kupono Government Services LLC",
+          "award_id": "SUB-ITEAMS-001",
+          "prime_award_id": "N00164-24-F-3004",
+          "prime_recipient": "Amentum Services, Inc.",
+          "award_amount": 14200000,
+          "awarding_agency": "Department of the Navy",
+          "description": "ITEAMS subcontract for Pacific operations support.",
+          "role": "subcontractor",
+          "source": "usaspending"
+        }
+      ],
+      "unique_vendors": [
+        {
+          "vendor_name": "Amentum Services, Inc.",
+          "role": "prime",
+          "award_amount": 182000000
+        },
+        {
+          "vendor_name": "ManTech Advanced Systems International, Inc.",
+          "role": "prime",
+          "award_amount": 94000000
+        },
+        {
+          "vendor_name": "Kupono Government Services LLC",
+          "role": "subcontractor",
+          "award_amount": 14200000
+        }
+      ],
+      "total_primes": 2,
+      "total_subs": 1,
+      "total_unique": 3,
+      "idv_awards_checked": 2,
+      "errors": []
+    },
+    {
+      "vehicle_name": "LEIA",
+      "search_terms": ["LEIA", "Law Enforcement Innovation Alliance"],
+      "primes": [
+        {
+          "vendor_name": "SMX, LLC",
+          "award_id": "W911QY-25-F-0112",
+          "award_amount": 63000000,
+          "awarding_agency": "Department of the Army",
+          "awarding_sub_agency": "USINDOPACOM",
+          "description": "LEIA mission support award for law-enforcement data integration.",
+          "role": "prime",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "HII Mission Technologies Corp.",
+          "award_id": "W911QY-24-F-0177",
+          "award_amount": 47000000,
+          "awarding_agency": "Department of the Army",
+          "awarding_sub_agency": "USINDOPACOM",
+          "description": "LEIA engineering and sustainment support task order.",
+          "role": "prime",
+          "source": "usaspending"
+        }
+      ],
+      "subs": [
+        {
+          "vendor_name": "cBEYONData LLC",
+          "award_id": "SUB-LEIA-001",
+          "prime_award_id": "W911QY-25-F-0112",
+          "prime_recipient": "SMX, LLC",
+          "award_amount": 8900000,
+          "awarding_agency": "Department of the Army",
+          "description": "LEIA subcontract for analytics and mission data services.",
+          "role": "subcontractor",
+          "source": "usaspending"
+        }
+      ],
+      "unique_vendors": [
+        {
+          "vendor_name": "SMX, LLC",
+          "role": "prime",
+          "award_amount": 63000000
+        },
+        {
+          "vendor_name": "HII Mission Technologies Corp.",
+          "role": "prime",
+          "award_amount": 47000000
+        },
+        {
+          "vendor_name": "cBEYONData LLC",
+          "role": "subcontractor",
+          "award_amount": 8900000
+        }
+      ],
+      "total_primes": 2,
+      "total_subs": 1,
+      "total_unique": 3,
+      "idv_awards_checked": 1,
+      "errors": []
+    },
+    {
+      "vehicle_name": "SEWP",
+      "aliases": ["SEWP VI", "SEWP V"],
+      "search_terms": ["SEWP"],
+      "primes": [
+        {
+          "vendor_name": "SEWP Solutions LLC",
+          "award_id": "NNG15SC52B",
+          "award_amount": 58000000,
+          "awarding_agency": "National Aeronautics and Space Administration",
+          "awarding_sub_agency": "NASA SEWP Program Office",
+          "description": "SEWP vehicle ordering support and IT products.",
+          "role": "prime",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "Lancer Information Solutions, LLC",
+          "award_id": "NNG15SC54B",
+          "award_amount": 34000000,
+          "awarding_agency": "National Aeronautics and Space Administration",
+          "awarding_sub_agency": "NASA SEWP Program Office",
+          "description": "SEWP contract holder operations and product fulfillment.",
+          "role": "prime",
+          "source": "usaspending"
+        }
+      ],
+      "subs": [
+        {
+          "vendor_name": "Cisco Systems Inc",
+          "award_id": "SUB-SEWP-001",
+          "prime_award_id": "NNG15SC52B",
+          "prime_recipient": "SEWP Solutions LLC",
+          "award_amount": 12000000,
+          "awarding_agency": "National Aeronautics and Space Administration",
+          "description": "SEWP product delivery and integration support.",
+          "role": "subcontractor",
+          "source": "usaspending"
+        }
+      ],
+      "unique_vendors": [
+        {"vendor_name": "SEWP Solutions LLC", "role": "prime", "award_amount": 58000000},
+        {"vendor_name": "Lancer Information Solutions, LLC", "role": "prime", "award_amount": 34000000},
+        {"vendor_name": "Cisco Systems Inc", "role": "subcontractor", "award_amount": 12000000}
+      ],
+      "total_primes": 2,
+      "total_subs": 1,
+      "total_unique": 3,
+      "idv_awards_checked": 1,
+      "errors": []
+    },
+    {
+      "vehicle_name": "CIO-SP4",
+      "aliases": ["CIOSP4", "CIO SP4"],
+      "search_terms": ["CIO-SP4"],
+      "primes": [
+        {
+          "vendor_name": "Systems Plus, Inc.",
+          "award_id": "75N98124D0001",
+          "award_amount": 42000000,
+          "awarding_agency": "Department of Health and Human Services",
+          "awarding_sub_agency": "NIH Information Technology Acquisition and Assessment Center",
+          "description": "CIO-SP4 IT services and mission support pool award.",
+          "role": "prime",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "Sky Solutions LLC",
+          "award_id": "75N98124D0002",
+          "award_amount": 26000000,
+          "awarding_agency": "Department of Health and Human Services",
+          "awarding_sub_agency": "NIH Information Technology Acquisition and Assessment Center",
+          "description": "CIO-SP4 digital modernization support award.",
+          "role": "prime",
+          "source": "usaspending"
+        }
+      ],
+      "subs": [],
+      "unique_vendors": [
+        {"vendor_name": "Systems Plus, Inc.", "role": "prime", "award_amount": 42000000},
+        {"vendor_name": "Sky Solutions LLC", "role": "prime", "award_amount": 26000000}
+      ],
+      "total_primes": 2,
+      "total_subs": 0,
+      "total_unique": 2,
+      "idv_awards_checked": 1,
+      "errors": []
+    },
+    {
+      "vehicle_name": "OASIS",
+      "aliases": ["One Acquisition Solution for Integrated Services"],
+      "search_terms": ["OASIS"],
+      "primes": [
+        {
+          "vendor_name": "Science Applications International Corporation",
+          "award_id": "47QRAD20D1012",
+          "award_amount": 188000000,
+          "awarding_agency": "General Services Administration",
+          "awarding_sub_agency": "Federal Acquisition Service",
+          "description": "OASIS task order support for enterprise mission services.",
+          "role": "prime",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "Torch Technologies, Inc.",
+          "award_id": "47QRAD20D1091",
+          "award_amount": 76000000,
+          "awarding_agency": "General Services Administration",
+          "awarding_sub_agency": "Federal Acquisition Service",
+          "description": "OASIS engineering and mission services task order.",
+          "role": "prime",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "Northrop Grumman Systems Corporation",
+          "award_id": "47QRAD20D1104",
+          "award_amount": 54000000,
+          "awarding_agency": "General Services Administration",
+          "awarding_sub_agency": "Federal Acquisition Service",
+          "description": "OASIS program support and systems engineering work.",
+          "role": "prime",
+          "source": "usaspending"
+        }
+      ],
+      "subs": [
+        {
+          "vendor_name": "OASIS Systems, LLC",
+          "award_id": "SUB-OASIS-001",
+          "prime_award_id": "47QRAD20D1012",
+          "prime_recipient": "Science Applications International Corporation",
+          "award_amount": 18000000,
+          "awarding_agency": "General Services Administration",
+          "description": "OASIS subcontract supporting enterprise mission services delivery.",
+          "role": "subcontractor",
+          "source": "usaspending"
+        },
+        {
+          "vendor_name": "BlueHalo LLC",
+          "award_id": "SUB-OASIS-002",
+          "prime_award_id": "47QRAD20D1091",
+          "prime_recipient": "Torch Technologies, Inc.",
+          "award_amount": 12000000,
+          "awarding_agency": "General Services Administration",
+          "description": "OASIS subcontract for advanced mission support engineering.",
+          "role": "subcontractor",
+          "source": "usaspending"
+        }
+      ],
+      "unique_vendors": [
+        {"vendor_name": "Science Applications International Corporation", "role": "prime", "award_amount": 188000000},
+        {"vendor_name": "Torch Technologies, Inc.", "role": "prime", "award_amount": 76000000},
+        {"vendor_name": "Northrop Grumman Systems Corporation", "role": "prime", "award_amount": 54000000},
+        {"vendor_name": "OASIS Systems, LLC", "role": "subcontractor", "award_amount": 18000000},
+        {"vendor_name": "BlueHalo LLC", "role": "subcontractor", "award_amount": 12000000}
+      ],
+      "total_primes": 3,
+      "total_subs": 2,
+      "total_unique": 5,
+      "idv_awards_checked": 3,
+      "errors": []
+    }
+  ]
+}

@@ -13,6 +13,7 @@ from osint.contract_vehicle_wayback import enrich as contract_vehicle_wayback_en
 from osint.gao_bid_protests_fixture import enrich as gao_fixture_enrich
 from osint.gao_bid_protests_public import enrich as gao_public_enrich
 from osint.public_html_contract_vehicle import enrich as public_html_contract_vehicle_enrich
+from osint.usaspending_vehicle_live import enrich as usaspending_vehicle_live_enrich
 
 
 SUPPORT_CATALOG_PATH = (
@@ -82,6 +83,13 @@ _CONTRACT_OPPORTUNITY_NOTICE_KEYS = {
     "contract_opportunity_notice_fixture_page",
     "contract_opportunity_notice_fixture_pages",
 }
+_LIVE_VEHICLE_KEYS = {
+    "contract_vehicle_live_fixture",
+    "contract_vehicle_live_fixture_path",
+    "contract_vehicle_live_fixture_vehicle",
+    "contract_vehicle_live_limit",
+    "contract_vehicle_live_include_subs",
+}
 
 
 def _normalize_vehicle_name(value: str) -> str:
@@ -145,6 +153,19 @@ def _contract_opportunity_notice_ids(seed_metadata: dict[str, Any]) -> dict[str,
     }
 
 
+def _live_vehicle_ids(seed_metadata: dict[str, Any], vendor: dict[str, Any] | None) -> dict[str, Any]:
+    payload = {
+        key: value
+        for key, value in seed_metadata.items()
+        if key in _LIVE_VEHICLE_KEYS and value not in (None, "", [])
+    }
+    if isinstance(vendor, dict):
+        prime_name = str(vendor.get("name") or "").strip()
+        if prime_name:
+            payload["prime_contractor_name"] = prime_name
+    return payload
+
+
 def _finding_to_dict(finding: Any) -> dict[str, Any]:
     return {
         "source": getattr(finding, "source", ""),
@@ -170,6 +191,43 @@ def _result_relationships(results: list[Any]) -> list[dict[str, Any]]:
                 continue
             relationships.append(dict(relationship))
     return relationships
+
+
+def _result_observed_vendors(results: list[Any]) -> list[dict[str, Any]]:
+    observed_by_name: dict[str, dict[str, Any]] = {}
+    for result in results:
+        structured = getattr(result, "structured_fields", {}) or {}
+        for row in structured.get("observed_vendors") or []:
+            if not isinstance(row, dict):
+                continue
+            vendor_name = str(row.get("vendor_name") or "").strip()
+            if not vendor_name:
+                continue
+            key = _normalize_vehicle_name(vendor_name)
+            candidate = dict(row)
+            existing = observed_by_name.get(key)
+            if existing is None:
+                observed_by_name[key] = candidate
+                continue
+            if str(existing.get("role") or "") != str(candidate.get("role") or ""):
+                existing["role"] = "prime+sub"
+            try:
+                existing_amount = float(existing.get("award_amount") or 0.0)
+            except (TypeError, ValueError):
+                existing_amount = 0.0
+            try:
+                candidate_amount = float(candidate.get("award_amount") or 0.0)
+            except (TypeError, ValueError):
+                candidate_amount = 0.0
+            if candidate_amount > existing_amount:
+                existing.update(candidate)
+    return sorted(
+        observed_by_name.values(),
+        key=lambda row: (
+            -(float(row.get("award_amount") or 0.0) if str(row.get("award_amount") or "").strip() else 0.0),
+            str(row.get("vendor_name") or "").lower(),
+        ),
+    )
 
 
 def _gao_events(results: list[Any]) -> list[dict[str, Any]]:
@@ -224,7 +282,11 @@ def build_vehicle_intelligence_support(
     seed_metadata = _merged_seed_metadata(scoped_vehicle_name, vendor)
     archive_result = archive_fixture_enrich(scoped_vehicle_name)
     gao_result = gao_fixture_enrich(scoped_vehicle_name)
-    results = [archive_result, gao_result]
+    live_vehicle_result = usaspending_vehicle_live_enrich(
+        scoped_vehicle_name,
+        **_live_vehicle_ids(seed_metadata, vendor),
+    )
+    results = [archive_result, gao_result, live_vehicle_result]
     contract_notice_ids = _contract_opportunity_notice_ids(seed_metadata)
     if contract_notice_ids:
         results.append(contract_opportunities_public_enrich(scoped_vehicle_name, **contract_notice_ids))
@@ -244,6 +306,7 @@ def build_vehicle_intelligence_support(
 
     relationships = _result_relationships(results)
     events = _gao_events(results)
+    observed_vendors = _result_observed_vendors(results)
     connectors_with_data = sum(
         1
         for result in results
@@ -257,5 +320,6 @@ def build_vehicle_intelligence_support(
         "relationships": relationships,
         "events": events,
         "findings": findings,
+        "observed_vendors": observed_vendors,
         "sources": [getattr(result, "source", "") for result in results if getattr(result, "source", "")],
     }

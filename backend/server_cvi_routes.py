@@ -286,6 +286,10 @@ def api_cvi_teaming_intelligence():
     """Return the v1 competitive teaming map for a named vehicle."""
     try:
         from teaming_intelligence import build_teaming_intelligence
+        try:
+            from vehicle_intel_support import build_vehicle_intelligence_support
+        except Exception:
+            build_vehicle_intelligence_support = None
 
         body = request.get_json(silent=True) or {}
         vehicle_name = str(body.get("vehicle_name", "")).strip()
@@ -299,6 +303,29 @@ def api_cvi_teaming_intelligence():
         scenario = body.get("scenario")
         if scenario is not None and not isinstance(scenario, dict):
             return jsonify({"error": "scenario must be an object when provided"}), 400
+
+        if not observed_vendors and build_vehicle_intelligence_support is not None:
+            try:
+                support_bundle = build_vehicle_intelligence_support(
+                    vehicle_name=vehicle_name,
+                    vendor={
+                        "id": "",
+                        "name": str(body.get("prime_contractor", "")).strip(),
+                        "vendor_input": {
+                            "seed_metadata": {
+                                "contract_vehicle_name": vehicle_name,
+                            }
+                        },
+                    },
+                )
+            except Exception:
+                support_bundle = None
+            if isinstance(support_bundle, dict):
+                observed_vendors = [
+                    dict(row)
+                    for row in (support_bundle.get("observed_vendors") or [])
+                    if isinstance(row, dict)
+                ]
 
         report = build_teaming_intelligence(
             vehicle_name=vehicle_name,

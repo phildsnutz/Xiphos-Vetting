@@ -84,6 +84,14 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="third_party_public",
         access_model="public_archive",
     ),
+    "usaspending_vehicle_live": ConnectorRegistryEntry(
+        label="USAspending Vehicle Live",
+        category="Collector",
+        description="Live USAspending vehicle search that surfaces current primes, subs, and funding path without seeded notice pages",
+        source_class="public_connector",
+        authority_level="official_program_system",
+        access_model="public_api",
+    ),
     "dod_sam_exclusions": ConnectorRegistryEntry(
         label="DoD EPLS Exclusions",
         category="Sanctions",

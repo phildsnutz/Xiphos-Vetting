@@ -8,13 +8,27 @@ BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from osint import contract_opportunities_archive_fixture, contract_opportunities_public, gao_bid_protests_fixture  # noqa: E402
+from osint import contract_opportunities_archive_fixture, contract_opportunities_public, gao_bid_protests_fixture, usaspending_vehicle_live  # noqa: E402
 import vehicle_intel_support  # noqa: E402
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "public_html"
 WAYBACK_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "contract_vehicle_wayback_fixture.json"
 GAO_PUBLIC_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "gao_public"
+LIVE_VEHICLE_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "vehicle_intelligence" / "usaspending_vehicle_live_fixture.json"
+
+
+def _vendor(name: str, *, seed_metadata: dict | None = None) -> dict:
+    payload = {"contract_vehicle_live_fixture_path": str(LIVE_VEHICLE_FIXTURE_PATH)}
+    if seed_metadata:
+        payload.update(seed_metadata)
+    return {
+        "id": f"support-{name.lower().replace(' ', '-')}",
+        "name": name,
+        "vendor_input": {
+            "seed_metadata": payload,
+        },
+    }
 
 
 def test_contract_opportunities_archive_fixture_returns_lineage_relationships():
@@ -51,37 +65,58 @@ def test_contract_opportunities_public_reads_seeded_notice_pages():
     assert any(finding.source == "contract_opportunities_public" for finding in result.findings)
 
 
+def test_usaspending_vehicle_live_replays_fixture_and_emits_market_relationships():
+    result = usaspending_vehicle_live.enrich(
+        "OASIS",
+        contract_vehicle_live_fixture_path=str(LIVE_VEHICLE_FIXTURE_PATH),
+        prime_contractor_name="Science Applications International Corporation",
+    )
+
+    assert result.source == "usaspending_vehicle_live"
+    assert any(rel["rel_type"] == "prime_contractor_of" for rel in result.relationships)
+    assert any(rel["rel_type"] == "subcontractor_of" for rel in result.relationships)
+    assert any(rel["rel_type"] == "competed_on" for rel in result.relationships)
+    assert any(rel["rel_type"] == "funded_by" for rel in result.relationships)
+    assert result.structured_fields["observed_vendors"][0]["vendor_name"] == "Science Applications International Corporation"
+    assert any(finding.title.startswith("Live award picture:") for finding in result.findings)
+
+
 def test_vehicle_intel_support_builds_context_supplement():
     support = vehicle_intel_support.build_vehicle_intelligence_support(
         vehicle_name="ITEAMS",
-        vendor={"id": "case-1", "name": "Amentum", "vendor_input": {}},
+        vendor=_vendor("Amentum"),
     )
 
     assert support is not None
     assert support["vehicle_name"] == "ITEAMS"
-    assert support["connectors_run"] == 3
-    assert support["connectors_with_data"] == 3
+    assert support["connectors_run"] == 4
+    assert support["connectors_with_data"] == 4
     assert any(rel["rel_type"] == "predecessor_of" for rel in support["relationships"])
     assert any(rel["rel_type"] == "funded_by" for rel in support["relationships"])
+    assert any(rel["data_source"] == "usaspending_vehicle_live" for rel in support["relationships"])
     assert any(event["connector"] == "gao_bid_protests_fixture" for event in support["events"])
     assert any("Protester:" in event["assessment"] for event in support["events"])
     assert any(finding["source"] == "contract_opportunities_archive_fixture" for finding in support["findings"])
     assert any(finding["source"] == "contract_opportunities_public" for finding in support["findings"])
+    assert any(finding["source"] == "usaspending_vehicle_live" for finding in support["findings"])
+    assert any(row["vendor_name"] == "Amentum Services, Inc." for row in support["observed_vendors"])
 
 
 def test_vehicle_intel_support_uses_catalog_defaults_for_leia():
     support = vehicle_intel_support.build_vehicle_intelligence_support(
         vehicle_name="LEIA",
-        vendor={"id": "case-2", "name": "SMX", "vendor_input": {}},
+        vendor=_vendor("SMX"),
     )
 
     assert support is not None
     assert support["vehicle_name"] == "LEIA"
-    assert support["connectors_run"] == 3
-    assert support["connectors_with_data"] == 2
+    assert support["connectors_run"] == 4
+    assert support["connectors_with_data"] == 3
     assert any(rel["rel_type"] == "awarded_under" for rel in support["relationships"])
     assert any(rel["data_source"] == "contract_opportunities_public" for rel in support["relationships"])
     assert any(finding["source"] == "contract_opportunities_archive_fixture" for finding in support["findings"])
+    assert any(finding["source"] == "usaspending_vehicle_live" for finding in support["findings"])
+    assert any(rel["rel_type"] == "competed_on" for rel in support["relationships"])
 
 
 @pytest.mark.parametrize(
@@ -96,16 +131,34 @@ def test_vehicle_intel_support_uses_catalog_defaults_for_leia():
 def test_vehicle_intel_support_uses_catalog_defaults_for_broader_seeded_vehicle_set(vehicle_name, expected_customer):
     support = vehicle_intel_support.build_vehicle_intelligence_support(
         vehicle_name=vehicle_name,
-        vendor={"id": f"support-{vehicle_name.lower()}", "name": vehicle_name, "vendor_input": {}},
+        vendor=_vendor(vehicle_name),
     )
 
     assert support is not None
     assert support["vehicle_name"] == vehicle_name
-    assert support["connectors_run"] == 3
-    assert support["connectors_with_data"] == 1
+    assert support["connectors_run"] == 4
+    assert support["connectors_with_data"] == 2
     assert any(rel["rel_type"] == "predecessor_of" for rel in support["relationships"])
     assert any(expected_customer in rel.get("evidence", "") for rel in support["relationships"] if rel["rel_type"] == "funded_by")
     assert any(finding["source"] == "contract_opportunities_public" for finding in support["findings"])
+    assert any(finding["source"] == "usaspending_vehicle_live" for finding in support["findings"])
+
+
+def test_vehicle_intel_support_live_collector_supports_non_seeded_vehicle():
+    support = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor=_vendor("Science Applications International Corporation"),
+    )
+
+    assert support is not None
+    assert support["vehicle_name"] == "OASIS"
+    assert support["connectors_run"] == 3
+    assert support["connectors_with_data"] == 1
+    assert any(rel["rel_type"] == "prime_contractor_of" for rel in support["relationships"])
+    assert any(rel["rel_type"] == "competed_on" for rel in support["relationships"])
+    assert any(rel["rel_type"] == "funded_by" for rel in support["relationships"])
+    assert any(finding["source"] == "usaspending_vehicle_live" for finding in support["findings"])
+    assert any(row["vendor_name"] == "Science Applications International Corporation" for row in support["observed_vendors"])
 
 
 def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seeded():
@@ -116,6 +169,7 @@ def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seede
             "name": "Amentum",
             "vendor_input": {
                 "seed_metadata": {
+                    "contract_vehicle_live_fixture_path": str(LIVE_VEHICLE_FIXTURE_PATH),
                     "contract_vehicle_public_html_fixture_pages": [
                         str(FIXTURE_DIR / "iteams_lineage_snapshot.html"),
                         str(FIXTURE_DIR / "iteams_archive_notice.html"),
@@ -126,8 +180,8 @@ def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seede
     )
 
     assert support is not None
-    assert support["connectors_run"] == 4
-    assert support["connectors_with_data"] == 4
+    assert support["connectors_run"] == 5
+    assert support["connectors_with_data"] == 5
     assert any(rel["data_source"] == "public_html_contract_vehicle" for rel in support["relationships"])
     assert any(finding["source"] == "public_html_contract_vehicle" for finding in support["findings"])
 
@@ -140,6 +194,7 @@ def test_vehicle_intel_support_includes_wayback_vehicle_connector_when_seeded():
             "name": "Amentum",
             "vendor_input": {
                 "seed_metadata": {
+                    "contract_vehicle_live_fixture_path": str(LIVE_VEHICLE_FIXTURE_PATH),
                     "contract_vehicle_archive_seed_urls": ["https://sam.gov/opportunity/ITEAMS"],
                     "contract_vehicle_wayback_fixture_path": str(WAYBACK_FIXTURE_PATH),
                 }
@@ -148,8 +203,8 @@ def test_vehicle_intel_support_includes_wayback_vehicle_connector_when_seeded():
     )
 
     assert support is not None
-    assert support["connectors_run"] == 4
-    assert support["connectors_with_data"] == 4
+    assert support["connectors_run"] == 5
+    assert support["connectors_with_data"] == 5
     assert any(rel["data_source"] == "contract_vehicle_wayback" for rel in support["relationships"])
     assert any(finding["source"] == "contract_vehicle_wayback" for finding in support["findings"])
 
@@ -162,6 +217,7 @@ def test_vehicle_intel_support_includes_gao_public_connector_when_seeded():
             "name": "Amentum",
             "vendor_input": {
                 "seed_metadata": {
+                    "contract_vehicle_live_fixture_path": str(LIVE_VEHICLE_FIXTURE_PATH),
                     "gao_public_html_fixture_pages": [
                         str(GAO_PUBLIC_FIXTURE_DIR / "gao_docket_iteams_fixture.html"),
                         str(GAO_PUBLIC_FIXTURE_DIR / "gao_decision_iteams_fixture.html"),
@@ -172,7 +228,7 @@ def test_vehicle_intel_support_includes_gao_public_connector_when_seeded():
     )
 
     assert support is not None
-    assert support["connectors_run"] == 4
-    assert support["connectors_with_data"] == 4
+    assert support["connectors_run"] == 5
+    assert support["connectors_with_data"] == 5
     assert any(event["connector"] == "gao_bid_protests_public" for event in support["events"])
     assert any(finding["source"] == "gao_bid_protests_public" for finding in support["findings"])
