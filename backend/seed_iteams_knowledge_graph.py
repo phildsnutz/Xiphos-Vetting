@@ -310,6 +310,17 @@ RELATIONSHIPS = [
         "evidence_title": "SMX Acquisition of cBEYONData",
         "observed_at": "2024-07-20T00:00:00Z",
     },
+    # cBEYONData subcontract posture on LEIA
+    {
+        "source": "cbeyonddata",
+        "target": "leia",
+        "rel_type": "subcontractor_of",
+        "confidence": CONFIDENCE_TIERS["parsed_text"],
+        "data_source": "press_release",
+        "evidence": "cBEYONData capabilities were folded into the LEIA execution stack after the SMX acquisition.",
+        "evidence_title": "LEIA teammate integration",
+        "observed_at": "2025-01-18T00:00:00Z",
+    },
     # Amentum merged with Jacobs (simplified as related_entity)
     {
         "source": "amentum",
@@ -387,6 +398,50 @@ RELATIONSHIPS = [
         "evidence": "HII operates in Camp Smith area for USINDOPACOM support",
         "evidence_title": "HII Camp Smith Operations",
         "observed_at": "2024-06-01T00:00:00Z",
+    },
+    # LEIA performed at Camp Smith
+    {
+        "source": "leia",
+        "target": "camp_smith",
+        "rel_type": REL_PERFORMED_AT,
+        "confidence": CONFIDENCE_TIERS["parsed_text"],
+        "data_source": "dod_contract_awards",
+        "evidence": "LEIA execution is anchored to Camp Smith support activity.",
+        "evidence_title": "LEIA place of performance",
+        "observed_at": "2024-09-12T00:00:00Z",
+    },
+    # LEIA supports USINDOPACOM
+    {
+        "source": "leia",
+        "target": "usindopacom",
+        "rel_type": REL_CONTRACTS_WITH,
+        "confidence": CONFIDENCE_TIERS["parsed_text"],
+        "data_source": "dod_contract_awards",
+        "evidence": "LEIA supports USINDOPACOM zero-trust modernization demand.",
+        "evidence_title": "LEIA customer base",
+        "observed_at": "2024-09-12T00:00:00Z",
+    },
+    # HII visible challenger pressure on LEIA
+    {
+        "source": "hii",
+        "target": "leia",
+        "rel_type": "competed_on",
+        "confidence": CONFIDENCE_TIERS["inferred_text"],
+        "data_source": "osint_tracking",
+        "evidence": "HII remained visible in the LEIA challenger set during the Indo-Pacific network modernization posture shift.",
+        "evidence_title": "LEIA challenger pressure",
+        "observed_at": "2025-03-02T00:00:00Z",
+    },
+    # Amentum visible challenger pressure on LEIA
+    {
+        "source": "amentum",
+        "target": "leia",
+        "rel_type": "competed_on",
+        "confidence": CONFIDENCE_TIERS["humint_unconfirmed"],
+        "data_source": "network_intelligence",
+        "evidence": "Amentum was discussed in the LEIA challenger picture but did not emerge as the prime.",
+        "evidence_title": "LEIA challenger watchlist",
+        "observed_at": "2025-02-11T00:00:00Z",
     },
     # ITEAMS awarded under OASIS
     {

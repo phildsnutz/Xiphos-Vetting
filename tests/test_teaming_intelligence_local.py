@@ -75,12 +75,33 @@ def test_build_teaming_intelligence_returns_predicted_scenario_for_recruitable_p
     assert report["scenario"]["recommendation"] == "preferred_recruit"
 
 
-def test_build_teaming_intelligence_scopes_non_iteams_vehicle(tmp_path, monkeypatch):
+def test_build_teaming_intelligence_supports_leia_when_graph_signal_exists(tmp_path, monkeypatch):
     _seed_iteams_graph(tmp_path, monkeypatch)
     import teaming_intelligence
 
-    report = teaming_intelligence.build_teaming_intelligence(vehicle_name="LEIA")
+    report = teaming_intelligence.build_teaming_intelligence(
+        vehicle_name="LEIA",
+        observed_vendors=[
+            {"vendor_name": "SMX", "role": "prime"},
+            {"vendor_name": "cBEYONData", "role": "subcontractor"},
+            {"vendor_name": "HII Mission Technologies", "role": "challenger"},
+        ],
+    )
+
+    assert report["supported"] is True
+    classes = {partner["entity_name"]: partner["classification"] for partner in report["assessed_partners"]}
+    assert classes["SMX"] == "incumbent-core"
+    assert classes["cBEYONData"] == "locked"
+    assert classes["HII Mission Technologies"] == "emerging"
+    assert any("LEIA" in conclusion for conclusion in report["top_conclusions"])
+
+
+def test_build_teaming_intelligence_returns_unsupported_for_unknown_vehicle(tmp_path, monkeypatch):
+    _seed_iteams_graph(tmp_path, monkeypatch)
+    import teaming_intelligence
+
+    report = teaming_intelligence.build_teaming_intelligence(vehicle_name="NO_SUCH_VEHICLE")
 
     assert report["supported"] is False
-    assert "ITEAMS" in report["message"]
+    assert "NO_SUCH_VEHICLE" in report["message"]
     assert report["assessed_partners"] == []

@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
 
 BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
 if BACKEND_DIR not in sys.path:
@@ -81,6 +82,30 @@ def test_vehicle_intel_support_uses_catalog_defaults_for_leia():
     assert any(rel["rel_type"] == "awarded_under" for rel in support["relationships"])
     assert any(rel["data_source"] == "contract_opportunities_public" for rel in support["relationships"])
     assert any(finding["source"] == "contract_opportunities_archive_fixture" for finding in support["findings"])
+
+
+@pytest.mark.parametrize(
+    ("vehicle_name", "expected_customer"),
+    [
+        ("SEWP", "NASA SEWP Program Office"),
+        ("CIO-SP4", "NIH Information Technology Acquisition and Assessment Center"),
+        ("Alliant 2", "GSA Federal Acquisition Service"),
+        ("VETS 2", "GSA Federal Acquisition Service"),
+    ],
+)
+def test_vehicle_intel_support_uses_catalog_defaults_for_broader_seeded_vehicle_set(vehicle_name, expected_customer):
+    support = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name=vehicle_name,
+        vendor={"id": f"support-{vehicle_name.lower()}", "name": vehicle_name, "vendor_input": {}},
+    )
+
+    assert support is not None
+    assert support["vehicle_name"] == vehicle_name
+    assert support["connectors_run"] == 3
+    assert support["connectors_with_data"] == 1
+    assert any(rel["rel_type"] == "predecessor_of" for rel in support["relationships"])
+    assert any(expected_customer in rel.get("evidence", "") for rel in support["relationships"] if rel["rel_type"] == "funded_by")
+    assert any(finding["source"] == "contract_opportunities_public" for finding in support["findings"])
 
 
 def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seeded():

@@ -88,7 +88,7 @@ def test_cvi_teaming_intelligence_route_returns_report(client, monkeypatch):
         teaming_intelligence,
         "build_teaming_intelligence",
         lambda **_: {
-            "analysis_scope": "iteams_recompete_v1",
+            "analysis_scope": "multi_vehicle_capture_v1",
             "supported": True,
             "generated_at": "2026-04-06T00:00:00Z",
             "vehicle_name": "ITEAMS",
@@ -118,7 +118,7 @@ def test_cvi_teaming_intelligence_route_returns_report(client, monkeypatch):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["status"] == "completed"
-    assert payload["report"]["analysis_scope"] == "iteams_recompete_v1"
+    assert payload["report"]["analysis_scope"] == "multi_vehicle_capture_v1"
     assert payload["report"]["top_conclusions"] == ["Amentum remains the incumbent core."]
 
 

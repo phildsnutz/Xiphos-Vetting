@@ -225,6 +225,38 @@ def test_generate_vehicle_dossier_uses_vehicle_support_without_linked_case(monke
     assert "Connectors with signal: 2" in html
 
 
+def test_generate_vehicle_dossier_uses_support_only_path_for_broader_seeded_vehicle_set(monkeypatch):
+    monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
+
+    sewp_html = comparative_dossier.generate_vehicle_dossier(
+        vehicle_name="SEWP",
+        prime_contractor="NASA SEWP Program Office",
+        vendor_ids=["support-only-sewp"],
+        contract_data={"naics": "541519"},
+    )
+    cio_html = comparative_dossier.generate_vehicle_dossier(
+        vehicle_name="CIO-SP4",
+        prime_contractor="NITAAC",
+        vendor_ids=["support-only-cio-sp4"],
+        contract_data={"naics": "541512"},
+    )
+
+    for html in (sewp_html, cio_html):
+        assert "vehicle-scoped support evidence only" in html
+        assert "Lineage Read" in html
+        assert "Legal Read" in html
+        assert "Capture Outlook" in html
+        assert "Evidence Footprint" in html
+        assert "Contract Opportunities Public" in html
+        assert "Connectors with signal: 1" in html
+        assert "No case-level protest or litigation events are attached" in html
+
+    assert "SEWP V" in sewp_html
+    assert "NASA SEWP Program Office" in sewp_html
+    assert "CIO-SP3" in cio_html
+    assert "NIH Information Technology Acquisition and Assessment Center" in cio_html
+
+
 def test_generate_vehicle_dossier_lineage_read_uses_wayback_support_relationships(monkeypatch):
     context = _make_context(
         vendor_name="Amentum",

@@ -14,7 +14,6 @@ from knowledge_graph import (
 )
 
 
-V1_SUPPORTED_VEHICLES = {"iteams"}
 CURRENT_VEHICLE_REL_TYPES = {"prime_contractor_of", "incumbent_on"}
 TEAMING_REL_TYPES = {"teamed_with"}
 VEHICLE_SIGNAL_REL_TYPES = {"prime_contractor_of", "incumbent_on", "subcontractor_of", "competed_on", "awarded_under"}
@@ -55,7 +54,9 @@ CLASS_ORDER = [
 class CandidateSignals:
     entity_id: str
     entity_name: str
-    direct_vehicle_relationships: list[dict[str, Any]]
+    direct_prime_relationships: list[dict[str, Any]]
+    direct_subcontract_relationships: list[dict[str, Any]]
+    direct_competition_relationships: list[dict[str, Any]]
     incumbent_relationships: list[dict[str, Any]]
     other_vehicle_relationships: list[dict[str, Any]]
     operational_paths: list[list[dict[str, Any]]]
@@ -175,10 +176,7 @@ def _build_name_index(entities: dict[str, dict[str, Any]]) -> dict[str, str]:
 
 
 def _supported_vehicle_key(vehicle_name: str) -> str:
-    normalized = _normalize_name(vehicle_name)
-    if normalized == "iteams":
-        return "iteams"
-    return normalized
+    return _normalize_name(vehicle_name)
 
 
 def _load_all_entities() -> dict[str, dict[str, Any]]:
@@ -313,10 +311,24 @@ def _extract_candidate_signals(
     observed_vendors: list[dict[str, Any]],
 ) -> CandidateSignals:
     normalized_candidate = _normalize_name(candidate_name)
-    direct_vehicle_relationships = [
+    direct_prime_relationships = [
         relationship
         for relationship in relationships
-        if str(relationship.get("rel_type") or "") in VEHICLE_SIGNAL_REL_TYPES
+        if str(relationship.get("rel_type") or "") in CURRENT_VEHICLE_REL_TYPES
+        and str(relationship.get("source_entity_id") or "") == candidate_id
+        and str(relationship.get("target_entity_id") or "") == vehicle_id
+    ]
+    direct_subcontract_relationships = [
+        relationship
+        for relationship in relationships
+        if str(relationship.get("rel_type") or "") == "subcontractor_of"
+        and str(relationship.get("source_entity_id") or "") == candidate_id
+        and str(relationship.get("target_entity_id") or "") == vehicle_id
+    ]
+    direct_competition_relationships = [
+        relationship
+        for relationship in relationships
+        if str(relationship.get("rel_type") or "") == "competed_on"
         and str(relationship.get("source_entity_id") or "") == candidate_id
         and str(relationship.get("target_entity_id") or "") == vehicle_id
     ]
@@ -348,7 +360,9 @@ def _extract_candidate_signals(
     return CandidateSignals(
         entity_id=candidate_id,
         entity_name=candidate_name,
-        direct_vehicle_relationships=direct_vehicle_relationships,
+        direct_prime_relationships=direct_prime_relationships,
+        direct_subcontract_relationships=direct_subcontract_relationships,
+        direct_competition_relationships=direct_competition_relationships,
         incumbent_relationships=incumbent_relationships,
         other_vehicle_relationships=other_vehicle_relationships,
         operational_paths=operational_paths,
@@ -364,7 +378,9 @@ def _latest_signal_timestamp(relationships: list[dict[str, Any]]) -> str:
 
 
 def _partner_classification(signals: CandidateSignals) -> tuple[str, float, str]:
-    direct_vehicle = bool(signals.direct_vehicle_relationships)
+    direct_prime = bool(signals.direct_prime_relationships)
+    direct_subcontract = bool(signals.direct_subcontract_relationships)
+    direct_competition = bool(signals.direct_competition_relationships)
     teamed = bool(signals.incumbent_relationships)
     teaming_confidence = max((float(item.get("confidence") or 0.0) for item in signals.incumbent_relationships), default=0.0)
     other_vehicle_presence = bool(signals.other_vehicle_relationships)
@@ -377,11 +393,27 @@ def _partner_classification(signals: CandidateSignals) -> tuple[str, float, str]
     latest_other_vehicle = _latest_signal_timestamp(signals.other_vehicle_relationships)
     cooling_days = _days_between(latest_teaming, latest_other_vehicle) if latest_teaming and latest_other_vehicle else None
 
-    if direct_vehicle:
+    if direct_prime:
         return (
             "incumbent-core",
             0.94 if observed else 0.9,
             "Observed as the active prime or incumbent on the current vehicle.",
+        )
+
+    if direct_subcontract and other_vehicle_presence:
+        confidence = min(0.86, 0.66 + (0.05 if observed else 0.0) + teaming_confidence * 0.12)
+        return (
+            "swing",
+            confidence,
+            "Direct subcontract posture exists on the current vehicle, but Helios also sees independent vehicle posture elsewhere.",
+        )
+
+    if direct_subcontract:
+        confidence = 0.9 if observed else 0.86
+        return (
+            "locked",
+            confidence,
+            "Direct subcontractor evidence ties this company to the active vehicle team rather than a speculative future alignment.",
         )
 
     if teamed and teaming_confidence >= 0.75 and not other_vehicle_presence:
@@ -406,6 +438,14 @@ def _partner_classification(signals: CandidateSignals) -> tuple[str, float, str]
             "swing",
             confidence,
             "Incumbent tie exists, but the same company also carries independent vehicle posture elsewhere.",
+        )
+
+    if direct_competition:
+        confidence = min(0.76, 0.56 + (0.05 if observed else 0.0))
+        return (
+            "emerging",
+            confidence,
+            "Direct competition is attached to the current vehicle, but Helios does not yet see a stable teaming lock behind it.",
         )
 
     if other_vehicle_presence and operational_support:
@@ -440,7 +480,14 @@ def _partner_classification(signals: CandidateSignals) -> tuple[str, float, str]
 
 
 def _should_skip_candidate(signals: CandidateSignals, relationships: list[dict[str, Any]]) -> bool:
-    if signals.direct_vehicle_relationships or signals.incumbent_relationships or signals.other_vehicle_relationships or signals.observed_role:
+    if (
+        signals.direct_prime_relationships
+        or signals.direct_subcontract_relationships
+        or signals.direct_competition_relationships
+        or signals.incumbent_relationships
+        or signals.other_vehicle_relationships
+        or signals.observed_role
+    ):
         return False
     if not signals.operational_paths:
         return True
@@ -466,7 +513,9 @@ def _summarize_assessed_partner(
     incumbent_name: str,
 ) -> dict[str, Any]:
     evidence_relationships = [
-        *signals.direct_vehicle_relationships[:2],
+        *signals.direct_prime_relationships[:2],
+        *signals.direct_subcontract_relationships[:2],
+        *signals.direct_competition_relationships[:2],
         *signals.incumbent_relationships[:2],
         *signals.other_vehicle_relationships[:2],
     ]
@@ -491,8 +540,12 @@ def _summarize_assessed_partner(
     observed_signals: list[str] = []
     if signals.observed_role:
         observed_signals.append(f"Observed in current vehicle roster as {signals.observed_role}.")
-    if signals.direct_vehicle_relationships:
-        observed_signals.append("Direct vehicle attachment exists in the graph.")
+    if signals.direct_prime_relationships:
+        observed_signals.append("Direct prime or incumbent attachment exists in the graph.")
+    if signals.direct_subcontract_relationships:
+        observed_signals.append("Direct subcontractor attachment exists on the current vehicle.")
+    if signals.direct_competition_relationships:
+        observed_signals.append("Direct competition is attached to the current vehicle.")
     if signals.incumbent_relationships:
         observed_signals.append(f"Teammate evidence links {signals.entity_name} to {incumbent_name}.")
     if signals.other_vehicle_relationships:
@@ -686,8 +739,8 @@ def build_teaming_intelligence(
 ) -> dict[str, Any]:
     supported_key = _supported_vehicle_key(vehicle_name)
     report = {
-        "analysis_scope": "iteams_recompete_v1",
-        "supported": supported_key in V1_SUPPORTED_VEHICLES,
+        "analysis_scope": "multi_vehicle_capture_v1",
+        "supported": False,
         "generated_at": _utc_now(),
         "vehicle_name": vehicle_name,
         "state_contract": {
@@ -697,19 +750,6 @@ def build_teaming_intelligence(
         },
         "graph_snapshot_signature": get_graph_snapshot_signature(),
     }
-    if supported_key not in V1_SUPPORTED_VEHICLES:
-        report.update(
-            {
-                "message": "Competitive teaming intelligence v1 is currently scoped to the ITEAMS recompete.",
-                "observed_signals": [],
-                "assessed_partners": [],
-                "top_conclusions": [],
-                "map": {"nodes": [], "edges": []},
-                "scenario": _scenario_assessment([], scenario),
-            }
-        )
-        return report
-
     observed_rows = [dict(row) for row in (observed_vendors or []) if isinstance(row, dict)]
     entities = _load_all_entities()
     name_index = _build_name_index(entities)
@@ -717,7 +757,7 @@ def build_teaming_intelligence(
     if not vehicle_id:
         report.update(
             {
-                "message": "ITEAMS is not present in the current knowledge graph.",
+                "message": f"{vehicle_name} is not present in the current knowledge graph.",
                 "observed_signals": [],
                 "assessed_partners": [],
                 "top_conclusions": [],
@@ -743,6 +783,8 @@ def build_teaming_intelligence(
     else:
         incumbent_id = ""
         incumbent_name = ""
+
+    report["supported"] = True
 
     candidate_ids = _candidate_entity_ids(
         network=full_network,
@@ -815,7 +857,7 @@ def build_teaming_intelligence(
         rel_type = str(relationship.get("rel_type") or "")
         source_id = str(relationship.get("source_entity_id") or "")
         target_id = str(relationship.get("target_entity_id") or "")
-        if rel_type not in CURRENT_VEHICLE_REL_TYPES | TEAMING_REL_TYPES | OPERATIONAL_REL_TYPES:
+        if rel_type not in VEHICLE_SIGNAL_REL_TYPES | TEAMING_REL_TYPES | OPERATIONAL_REL_TYPES:
             continue
         if vehicle_id not in {source_id, target_id} and incumbent_id not in {source_id, target_id}:
             continue
@@ -843,5 +885,9 @@ def build_teaming_intelligence(
             ),
         }
     )
+    if not incumbent_id:
+        report["message"] = "Helios found the vehicle in the graph, but not enough incumbent-prime signal to form a stable teaming read."
+    elif len(assessed_partners) <= 1:
+        report["message"] = "Helios sees the incumbent anchor, but partner signal is still thin for a richer competitive teaming map."
     report["scenario"] = _scenario_assessment(assessed_partners, scenario)
     return report

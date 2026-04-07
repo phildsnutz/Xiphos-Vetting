@@ -17,6 +17,42 @@
           "fixtures/vehicle_intelligence/public_html/leia_notice_live_fixture.html"
         ]
       }
+    },
+    {
+      "vehicle_name": "SEWP",
+      "aliases": ["SEWP VI", "SEWP V"],
+      "seed_metadata": {
+        "contract_opportunity_notice_fixture_pages": [
+          "fixtures/vehicle_intelligence/public_html/sewp_notice_live_fixture.html"
+        ]
+      }
+    },
+    {
+      "vehicle_name": "CIO-SP4",
+      "aliases": ["CIOSP4", "CIO SP4"],
+      "seed_metadata": {
+        "contract_opportunity_notice_fixture_pages": [
+          "fixtures/vehicle_intelligence/public_html/cio_sp4_notice_live_fixture.html"
+        ]
+      }
+    },
+    {
+      "vehicle_name": "Alliant 2",
+      "aliases": ["Alliant2", "Alliant II"],
+      "seed_metadata": {
+        "contract_opportunity_notice_fixture_pages": [
+          "fixtures/vehicle_intelligence/public_html/alliant2_notice_live_fixture.html"
+        ]
+      }
+    },
+    {
+      "vehicle_name": "VETS 2",
+      "aliases": ["VETS2", "VETS II"],
+      "seed_metadata": {
+        "contract_opportunity_notice_fixture_pages": [
+          "fixtures/vehicle_intelligence/public_html/vets2_notice_live_fixture.html"
+        ]
+      }
     }
   ]
 }

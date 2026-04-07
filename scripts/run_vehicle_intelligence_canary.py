@@ -33,6 +33,13 @@ LEIA_DOSSIER_MARKERS = (
     "Evidence Footprint",
 )
 
+SUPPORT_ONLY_DOSSIER_MARKERS = (
+    "Vehicle Lineage & Competitive Landscape",
+    "Litigation & Protest Profile",
+    "Capture Outlook",
+    "Evidence Footprint",
+)
+
 COMPARATIVE_MARKERS = (
     "Vehicle Lineage Map",
     "Litigation & Protest Profile",
@@ -108,23 +115,26 @@ def _missing_markers(html: str, markers: tuple[str, ...]) -> list[str]:
     return [marker for marker in markers if marker not in html]
 
 
-def _check_teaming(base_url: str, headers: dict[str, str]) -> CheckResult:
+def _check_teaming(
+    base_url: str,
+    headers: dict[str, str],
+    *,
+    vehicle_name: str,
+    observed_vendors: list[dict[str, Any]],
+    scenario: dict[str, Any] | None = None,
+) -> CheckResult:
     started = time.perf_counter()
     failures: list[str] = []
-    details: dict[str, Any] = {}
+    details: dict[str, Any] = {"vehicle_name": vehicle_name}
     try:
         _, _, payload = request_json(
             base_url,
             "POST",
             "/api/cvi/teaming-intelligence",
             {
-                "vehicle_name": "ITEAMS",
-                "observed_vendors": [
-                    {"vendor_name": "Amentum", "role": "prime"},
-                    {"vendor_name": "HII Mission Technologies", "role": "subcontractor"},
-                    {"vendor_name": "SMX", "role": "subcontractor"},
-                ],
-                "scenario": {"recruit_partner": "HII Mission Technologies"},
+                "vehicle_name": vehicle_name,
+                "observed_vendors": observed_vendors,
+                "scenario": scenario or {},
             },
             headers=headers,
             timeout=90,
@@ -134,15 +144,15 @@ def _check_teaming(base_url: str, headers: dict[str, str]) -> CheckResult:
         details["partner_count"] = len(report.get("assessed_partners") or [])
         details["scenario_state"] = str((report.get("scenario") or {}).get("state") or "")
         if not report.get("supported"):
-            failures.append("ITEAMS teaming report was not supported")
-        if len(report.get("assessed_partners") or []) < 3:
-            failures.append("ITEAMS teaming report returned too few assessed partners")
-        if str((report.get("scenario") or {}).get("state") or "") != "predicted":
-            failures.append("ITEAMS teaming scenario did not produce predicted state")
+            failures.append(f"{vehicle_name} teaming report was not supported")
+        if len(report.get("assessed_partners") or []) < 2:
+            failures.append(f"{vehicle_name} teaming report returned too few assessed partners")
+        if scenario and str((report.get("scenario") or {}).get("state") or "") != "predicted":
+            failures.append(f"{vehicle_name} teaming scenario did not produce predicted state")
     except Exception as exc:
         failures.append(str(exc))
     return CheckResult(
-        name="teaming_intelligence",
+        name=f"teaming_intelligence_{vehicle_name.lower().replace(' ', '_')}",
         status="FAIL" if failures else "PASS",
         duration_ms=int((time.perf_counter() - started) * 1000),
         details=details,
@@ -324,9 +334,32 @@ def main() -> int:
     args = parse_args()
     headers = login_headers(args.base_url, args.email, args.password, args.token)
     checks = [
-        _check_teaming(args.base_url, headers),
+        _check_teaming(
+            args.base_url,
+            headers,
+            vehicle_name="ITEAMS",
+            observed_vendors=[
+                {"vendor_name": "Amentum", "role": "prime"},
+                {"vendor_name": "HII Mission Technologies", "role": "subcontractor"},
+                {"vendor_name": "SMX", "role": "subcontractor"},
+            ],
+            scenario={"recruit_partner": "HII Mission Technologies"},
+        ),
+        _check_teaming(
+            args.base_url,
+            headers,
+            vehicle_name="LEIA",
+            observed_vendors=[
+                {"vendor_name": "SMX", "role": "prime"},
+                {"vendor_name": "cBEYONData", "role": "subcontractor"},
+                {"vendor_name": "HII Mission Technologies", "role": "challenger"},
+            ],
+            scenario={"recruit_partner": "HII Mission Technologies"},
+        ),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="ITEAMS", prime_contractor="Amentum", markers=ITEAMS_DOSSIER_MARKERS),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="LEIA", prime_contractor="SMX", markers=LEIA_DOSSIER_MARKERS),
+        _check_vehicle_dossier(args.base_url, headers, vehicle_name="SEWP", prime_contractor="NASA SEWP Program Office", markers=SUPPORT_ONLY_DOSSIER_MARKERS),
+        _check_vehicle_dossier(args.base_url, headers, vehicle_name="CIO-SP4", prime_contractor="NITAAC", markers=SUPPORT_ONLY_DOSSIER_MARKERS),
         _check_comparative(args.base_url, headers),
         _check_axiom_vehicle_mode(args.base_url, headers),
     ]

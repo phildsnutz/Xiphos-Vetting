@@ -48,8 +48,7 @@ def test_build_vehicle_mode_support_separates_truth_states(monkeypatch):
         axiom_agent,
         "build_teaming_intelligence",
         lambda **_: {
-            "supported": False,
-            "message": "Competitive teaming intelligence v1 is currently scoped to the ITEAMS recompete.",
+            "supported": True,
             "observed_signals": [
                 {
                     "source": "SMX",
@@ -59,7 +58,7 @@ def test_build_vehicle_mode_support_separates_truth_states(monkeypatch):
                     "snippet": "Observed as current prime on the vehicle.",
                 }
             ],
-            "top_conclusions": [],
+            "top_conclusions": ["SMX remains the incumbent-core read on LEIA."],
         },
         raising=False,
     )
@@ -75,7 +74,7 @@ def test_build_vehicle_mode_support_separates_truth_states(monkeypatch):
     assert payload["graph_facts"][0]["rel_type"] == "prime_contractor_of"
     assert payload["support_evidence"]["connectors_with_data"] == 2
     assert payload["support_evidence"]["relationships"][0]["rel_type"] == "awarded_under"
-    assert any("ITEAMS" in item for item in payload["unknowns"])
+    assert payload["predictions"][0] == "SMX remains the incumbent-core read on LEIA."
     assert any("No protest or litigation signal" in item for item in payload["unknowns"])
 
 

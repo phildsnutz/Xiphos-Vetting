@@ -49,7 +49,7 @@ export function CompetitiveTeamingMap({
     return (
       <div style={{ padding: 18, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, letterSpacing: "0.08em", marginBottom: 8 }}>Competitive Teaming Map</div>
-        <div style={{ fontSize: FS.sm, color: T.dim }}>Building the ITEAMS recompete partner map from the current graph snapshot...</div>
+        <div style={{ fontSize: FS.sm, color: T.dim }}>Building the current vehicle partner map from the active graph snapshot...</div>
       </div>
     );
   }
@@ -83,7 +83,7 @@ export function CompetitiveTeamingMap({
           <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, letterSpacing: "0.08em", marginBottom: 8 }}>Competitive Teaming Map</div>
           <div style={{ fontSize: FS.lg, fontWeight: 600, color: T.text, marginBottom: 4 }}>{report.vehicle_name}</div>
           <div style={{ fontSize: FS.sm, color: T.dim }}>
-            V1 scope is the ITEAMS recompete. Observed graph edges stay separate from assessed partner classes and predicted scenario moves.
+            Observed graph edges stay separate from assessed partner classes and predicted scenario moves.
           </div>
         </div>
         <div style={{ minWidth: 220 }}>
@@ -113,7 +113,7 @@ export function CompetitiveTeamingMap({
 
       {!report.supported && (
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, border: `1px solid ${T.amber}33`, background: T.amberBg, color: T.amber, fontSize: FS.sm }}>
-          {report.message || "This teaming-intelligence slice is currently scoped to a different vehicle."}
+          {report.message || "Helios does not yet have enough graph-backed signal to build a stable teaming read for this vehicle."}
         </div>
       )}
 
