@@ -30,7 +30,7 @@ SUPPORT_CATALOG_PATH = (
 )
 _SUPPORT_CACHE_TTL_SECONDS = max(int(os.environ.get("XIPHOS_VEHICLE_SUPPORT_CACHE_TTL_SECONDS", "600") or 600), 0)
 _SUPPORT_CACHE_LOCK = threading.Lock()
-_SUPPORT_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
+_SUPPORT_CACHE: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
 
 def _seed_metadata(vendor: dict[str, Any] | None) -> dict[str, Any]:
@@ -146,7 +146,8 @@ def _support_cache_key(
     scoped_vehicle_name: str,
     vendor: dict[str, Any] | None,
     seed_metadata: dict[str, Any],
-) -> tuple[str, str, str]:
+    support_scope: str,
+) -> tuple[str, str, str, str]:
     vendor_name = ""
     if isinstance(vendor, dict):
         vendor_name = str(vendor.get("name") or "").strip()
@@ -154,10 +155,11 @@ def _support_cache_key(
         _normalize_vehicle_name(scoped_vehicle_name),
         _normalize_vehicle_name(vendor_name),
         _seed_metadata_stamp(seed_metadata),
+        str(support_scope or "full").strip().lower() or "full",
     )
 
 
-def _get_cached_support_entry(cache_key: tuple[str, str, str]) -> dict[str, Any] | None:
+def _get_cached_support_entry(cache_key: tuple[str, str, str, str]) -> dict[str, Any] | None:
     if _SUPPORT_CACHE_TTL_SECONDS <= 0:
         return None
     now = time.time()
@@ -179,7 +181,7 @@ def _get_cached_support_entry(cache_key: tuple[str, str, str]) -> dict[str, Any]
 
 
 def _store_cached_support_entry(
-    cache_key: tuple[str, str, str],
+    cache_key: tuple[str, str, str, str],
     *,
     bundle: dict[str, Any],
     graph_sync: dict[str, Any] | None = None,
@@ -194,7 +196,7 @@ def _store_cached_support_entry(
         }
 
 
-def _store_cached_support_graph_sync(cache_key: tuple[str, str, str], graph_sync: dict[str, Any]) -> None:
+def _store_cached_support_graph_sync(cache_key: tuple[str, str, str, str], graph_sync: dict[str, Any]) -> None:
     if _SUPPORT_CACHE_TTL_SECONDS <= 0:
         return
     with _SUPPORT_CACHE_LOCK:
@@ -610,16 +612,19 @@ def build_vehicle_intelligence_support(
     vehicle_name: str,
     vendor: dict[str, Any] | None = None,
     sync_graph: bool = False,
+    support_scope: str = "full",
 ) -> dict[str, Any] | None:
     scoped_vehicle_name = _support_vehicle_name(vehicle_name, vendor)
     if not scoped_vehicle_name:
         return None
 
+    normalized_scope = str(support_scope or "full").strip().lower() or "full"
     seed_metadata = _merged_seed_metadata(scoped_vehicle_name, vendor)
     cache_key = _support_cache_key(
         scoped_vehicle_name=scoped_vehicle_name,
         vendor=vendor,
         seed_metadata=seed_metadata,
+        support_scope=normalized_scope,
     )
     cached = _get_cached_support_entry(cache_key)
     if cached is not None:
@@ -645,25 +650,28 @@ def build_vehicle_intelligence_support(
             support_bundle["graph_sync"] = graph_sync
         return support_bundle
 
-    archive_result = archive_fixture_enrich(scoped_vehicle_name)
-    gao_result = gao_fixture_enrich(scoped_vehicle_name)
     live_vehicle_result = usaspending_vehicle_live_enrich(
         scoped_vehicle_name,
         **_live_vehicle_ids(seed_metadata, vendor),
     )
-    results = [archive_result, gao_result, live_vehicle_result]
-    contract_notice_ids = _contract_opportunity_notice_ids(seed_metadata)
-    if contract_notice_ids:
-        results.append(contract_opportunities_public_enrich(scoped_vehicle_name, **contract_notice_ids))
-    gao_public_ids = _gao_public_ids(seed_metadata)
-    if gao_public_ids:
-        results.append(gao_public_enrich(scoped_vehicle_name, **gao_public_ids))
-    wayback_ids = _wayback_vehicle_ids(seed_metadata)
-    if wayback_ids:
-        results.append(contract_vehicle_wayback_enrich(scoped_vehicle_name, **wayback_ids))
-    public_html_ids = _public_html_vehicle_ids(seed_metadata)
-    if public_html_ids:
-        results.append(public_html_contract_vehicle_enrich(scoped_vehicle_name, **public_html_ids))
+    if normalized_scope == "market":
+        results = [live_vehicle_result]
+    else:
+        archive_result = archive_fixture_enrich(scoped_vehicle_name)
+        gao_result = gao_fixture_enrich(scoped_vehicle_name)
+        results = [archive_result, gao_result, live_vehicle_result]
+        contract_notice_ids = _contract_opportunity_notice_ids(seed_metadata)
+        if contract_notice_ids:
+            results.append(contract_opportunities_public_enrich(scoped_vehicle_name, **contract_notice_ids))
+        gao_public_ids = _gao_public_ids(seed_metadata)
+        if gao_public_ids:
+            results.append(gao_public_enrich(scoped_vehicle_name, **gao_public_ids))
+        wayback_ids = _wayback_vehicle_ids(seed_metadata)
+        if wayback_ids:
+            results.append(contract_vehicle_wayback_enrich(scoped_vehicle_name, **wayback_ids))
+        public_html_ids = _public_html_vehicle_ids(seed_metadata)
+        if public_html_ids:
+            results.append(public_html_contract_vehicle_enrich(scoped_vehicle_name, **public_html_ids))
 
     findings = []
     for result in results:
@@ -680,6 +688,7 @@ def build_vehicle_intelligence_support(
 
     support_bundle = {
         "vehicle_name": scoped_vehicle_name,
+        "support_scope": normalized_scope,
         "connectors_run": len(results),
         "connectors_with_data": connectors_with_data,
         "relationships": relationships,

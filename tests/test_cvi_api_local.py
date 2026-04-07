@@ -128,17 +128,17 @@ def test_cvi_teaming_intelligence_route_hydrates_observed_vendors_from_vehicle_s
 
     captured = {}
 
-    monkeypatch.setattr(
-        vehicle_intel_support,
-        "build_vehicle_intelligence_support",
-        lambda **_: {
+    def fake_support(**kwargs):
+        captured["support_scope"] = kwargs.get("support_scope")
+        captured["sync_graph"] = kwargs.get("sync_graph")
+        return {
             "observed_vendors": [
                 {"vendor_name": "Science Applications International Corporation", "role": "prime", "award_amount": 188000000},
                 {"vendor_name": "Torch Technologies, Inc.", "role": "prime", "award_amount": 76000000},
             ]
-        },
-        raising=False,
-    )
+        }
+
+    monkeypatch.setattr(vehicle_intel_support, "build_vehicle_intelligence_support", fake_support, raising=False)
 
     def fake_build_teaming_intelligence(**kwargs):
         captured["observed_vendors"] = kwargs.get("observed_vendors", [])
@@ -173,6 +173,8 @@ def test_cvi_teaming_intelligence_route_hydrates_observed_vendors_from_vehicle_s
     assert response.status_code == 200
     assert captured["observed_vendors"][0]["vendor_name"] == "Science Applications International Corporation"
     assert len(captured["observed_vendors"]) == 2
+    assert captured["support_scope"] == "market"
+    assert captured["sync_graph"] is True
 
 
 def test_cvi_gap_advisory_route_serializes_pipeline_result(client, monkeypatch):

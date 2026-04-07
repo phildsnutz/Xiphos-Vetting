@@ -179,6 +179,23 @@ def test_vehicle_intel_support_live_collector_supports_non_seeded_vehicle():
     assert any(row["vendor_name"] == "Science Applications International Corporation" for row in support["observed_vendors"])
 
 
+def test_vehicle_intel_support_market_scope_stays_on_live_vehicle_collector_only():
+    support = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor=_vendor("Science Applications International Corporation"),
+        support_scope="market",
+    )
+
+    assert support is not None
+    assert support["vehicle_name"] == "OASIS"
+    assert support["support_scope"] == "market"
+    assert support["connectors_run"] == 1
+    assert support["connectors_with_data"] == 1
+    assert all(rel["data_source"] == "usaspending_vehicle_live" for rel in support["relationships"])
+    assert all(finding["source"] == "usaspending_vehicle_live" for finding in support["findings"])
+    assert any(row["vendor_name"] == "Science Applications International Corporation" for row in support["observed_vendors"])
+
+
 def test_vehicle_intel_support_syncs_official_relationships_without_duplicates(tmp_path, monkeypatch):
     knowledge_graph, support_module = _init_graph_runtime(tmp_path, monkeypatch)
 
@@ -186,6 +203,7 @@ def test_vehicle_intel_support_syncs_official_relationships_without_duplicates(t
         vehicle_name="OASIS",
         vendor=_vendor("Science Applications International Corporation"),
         sync_graph=True,
+        support_scope="market",
     )
 
     assert support is not None
@@ -201,6 +219,7 @@ def test_vehicle_intel_support_syncs_official_relationships_without_duplicates(t
         vehicle_name="OASIS",
         vendor=_vendor("Science Applications International Corporation"),
         sync_graph=True,
+        support_scope="market",
     )
 
     assert repeat["graph_sync"]["relationship_count"] == 0
@@ -273,18 +292,20 @@ def test_vehicle_intel_support_caches_identical_support_bundle(monkeypatch):
         vehicle_name="OASIS",
         vendor=_vendor("Science Applications International Corporation"),
         sync_graph=True,
+        support_scope="market",
     )
     second = vehicle_intel_support.build_vehicle_intelligence_support(
         vehicle_name="OASIS",
         vendor=_vendor("Science Applications International Corporation"),
         sync_graph=True,
+        support_scope="market",
     )
 
     assert first["observed_vendors"][0]["vendor_name"] == "Science Applications International Corporation"
     assert second["graph_sync"]["relationship_count"] == 0
     assert second["graph_sync"]["reused_relationship_count"] == 1
     assert second["graph_sync"]["cached"] is True
-    assert calls == {"archive": 1, "gao": 1, "live": 1, "sync": 1}
+    assert calls == {"archive": 0, "gao": 0, "live": 1, "sync": 1}
 
 
 def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seeded():
