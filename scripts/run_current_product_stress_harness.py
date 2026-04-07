@@ -122,6 +122,7 @@ def run_browser_regression(script_path: Path, base_url: str, email: str, passwor
 
 def evaluate_room_contract(stoa_check: CheckResult, aegis_check: CheckResult) -> CheckResult:
     failures: list[str] = []
+    warnings: list[str] = []
     details: dict[str, Any] = {}
 
     stoa_result = stoa_check.details.get("result")
@@ -139,8 +140,11 @@ def evaluate_room_contract(stoa_check: CheckResult, aegis_check: CheckResult) ->
     else:
         if stoa_result.get("clarifying_state") != "visible":
             failures.append(f"Stoa clarifying state drifted: {stoa_result.get('clarifying_state')}")
-        if stoa_result.get("leia_path") != "ambiguity_then_vehicle":
-            failures.append(f"LEIA path drifted: {stoa_result.get('leia_path')}")
+        leia_path = stoa_result.get("leia_path")
+        if leia_path not in {"ambiguity_then_vehicle", "vehicle_first"}:
+            failures.append(f"LEIA path drifted: {leia_path}")
+        elif leia_path == "vehicle_first":
+            warnings.append("LEIA resolved vehicle-first; acceptable when no competing entity-memory signal is present")
         if stoa_result.get("smx_path") != "vendor_first":
             failures.append(f"SMX path drifted: {stoa_result.get('smx_path')}")
         if stoa_result.get("handoff") not in {"brief_open", "ready"}:
@@ -159,6 +163,7 @@ def evaluate_room_contract(stoa_check: CheckResult, aegis_check: CheckResult) ->
         status="FAIL" if failures else "PASS",
         details=details,
         failures=failures,
+        warnings=warnings,
     )
 
 

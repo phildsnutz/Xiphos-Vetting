@@ -109,7 +109,10 @@ def test_run_readiness_parses_subprocess_payload(monkeypatch):
         stdout = json.dumps({"overall_verdict": "GO", "report_md": "/tmp/a.md", "report_json": "/tmp/a.json", "steps": []})
         stderr = ""
 
+    captured = {}
+
     def fake_run(*args, **kwargs):
+        captured["command"] = args[0]
         return FakeProc()
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
@@ -125,6 +128,10 @@ def test_run_readiness_parses_subprocess_payload(monkeypatch):
     payload = module.run_readiness(args)
     assert payload["overall_verdict"] == "GO"
     assert payload["returncode"] == 0
+    assert "--skip-export" in captured["command"]
+    assert "--skip-assurance" in captured["command"]
+    assert "--counterparty-step-timeout-seconds" in captured["command"]
+    assert "--wait-for-ready-seconds" in captured["command"]
 
 
 def test_run_prime_time_parses_subprocess_payload(monkeypatch, tmp_path):
@@ -250,6 +257,31 @@ def test_remote_collect_uses_ssh_key_when_provided(monkeypatch):
     assert captured["command"][:4] == ["ssh", "-o", "BatchMode=yes", "-i"]
     assert "/tmp/id_ed25519" in captured["command"]
     assert "default=str" in captured["command"][-1]
+
+
+def test_remote_collect_payload_includes_html_checks(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "[]"
+        stderr = ""
+
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["input"] = kwargs.get("input")
+        return FakeProc()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    module.remote_collect(
+        "root@example",
+        "xiphos-xiphos-1",
+        ["case-1"],
+        3,
+        "demo",
+    )
+
+    payload = json.loads(captured["input"])
+    assert payload["html_section_checks"] == module.HTML_SECTION_CHECKS
 
 
 def test_load_graph_95_status_reads_latest_benchmark(tmp_path, monkeypatch):

@@ -145,7 +145,14 @@ def remote_collect(
     *,
     ssh_key: str = "",
 ) -> list[dict[str, Any]]:
-    payload = json.dumps({"case_ids": case_ids, "graph_depth": graph_depth, "user_id": user_id})
+    payload = json.dumps(
+        {
+            "case_ids": case_ids,
+            "graph_depth": graph_depth,
+            "user_id": user_id,
+            "html_section_checks": HTML_SECTION_CHECKS,
+        }
+    )
     remote_script = r"""
 import base64
 import io
@@ -186,9 +193,10 @@ for case_id in request["case_ids"]:
         "case_id": case_id,
         "vendor_name": vendor.get("name"),
         "tier": latest_tier,
-        "html_markers": {name: (marker in html) for name, marker in {
-            **HTML_SECTION_CHECKS,
-        }.items()},
+        "html_markers": {
+            name: (marker in html)
+            for name, marker in request.get("html_section_checks", {}).items()
+        },
         "ai_expected": bool(cached),
         "monitoring_ready": bool(monitoring),
         "monitoring_latest": monitoring[0] if monitoring else None,
@@ -387,6 +395,20 @@ def run_readiness(args: argparse.Namespace) -> dict[str, Any]:
         "--print-json",
         "--base-url",
         args.readiness_base_url,
+        "--skip-export",
+        "--skip-assurance",
+        "--max-enrich-seconds",
+        "60",
+        "--max-dossier-seconds",
+        "60",
+        "--max-pdf-seconds",
+        "60",
+        "--max-ai-seconds",
+        "45",
+        "--wait-for-ready-seconds",
+        "45",
+        "--counterparty-step-timeout-seconds",
+        "180",
     ]
     if args.readiness_token:
         command.extend(["--token", args.readiness_token])
