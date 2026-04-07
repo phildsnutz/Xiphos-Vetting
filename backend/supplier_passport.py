@@ -1283,9 +1283,11 @@ def build_supplier_passport(
     satisfied_required_edge_families: list[str] = []
     if (
         bool(ownership_oci_summary.get("named_beneficial_owner_known"))
-        or bool(ownership_oci_summary.get("owner_class_known"))
-        or float(ownership_oci_summary.get("ownership_resolution_pct") or 0.0) > 0.0
-        or float(ownership_oci_summary.get("control_resolution_pct") or 0.0) > 0.0
+        or bool(ownership_oci_summary.get("controlling_parent_known"))
+        or max(
+            float(ownership_oci_summary.get("ownership_resolution_pct") or 0.0),
+            float(ownership_oci_summary.get("control_resolution_pct") or 0.0),
+        ) >= 0.65
     ):
         satisfied_required_edge_families.append("ownership_control")
     graph_intelligence = (

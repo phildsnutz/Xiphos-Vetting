@@ -3380,6 +3380,12 @@ def api_create_case():
     if isinstance(export_authorization, dict) and export_authorization:
         v["export_authorization"] = export_authorization
     score_dict = _score_and_persist(vendor_id, v)
+    _prime_ai_analysis_for_case(
+        vendor_id,
+        _current_user_id(),
+        wait_seconds=0,
+        poll_seconds=0.0,
+    )
     log_audit("case_created", "case", vendor_id,
               detail=f"Created case for {body['name']} ({body['country']})")
     return jsonify({
@@ -3415,6 +3421,12 @@ def api_rescore_case(case_id):
         score_dict = _canonical_rescore_from_enrichment(case_id, updated_vendor, enrichment)["score_dict"]
     else:
         score_dict = _score_and_persist(case_id, vendor_input)
+    _prime_ai_analysis_for_case(
+        case_id,
+        _current_user_id(),
+        wait_seconds=0,
+        poll_seconds=0.0,
+    )
     return jsonify({
         "case_id": case_id,
         "composite_score": score_dict["composite_score"],
@@ -3805,6 +3817,37 @@ def api_get_ai_analysis_status(case_id):
             "vendor_name": vendor["name"],
             "job": job,
         })
+
+    primed = _prime_ai_analysis_for_case(
+        case_id,
+        user_id,
+        wait_seconds=0,
+        poll_seconds=0.0,
+    )
+    if primed.get("status") == "ready":
+        cached = get_latest_analysis(case_id, user_id=user_id, input_hash=input_hash)
+        if cached:
+            return jsonify({
+                "status": "ready",
+                "case_id": case_id,
+                "vendor_name": vendor["name"],
+                "analysis": cached,
+            })
+    if primed.get("status") not in {"missing", "disabled", "skipped"}:
+        payload = {
+            "status": primed.get("status"),
+            "case_id": case_id,
+            "vendor_name": vendor["name"],
+        }
+        if primed.get("job_id"):
+            payload["job"] = {
+                "id": primed.get("job_id"),
+                "status": primed.get("status"),
+                "analysis_id": primed.get("analysis_id"),
+                "input_hash": primed.get("input_hash"),
+                "error": primed.get("error"),
+            }
+        return jsonify(payload)
 
     return jsonify({
         "status": "missing",

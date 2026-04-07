@@ -620,7 +620,11 @@ def _build_support_only_context(*, vehicle_name: str, prime_contractor: str) -> 
         },
     }
     try:
-        vehicle_support = build_vehicle_intelligence_support(vehicle_name=vehicle_name, vendor=vendor)
+        vehicle_support = build_vehicle_intelligence_support(
+            vehicle_name=vehicle_name,
+            vendor=vendor,
+            sync_graph=True,
+        )
     except Exception:
         vehicle_support = None
     if not isinstance(vehicle_support, dict):

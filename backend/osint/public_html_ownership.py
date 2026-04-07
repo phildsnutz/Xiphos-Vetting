@@ -2422,7 +2422,10 @@ def _resolve_website(ids: dict) -> str:
         seen_page_roots.add(root)
         return root
 
-    for key in ("official_website", "domain", "website"):
+    # Prefer a corrected first-party website over a stale marketing/search domain.
+    # The domain field is still useful as a fallback, but it should not override a
+    # cleaner website discovered later in the enrichment loop.
+    for key in ("official_website", "website", "domain"):
         value = ids.get(key)
         if isinstance(value, str) and value.strip():
             return _root_website(value) or _normalize_website(value)

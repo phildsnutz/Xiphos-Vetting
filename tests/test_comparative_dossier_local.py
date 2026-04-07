@@ -231,7 +231,7 @@ def test_generate_vehicle_dossier_uses_vehicle_support_without_linked_case(monke
     monkeypatch.setattr(
         comparative_dossier,
         "build_vehicle_intelligence_support",
-        lambda *, vehicle_name, vendor=None: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or "SMX")),
+        lambda *, vehicle_name, vendor=None, sync_graph=False: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or "SMX")),
     )
 
     html = comparative_dossier.generate_vehicle_dossier(
@@ -256,7 +256,7 @@ def test_generate_vehicle_dossier_uses_support_only_path_for_broader_seeded_vehi
     monkeypatch.setattr(
         comparative_dossier,
         "build_vehicle_intelligence_support",
-        lambda *, vehicle_name, vendor=None: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or vehicle_name)),
+        lambda *, vehicle_name, vendor=None, sync_graph=False: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or vehicle_name)),
     )
 
     sewp_html = comparative_dossier.generate_vehicle_dossier(
@@ -293,7 +293,7 @@ def test_generate_vehicle_dossier_support_only_non_seeded_vehicle_uses_live_awar
     monkeypatch.setattr(
         comparative_dossier,
         "build_vehicle_intelligence_support",
-        lambda *, vehicle_name, vendor=None: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or "Science Applications International Corporation")),
+        lambda *, vehicle_name, vendor=None, sync_graph=False: _support_with_live_fixture(vehicle_name, str((vendor or {}).get("name") or "Science Applications International Corporation")),
     )
 
     html = comparative_dossier.generate_vehicle_dossier(

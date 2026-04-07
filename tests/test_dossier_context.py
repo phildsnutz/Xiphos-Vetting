@@ -56,10 +56,11 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
         assert kwargs.get("vendor", {}).get("id") == vendor_id
         return {"identity": {}, "graph": {"entity_count": 1, "relationship_count": 1}}
 
-    def fake_vehicle_intelligence(*, vehicle_name, vendor):
+    def fake_vehicle_intelligence(*, vehicle_name, vendor, sync_graph=False):
         calls["vehicle_intelligence"] += 1
         assert vehicle_name == "ITEAMS"
         assert vendor["id"] == vendor_id
+        assert sync_graph is True
         return {
             "vehicle_name": vehicle_name,
             "connectors_run": 2,

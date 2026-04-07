@@ -88,7 +88,7 @@ def auth_client(tmp_path, monkeypatch):
         }
 
 
-def _create_case(client, name="Acme Corp", country="US", headers=None, extra_payload=None):
+def _create_case(client, name="Acme Corp", country="US", headers=None, extra_payload=None, *, suppress_ai_prime=True):
     payload = {
         "name": name,
         "country": country,
@@ -120,11 +120,19 @@ def _create_case(client, name="Acme Corp", country="US", headers=None, extra_pay
     if extra_payload:
         payload.update(extra_payload)
 
-    resp = client.post(
-        "/api/cases",
-        json=payload,
-        headers=headers,
-    )
+    server = sys.modules["server"]
+    original_prime = getattr(server, "_prime_ai_analysis_for_case", None)
+    if suppress_ai_prime:
+        setattr(server, "_prime_ai_analysis_for_case", lambda *_args, **_kwargs: {"status": "suppressed"})
+    try:
+        resp = client.post(
+            "/api/cases",
+            json=payload,
+            headers=headers,
+        )
+    finally:
+        if suppress_ai_prime and original_prime is not None:
+            setattr(server, "_prime_ai_analysis_for_case", original_prime)
     assert resp.status_code == 201
     return resp.get_json()["case_id"]
 
@@ -984,6 +992,63 @@ def test_supplier_passport_prefers_scored_ownership_snapshot_over_raw_vendor_inp
     assert passport["ownership"]["oci"]["ownership_gap"] == "descriptor_only_owner_class"
     assert passport["ownership"]["oci"]["ownership_resolution_pct"] == pytest.approx(0.55)
     assert passport["ownership"]["oci"]["control_resolution_pct"] == pytest.approx(0.35)
+    assert "ownership_control" in passport["graph"]["intelligence"]["missing_required_edge_families"]
+    assert passport["graph"]["intelligence"]["externally_satisfied_edge_families"] == []
+
+
+def test_create_case_primes_ai_with_non_blocking_warmup(client, monkeypatch):
+    server = sys.modules["server"]
+    primed = {}
+
+    def fake_prime(case_id_arg, user_id_arg, wait_seconds=99, poll_seconds=99.0):
+        primed["case_id"] = case_id_arg
+        primed["user_id"] = user_id_arg
+        primed["wait_seconds"] = wait_seconds
+        primed["poll_seconds"] = poll_seconds
+        return {"status": "pending", "job_id": "ai-job-create"}
+
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", fake_prime)
+
+    response = client.post(
+        "/api/cases",
+        json={
+            "name": "AI Primed On Create Vendor",
+            "country": "US",
+            "ownership": {
+                "publicly_traded": True,
+                "state_owned": False,
+                "beneficial_owner_known": True,
+                "ownership_pct_resolved": 0.9,
+                "shell_layers": 0,
+                "pep_connection": False,
+            },
+            "data_quality": {
+                "has_lei": True,
+                "has_cage": True,
+                "has_duns": True,
+                "has_tax_id": True,
+                "has_audited_financials": True,
+                "years_of_records": 10,
+            },
+            "exec": {
+                "known_execs": 5,
+                "adverse_media": 0,
+                "pep_execs": 0,
+                "litigation_history": 0,
+            },
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert primed == {
+        "case_id": payload["case_id"],
+        "user_id": "dev",
+        "wait_seconds": 0,
+        "poll_seconds": 0.0,
+    }
 
 
 def test_graph_runtime_reports_active_database_paths(client, tmp_path):

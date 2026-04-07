@@ -36,7 +36,7 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def _create_case(client, name="Acme Corp", country="US", extra_payload=None):
+def _create_case(client, name="Acme Corp", country="US", extra_payload=None, *, suppress_ai_prime=True):
     payload = {
         "name": name,
         "country": country,
@@ -67,10 +67,18 @@ def _create_case(client, name="Acme Corp", country="US", extra_payload=None):
     }
     if isinstance(extra_payload, dict):
         payload.update(extra_payload)
-    resp = client.post(
-        "/api/cases",
-        json=payload,
-    )
+    server = sys.modules["server"]
+    original_prime = getattr(server, "_prime_ai_analysis_for_case", None)
+    if suppress_ai_prime:
+        setattr(server, "_prime_ai_analysis_for_case", lambda *_args, **_kwargs: {"status": "suppressed"})
+    try:
+        resp = client.post(
+            "/api/cases",
+            json=payload,
+        )
+    finally:
+        if suppress_ai_prime and original_prime is not None:
+            setattr(server, "_prime_ai_analysis_for_case", original_prime)
     assert resp.status_code == 201
     return resp.get_json()["case_id"]
 
@@ -887,6 +895,36 @@ def test_analysis_status_uses_user_scoped_hash(client, monkeypatch):
     body = resp.get_json()
     assert body["status"] == "ready"
     assert body["analysis"]["created_by"] == "dev"
+
+
+def test_analysis_status_primes_missing_job_with_non_blocking_warmup(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="AI Status Primed Vendor")
+    primed = {}
+
+    monkeypatch.setattr(server, "_current_analysis_input_hash", lambda *args, **kwargs: "hash-prime-missing")
+    monkeypatch.setattr(server, "get_latest_analysis", lambda *args, **kwargs: None)
+
+    def fake_prime(case_id_arg, user_id_arg, wait_seconds=99, poll_seconds=99.0):
+        primed["case_id"] = case_id_arg
+        primed["user_id"] = user_id_arg
+        primed["wait_seconds"] = wait_seconds
+        primed["poll_seconds"] = poll_seconds
+        return {"status": "pending", "job_id": "ai-job-prime-missing"}
+
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", fake_prime)
+
+    resp = client.get(f"/api/cases/{case_id}/analysis-status")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["status"] == "pending"
+    assert body["job"]["id"] == "ai-job-prime-missing"
+    assert primed == {
+        "case_id": case_id,
+        "user_id": "dev",
+        "wait_seconds": 0,
+        "poll_seconds": 0.0,
+    }
 
 
 def test_analyze_async_enqueues_job(client, monkeypatch):

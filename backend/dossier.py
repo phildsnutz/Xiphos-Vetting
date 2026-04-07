@@ -1661,6 +1661,7 @@ def build_dossier_context(
             vehicle_intelligence = build_vehicle_intelligence_support(
                 vehicle_name=vehicle_name,
                 vendor=vendor,
+                sync_graph=True,
             )
         except Exception as err:
             print(f"[dossier] Vehicle intelligence support build failed: {err}")

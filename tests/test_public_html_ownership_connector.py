@@ -104,6 +104,59 @@ def test_public_html_extracts_json_ld_parent_and_lei(monkeypatch):
     assert ("owned_by", "Horizon Mission Systems") in rel_types
 
 
+def test_public_html_prefers_corrected_website_over_stale_domain(monkeypatch):
+    official_html = """
+    <html>
+      <body>
+        <p>
+          Example Defense is a state-owned company. Having as main shareholder the
+          Hellenic Ministry of Finance, the company is supervised by the Ministry of National Defence.
+        </p>
+      </body>
+    </html>
+    """
+    parked_html = """
+    <html>
+      <body>
+        <p>Premium domain listing.</p>
+      </body>
+    </html>
+    """
+    fetched_urls: list[str] = []
+
+    def fake_get(url: str, timeout: int, headers: dict):
+        fetched_urls.append(url)
+        assert timeout == public_html_ownership.TIMEOUT
+        if url == "https://eas.gr":
+            return _FakeResponse(official_html)
+        if url == "https://www.hellenicdefence.com":
+            return _FakeResponse(
+                parked_html,
+                headers={
+                    "Server": "cloudflare",
+                    "CF-RAY": "abc123-LAX",
+                },
+            )
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(public_html_ownership.requests, "get", fake_get)
+    monkeypatch.setattr(public_html_ownership, "_fetch_dns_answers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(public_html_ownership, "_fetch_rdap_record", lambda *_args, **_kwargs: {})
+
+    result = public_html_ownership.enrich(
+        "HELLENIC DEFENCE SYSTEMS SA",
+        country="GR",
+        website="https://eas.gr",
+        domain="https://www.hellenicdefence.com",
+    )
+
+    assert result.identifiers["website"] == "https://eas.gr"
+    assert "https://eas.gr" in fetched_urls
+    assert "https://www.hellenicdefence.com" not in fetched_urls
+    assert any(rel["type"] == "owned_by" and rel["target_entity"] == "Hellenic Ministry of Finance" for rel in result.relationships)
+    assert not any(rel["type"] == "depends_on_network" and rel["target_entity"] == "Cloudflare" for rel in result.relationships)
+
+
 def test_public_html_extracts_domain_dependency_hints_from_fixture(monkeypatch):
     home_html = """
     <html>

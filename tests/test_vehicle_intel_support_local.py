@@ -1,3 +1,4 @@
+import importlib
 import os
 import sys
 from pathlib import Path
@@ -29,6 +30,23 @@ def _vendor(name: str, *, seed_metadata: dict | None = None) -> dict:
             "seed_metadata": payload,
         },
     }
+
+
+def _init_graph_runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.delenv("XIPHOS_PG_URL", raising=False)
+    monkeypatch.setenv("XIPHOS_DB_ENGINE", "sqlite")
+    monkeypatch.setenv("HELIOS_DB_ENGINE", "sqlite")
+    for module_name in ["db", "knowledge_graph", "vehicle_intel_support", "teaming_intelligence"]:
+        if module_name in sys.modules:
+            importlib.reload(sys.modules[module_name])
+    import knowledge_graph  # noqa: E402
+    import vehicle_intel_support as reloaded_support  # noqa: E402
+
+    knowledge_graph.init_kg_db()
+    return knowledge_graph, reloaded_support
 
 
 def test_contract_opportunities_archive_fixture_returns_lineage_relationships():
@@ -159,6 +177,37 @@ def test_vehicle_intel_support_live_collector_supports_non_seeded_vehicle():
     assert any(rel["rel_type"] == "funded_by" for rel in support["relationships"])
     assert any(finding["source"] == "usaspending_vehicle_live" for finding in support["findings"])
     assert any(row["vendor_name"] == "Science Applications International Corporation" for row in support["observed_vendors"])
+
+
+def test_vehicle_intel_support_syncs_official_relationships_without_duplicates(tmp_path, monkeypatch):
+    knowledge_graph, support_module = _init_graph_runtime(tmp_path, monkeypatch)
+
+    support = support_module.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor=_vendor("Science Applications International Corporation"),
+        sync_graph=True,
+    )
+
+    assert support is not None
+    graph_sync = support["graph_sync"]
+    assert graph_sync["enabled"] is True
+    assert graph_sync["relationship_count"] > 0
+    assert graph_sync["syncable_relationship_count"] >= graph_sync["relationship_count"]
+
+    with knowledge_graph.get_kg_conn() as conn:
+        first_count = conn.execute("SELECT COUNT(*) FROM kg_relationships").fetchone()[0]
+
+    repeat = support_module.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor=_vendor("Science Applications International Corporation"),
+        sync_graph=True,
+    )
+
+    assert repeat["graph_sync"]["relationship_count"] == 0
+    assert repeat["graph_sync"]["reused_relationship_count"] == graph_sync["syncable_relationship_count"]
+    with knowledge_graph.get_kg_conn() as conn:
+        second_count = conn.execute("SELECT COUNT(*) FROM kg_relationships").fetchone()[0]
+    assert second_count == first_count
 
 
 def test_vehicle_intel_support_includes_public_html_vehicle_connector_when_seeded():

@@ -317,6 +317,7 @@ def api_cvi_teaming_intelligence():
                             }
                         },
                     },
+                    sync_graph=True,
                 )
             except Exception:
                 support_bundle = None

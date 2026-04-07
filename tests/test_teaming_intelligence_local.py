@@ -13,6 +13,7 @@ def _reload_backend_modules():
         "db",
         "knowledge_graph",
         "seed_iteams_knowledge_graph",
+        "vehicle_intel_support",
         "teaming_intelligence",
     ]:
         if module_name in sys.modules:
@@ -105,3 +106,40 @@ def test_build_teaming_intelligence_returns_unsupported_for_unknown_vehicle(tmp_
     assert report["supported"] is False
     assert "NO_SUCH_VEHICLE" in report["message"]
     assert report["assessed_partners"] == []
+
+
+def test_build_teaming_intelligence_generalizes_to_oasis_from_synced_vehicle_support(tmp_path, monkeypatch):
+    _seed_iteams_graph(tmp_path, monkeypatch)
+    import teaming_intelligence
+    import vehicle_intel_support
+
+    support = vehicle_intel_support.build_vehicle_intelligence_support(
+        vehicle_name="OASIS",
+        vendor={
+            "id": "support-oasis",
+            "name": "Science Applications International Corporation",
+            "vendor_input": {
+                "seed_metadata": {
+                    "contract_vehicle_live_fixture_path": "fixtures/vehicle_intelligence/usaspending_vehicle_live_fixture.json",
+                }
+            },
+        },
+        sync_graph=True,
+    )
+
+    report = teaming_intelligence.build_teaming_intelligence(
+        vehicle_name="OASIS",
+        observed_vendors=support["observed_vendors"],
+    )
+
+    assert report["supported"] is True
+    assert report["vehicle_name"] == "OASIS"
+    classes = {partner["entity_name"]: partner["classification"] for partner in report["assessed_partners"]}
+    assert classes["Science Applications International Corporation"] == "incumbent-core"
+    assert "OASIS Systems, LLC" in classes
+    assert any(
+        classification in {"locked", "recruitable", "emerging", "swing"}
+        for name, classification in classes.items()
+        if name != "Science Applications International Corporation"
+    )
+    assert any("OASIS" in conclusion for conclusion in report["top_conclusions"])

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -230,6 +232,252 @@ def _result_observed_vendors(results: list[Any]) -> list[dict[str, Any]]:
     )
 
 
+_GRAPH_SYNC_REL_TYPES = {
+    "prime_contractor_of",
+    "subcontractor_of",
+    "competed_on",
+    "incumbent_on",
+    "teamed_with",
+    "awarded_under",
+    "predecessor_of",
+    "successor_of",
+    "funded_by",
+    "performed_at",
+}
+_GRAPH_SYNC_AUTHORITIES = {
+    "official_program_system",
+    "official_registry",
+    "official_regulatory",
+}
+
+
+def _sync_name_key(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
+
+
+def _graph_entity_id(name: str, entity_type: str) -> str:
+    normalized = _sync_name_key(name) or str(name or "").strip().upper()
+    digest = hashlib.md5(normalized.encode("utf-8")).hexdigest()[:12]
+    prefix = {
+        "contract_vehicle": "contract_vehicle",
+        "government_agency": "government_agency",
+        "installation": "installation",
+        "holding_company": "holding_company",
+    }.get(entity_type, entity_type or "entity")
+    return f"{prefix}:{digest}"
+
+
+def _graph_entity_type(rel_type: str, side: str) -> str:
+    if rel_type in {"prime_contractor_of", "subcontractor_of", "competed_on", "incumbent_on"}:
+        return "company" if side == "source" else "contract_vehicle"
+    if rel_type == "teamed_with":
+        return "company"
+    if rel_type in {"awarded_under", "predecessor_of", "successor_of"}:
+        return "contract_vehicle"
+    if rel_type == "funded_by":
+        return "government_agency" if side == "source" else "contract_vehicle"
+    if rel_type == "performed_at":
+        return "contract_vehicle" if side == "source" else "installation"
+    return "company"
+
+
+def _relationship_evidence_url(rel: dict[str, Any]) -> str:
+    urls = rel.get("source_urls")
+    if isinstance(urls, list):
+        for item in urls:
+            candidate = str(item or "").strip()
+            if candidate:
+                return candidate
+    return str(rel.get("evidence_url") or "").strip()
+
+
+def _load_graph_entity_index() -> dict[tuple[str, str], dict[str, Any]]:
+    from knowledge_graph import get_kg_conn
+
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    with get_kg_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, canonical_name, entity_type, aliases, identifiers, country, sources, confidence
+            FROM kg_entities
+            """
+        ).fetchall()
+    for row in rows:
+        aliases = row["aliases"]
+        if not isinstance(aliases, list):
+            try:
+                aliases = json.loads(aliases or "[]")
+            except Exception:
+                aliases = []
+        identifiers = row["identifiers"]
+        if not isinstance(identifiers, dict):
+            try:
+                identifiers = json.loads(identifiers or "{}")
+            except Exception:
+                identifiers = {}
+        record = {
+            "id": str(row["id"]),
+            "canonical_name": str(row["canonical_name"] or ""),
+            "entity_type": str(row["entity_type"] or ""),
+            "aliases": [str(item or "").strip() for item in (aliases or []) if str(item or "").strip()],
+            "identifiers": identifiers or {},
+            "country": str(row["country"] or ""),
+            "sources": row["sources"] if isinstance(row["sources"], list) else [],
+            "confidence": float(row["confidence"] or 0.0),
+        }
+        names = [record["canonical_name"], *record["aliases"]]
+        for candidate in names:
+            key = (record["entity_type"], _sync_name_key(candidate))
+            if key[1] and key not in index:
+                index[key] = record
+    return index
+
+
+def _resolve_graph_entity(
+    *,
+    name: str,
+    entity_type: str,
+    source_name: str,
+    index: dict[tuple[str, str], dict[str, Any]],
+) -> str:
+    from entity_resolution import ResolvedEntity
+    from knowledge_graph import save_entity
+
+    clean_name = str(name or "").strip()
+    if not clean_name:
+        return ""
+    key = (entity_type, _sync_name_key(clean_name))
+    record = index.get(key)
+    if record is None:
+        entity_id = _graph_entity_id(clean_name, entity_type)
+        record = {
+            "id": entity_id,
+            "canonical_name": clean_name,
+            "entity_type": entity_type,
+            "aliases": [],
+            "identifiers": {},
+            "country": "",
+            "sources": [],
+            "confidence": 0.78 if entity_type == "contract_vehicle" else 0.76,
+        }
+    else:
+        entity_id = str(record["id"])
+
+    aliases = [item for item in record.get("aliases", []) if item and item != clean_name]
+    sources = [str(item or "").strip() for item in (record.get("sources") or []) if str(item or "").strip()]
+    if source_name not in sources:
+        sources.append(source_name)
+    save_entity(
+        ResolvedEntity(
+            id=entity_id,
+            canonical_name=clean_name,
+            entity_type=entity_type,
+            aliases=aliases,
+            identifiers=record.get("identifiers") or {},
+            country=str(record.get("country") or ""),
+            sources=sources,
+            confidence=max(float(record.get("confidence") or 0.0), 0.76),
+            last_updated=datetime.now(timezone.utc).isoformat(),
+        )
+    )
+    updated = {
+        **record,
+        "id": entity_id,
+        "canonical_name": clean_name,
+        "entity_type": entity_type,
+        "aliases": aliases,
+        "sources": sources,
+        "confidence": max(float(record.get("confidence") or 0.0), 0.76),
+    }
+    index[key] = updated
+    return entity_id
+
+
+def sync_vehicle_support_graph(
+    *,
+    vehicle_name: str,
+    support_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    from knowledge_graph import get_kg_conn, init_kg_db, save_relationship
+
+    init_kg_db()
+    index = _load_graph_entity_index()
+    relationships_written = 0
+    relationships_reused = 0
+    syncable_relationships = [
+        rel
+        for rel in (support_bundle.get("relationships") or [])
+        if isinstance(rel, dict)
+        and str(rel.get("rel_type") or "") in _GRAPH_SYNC_REL_TYPES
+        and str(rel.get("authority_level") or "").strip().lower() in _GRAPH_SYNC_AUTHORITIES
+    ]
+
+    for rel in syncable_relationships:
+        rel_type = str(rel.get("rel_type") or "").strip()
+        source_name = str(rel.get("source_name") or "").strip()
+        target_name = str(rel.get("target_name") or "").strip()
+        if not source_name or not target_name:
+            continue
+        source_id = _resolve_graph_entity(
+            name=source_name,
+            entity_type=_graph_entity_type(rel_type, "source"),
+            source_name=str(rel.get("data_source") or "vehicle_intelligence_support"),
+            index=index,
+        )
+        target_id = _resolve_graph_entity(
+            name=target_name,
+            entity_type=_graph_entity_type(rel_type, "target"),
+            source_name=str(rel.get("data_source") or "vehicle_intelligence_support"),
+            index=index,
+        )
+        if not source_id or not target_id:
+            continue
+        evidence = str(rel.get("evidence_summary") or rel.get("evidence") or "")
+        data_source = str(rel.get("data_source") or "")
+        with get_kg_conn() as conn:
+            existing = conn.execute(
+                """
+                SELECT id
+                FROM kg_relationships
+                WHERE source_entity_id = ?
+                  AND target_entity_id = ?
+                  AND rel_type = ?
+                  AND data_source = ?
+                  AND evidence = ?
+                LIMIT 1
+                """,
+                (source_id, target_id, rel_type, data_source, evidence),
+            ).fetchone()
+        if existing:
+            relationships_reused += 1
+            continue
+        save_relationship(
+            source_entity_id=source_id,
+            target_entity_id=target_id,
+            rel_type=rel_type,
+            confidence=float(rel.get("confidence") or 0.0),
+            data_source=data_source,
+            evidence=evidence,
+            evidence_url=_relationship_evidence_url(rel),
+            evidence_title=f"Vehicle intelligence support: {vehicle_name}",
+            source_class=str(rel.get("source_class") or "public_connector"),
+            authority_level=str(rel.get("authority_level") or ""),
+            access_model=str(rel.get("access_model") or ""),
+            structured_fields={
+                "vehicle_name": vehicle_name,
+                "source_notes": list(rel.get("source_notes") or []),
+            },
+        )
+        relationships_written += 1
+
+    return {
+        "enabled": True,
+        "relationship_count": relationships_written,
+        "reused_relationship_count": relationships_reused,
+        "syncable_relationship_count": len(syncable_relationships),
+    }
+
+
 def _gao_events(results: list[Any]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for result in results:
@@ -274,6 +522,7 @@ def build_vehicle_intelligence_support(
     *,
     vehicle_name: str,
     vendor: dict[str, Any] | None = None,
+    sync_graph: bool = False,
 ) -> dict[str, Any] | None:
     scoped_vehicle_name = _support_vehicle_name(vehicle_name, vendor)
     if not scoped_vehicle_name:
@@ -313,7 +562,7 @@ def build_vehicle_intelligence_support(
         if (getattr(result, "findings", None) or getattr(result, "identifiers", None) or getattr(result, "relationships", None))
     )
 
-    return {
+    support_bundle = {
         "vehicle_name": scoped_vehicle_name,
         "connectors_run": len(results),
         "connectors_with_data": connectors_with_data,
@@ -323,3 +572,9 @@ def build_vehicle_intelligence_support(
         "observed_vendors": observed_vendors,
         "sources": [getattr(result, "source", "") for result in results if getattr(result, "source", "")],
     }
+    if sync_graph:
+        support_bundle["graph_sync"] = sync_vehicle_support_graph(
+            vehicle_name=scoped_vehicle_name,
+            support_bundle=support_bundle,
+        )
+    return support_bundle
