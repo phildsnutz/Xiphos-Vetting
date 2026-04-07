@@ -34,13 +34,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _request_json(base_url: str, method: str, path: str, payload: dict[str, Any] | None = None, timeout: int = 30) -> dict[str, Any]:
+def _request_json(
+    base_url: str,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    timeout: int = 30,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     data = None
-    headers = {}
+    request_headers = dict(headers or {})
     if payload is not None:
-        headers["Content-Type"] = "application/json"
+        request_headers["Content-Type"] = "application/json"
         data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(f"{base_url.rstrip('/')}{path}", data=data, headers=headers, method=method)
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}{path}",
+        data=data,
+        headers=request_headers,
+        method=method,
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read()
         return json.loads(body.decode("utf-8")) if body else {}
@@ -80,19 +92,36 @@ def _deploy_credentials(args: argparse.Namespace) -> tuple[str, str]:
     return email, password
 
 
+def _token_is_valid(base_url: str, token: str) -> bool:
+    if not token:
+        return False
+    try:
+        payload = _request_json(
+            base_url,
+            "GET",
+            "/api/auth/me",
+            timeout=15,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except Exception:
+        return False
+    return isinstance(payload, dict) and bool(payload.get("user"))
+
+
 def _login_token(args: argparse.Namespace) -> str:
-    if args.token:
+    email, password = _deploy_credentials(args)
+    if args.token and _token_is_valid(args.base_url, args.token):
         return args.token
     cached = _cached_token(args.base_url)
-    if cached:
+    if cached and _token_is_valid(args.base_url, cached):
         return cached
-    if not (args.email and args.password):
+    if not (email and password):
         raise RuntimeError("beta release ritual requires --token or --email/--password")
     payload = _request_json(
         args.base_url,
         "POST",
         "/api/auth/login",
-        {"email": args.email, "password": args.password},
+        {"email": email, "password": password},
         timeout=30,
     )
     token = str(payload.get("token") or "").strip()
@@ -130,6 +159,10 @@ def _run_json_script(script: Path, args: argparse.Namespace, token: str) -> dict
             command.extend(["--email", email, "--password", password])
         elif not token:
             raise RuntimeError("current product stress harness requires a token or deploy credentials")
+    if script == VEHICLE_INTEL_SCRIPT:
+        email, password = _deploy_credentials(args)
+        if email and password:
+            command.extend(["--email", email, "--password", password])
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
     payload = _decode_json(completed.stdout)
     if payload is None:

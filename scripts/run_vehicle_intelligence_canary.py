@@ -94,9 +94,26 @@ def request_json(
         return response.status, dict(response.headers), parsed
 
 
+def _validate_token(base_url: str, token: str) -> bool:
+    try:
+        status, _, _ = request_json(
+            base_url,
+            "GET",
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+    except Exception:
+        return False
+    return status == 200
+
+
 def login_headers(base_url: str, email: str, password: str, token: str) -> dict[str, str]:
     if token:
-        return {"Authorization": f"Bearer {token}"}
+        if _validate_token(base_url, token):
+            return {"Authorization": f"Bearer {token}"}
+        if not email or not password:
+            raise RuntimeError("vehicle intelligence canary token is invalid or expired")
     if not email or not password:
         raise SystemExit("vehicle intelligence canary requires --token or --email/--password")
     status, _, payload = request_json(

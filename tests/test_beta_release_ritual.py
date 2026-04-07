@@ -95,3 +95,48 @@ def test_query_to_dossier_keeps_token_and_spec(monkeypatch):
     assert "--token" in captured["command"]
     assert "cached-token" in captured["command"]
     assert "--spec-file" in captured["command"]
+
+
+def test_vehicle_canary_receives_credentials_for_token_fallback(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"overall_verdict": "PASS"})
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        return FakeProc()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    args = _args(email="ops@example.com", password="secret")
+
+    payload = module._run_json_script(module.VEHICLE_INTEL_SCRIPT, args, "cached-token")
+
+    assert payload["overall_verdict"] == "PASS"
+    assert "--token" in captured["command"]
+    assert "cached-token" in captured["command"]
+    assert "--email" in captured["command"]
+    assert "--password" in captured["command"]
+
+
+def test_login_token_falls_back_from_stale_cached_token(monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    def fake_request_json(base_url, method, path, payload=None, timeout=30, headers=None):
+        calls.append((method, path))
+        if path == "/api/auth/me":
+            raise RuntimeError("expired")
+        if path == "/api/auth/login":
+            return {"token": "fresh-token"}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "_cached_token", lambda base_url: "stale-token")
+    monkeypatch.setattr(module, "_request_json", fake_request_json)
+
+    token = module._login_token(_args(email="ops@example.com", password="secret"))
+
+    assert token == "fresh-token"
+    assert ("GET", "/api/auth/me") in calls
+    assert ("POST", "/api/auth/login") in calls
