@@ -373,6 +373,12 @@ def main() -> int:
             ],
             scenario={"recruit_partner": "HII Mission Technologies"},
         ),
+        _check_teaming(
+            args.base_url,
+            headers,
+            vehicle_name="OASIS",
+            observed_vendors=[],
+        ),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="ITEAMS", prime_contractor="Amentum", markers=ITEAMS_DOSSIER_MARKERS),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="LEIA", prime_contractor="SMX", markers=LEIA_DOSSIER_MARKERS),
         _check_vehicle_dossier(args.base_url, headers, vehicle_name="SEWP", prime_contractor="NASA SEWP Program Office", markers=SUPPORT_ONLY_DOSSIER_MARKERS),
