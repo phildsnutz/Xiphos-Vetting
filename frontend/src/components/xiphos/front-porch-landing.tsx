@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, ExternalLink, Loader2, MessageSquareText } from "lucide-react";
+import { ArrowUpRight, ArrowRight, Building2, ChevronDown, ExternalLink, GitBranch, Loader2, Lock, MessageSquareText, Eye, EyeOff } from "lucide-react";
+import { login as authLogin } from "@/lib/auth";
+import type { AuthUser } from "@/lib/auth";
 import {
   createMissionBrief,
   fetchCaseGraph,
@@ -73,6 +75,7 @@ interface FrontPorchLandingProps {
     autoRun?: boolean;
   }) => void;
   onRequestLogin?: () => void;
+  onLoginComplete?: (user: AuthUser) => void;
 }
 
 interface ThreadMessage {
@@ -1480,8 +1483,14 @@ export function FrontPorchLanding({
   onOpenCase,
   onOpenAegisIntent,
   onRequestLogin,
+  onLoginComplete,
 }: FrontPorchLandingProps) {
   const [menu, setMenu] = useState<RoomMenu>(null);
+  const [inlineAuthEmail, setInlineAuthEmail] = useState("");
+  const [inlineAuthPassword, setInlineAuthPassword] = useState("");
+  const [inlineAuthError, setInlineAuthError] = useState<string | null>(null);
+  const [inlineAuthLoading, setInlineAuthLoading] = useState(false);
+  const [inlineAuthShowPassword, setInlineAuthShowPassword] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ThreadMessage[]>(INITIAL_MESSAGES);
   const [session, setSession] = useState<IntakeSession>({
@@ -1518,7 +1527,8 @@ export function FrontPorchLanding({
     atBottom: true,
   });
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 768);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
+  const inlineAuthEmailRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -1578,6 +1588,12 @@ export function FrontPorchLanding({
   useEffect(() => {
     composerRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!loginRequired && session.objectType && !hasThreadDepth) {
+      composerRef.current?.focus();
+    }
+  }, [hasThreadDepth, loginRequired, session.objectType]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -2322,6 +2338,78 @@ export function FrontPorchLanding({
     }
   }, [appendMessage, loginRequired, onRequestLogin, vendorArtifact]);
 
+  /* ── Mode selector handler ─────────────────────────────────── */
+  const handleModeSelect = useCallback((mode: ObjectType) => {
+    const nextSession: IntakeSession = {
+      objectType: mode,
+      vendorName: null,
+      vehicleName: null,
+      seedText: null,
+      priorityFocus: null,
+      supportLayer: "counterparty",
+      vehicleTiming: null,
+      followOn: null,
+      incumbentPrime: null,
+      followUpCount: 0,
+      pendingFollowUp: null,
+    };
+    setSession(nextSession);
+    setMessages([{
+      id: nextId("axiom"),
+      role: "axiom",
+      content: mode === "vehicle"
+        ? "Which contract vehicle?"
+        : "Which vendor or entity?",
+    }]);
+    resetArtifacts();
+    setDraft("");
+    setWorkingCaseId(null);
+    setIsWorking(false);
+    setErrorText(null);
+    setResumeIntent(null);
+    setInlineAuthLoading(false);
+    setInlineAuthError(null);
+    setInlineAuthShowPassword(false);
+    // Focus the composer after mode selection (only if not gated by auth)
+    if (!loginRequired) {
+      window.requestAnimationFrame(() => composerRef.current?.focus());
+    } else {
+      window.requestAnimationFrame(() => inlineAuthEmailRef.current?.focus());
+    }
+  }, [loginRequired, resetArtifacts]);
+
+  /* ── Inline auth handler ────────────────────────────────────── */
+  const handleInlineAuth = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inlineAuthEmail.trim() || !inlineAuthPassword.trim()) return;
+    setInlineAuthLoading(true);
+    setInlineAuthError(null);
+    try {
+      const result = await authLogin(inlineAuthEmail, inlineAuthPassword);
+      setInlineAuthEmail("");
+      setInlineAuthPassword("");
+      setInlineAuthError(null);
+      onLoginComplete?.(result.user);
+      // Focus the composer once auth succeeds and loginRequired flips to false
+      window.requestAnimationFrame(() => composerRef.current?.focus());
+    } catch (err) {
+      setInlineAuthError(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setInlineAuthLoading(false);
+    }
+  }, [inlineAuthEmail, inlineAuthPassword, onLoginComplete]);
+
+  /* ── Whether the inline auth gate should block the input ────── */
+  const showInlineAuth = loginRequired && session.objectType !== null && !hasThreadDepth;
+
+  /* ── Computed: are we still on the initial chooser? ─────────── */
+  const showModeChooser = !session.objectType && !hasThreadDepth;
+  const inputPlaceholder = session.objectType === "vehicle"
+    ? "ITEAMS, ILS 2, OASIS..."
+    : session.objectType === "vendor"
+      ? "Amentum, SMX, Booz Allen..."
+      : "ILS 2. Pre-solicitation follow-on. Amentum is the incumbent.";
+
   return (
     <div
       style={{
@@ -2343,6 +2431,7 @@ export function FrontPorchLanding({
           flexDirection: "column",
         }}
       >
+        {/* ── Header: minimal brand + auth affordance ──────────── */}
         <header
           ref={menuRef}
           style={{
@@ -2350,18 +2439,17 @@ export function FrontPorchLanding({
             alignItems: "center",
             justifyContent: "space-between",
             gap: SP.lg,
-            padding: `${SP.sm}px 0 ${isCompactViewport ? SP.xl : SP.xxxl}px`,
+            padding: `${SP.sm}px 0 ${SP.md}px`,
             position: "relative",
             flexWrap: "wrap",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
             <div style={{ fontSize: FS.md, fontWeight: 800, letterSpacing: "-0.04em" }}>Helios</div>
-            <StatusPill tone="info">{STOA_NAME}</StatusPill>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, position: "relative", flexWrap: "wrap", justifyContent: isCompactViewport ? "flex-start" : "flex-end" }}>
-            {!loginRequired ? (
+            {!loginRequired && recentCases.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setMenu((current) => current === "recent" ? null : "recent")}
@@ -2380,60 +2468,55 @@ export function FrontPorchLanding({
                 Recent
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setMenu((current) => current === "examples" ? null : "examples")}
-              className="helios-focus-ring"
-              style={{
-                border: "none",
-                background: "transparent",
-                color: T.textSecondary,
-                fontSize: FS.sm,
-                fontWeight: 700,
-                padding: PAD.default,
-                borderRadius: 999,
-                cursor: "pointer",
-              }}
-            >
-              Examples
-            </button>
-            <button
-              type="button"
-              onClick={openAegis}
-              className="helios-focus-ring"
-              style={{
-                border: `1px solid ${T.accent}${O["20"]}`,
-                background: `${T.accent}${O["08"]}`,
-                color: T.text,
-                fontSize: FS.sm,
-                fontWeight: 700,
-                padding: PAD.default,
-                borderRadius: 999,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: SP.xs,
-              }}
-            >
-              {DEEP_ROOM_NAME}
-              <ArrowUpRight size={14} />
-            </button>
-            {loginRequired ? (
+            {hasThreadDepth ? (
               <button
                 type="button"
-                onClick={() => onRequestLogin?.()}
+                onClick={openAegis}
                 className="helios-focus-ring"
                 style={{
-                  border: `1px solid ${T.border}`,
-                  background: "transparent",
-                  color: T.textSecondary,
+                  border: `1px solid ${T.accent}${O["20"]}`,
+                  background: `${T.accent}${O["08"]}`,
+                  color: T.text,
                   fontSize: FS.sm,
                   fontWeight: 700,
                   padding: PAD.default,
                   borderRadius: 999,
                   cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: SP.xs,
                 }}
               >
+                {DEEP_ROOM_NAME}
+                <ArrowUpRight size={14} />
+              </button>
+            ) : null}
+            {loginRequired ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (showInlineAuth) {
+                    inlineAuthEmailRef.current?.focus();
+                    return;
+                  }
+                  onRequestLogin?.();
+                }}
+                className="helios-focus-ring"
+                style={{
+                  border: `1px solid ${T.border}`,
+                  background: T.surface,
+                  color: T.text,
+                  fontSize: FS.sm,
+                  fontWeight: 700,
+                  padding: PAD.default,
+                  borderRadius: 999,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+              >
+                <Lock size={12} />
                 Sign in
               </button>
             ) : null}
@@ -2456,8 +2539,8 @@ export function FrontPorchLanding({
                   zIndex: 20,
                 }}
               >
-                <SectionEyebrow>Recent engagements</SectionEyebrow>
-                {recentCases.length > 0 ? recentCases.map((item) => (
+                <SectionEyebrow>Recent</SectionEyebrow>
+                {recentCases.map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -2480,57 +2563,13 @@ export function FrontPorchLanding({
                       {item.created_at || item.date}
                     </div>
                   </button>
-                )) : (
-                  <InlineMessage tone="neutral" message="No recent engagements yet. The first one starts here." />
-                )}
-              </div>
-            ) : null}
-
-            {menu === "examples" ? (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 10px)",
-                  right: 0,
-                  width: isCompactViewport ? "min(calc(100vw - 32px), 420px)" : 380,
-                  borderRadius: 18,
-                  border: `1px solid ${T.borderStrong}`,
-                  background: T.surfaceElevated,
-                  boxShadow: "0 18px 48px rgba(0,0,0,0.38)",
-                  padding: PAD.default,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: SP.xs,
-                  zIndex: 20,
-                }}
-              >
-                <SectionEyebrow>Try an opening</SectionEyebrow>
-                {FRONT_PORCH_EXAMPLES.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    onClick={() => { void handleExample(example); }}
-                    className="helios-focus-ring"
-                    style={{
-                      border: `1px solid ${T.border}`,
-                      background: T.surface,
-                      borderRadius: 14,
-                      padding: PAD.default,
-                      cursor: "pointer",
-                      textAlign: "left",
-                      fontSize: FS.sm,
-                      color: T.textSecondary,
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    {example}
-                  </button>
                 ))}
               </div>
             ) : null}
           </div>
         </header>
 
+        {/* ── Main content area ────────────────────────────────── */}
         <div
           style={{
             flex: 1,
@@ -2538,26 +2577,126 @@ export function FrontPorchLanding({
             flexDirection: "column",
             alignItems: "center",
             justifyContent: hasThreadDepth ? "flex-start" : "center",
-            padding: `${SP.lg}px 0 ${SP.xxxl}px`,
+            padding: `${hasThreadDepth ? SP.lg : SP.xxxl}px 0 ${SP.xxxl}px`,
             gap: SP.xl,
           }}
         >
           <div style={{ width: "min(860px, 100%)", display: "flex", flexDirection: "column", alignItems: "center", gap: SP.xl }}>
-            <div style={{ display: "grid", justifyItems: "center", gap: SP.xs, textAlign: "center" }}>
-              <SectionEyebrow>Brief AXIOM</SectionEyebrow>
-              <p
+
+            {/* ── MODE CHOOSER: the first deliberate choice ──── */}
+            {showModeChooser ? (
+              <div
+                className="animate-fade-in"
                 style={{
-                  margin: 0,
-                  fontSize: FS.md,
-                  color: T.textSecondary,
-                  lineHeight: 1.6,
-                  maxWidth: 620,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: SP.xxxl,
+                  width: "100%",
+                  maxWidth: 560,
                 }}
               >
-                Start with whatever you know. AXIOM will narrow the problem and ask only what changes the work.
-              </p>
-            </div>
-            {activeBriefView ? (
+                {/* Title block: ultra-minimal */}
+                <div style={{ textAlign: "center", display: "grid", gap: SP.xs }}>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: isCompactViewport ? 26 : 32,
+                      fontWeight: 700,
+                      letterSpacing: "-0.035em",
+                      color: T.text,
+                      lineHeight: 1.15,
+                    }}
+                  >
+                    What are you looking at?
+                  </h1>
+                </div>
+
+                {/* Two-choice selector */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isCompactViewport ? "1fr" : "1fr 1fr",
+                    gap: SP.md,
+                    width: "100%",
+                  }}
+                >
+                  {([
+                    { mode: "vendor" as const, icon: Building2, label: "Vendor", desc: "Entity, supplier, or teammate" },
+                    { mode: "vehicle" as const, icon: GitBranch, label: "Vehicle", desc: "Contract vehicle ecosystem" },
+                  ]).map(({ mode, icon: Icon, label, desc }) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => handleModeSelect(mode)}
+                      className="helios-focus-ring"
+                      style={{
+                        border: `1px solid ${T.border}`,
+                        background: T.surface,
+                        borderRadius: 16,
+                        padding: `${SP.xl}px ${SP.lg}px`,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: SP.lg,
+                        transition: `all ${MOTION.fast} ${MOTION.easing}`,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = `${T.accent}${O["30"]}`;
+                        e.currentTarget.style.background = `${T.accent}${O["05"]}`;
+                        e.currentTarget.style.transform = "translateY(-1px)";
+                        e.currentTarget.style.boxShadow = `0 8px 32px rgba(0,0,0,0.25)`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = T.border;
+                        e.currentTarget.style.background = T.surface;
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          background: `${T.accent}${O["08"]}`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon size={18} color={T.accent} strokeWidth={1.75} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: FS.base, fontWeight: 700, color: T.text, letterSpacing: "-0.01em" }}>{label}</div>
+                        <div style={{ fontSize: FS.sm, color: T.textSecondary, marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
+                      </div>
+                      <ArrowRight size={14} color={T.textTertiary} style={{ marginLeft: "auto", flexShrink: 0 }} />
+                    </button>
+                  ))}
+                </div>
+
+                {/* Auth hint for unauthenticated users */}
+                {loginRequired ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: SP.xs,
+                      padding: `${SP.sm}px 0`,
+                    }}
+                  >
+                    <Lock size={11} color={T.textTertiary} />
+                    <span style={{ fontSize: FS.sm, color: T.textTertiary }}>
+                      Authentication required to proceed
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            ) : activeBriefView ? (
               <FrontPorchBriefView
                 artifact={activeBriefView}
                 isCompactViewport={isCompactViewport}
@@ -2623,12 +2762,13 @@ export function FrontPorchLanding({
               </FrontPorchBriefView>
             ) : (
               <>
+            {/* ── Intake console: mode header + input + thread ── */}
             <div
               style={{
                 width: "100%",
-                borderRadius: 28,
+                borderRadius: 24,
                 border: `1px solid rgba(255,255,255,0.08)`,
-                background: "linear-gradient(180deg, rgba(10,13,20,0.88) 0%, rgba(8,10,16,0.9) 100%)",
+                background: "linear-gradient(180deg, rgba(10,13,20,0.88) 0%, rgba(8,10,16,0.94) 100%)",
                 boxShadow: "0 28px 80px rgba(0,0,0,0.28)",
                 padding: isCompactViewport ? PAD.comfortable : PAD.spacious,
                 display: "grid",
@@ -2638,22 +2778,68 @@ export function FrontPorchLanding({
                 zIndex: hasThreadDepth && !isCompactViewport && !hasArtifactStage ? 6 : undefined,
               }}
             >
+              {/* Mode indicator bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
-                <div style={{ fontSize: FS.caption, color: T.textTertiary, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                  AXIOM
+                <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                  {session.objectType === "vendor" ? (
+                    <Building2 size={14} color={T.accent} strokeWidth={2} />
+                  ) : (
+                    <GitBranch size={14} color={T.accent} strokeWidth={2} />
+                  )}
+                  <div style={{ fontSize: FS.sm, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>
+                    {session.objectType === "vendor" ? "Vendor Assessment" : "Vehicle Intelligence"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSession({ objectType: null, vendorName: null, vehicleName: null, seedText: null, priorityFocus: null, supportLayer: "counterparty", vehicleTiming: null, followOn: null, incumbentPrime: null, followUpCount: 0, pendingFollowUp: null });
+                      setMessages(INITIAL_MESSAGES);
+                      resetArtifacts();
+                      setWorkingCaseId(null);
+                      setIsWorking(false);
+                      setDraft("");
+                      setErrorText(null);
+                      setResumeIntent(null);
+                      setLastUserInput("");
+                      setPressureThreadVisible(false);
+                      setPressureThreadDismissed(false);
+                      setInlineAuthEmail("");
+                      setInlineAuthPassword("");
+                      setInlineAuthError(null);
+                      setInlineAuthLoading(false);
+                      setInlineAuthShowPassword(false);
+                    }}
+                    className="helios-focus-ring"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: T.textTertiary,
+                      fontSize: FS.caption,
+                      fontWeight: 700,
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Change
+                  </button>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {clarifyingLabel ? <StatusPill tone="info">{clarifyingLabel}</StatusPill> : null}
-                  <div style={{ fontSize: FS.sm, color: isWorking || isDisambiguatingEntity || isClarifyingIntake ? T.accent : T.textSecondary }}>
-                    {roomStatusText}
-                  </div>
+                  {isWorking ? (
+                    <div style={{ fontSize: FS.sm, color: T.accent, display: "flex", alignItems: "center", gap: SP.xs }}>
+                      <Loader2 size={12} className="animate-spin" />
+                      {PROGRESS_LINES[progressIndex]}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
+              {/* Pressure thread selector (appears during working phase) */}
               {pressureThreadVisible && pressureThreadOptions.length > 0 ? (
                 <div
                   style={{
-                    borderRadius: 22,
+                    borderRadius: 16,
                     border: `1px solid rgba(255,255,255,0.06)`,
                     background: "rgba(255,255,255,0.025)",
                     padding: PAD.comfortable,
@@ -2661,13 +2847,8 @@ export function FrontPorchLanding({
                     gap: SP.sm,
                   }}
                 >
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>
-                      While I work the full picture, is there one thread you want me to weight first?
-                    </div>
-                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                      You can skip this. AXIOM is already working the full picture.
-                    </div>
+                  <div style={{ fontSize: FS.sm, color: T.text, fontWeight: 700 }}>
+                    Weight one thread first?
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
                     {pressureThreadOptions.map((focus) => (
@@ -2681,7 +2862,7 @@ export function FrontPorchLanding({
                           background: "rgba(255,255,255,0.04)",
                           color: T.text,
                           borderRadius: 999,
-                          padding: "10px 14px",
+                          padding: "8px 14px",
                           cursor: "pointer",
                           fontSize: FS.sm,
                           fontWeight: 700,
@@ -2702,158 +2883,292 @@ export function FrontPorchLanding({
                         background: "transparent",
                         color: T.textSecondary,
                         borderRadius: 999,
-                        padding: "10px 14px",
+                        padding: "8px 14px",
                         cursor: "pointer",
                         fontSize: FS.sm,
                         fontWeight: 700,
                       }}
                     >
-                      Keep working
+                      Skip
                     </button>
                   </div>
                 </div>
               ) : null}
 
-              <div style={{ position: "relative" }}>
-                {threadScrollState.canScrollUp ? (
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: SP.xs,
-                      height: 28,
-                      background: "linear-gradient(180deg, rgba(8,10,16,0.96) 0%, rgba(8,10,16,0) 100%)",
-                      pointerEvents: "none",
-                      zIndex: 2,
-                    }}
-                  />
-                ) : null}
-
-                <div
-                  ref={messageListRef}
-                  aria-live="polite"
-                  onScroll={syncThreadScrollState}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: SP.md,
-                    maxHeight: isCompactViewport ? "min(44vh, 400px)" : "min(46vh, 520px)",
-                    overflowY: "auto",
-                    paddingRight: SP.xs,
-                    paddingBottom: SP.sm,
-                    scrollPaddingBottom: SP.xxxl,
-                  }}
-                >
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      style={{
-                        alignSelf: message.role === "user" ? "flex-end" : "stretch",
-                        maxWidth: message.role === "user" ? (isCompactViewport ? "92%" : "82%") : "100%",
-                        marginLeft: message.role === "user" ? (isCompactViewport ? 20 : 72) : 0,
-                        borderRadius: 24,
-                        border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : "rgba(255,255,255,0.06)"}`,
-                        background: message.role === "status"
-                          ? "transparent"
-                          : message.role === "user"
-                            ? `${T.accent}${O["08"]}`
-                            : "rgba(255,255,255,0.02)",
-                        padding: message.role === "status" ? "2px 0" : `${SP.lg}px ${PAD.comfortable}`,
-                        color: message.role === "status" ? T.accent : T.text,
-                        fontSize: message.role === "status" ? FS.sm : FS.base,
-                        lineHeight: 1.7,
-                      }}
-                    >
-                      {message.content}
-                    </div>
-                  ))}
+              {/* Initial prompt (shown before any thread depth, hidden if inline auth is showing) */}
+              {!hasThreadDepth && messages.length > 0 && !showInlineAuth ? (
+                <div style={{ fontSize: FS.base, color: T.textSecondary, lineHeight: 1.6 }}>
+                  {messages[messages.length - 1].content}
                 </div>
+              ) : null}
 
-                {threadScrollState.canScrollDown ? (
+              {/* Thread messages (only visible once there's conversation depth) */}
+              {hasThreadDepth ? (
+                <div style={{ position: "relative" }}>
+                  {threadScrollState.canScrollUp ? (
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        right: SP.xs,
+                        height: 28,
+                        background: "linear-gradient(180deg, rgba(8,10,16,0.96) 0%, rgba(8,10,16,0) 100%)",
+                        pointerEvents: "none",
+                        zIndex: 2,
+                      }}
+                    />
+                  ) : null}
+
                   <div
-                    aria-hidden="true"
+                    ref={messageListRef}
+                    aria-live="polite"
+                    onScroll={syncThreadScrollState}
                     style={{
-                      position: "absolute",
-                      bottom: 0,
-                      left: 0,
-                      right: SP.xs,
-                      height: 34,
-                      background: "linear-gradient(180deg, rgba(8,10,16,0) 0%, rgba(8,10,16,0.98) 100%)",
-                      pointerEvents: "none",
-                      zIndex: 2,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: SP.md,
+                      maxHeight: isCompactViewport ? "min(36vh, 360px)" : "min(40vh, 440px)",
+                      overflowY: "auto",
+                      paddingRight: SP.xs,
+                      paddingBottom: SP.sm,
+                      scrollPaddingBottom: SP.xxxl,
                     }}
-                  />
-                ) : null}
-              </div>
-
-              <div
-                style={{
-                  borderTop: `1px solid rgba(255,255,255,0.06)`,
-                  paddingTop: SP.lg,
-                  display: "grid",
-                  gap: SP.md,
-                  background: "linear-gradient(180deg, rgba(8,10,16,0.78) 0%, rgba(8,10,16,0.98) 32%)",
-                  backdropFilter: "blur(16px)",
-                }}
-              >
-                <textarea
-                  ref={composerRef}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void submitDraft();
-                    }
-                  }}
-                  placeholder="ILS 2. Pre-solicitation follow-on. Amentum is the incumbent."
-                  aria-label="Brief AXIOM"
-                  disabled={isWorking}
-                  className="helios-focus-ring"
-                  style={{
-                    width: "100%",
-                    minHeight: 72,
-                    resize: "none",
-                    border: "none",
-                    outline: "none",
-                    background: "transparent",
-                    color: T.text,
-                    fontSize: FS.md,
-                    lineHeight: 1.55,
-                    fontFamily: "inherit",
-                    opacity: isWorking ? 0.75 : 1,
-                    cursor: isWorking ? "not-allowed" : "text",
-                  }}
-                />
-                <div style={{ display: "flex", flexDirection: isCompactViewport ? "column" : "row", alignItems: isCompactViewport ? "stretch" : "center", justifyContent: "space-between", gap: SP.md, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap" }}>
-                    <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
-                      {composerSupportText}
-                    </div>
-                    {threadScrollState.canScrollDown ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight, behavior: "smooth" });
-                        }}
-                        className="helios-focus-ring"
+                  >
+                    {messages.map((message) => (
+                      <div
+                        key={message.id}
                         style={{
-                          border: `1px solid rgba(255,255,255,0.08)`,
-                          background: "rgba(255,255,255,0.04)",
-                          color: T.textSecondary,
-                          borderRadius: 999,
-                          padding: "8px 12px",
-                          cursor: "pointer",
-                          fontSize: FS.xs,
-                          fontWeight: 700,
+                          alignSelf: message.role === "user" ? "flex-end" : "stretch",
+                          maxWidth: message.role === "user" ? (isCompactViewport ? "92%" : "82%") : "100%",
+                          marginLeft: message.role === "user" ? (isCompactViewport ? 20 : 72) : 0,
+                          borderRadius: 18,
+                          border: message.role === "status" ? "none" : `1px solid ${message.role === "user" ? `${T.accent}${O["20"]}` : "rgba(255,255,255,0.06)"}`,
+                          background: message.role === "status"
+                            ? "transparent"
+                            : message.role === "user"
+                              ? `${T.accent}${O["08"]}`
+                              : "rgba(255,255,255,0.02)",
+                          padding: message.role === "status" ? "2px 0" : `${SP.md}px ${PAD.comfortable}`,
+                          color: message.role === "status" ? T.accent : T.text,
+                          fontSize: message.role === "status" ? FS.sm : FS.base,
+                          lineHeight: 1.65,
                         }}
                       >
-                        Jump to latest
-                      </button>
-                    ) : null}
+                        {message.content}
+                      </div>
+                    ))}
                   </div>
+
+                  {threadScrollState.canScrollDown ? (
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        bottom: 0,
+                        left: 0,
+                        right: SP.xs,
+                        height: 34,
+                        background: "linear-gradient(180deg, rgba(8,10,16,0) 0%, rgba(8,10,16,0.98) 100%)",
+                        pointerEvents: "none",
+                        zIndex: 2,
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* Composer: inline auth gate OR focused single input */}
+              {showInlineAuth ? (
+                <div
+                  className="animate-fade-in"
+                  style={{
+                    borderTop: `1px solid rgba(255,255,255,0.06)`,
+                    paddingTop: SP.xl,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: SP.lg,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                    <Lock size={13} color={T.textSecondary} />
+                    <span style={{ fontSize: FS.sm, color: T.textSecondary, fontWeight: 600 }}>
+                      Sign in to start the assessment
+                    </span>
+                  </div>
+                  {inlineAuthError ? (
+                    <div
+                      style={{
+                        fontSize: FS.sm,
+                        color: T.red || "#ef4444",
+                        background: `${T.redBg || "rgba(239,68,68,0.08)"}`,
+                        borderRadius: 10,
+                        padding: `${SP.sm}px ${SP.md}px`,
+                        borderLeft: `3px solid ${T.red || "#ef4444"}`,
+                      }}
+                    >
+                      {inlineAuthError}
+                    </div>
+                  ) : null}
+                  <form
+                    onSubmit={(e) => { void handleInlineAuth(e); }}
+                    style={{ display: "flex", flexDirection: "column", gap: SP.md }}
+                  >
+                    <input
+                      ref={inlineAuthEmailRef}
+                      type="email"
+                      value={inlineAuthEmail}
+                      onChange={(e) => setInlineAuthEmail(e.target.value)}
+                      placeholder="Email"
+                      required
+                      autoComplete="email"
+                      autoFocus
+                      className="helios-focus-ring"
+                      style={{
+                        border: `1px solid ${T.border}`,
+                        borderRadius: 12,
+                        outline: "none",
+                        background: "rgba(255,255,255,0.03)",
+                        color: T.text,
+                        fontSize: FS.base,
+                        fontFamily: "inherit",
+                        padding: "12px 14px",
+                        transition: `border-color ${MOTION.fast} ${MOTION.easing}`,
+                      }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = `${T.accent}${O["50"]}`; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = T.border; }}
+                    />
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type={inlineAuthShowPassword ? "text" : "password"}
+                        value={inlineAuthPassword}
+                        onChange={(e) => setInlineAuthPassword(e.target.value)}
+                        placeholder="Password"
+                        required
+                        minLength={8}
+                        autoComplete="current-password"
+                        className="helios-focus-ring"
+                        style={{
+                          width: "100%",
+                          border: `1px solid ${T.border}`,
+                          borderRadius: 12,
+                          outline: "none",
+                          background: "rgba(255,255,255,0.03)",
+                          color: T.text,
+                          fontSize: FS.base,
+                          fontFamily: "inherit",
+                          padding: "12px 14px",
+                          paddingRight: 44,
+                          transition: `border-color ${MOTION.fast} ${MOTION.easing}`,
+                        }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = `${T.accent}${O["50"]}`; }}
+                        onBlur={(e) => { e.currentTarget.style.borderColor = T.border; }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setInlineAuthShowPassword((v) => !v)}
+                        tabIndex={-1}
+                        style={{
+                          position: "absolute",
+                          right: 12,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          border: "none",
+                          background: "transparent",
+                          color: T.textTertiary,
+                          cursor: "pointer",
+                          padding: 2,
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        {inlineAuthShowPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={inlineAuthLoading || !inlineAuthEmail.trim() || !inlineAuthPassword.trim()}
+                      className="helios-focus-ring"
+                      style={{
+                        border: "none",
+                        borderRadius: 12,
+                        padding: "13px 0",
+                        fontSize: FS.base,
+                        fontWeight: 700,
+                        fontFamily: "inherit",
+                        cursor: inlineAuthLoading ? "default" : "pointer",
+                        background: inlineAuthLoading ? T.border : T.text,
+                        color: inlineAuthLoading ? T.textTertiary : T.textInverse,
+                        opacity: (!inlineAuthEmail.trim() || !inlineAuthPassword.trim()) ? 0.5 : 1,
+                        transition: `all ${MOTION.fast} ${MOTION.easing}`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: SP.sm,
+                      }}
+                    >
+                      {inlineAuthLoading ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Authenticating
+                        </>
+                      ) : (
+                        <>
+                          Sign in
+                          <ArrowRight size={14} />
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    borderTop: hasThreadDepth ? `1px solid rgba(255,255,255,0.06)` : "none",
+                    paddingTop: hasThreadDepth ? SP.lg : 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: SP.md,
+                  }}
+                >
+                  <input
+                    ref={composerRef}
+                    type="text"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void submitDraft();
+                      }
+                    }}
+                    placeholder={inputPlaceholder}
+                    aria-label={session.objectType === "vehicle" ? "Vehicle name" : "Vendor name"}
+                    disabled={isWorking}
+                    className="helios-focus-ring"
+                    style={{
+                      flex: 1,
+                      border: `1px solid ${T.border}`,
+                      borderRadius: 14,
+                      outline: "none",
+                      background: "rgba(255,255,255,0.03)",
+                      color: T.text,
+                      fontSize: FS.base,
+                      lineHeight: 1.55,
+                      fontFamily: "inherit",
+                      padding: "14px 16px",
+                      opacity: isWorking ? 0.5 : 1,
+                      cursor: isWorking ? "not-allowed" : "text",
+                      transition: `border-color ${MOTION.fast} ${MOTION.easing}`,
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = `${T.accent}${O["50"]}`;
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = T.border;
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => { void submitDraft(); }}
@@ -2861,10 +3176,10 @@ export function FrontPorchLanding({
                     className="helios-focus-ring"
                     style={{
                       border: "none",
-                      background: draft.trim() && !isWorking ? T.text : `${T.border}`,
+                      background: draft.trim() && !isWorking ? T.text : T.border,
                       color: draft.trim() && !isWorking ? T.textInverse : T.textTertiary,
-                      borderRadius: 999,
-                      padding: "12px 18px",
+                      borderRadius: 14,
+                      padding: "14px 18px",
                       cursor: draft.trim() && !isWorking ? "pointer" : "default",
                       display: "inline-flex",
                       alignItems: "center",
@@ -2873,14 +3188,14 @@ export function FrontPorchLanding({
                       fontSize: FS.sm,
                       fontWeight: 800,
                       transition: `all ${MOTION.fast} ${MOTION.easing}`,
-                      width: isCompactViewport ? "100%" : undefined,
+                      flexShrink: 0,
                     }}
                   >
-                    {isWorking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquareText size={14} />}
-                    {isWorking ? "Working this pass" : "Start the brief"}
+                    {isWorking ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                    {isCompactViewport ? null : (isWorking ? "Working" : "Go")}
                   </button>
                 </div>
-              </div>
+              )}
             </div>
 
             {candidateChoices.length > 0 ? (

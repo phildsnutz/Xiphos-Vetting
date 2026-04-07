@@ -828,6 +828,7 @@ export default function App() {
             cases={cases}
             loginRequired
             onRequestLogin={requestLogin}
+            onLoginComplete={handleLogin}
             onNavigate={(nextTab) => {
               if (nextTab !== "helios") {
                 requestLogin();
@@ -841,6 +842,7 @@ export default function App() {
             loginRequired={Boolean(authRequired && !user)}
             onOpenAegisIntent={(intent) => setAegisSeed(intent)}
             onRequestLogin={requestLogin}
+            onLoginComplete={handleLogin}
             onNavigate={(nextTab) => {
               if (nextTab !== "axiom") {
                 setAegisSeed(null);
