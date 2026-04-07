@@ -199,6 +199,69 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
     assert "Acme Systems Integration" not in html
 
 
+def test_generate_vehicle_dossier_lineage_read_uses_wayback_support_relationships(monkeypatch):
+    context = _make_context(
+        vendor_name="Amentum",
+        relationships=[],
+        events=[],
+        findings=[],
+    )
+    context["vehicle_intelligence"] = {
+        "vehicle_name": "ITEAMS",
+        "connectors_run": 1,
+        "connectors_with_data": 1,
+        "relationships": [
+            {
+                "rel_type": "awarded_under",
+                "source_name": "OASIS",
+                "target_name": "ITEAMS",
+                "evidence": "Archived capture preserved contract family context.",
+                "evidence_summary": "Archived capture preserved contract family context.",
+                "corroboration_count": 2,
+                "data_sources": ["contract_vehicle_wayback"],
+                "intelligence_tier": "supported",
+            },
+            {
+                "rel_type": "predecessor_of",
+                "source_name": "IPIESS",
+                "target_name": "ITEAMS",
+                "evidence": "Seeded archive captures preserve predecessor transition language.",
+                "evidence_summary": "Seeded archive captures preserve predecessor transition language.",
+                "corroboration_count": 2,
+                "data_sources": ["contract_vehicle_wayback"],
+                "intelligence_tier": "supported",
+            },
+        ],
+        "events": [],
+        "findings": [
+            {
+                "title": "Wayback capture preserved ITEAMS lineage",
+                "detail": "Archive snapshots keep the predecessor and award scaffold in frame.",
+                "severity": "medium",
+                "source": "contract_vehicle_wayback",
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        comparative_dossier,
+        "build_dossier_context",
+        lambda vendor_id, **_: context if vendor_id == "case-1" else None,
+    )
+
+    html = comparative_dossier.generate_vehicle_dossier(
+        vehicle_name="ITEAMS",
+        prime_contractor="Amentum",
+        vendor_ids=["case-1"],
+        contract_data={"naics": "541715"},
+    )
+
+    assert "Lineage Read" in html
+    assert "Award scaffold remains attached through OASIS." in html
+    assert "Predecessor path observed through IPIESS." in html
+    assert "Contract Vehicle Wayback" in html
+
+
 def test_generate_vehicle_dossier_renders_teaming_intelligence_section(monkeypatch):
     monkeypatch.setattr(comparative_dossier, "build_dossier_context", lambda vendor_id, **_: None)
     fake_module = types.SimpleNamespace(

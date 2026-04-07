@@ -52,6 +52,14 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="official_program_system",
         access_model="local_json_fixture",
     ),
+    "gao_bid_protests_public": ConnectorRegistryEntry(
+        label="GAO Bid Protests Public",
+        category="Collector",
+        description="Seeded official GAO docket and decision pages captured through browser render for protest posture",
+        source_class="public_connector",
+        authority_level="official_program_system",
+        access_model="browser_rendered_public_html",
+    ),
     "public_html_contract_vehicle": ConnectorRegistryEntry(
         label="Public HTML Contract Vehicle",
         category="Collector",
