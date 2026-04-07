@@ -34,6 +34,19 @@ def _clean_detail(value: Any, fallback: str = "") -> str:
     return text or fallback
 
 
+def _human_entity_label(value: Any) -> str:
+    text = _clean_detail(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    id_prefixes = ("axiom:", "entity:", "cik:", "lei:", "uei:", "cage:", "sec_edgar:", "sam:", "kg:")
+    if lowered.startswith(id_prefixes):
+        return ""
+    if len(text) > 40 and ":" in text and " " not in text:
+        return ""
+    return text
+
+
 def _join_sentences(*parts: Any) -> str:
     cleaned: list[str] = []
     for part in parts:
@@ -61,8 +74,8 @@ def _collect_graph_holds(graph_summary: dict[str, Any] | None) -> list[str]:
     for rel in relationships[:4]:
         if not isinstance(rel, dict):
             continue
-        source_name = str(rel.get("source_name") or rel.get("source_entity_name") or rel.get("source_entity_id") or "").strip()
-        target_name = str(rel.get("target_name") or rel.get("target_entity_name") or rel.get("target_entity_id") or "").strip()
+        source_name = _human_entity_label(rel.get("source_name") or rel.get("source_entity_name") or rel.get("source_entity_id"))
+        target_name = _human_entity_label(rel.get("target_name") or rel.get("target_entity_name") or rel.get("target_entity_id"))
         rel_type = str(rel.get("rel_type") or "related_to").replace("_", " ")
         corroboration = int(rel.get("corroboration_count") or len(rel.get("data_sources") or []) or 1)
         if source_name and target_name:
@@ -298,6 +311,181 @@ def _collect_gap_lines(context: dict[str, Any]) -> list[str]:
         else:
             gaps.append("Axiom has not yet added a separate challenge layer beyond the current evidence bundle.")
     return gaps
+
+
+def _summarize_signal_detail(detail: str, limit: int = 210) -> str:
+    text = _clean_detail(detail)
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    clipped = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return clipped + "…"
+
+
+def _material_signal_from_finding(finding: dict[str, Any]) -> dict[str, str] | None:
+    title = _clean_detail(finding.get("title"), "Material signal")
+    detail = _clean_detail(finding.get("detail"), "No analyst-ready detail attached.")
+    source = _clean_detail(finding.get("source"), "unknown").lower()
+    severity = str(finding.get("severity") or "info").lower()
+    text = f"{title} {detail}".lower()
+
+    if source == "workflow_control" or "public-source triage" in text or "workflow control" in text:
+        return None
+
+    signal = {
+        "title": title,
+        "read": _summarize_signal_detail(detail),
+        "next_check": "Confirm whether this signal materially changes the disposition or only requires documentation.",
+        "source": source.replace("_", " ").title(),
+        "severity": severity,
+    }
+
+    if "beneficial ownership" in text or "ownership trace" in text or "ownership resolution" in text:
+        signal["title"] = "Ownership visibility is still unresolved"
+        signal["read"] = (
+            "Disclosure appears to exist, but Helios has not yet turned it into named control paths. "
+            + _summarize_signal_detail(detail)
+        )
+        signal["next_check"] = "Trace the named beneficial owners from SEC or registry filings before treating control as closed."
+        return signal
+
+    if "concentration risk" in text or ("subcontractor" in text and "30%" in text):
+        signal["title"] = "Subcontract concentration creates leverage risk"
+        signal["read"] = _summarize_signal_detail(
+            "A single subcontractor appears to control a disproportionate share of reported subaward flow. " + detail
+        )
+        signal["next_check"] = "Confirm whether the concentrated subcontractor is mission-critical, still active, and replaceable."
+        return signal
+
+    if source == "icij_offshore" or "panama papers" in text or "pandora papers" in text or "offshore" in text:
+        signal["title"] = "Offshore-leak proximity remains unresolved"
+        signal["read"] = _summarize_signal_detail(
+            "This is currently a name or entity-proximity hit, not proof of wrongdoing. " + detail
+        )
+        signal["next_check"] = "Disambiguate the offshore-leak hit against official filings, registry records, or named insiders."
+        return signal
+
+    if source == "graph_control":
+        signal["title"] = "Connected-entity exposure needs explanation"
+        signal["read"] = _summarize_signal_detail(
+            "The graph is showing a meaningful relationship, but the operational significance still has to be explained. " + detail
+        )
+        signal["next_check"] = "Classify the relationship as ownership, teaming, contracting, financing, or incidental adjacency."
+        return signal
+
+    if "executive" in text and ("screened" in text or "screening" in text):
+        signal["title"] = "Leadership screening coverage is incomplete"
+        signal["read"] = _summarize_signal_detail(detail)
+        signal["next_check"] = "Expand screening beyond the first named executive before treating leadership coverage as complete."
+        return signal
+
+    return signal
+
+
+def _build_material_signals(findings: list[dict[str, Any]], gaps: list[str], actions: list[str]) -> list[dict[str, str]]:
+    signals: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for finding in findings:
+        signal = _material_signal_from_finding(finding)
+        if not signal:
+            continue
+        key = signal["title"].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        signals.append(signal)
+        if len(signals) >= 4:
+            break
+
+    if len(signals) < 3:
+        for gap in gaps:
+            lower = gap.lower()
+            if "identity anchors still thin" in lower:
+                title = "Identity coverage is still incomplete"
+                read = gap
+                next_check = "Fill the missing official identifiers that actually matter for the jurisdiction and control question."
+            elif "missing" in lower and "graph" in lower:
+                title = "Key relationship families are still missing"
+                read = gap
+                next_check = "Prove or disprove the missing control or dependency relationships before treating the graph as settled."
+            elif "contradicted" in lower:
+                title = "Contradictory graph claims remain open"
+                read = gap
+                next_check = "Resolve the contradiction before carrying the current posture into a customer-facing decision."
+            else:
+                continue
+            if title.lower() in seen:
+                continue
+            seen.add(title.lower())
+            signals.append(
+                {
+                    "title": title,
+                    "read": _summarize_signal_detail(read),
+                    "next_check": next_check,
+                    "source": "Dossier context",
+                    "severity": "medium",
+                }
+            )
+            if len(signals) >= 4:
+                break
+
+    if not signals and actions:
+        signals.append(
+            {
+                "title": "Analyst follow-up is still carrying the read",
+                "read": _summarize_signal_detail(actions[0]),
+                "next_check": _summarize_signal_detail(actions[0]),
+                "source": "Axiom",
+                "severity": "medium",
+            }
+        )
+    return signals[:4]
+
+
+def _build_decision_shifters(material_signals: list[dict[str, str]], gaps: list[str], actions: list[str]) -> list[str]:
+    shifters: list[str] = []
+    seen: set[str] = set()
+    for signal in material_signals:
+        text = _clean_detail(signal.get("next_check"))
+        if text and text.lower() not in seen:
+            shifters.append(text)
+            seen.add(text.lower())
+    for item in actions + gaps:
+        text = _clean_detail(item)
+        if not text:
+            continue
+        lowered = text.lower()
+        if "axiom is still warming" in lowered or "has not yet added" in lowered:
+            continue
+        if lowered not in seen:
+            shifters.append(text)
+            seen.add(lowered)
+        if len(shifters) >= 4:
+            break
+    return shifters[:4]
+
+
+def _compose_summary_line(
+    vendor_name: str,
+    recommendation: dict[str, Any],
+    probability: int,
+    confidence_low: int,
+    confidence_high: int,
+    material_signals: list[dict[str, str]],
+) -> str:
+    label = recommendation["label"]
+    if material_signals:
+        lead = material_signals[0]
+        return (
+            f"{vendor_name} currently reads {label}, but the decision still hinges on {lead['title'].lower()}. "
+            f"{lead['read']}"
+        )
+    return (
+        f"{vendor_name} is currently held at {label} with {probability}% model risk "
+        f"and a {confidence_low}% to {confidence_high}% confidence band."
+    )
 
 
 def _graph_change_line(context: dict[str, Any]) -> str:
@@ -547,15 +735,37 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
 
     graph_summary = context.get("graph_summary") if isinstance(context.get("graph_summary"), dict) else {}
     relationships = graph_summary.get("relationships") if isinstance(graph_summary.get("relationships"), list) else []
+    entity_name_map: dict[str, str] = {}
+    for entity in graph_summary.get("entities") or []:
+        if not isinstance(entity, dict):
+            continue
+        entity_id = _clean_detail(entity.get("id"))
+        canonical_name = _clean_detail(entity.get("canonical_name") or entity.get("name") or entity.get("label"))
+        if entity_id and canonical_name:
+            entity_name_map[entity_id] = canonical_name
     top_relationships = []
     for rel in relationships[:5]:
         if not isinstance(rel, dict):
             continue
+        source = _human_entity_label(
+            rel.get("source_name")
+            or rel.get("source_entity_name")
+            or entity_name_map.get(_clean_detail(rel.get("source_entity_id")))
+            or rel.get("source_entity_id")
+        )
+        target = _human_entity_label(
+            rel.get("target_name")
+            or rel.get("target_entity_name")
+            or entity_name_map.get(_clean_detail(rel.get("target_entity_id")))
+            or rel.get("target_entity_id")
+        )
+        if not source or not target:
+            continue
         top_relationships.append(
             {
                 "rel_type": str(rel.get("rel_type") or "related_to").replace("_", " "),
-                "source": _clean_detail(rel.get("source_name") or rel.get("source_entity_name") or rel.get("source_entity_id")),
-                "target": _clean_detail(rel.get("target_name") or rel.get("target_entity_name") or rel.get("target_entity_id")),
+                "source": source,
+                "target": target,
                 "evidence": _clean_detail(rel.get("evidence_summary") or rel.get("evidence")),
                 "corroboration": int(rel.get("corroboration_count") or len(rel.get("data_sources") or []) or 1),
             }
@@ -603,6 +813,8 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
     axiom = _build_axiom_assessment(context, recommendation)
     gaps = _collect_gap_lines(context)
     gaps.extend(_collect_passport_gaps(context))
+    material_signals = _build_material_signals(curated_findings, gaps, axiom["actions"])
+    decision_shifters = _build_decision_shifters(material_signals, gaps, axiom["actions"])
 
     probability = round(float(calibrated.get("calibrated_probability") or 0.0) * 100)
     confidence_low = round(float((calibrated.get("interval") or {}).get("lower") or 0.0) * 100)
@@ -617,9 +829,13 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "top_relationships": top_relationships,
     }
 
-    summary_line = (
-        f"{vendor.get('name', 'Unknown')} is currently held at {recommendation['label']} "
-        f"with {probability}% model risk and a {confidence_low}% to {confidence_high}% confidence band."
+    summary_line = _compose_summary_line(
+        vendor.get("name", "Unknown"),
+        recommendation,
+        probability,
+        confidence_low,
+        confidence_high,
+        material_signals,
     )
 
     recommended_actions = axiom["actions"][:4] if axiom["actions"] else gaps[:4]
@@ -637,6 +853,8 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "passport_snapshot": _build_passport_snapshot(context, recommendation, probability),
         "what_holds": what_holds[:6],
         "gaps": gaps[:6],
+        "material_signals": material_signals,
+        "decision_shifters": decision_shifters,
         "recommended_actions": recommended_actions,
         "graph_read": graph_read,
         "findings": curated_findings,
@@ -657,13 +875,15 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     recommendation = payload["recommendation"]
     posture = recommendation["posture"]
     graph_read = payload["graph_read"]
+    material_signals = payload.get("material_signals") or []
+    decision_shifters = payload.get("decision_shifters") or []
     finding_rows = "".join(
         f"""
         <tr>
             <td>{escape(item['title'])}</td>
             <td>{escape(item['source'].replace('_', ' ').title())}</td>
-            <td>{escape(item['severity'].upper())}</td>
             <td>{escape(item['detail'])}</td>
+            <td>{escape(next((signal.get('next_check') for signal in material_signals if signal.get('title') == item['title']), 'Validate whether this materially changes the call.'))}</td>
         </tr>
         """
         for item in payload["findings"][:8]
@@ -678,7 +898,19 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
         </div>
         """
         for rel in graph_read["top_relationships"]
-    ) or '<div class="graph-card"><div class="graph-card-body">The graph did not return a usable relationship set for this case.</div></div>'
+    ) or '<div class="graph-card"><div class="graph-card-body">The graph has not yet produced a customer-ready relationship read for this case.</div></div>'
+
+    signal_cards = "".join(
+        f"""
+        <div class="graph-card">
+            <div class="graph-card-title">{escape(signal['title'])}</div>
+            <div class="graph-card-chip">{escape(signal['source'])}</div>
+            <div class="graph-card-body">{escape(signal['read'])}</div>
+            <div class="subtle" style="margin-top:10px;"><strong>Next check:</strong> {escape(signal['next_check'])}</div>
+        </div>
+        """
+        for signal in material_signals
+    ) or '<div class="graph-card"><div class="graph-card-body">The brief has not yet promoted any decision-moving signal above raw findings.</div></div>'
 
     identity_html = "".join(f"<span class=\"identity-chip\">{escape(line)}</span>" for line in payload["identity_lines"]) or '<span class="identity-chip muted">Identity anchors are still thin.</span>'
     passport_cards = "".join(
@@ -700,6 +932,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
         """
         for idx, item in enumerate(payload["recommended_actions"], start=1)
     ) or '<tr><td colspan="2" class="empty-line">No concrete next move is attached yet.</td></tr>'
+    shifter_list = _html_list(decision_shifters, "No clean decision-shifting question is isolated yet.")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -942,17 +1175,16 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
         <h2>Axiom Assessment</h2>
         <div class="axiom-summary">{escape(payload['axiom']['summary'])}</div>
         <div class="subtle">{escape(payload['axiom']['support'])}</div>
-        <div class="support-line">{escape(payload['recommendation_authority'])}</div>
         <div class="support-line">{escape(payload['axiom']['graph_change'])}</div>
         <div class="subtle">Confidence read: {escape(payload['axiom']['confidence'])}</div>
         <div class="split">
           <div>
-            <h2 style="font-size:16px;">What holds</h2>
+            <h2 style="font-size:16px;">What is confirmed</h2>
             <ul>{_html_list(payload['what_holds'], 'No durable hold is ready to state cleanly yet.')}</ul>
           </div>
           <div>
-            <h2 style="font-size:16px;">What needs to be closed</h2>
-            <ul>{_html_list(payload['gaps'], 'No material open gap is currently called out.')}</ul>
+            <h2 style="font-size:16px;">What changes the decision</h2>
+            <ul>{shifter_list}</ul>
           </div>
         </div>
       </article>
@@ -987,23 +1219,33 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     </section>
 
     <section class="section-card">
+      <h2>Material Signals</h2>
+      <div class="support-line">These are the signals that actually justify analyst attention, not the raw connector inventory.</div>
+      <div class="graph-grid">{signal_cards}</div>
+    </section>
+
+    <section class="section-card">
       <h2>Risk Storyline</h2>
-      <div class="support-line">Start with the strongest recommendation, the shortest risk storyline, and the portable trust artifact before dropping into raw evidence.</div>
+      <div class="support-line">This is the shortest analyst read on what is ordinary, what is unusual, and what still has to be resolved before the call is boring.</div>
       <div class="split">
         <div>
           <h2 style="font-size:16px;">What holds</h2>
           <ul>{_html_list(payload['what_holds'], 'No durable hold is ready to state cleanly yet.')}</ul>
         </div>
         <div>
-          <h2 style="font-size:16px;">What needs to be closed</h2>
-          <ul>{_html_list(payload['gaps'], 'No material open gap is currently called out.')}</ul>
+          <h2 style="font-size:16px;">What is unusual</h2>
+          <ul>{_html_list([signal['read'] for signal in material_signals], 'No non-routine signal has been promoted yet.')}</ul>
         </div>
+      </div>
+      <div style="margin-top: 18px;">
+        <h2 style="font-size:16px;">What needs to be closed</h2>
+        <ul>{_html_list(payload['gaps'], 'No material open gap is currently called out.')}</ul>
       </div>
     </section>
 
     <section class="section-card">
-      <h2>Graph Read</h2>
-      <div class="support-line">The graph is treated as the reasoning spine, not a sidebar.</div>
+      <h2>Network and Dependency Read</h2>
+      <div class="support-line">Graph Read: show the relationships that actually change dependency, control, teaming, or exposure. Hide the raw graph mechanics.</div>
       <div class="metrics">
         <div class="metric"><div class="metric-label">Relationships</div><div class="metric-value">{graph_read['relationship_count']}</div></div>
         <div class="metric"><div class="metric-label">Entities</div><div class="metric-value">{graph_read['entity_count']}</div></div>
@@ -1015,14 +1257,14 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
 
     <section class="card ledger">
       <h2>Evidence Ledger</h2>
-      <div class="support-line">Low-signal absence noise is stripped. Only material surviving findings are shown here.</div>
+      <div class="support-line">This is the supporting evidence appendix. The signals above should already tell the story without forcing the reader to parse connector output.</div>
       <table>
         <thead>
           <tr>
-            <th>Finding</th>
+            <th>Signal</th>
             <th>Source</th>
-            <th>Severity</th>
             <th>Why it matters</th>
+            <th>Next check</th>
           </tr>
         </thead>
         <tbody>
@@ -1099,12 +1341,20 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
     story.append(Spacer(1, 0.08 * inch))
     meta = f"{payload['country']} | {payload['program_label']} | Generated {payload['generated_at']}"
     story.append(Paragraph(meta, muted))
-    top_risk_signal = payload["findings"][0]["title"] if payload["findings"] else recommendation["summary"]
-    immediate_next_move = payload["axiom"]["actions"][0] if payload["axiom"]["actions"] else payload["gaps"][0] if payload["gaps"] else recommendation["summary"]
+    top_risk_signal = (
+        payload["material_signals"][0]["title"]
+        if payload.get("material_signals")
+        else payload["findings"][0]["title"] if payload["findings"] else recommendation["summary"]
+    )
+    immediate_next_move = (
+        payload["decision_shifters"][0]
+        if payload.get("decision_shifters")
+        else payload["axiom"]["actions"][0] if payload["axiom"]["actions"] else payload["gaps"][0] if payload["gaps"] else recommendation["summary"]
+    )
     evidence_snapshot = (
         f"{payload['graph_read']['relationship_count']} relationships, "
         f"{payload['graph_read']['entity_count']} entities, "
-        f"{len(payload['findings'])} curated findings."
+        f"{len(payload['material_signals']) or len(payload['findings'])} promoted signals."
     )
     story.append(Spacer(1, 0.08 * inch))
     story.append(Paragraph(f"Top risk signal: {top_risk_signal}", body))
@@ -1119,9 +1369,22 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
     story.append(Paragraph("Axiom Assessment", heading))
     story.append(Paragraph(payload["axiom"]["summary"], body))
     story.append(Paragraph(payload["axiom"]["support"], body))
-    story.append(Paragraph(payload["recommendation_authority"], body))
     story.append(Paragraph(payload["axiom"]["graph_change"], body))
     story.append(Paragraph(f"Confidence read: {payload['axiom']['confidence']}", muted))
+    if payload["what_holds"]:
+        story.append(Paragraph("What is confirmed", heading))
+        for item in payload["what_holds"][:4]:
+            story.append(Paragraph(item, bullet, bulletText="•"))
+    if payload["decision_shifters"]:
+        story.append(Paragraph("What changes the decision", heading))
+        for item in payload["decision_shifters"]:
+            story.append(Paragraph(item, bullet, bulletText="•"))
+
+    story.append(Paragraph("Material Signals", heading))
+    for signal in payload["material_signals"]:
+        story.append(Paragraph(f"<b>{signal['title']}</b>", body))
+        story.append(Paragraph(signal["read"], body))
+        story.append(Paragraph(f"Next check: {signal['next_check']}", muted))
 
     story.append(Paragraph("Supplier Passport", heading))
     passport_rows = [[Paragraph(f"<b>{label}</b>", body), Paragraph(value, body)] for label, value in payload["passport_snapshot"]["cards"]]
@@ -1145,12 +1408,16 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         story.append(Paragraph("What holds", heading))
         for item in payload["what_holds"]:
             story.append(Paragraph(item, bullet, bulletText="•"))
+    if payload["material_signals"]:
+        story.append(Paragraph("What is unusual", heading))
+        for signal in payload["material_signals"]:
+            story.append(Paragraph(signal["read"], bullet, bulletText="•"))
     if payload["gaps"]:
         story.append(Paragraph("What needs to be closed", heading))
         for item in payload["gaps"]:
             story.append(Paragraph(item, bullet, bulletText="•"))
 
-    story.append(Paragraph("Graph Read", heading))
+    story.append(Paragraph("Network and Dependency Read", heading))
     graph_metrics = Table(
         [[
             Paragraph(f"<b>Relationships</b><br/>{payload['graph_read']['relationship_count']}", body),
@@ -1174,22 +1441,22 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         story.append(Paragraph(f"<b>{rel['source']} → {rel['target']}</b> | {rel['rel_type'].title()} | {rel['corroboration']} record{'s' if rel['corroboration'] != 1 else ''}", body))
         story.append(Paragraph(rel["evidence"] or "No narrative evidence summary is attached yet.", muted))
 
-    story.append(Paragraph("Recommended Actions", heading))
-    for item in payload["recommended_actions"]:
-        story.append(Paragraph(item, bullet, bulletText="•"))
-
     story.append(Paragraph("Evidence Ledger", heading))
-    ledger_rows = [["Finding", "Source", "Severity", "Why it matters"]]
+    ledger_rows = [["Signal", "Source", "Why it matters", "Next check"]]
     for item in payload["findings"][:8]:
+        next_check = next(
+            (signal["next_check"] for signal in payload["material_signals"] if signal["title"] == item["title"]),
+            "Validate whether this materially changes the call.",
+        )
         ledger_rows.append([
             item["title"],
             item["source"].replace("_", " ").title(),
-            item["severity"].upper(),
             item["detail"],
+            next_check,
         ])
     if len(ledger_rows) == 1:
         ledger_rows.append(["No material findings survived curation.", "", "", ""])
-    ledger = Table(ledger_rows, colWidths=[1.85 * inch, 1.35 * inch, 0.9 * inch, 3.35 * inch])
+    ledger = Table(ledger_rows, colWidths=[1.7 * inch, 1.25 * inch, 2.45 * inch, 1.95 * inch])
     ledger.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), HexColor("#0A1628")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
