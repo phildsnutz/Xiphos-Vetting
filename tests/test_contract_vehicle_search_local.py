@@ -108,3 +108,36 @@ def test_search_contract_vehicle_cache_key_varies_by_request_shape(monkeypatch):
 
     assert after_first > 0
     assert calls["prime"] == after_first * 2
+
+
+def test_search_contract_vehicle_only_uses_alias_fallback_when_primary_term_is_empty(monkeypatch):
+    contract_vehicle_search.clear_contract_vehicle_search_cache()
+    seen_terms: list[str] = []
+
+    def fake_prime(term, limit, *, verify_ssl):
+        seen_terms.append(term)
+        if term == "OASIS":
+            return (
+                [
+                    {
+                        "vendor_name": "Science Applications International Corporation",
+                        "award_id": "OASIS-001",
+                        "award_amount": 188000000,
+                        "role": "prime",
+                        "source": "usaspending",
+                    }
+                ],
+                {"OASIS-001"},
+                [],
+            )
+        return ([], set(), [])
+
+    monkeypatch.setattr(contract_vehicle_search, "_search_prime_awards", fake_prime)
+    monkeypatch.setattr(contract_vehicle_search, "_search_subawards", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(contract_vehicle_search, "_search_idv_children", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(contract_vehicle_search, "_verify_ssl", lambda: True)
+
+    result = contract_vehicle_search.search_contract_vehicle("OASIS", include_subs=False, limit=8)
+
+    assert result["total_primes"] == 1
+    assert seen_terms == ["OASIS"]

@@ -314,6 +314,7 @@ def api_cvi_teaming_intelligence():
                         "vendor_input": {
                             "seed_metadata": {
                                 "contract_vehicle_name": vehicle_name,
+                                "contract_vehicle_live_limit": 8,
                             }
                         },
                     },

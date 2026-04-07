@@ -15,7 +15,7 @@ from requests import exceptions as requests_exceptions
 
 from http_trust import resolve_verify_target
 
-TIMEOUT = 20
+TIMEOUT = 10
 BASE_URL = "https://api.usaspending.gov/api/v2"
 UA = "Xiphos/5.0 (support@xiphos.example)"
 _SEARCH_CACHE_TTL_SECONDS = max(int(os.environ.get("XIPHOS_VEHICLE_SEARCH_CACHE_TTL_SECONDS", "600") or 600), 0)
@@ -266,6 +266,44 @@ def _search_idv_children(award_id: str, limit: int, *, verify_ssl: bool | str) -
     return results, []
 
 
+def _collect_search_terms(
+    search_terms: list[str],
+    *,
+    include_subs: bool,
+    limit: int,
+    verify_ssl: bool | str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[str], list[dict[str, str]]]:
+    all_primes: list[dict[str, Any]] = []
+    all_subs: list[dict[str, Any]] = []
+    idv_award_ids: set[str] = set()
+    errors: list[dict[str, str]] = []
+    if not search_terms:
+        return all_primes, all_subs, idv_award_ids, errors
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(2, min(len(search_terms) * 2, 6))) as executor:
+        prime_futures = [executor.submit(_search_prime_awards, term, limit, verify_ssl=verify_ssl) for term in search_terms]
+        sub_futures = [executor.submit(_search_subawards, term, limit, verify_ssl=verify_ssl) for term in search_terms] if include_subs else []
+
+        for future in concurrent.futures.as_completed(prime_futures, timeout=max(12, TIMEOUT + 5)):
+            try:
+                primes, award_ids, future_errors = future.result()
+                all_primes.extend(primes)
+                idv_award_ids.update(award_ids)
+                errors.extend(future_errors)
+            except Exception as exc:
+                errors.append(_error('/search/spending_by_award/', f'Prime search failed: {exc}'))
+
+        for future in concurrent.futures.as_completed(sub_futures, timeout=max(12, TIMEOUT + 5)):
+            try:
+                subs, future_errors = future.result()
+                all_subs.extend(subs)
+                errors.extend(future_errors)
+            except Exception as exc:
+                errors.append(_error('/search/spending_by_award/', f'Subaward search failed: {exc}'))
+
+    return all_primes, all_subs, idv_award_ids, errors
+
+
 def search_contract_vehicle(vehicle_name: str, include_subs: bool = True, limit: int = 30) -> dict[str, Any]:
     search_terms = _normalize_vehicle_terms(vehicle_name)
     verify_ssl = _verify_ssl()
@@ -278,37 +316,31 @@ def search_contract_vehicle(vehicle_name: str, include_subs: bool = True, limit:
     cached = _get_cached_search_result(cache_key)
     if cached is not None:
         return cached
-    all_primes: list[dict[str, Any]] = []
-    all_subs: list[dict[str, Any]] = []
-    idv_award_ids: set[str] = set()
-    errors: list[dict[str, str]] = []
+    primary_terms = search_terms[:1]
+    fallback_terms = search_terms[1:]
+    all_primes, all_subs, idv_award_ids, errors = _collect_search_terms(
+        primary_terms,
+        include_subs=include_subs,
+        limit=limit,
+        verify_ssl=verify_ssl,
+    )
+    if not all_primes and not all_subs and fallback_terms:
+        extra_primes, extra_subs, extra_award_ids, extra_errors = _collect_search_terms(
+            fallback_terms,
+            include_subs=include_subs,
+            limit=limit,
+            verify_ssl=verify_ssl,
+        )
+        all_primes.extend(extra_primes)
+        all_subs.extend(extra_subs)
+        idv_award_ids.update(extra_award_ids)
+        errors.extend(extra_errors)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-        prime_futures = [executor.submit(_search_prime_awards, term, limit, verify_ssl=verify_ssl) for term in search_terms]
-        sub_futures = [executor.submit(_search_subawards, term, limit, verify_ssl=verify_ssl) for term in search_terms] if include_subs else []
-
-        for future in concurrent.futures.as_completed(prime_futures, timeout=40):
-            try:
-                primes, award_ids, future_errors = future.result()
-                all_primes.extend(primes)
-                idv_award_ids.update(award_ids)
-                errors.extend(future_errors)
-            except Exception as exc:
-                errors.append(_error('/search/spending_by_award/', f'Prime search failed: {exc}'))
-
-        for future in concurrent.futures.as_completed(sub_futures, timeout=40):
-            try:
-                subs, future_errors = future.result()
-                all_subs.extend(subs)
-                errors.extend(future_errors)
-            except Exception as exc:
-                errors.append(_error('/search/spending_by_award/', f'Subaward search failed: {exc}'))
-
-    idv_candidates = sorted(idv_award_ids)[: min(10, max(limit, 3))]
+    idv_candidates = sorted(idv_award_ids)[: min(4, max(limit // 2, 2))]
     if idv_candidates:
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(_search_idv_children, award_id, limit, verify_ssl=verify_ssl) for award_id in idv_candidates]
-            for future in concurrent.futures.as_completed(futures, timeout=40):
+            for future in concurrent.futures.as_completed(futures, timeout=max(12, TIMEOUT + 5)):
                 try:
                     related_awards, future_errors = future.result()
                     all_primes.extend(related_awards)
