@@ -10,12 +10,6 @@ def test_gdelt_media_parallel_aux_queries_still_populates_tone_and_country_signa
 
     def fake_get(url: str, retries: int = 2, timeout_s: int = gdelt_media.REQUEST_TIMEOUT):
         calls.append(url)
-        if "mode=ArtList" in url and "(sanctions" not in urllib.parse.unquote(url):
-            return {
-                "articles": [
-                    {"url": "https://example.test/baseline", "title": "Vector Mission Software profile"},
-                ]
-            }
         if "mode=ArtList" in url and "(sanctions" in urllib.parse.unquote(url):
             return {
                 "articles": [
@@ -52,3 +46,23 @@ def test_gdelt_media_parallel_aux_queries_still_populates_tone_and_country_signa
     assert any(signal["signal"] == "strongly_negative_media_tone" for signal in result.risk_signals)
     assert any("mode=ToneChart" in url for url in calls)
     assert any("mode=TimelineSourceCountry" in url for url in calls)
+
+
+def test_gdelt_media_skips_aux_queries_when_risk_query_returns_no_articles(monkeypatch):
+    calls: list[str] = []
+
+    def fake_get(url: str, retries: int = 2, timeout_s: int = gdelt_media.REQUEST_TIMEOUT):
+        calls.append(url)
+        if "mode=ArtList" in url and "(sanctions" in urllib.parse.unquote(url):
+            return {"articles": []}
+        raise AssertionError(f"unexpected gdelt url: {url}")
+
+    monkeypatch.setattr(gdelt_media, "_get", fake_get)
+    monkeypatch.setattr(gdelt_media, "_ml_available", False)
+    monkeypatch.setattr(gdelt_media, "_ml_classify", None)
+
+    result = gdelt_media.enrich("Vector Mission Software", country="US")
+
+    assert result.findings[0].title == "No adverse media found"
+    assert all("mode=ToneChart" not in url for url in calls)
+    assert all("mode=TimelineSourceCountry" not in url for url in calls)

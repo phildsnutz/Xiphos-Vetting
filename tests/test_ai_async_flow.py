@@ -1032,6 +1032,55 @@ def test_analyze_vendor_without_ai_config_uses_local_fallback(monkeypatch):
     assert persisted["payload"]["provider"] == "local_fallback"
 
 
+def test_analyze_vendor_bad_ai_config_uses_local_fallback_in_dev(monkeypatch):
+    import ai_analysis
+
+    persisted = {}
+
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+
+    def fake_get_ai_config(_user_id):
+        raise ai_analysis.AIProviderPermanentError(
+            "Stored AI provider configuration could not be decrypted. "
+            "Check XIPHOS_AI_CONFIG_KEY or XIPHOS_SECRET_KEY."
+        )
+
+    def fake_save_analysis(**kwargs):
+        persisted["payload"] = kwargs
+        return 88
+
+    monkeypatch.setattr(ai_analysis, "get_ai_config", fake_get_ai_config)
+    monkeypatch.setattr(ai_analysis, "save_analysis", fake_save_analysis)
+
+    result = ai_analysis.analyze_vendor(
+        user_id="dev",
+        vendor_data={
+            "id": "case-fallback-ai-bad-config",
+            "name": "Fallback Systems",
+            "country": "US",
+            "ownership": {"publicly_traded": True, "beneficial_owner_known": True},
+            "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 9},
+            "exec": {"adverse_media": 0},
+        },
+        score_data={
+            "composite_score": 18,
+            "calibrated": {
+                "calibrated_tier": "TIER_3_CONDITIONAL",
+                "calibrated_probability": 0.22,
+            },
+            "soft_flags": [
+                {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
+            ],
+        },
+        enrichment_data={"findings": []},
+    )
+
+    assert result["provider"] == "local_fallback"
+    assert "could not be decrypted" in result["analysis"]["confidence_assessment"].lower()
+    assert persisted["payload"]["provider"] == "local_fallback"
+
+
 def test_local_fallback_analysis_uses_graph_context(monkeypatch):
     import ai_analysis
 
@@ -1151,6 +1200,47 @@ def test_analyze_vendor_provider_failure_raises_transient_error(monkeypatch):
             user_id="dev",
             vendor_data={
                 "id": "case-provider-fallback",
+                "name": "Fallback Systems",
+                "country": "US",
+                "ownership": {"publicly_traded": False, "beneficial_owner_known": True},
+                "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 9},
+                "exec": {"adverse_media": 0},
+            },
+            score_data={
+                "composite_score": 18,
+                "calibrated": {
+                    "calibrated_tier": "TIER_3_CONDITIONAL",
+                    "calibrated_probability": 0.22,
+                },
+                "soft_flags": [
+                    {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
+                ],
+            },
+            enrichment_data={"findings": []},
+        )
+
+
+def test_analyze_vendor_bad_ai_config_raises_clear_error_when_not_in_local_dev(monkeypatch):
+    import ai_analysis
+
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "false")
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "true")
+    monkeypatch.setattr(
+        ai_analysis,
+        "get_ai_config",
+        lambda _user_id: (_ for _ in ()).throw(
+            ai_analysis.AIProviderPermanentError(
+                "Stored AI provider configuration could not be decrypted. "
+                "Check XIPHOS_AI_CONFIG_KEY or XIPHOS_SECRET_KEY."
+            )
+        ),
+    )
+
+    with pytest.raises(ai_analysis.AIProviderPermanentError, match="could not be decrypted"):
+        ai_analysis.analyze_vendor(
+            user_id="dev",
+            vendor_data={
+                "id": "case-provider-config-error",
                 "name": "Fallback Systems",
                 "country": "US",
                 "ownership": {"publicly_traded": False, "beneficial_owner_known": True},

@@ -25,6 +25,7 @@ Evidence classification:
 """
 
 import logging
+import os
 import re
 import time
 import random
@@ -43,9 +44,13 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-TIMEOUT = 15
-REQUEST_DELAY = 2.0  # seconds between requests
+TIMEOUT = float(os.environ.get("XIPHOS_CAREERS_TIMEOUT_SECONDS", "4"))
+REQUEST_DELAY = float(os.environ.get("XIPHOS_CAREERS_REQUEST_DELAY_SECONDS", "0.1"))
 MAX_RESULTS_PER_SOURCE = 25
+MAX_COMPANY_CAREERS_CANDIDATES = int(os.environ.get("XIPHOS_CAREERS_MAX_COMPANY_URLS", "4"))
+ENABLE_CLEARANCEJOBS = os.environ.get("XIPHOS_CAREERS_ENABLE_CLEARANCEJOBS", "true").lower() in {"1", "true", "yes"}
+ENABLE_INDEED = os.environ.get("XIPHOS_CAREERS_ENABLE_INDEED", "false").lower() in {"1", "true", "yes"}
+ENABLE_COMPANY_GUESSING = os.environ.get("XIPHOS_CAREERS_ENABLE_COMPANY_GUESSING", "false").lower() in {"1", "true", "yes"}
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -97,6 +102,11 @@ def _safe_get(session: requests.Session, url: str, **kwargs) -> Optional[request
     except requests.RequestException as e:
         logger.warning("careers_scraper: GET %s failed: %s", url, e)
         return None
+
+
+def _sleep_if_needed() -> None:
+    if REQUEST_DELAY > 0:
+        time.sleep(REQUEST_DELAY)
 
 
 # ---------------------------------------------------------------------------
@@ -171,14 +181,49 @@ def _scrape_company_careers(session: requests.Session, company_name: str,
     posts = []
 
     if not website:
-        # Try common domain patterns
-        slug = re.sub(r"[^a-z0-9]", "", company_name.lower())
-        candidates = [
-            f"https://www.{slug}.com/careers",
-            f"https://www.{slug}.com/jobs",
-            f"https://{slug}.com/careers",
-            f"https://careers.{slug}.com",
-        ]
+        if not ENABLE_COMPANY_GUESSING:
+            logger.info("careers_scraper: skipping speculative careers-domain guessing for '%s'", company_name)
+            return posts
+        # Generate smarter domain slug candidates instead of naive full-name slug
+        company_lower = company_name.lower()
+
+        # Extract first word (before space, comma, or parenthesis)
+        first_word_match = re.match(r"(\w+)", company_lower)
+        first_word = first_word_match.group(1) if first_word_match else ""
+
+        # Extract first two words for hyphenated variant
+        two_words_match = re.match(r"(\w+)\s+(\w+)", company_lower)
+        two_words = f"{two_words_match.group(1)}-{two_words_match.group(2)}" if two_words_match else ""
+
+        # Extract acronym (all caps words, first letter of each word)
+        acronym = ""
+        words = re.findall(r"[A-Za-z]+", company_lower)
+        if len(words) > 1 and all(w.isupper() or w.istitle() for w in company_name.split()):
+            acronym = "".join(w[0] for w in words)
+
+        # Naive full slug as fallback (least preferred)
+        full_slug = re.sub(r"[^a-z0-9]", "", company_lower)
+
+        # Build candidates list: smart guesses first, fallback last
+        slug_candidates = []
+        if first_word:
+            slug_candidates.append(first_word)
+        if two_words and two_words != first_word:
+            slug_candidates.append(two_words)
+        if acronym and acronym != first_word and acronym != two_words:
+            slug_candidates.append(acronym)
+        if full_slug not in slug_candidates:
+            slug_candidates.append(full_slug)  # Last resort
+
+        # Generate URL candidates from slugs
+        candidates = []
+        for slug in slug_candidates:
+            candidates.extend([
+                f"https://www.{slug}.com/careers",
+                f"https://www.{slug}.com/jobs",
+                f"https://{slug}.com/careers",
+                f"https://careers.{slug}.com",
+            ])
     else:
         base = website.rstrip("/")
         if not base.startswith("http"):
@@ -189,6 +234,8 @@ def _scrape_company_careers(session: requests.Session, company_name: str,
             f"{base}/join-us",
             f"{base}/opportunities",
         ]
+
+    candidates = candidates[:MAX_COMPANY_CAREERS_CANDIDATES]
 
     for careers_url in candidates:
         resp = _safe_get(session, careers_url, allow_redirects=True)
@@ -209,7 +256,7 @@ def _scrape_company_careers(session: requests.Session, company_name: str,
 
             if posts:
                 break  # Found a working careers page
-            time.sleep(REQUEST_DELAY)
+            _sleep_if_needed()
 
     logger.info("careers_scraper: company careers returned %d postings", len(posts))
     return posts
@@ -374,7 +421,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         contract_name = ids.get("contract_name", "")
         vehicle_name = ids.get("vehicle_name", "")
         installation = ids.get("installation", "")
-        website = ids.get("website", "")
+        website = ids.get("website", "") or ids.get("sam_website", "")
 
         # Primary query: vendor + contract context
         queries = []
@@ -391,14 +438,16 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         primary_query = queries[0]
 
         # Source 1: ClearanceJobs
-        cj_posts = _scrape_clearancejobs(session, primary_query)
-        all_posts.extend(cj_posts)
-        time.sleep(REQUEST_DELAY)
+        if ENABLE_CLEARANCEJOBS:
+            cj_posts = _scrape_clearancejobs(session, primary_query)
+            all_posts.extend(cj_posts)
+            _sleep_if_needed()
 
         # Source 2: Indeed
-        indeed_posts = _scrape_indeed(session, primary_query)
-        all_posts.extend(indeed_posts)
-        time.sleep(REQUEST_DELAY)
+        if ENABLE_INDEED:
+            indeed_posts = _scrape_indeed(session, primary_query)
+            all_posts.extend(indeed_posts)
+            _sleep_if_needed()
 
         # Source 3: Company careers page
         careers_posts = _scrape_company_careers(session, vendor_name, website)

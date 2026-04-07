@@ -135,6 +135,42 @@ def test_sam_gov_accepts_legacy_env_alias(monkeypatch):
     assert sam_gov._get_api_key() == "legacy-key"
 
 
+def test_sam_gov_entity_search_url_omits_include_sections_by_default():
+    from osint import sam_gov
+
+    url = sam_gov._build_entity_search_url("Boeing")
+
+    assert "legalBusinessName=Boeing" in url
+    assert "includeSections=" not in url
+
+
+def test_sam_gov_entity_search_url_can_include_sections():
+    from osint import sam_gov
+
+    url = sam_gov._build_entity_search_url("Boeing", "entityRegistration,coreData")
+
+    assert "includeSections=entityRegistration,coreData" in url
+
+
+def test_sam_gov_exclusions_search_uses_exclusion_name_parameter(monkeypatch):
+    from osint import sam_gov
+
+    monkeypatch.setattr(sam_gov, "API_KEY", "test-key")
+    captured: dict[str, str] = {}
+
+    def fake_get(url, **_kwargs):
+        captured["url"] = url
+        return {"excludedEntity": []}, {"status": 200, "throttled": False, "error": ""}
+
+    monkeypatch.setattr(sam_gov, "_get", fake_get)
+
+    rows, meta = sam_gov._search_exclusions("Boeing")
+
+    assert rows == []
+    assert meta["status"] == 200
+    assert "exclusionName=Boeing" in captured["url"]
+
+
 def test_sam_gov_reports_rate_limit_without_false_no_match(monkeypatch):
     from osint import sam_gov
 
@@ -162,6 +198,29 @@ def test_sam_gov_reports_rate_limit_without_false_no_match(monkeypatch):
     assert "No SAM registration found" not in titles
     assert "rate limit reached" in result.error.lower()
     assert result.structured_fields["sam_api_status"]["entity_lookup"]["throttled"] is True
+
+
+def test_sam_gov_exclusions_timeout_preserves_registration_signal(monkeypatch):
+    from osint import sam_gov
+
+    monkeypatch.setattr(sam_gov, "API_KEY", "test-key")
+    monkeypatch.setattr(sam_gov, "_search_entities", lambda *_args, **_kwargs: [_sample_sam_entity()])
+    monkeypatch.setattr(
+        sam_gov,
+        "_search_exclusions",
+        lambda *_args, **_kwargs: (
+            [],
+            {"status": 0, "throttled": False, "error": "SAM.gov exclusions lookup unavailable: timed out"},
+        ),
+    )
+    monkeypatch.setattr(sam_gov.time, "sleep", lambda *_args, **_kwargs: None)
+
+    result = sam_gov.enrich("Boeing", country="US")
+
+    titles = [finding.title for finding in result.findings]
+    assert any(title.startswith("SAM authority record:") for title in titles)
+    assert "SAM.gov exclusions lookup unavailable" in titles
+    assert "No SAM registration found" not in titles
 
 
 def test_sam_gov_relevance_scoring_accepts_trade_name_variants():

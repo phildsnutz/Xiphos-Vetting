@@ -11,13 +11,12 @@ Free public API: 10 requests/day without key, 1000/day with key.
 API docs: https://open.gsa.gov/api/entity-api/
 """
 
-import json
 import os
 import time
-import urllib.request
-import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+
+from http_transport import curl_json_get
 
 from . import EnrichmentResult, Finding
 
@@ -31,6 +30,10 @@ API_KEY = os.environ.get("XIPHOS_SAM_API_KEY", "")
 
 USER_AGENT = "Xiphos-Vetting/2.1"
 _RATE_LIMIT_UNTIL: str = ""
+ENTITY_TIMEOUT_SECONDS = float(os.environ.get("XIPHOS_SAM_ENTITY_TIMEOUT_SECONDS", "8"))
+EXCLUSIONS_TIMEOUT_SECONDS = float(os.environ.get("XIPHOS_SAM_EXCLUSIONS_TIMEOUT_SECONDS", "6"))
+BETWEEN_CALL_DELAY_SECONDS = float(os.environ.get("XIPHOS_SAM_BETWEEN_CALL_DELAY_SECONDS", "0.05"))
+ENTITY_INCLUDE_SECTIONS = os.environ.get("XIPHOS_SAM_ENTITY_INCLUDE_SECTIONS", "").strip()
 ENTITY_SUFFIXES = {
     "llc", "llp", "lp", "ltd", "inc", "co", "corp", "corporation",
     "incorporated", "limited", "company", "plc", "sa", "ag", "gmbh",
@@ -88,7 +91,7 @@ def _rate_limit_meta() -> dict:
     }
 
 
-def _get(url: str, *, skip_accept_header: bool = False) -> tuple[dict | None, dict]:
+def _get(url: str, *, skip_accept_header: bool = False, timeout_seconds: float = 20) -> tuple[dict | None, dict]:
     """GET with optional API key and explicit status metadata.
 
     Args:
@@ -107,42 +110,35 @@ def _get(url: str, *, skip_accept_header: bool = False) -> tuple[dict | None, di
     headers = {"User-Agent": USER_AGENT}
     if not skip_accept_header:
         headers["Accept"] = "application/json"
-    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            payload = json.loads(resp.read())
-            return payload, {"status": getattr(resp, "status", 200), "throttled": False, "error": ""}
-    except urllib.error.HTTPError as exc:
-        payload = None
-        try:
-            payload = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            payload = None
-        if exc.code == 429:
+        payload, meta = curl_json_get(
+            url,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+        )
+        if meta["status"] == 429:
             next_access_time = ""
             if isinstance(payload, dict):
                 next_access_time = str(payload.get("nextAccessTime", "") or "")
             _mark_rate_limit(next_access_time)
             return payload, _rate_limit_meta()
-        message = ""
-        if isinstance(payload, dict):
-            message = str(payload.get("message", "") or payload.get("description", "") or "")
-        return payload, {
-            "status": exc.code,
-            "throttled": False,
-            "error": message or f"SAM.gov entity API returned HTTP {exc.code}.",
-        }
-    except (urllib.error.URLError, TimeoutError) as exc:
+        if meta["status"] >= 400:
+            message = ""
+            if isinstance(payload, dict):
+                message = str(payload.get("message", "") or payload.get("description", "") or "")
+            return payload, {
+                "status": meta["status"],
+                "throttled": False,
+                "error": message or f"SAM.gov entity API returned HTTP {meta['status']}.",
+            }
+        if meta["status"] == 0:
+            raise RuntimeError(meta["error"] or "curl transport returned no status.")
+        return payload, {"status": meta["status"], "throttled": False, "error": ""}
+    except Exception as exc:
         return None, {
             "status": 0,
             "throttled": False,
             "error": f"SAM.gov entity API unavailable: {exc}",
-        }
-    except json.JSONDecodeError as exc:
-        return None, {
-            "status": 0,
-            "throttled": False,
-            "error": f"SAM.gov entity API returned invalid JSON: {exc}",
         }
 
 
@@ -202,18 +198,25 @@ def _entity_query_variants(name: str) -> list[str]:
     return variants[:3]
 
 
-def _search_entities_for_query(query: str) -> tuple[list[dict], dict]:
-    """Search for entity registrations by name. Requires API key."""
-    if not _get_api_key():
-        return [], {"status": 0, "throttled": False, "error": "SAM.gov API key not configured."}
+def _build_entity_search_url(query: str, include_sections: str = "") -> str:
     encoded = urllib.parse.quote(query)
     url = (
         f"{BASE}/entities?legalBusinessName={encoded}"
         "&registrationStatus=A"
-        "&includeSections=entityRegistration,coreData,assertions,integrityInformation"
         "&page=0&size=8"
     )
-    data, meta = _get(url)
+    sections = str(include_sections or "").strip()
+    if sections:
+        url += f"&includeSections={urllib.parse.quote(sections, safe=',')}"
+    return url
+
+
+def _search_entities_for_query(query: str) -> tuple[list[dict], dict]:
+    """Search for entity registrations by name. Requires API key."""
+    if not _get_api_key():
+        return [], {"status": 0, "throttled": False, "error": "SAM.gov API key not configured."}
+    url = _build_entity_search_url(query, ENTITY_INCLUDE_SECTIONS)
+    data, meta = _get(url, timeout_seconds=ENTITY_TIMEOUT_SECONDS)
     if not data:
         return [], meta
     return data.get("entityData", []), meta
@@ -254,13 +257,13 @@ def _search_exclusions(name: str) -> tuple[list[dict], dict]:
     if not _get_api_key():
         return [], {"status": 0, "throttled": False, "error": "SAM.gov API key not configured."}
     encoded = urllib.parse.quote(name)
-    url = f"{EXCLUSIONS_BASE}?q={encoded}&page=0&size=10"
+    url = f"{EXCLUSIONS_BASE}?exclusionName={encoded}&page=0&size=10"
     # skip_accept_header: SAM.gov exclusions returns 406 when
     # Accept: application/json is sent explicitly (API quirk).
-    data, meta = _get(url, skip_accept_header=True)
+    data, meta = _get(url, skip_accept_header=True, timeout_seconds=EXCLUSIONS_TIMEOUT_SECONDS)
     if not data:
         return [], meta
-    return data.get("results", []), meta
+    return data.get("excludedEntity", data.get("results", [])), meta
 
 
 def _list_dicts(value) -> list[dict]:
@@ -443,6 +446,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 summary = _extract_registration_summary(entity)
                 uei = summary["uei"]
                 cage = summary["cage"]
+                entity_url = summary.get("entity_url", "")
                 legal_name = summary["legal_name"]
                 status = summary["status"]
                 expiry = summary["expiry"]
@@ -454,6 +458,9 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     result.identifiers["uei"] = uei
                 if cage:
                     result.identifiers["cage"] = cage
+                if entity_url and entity_url.startswith("http"):
+                    result.identifiers["website"] = entity_url
+                    result.identifiers["sam_website"] = entity_url
 
                 detail_parts = [
                     f"UEI: {uei or 'N/A'}",
@@ -644,7 +651,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 confidence=0.6,
             ))
 
-        time.sleep(0.5)  # Be respectful of rate limits
+        if BETWEEN_CALL_DELAY_SECONDS > 0:
+            time.sleep(BETWEEN_CALL_DELAY_SECONDS)
 
         # Step 2: Check exclusions (debarment, suspension)
         exclusions, exclusion_meta = _unwrap_search_response(_search_exclusions(vendor_name))

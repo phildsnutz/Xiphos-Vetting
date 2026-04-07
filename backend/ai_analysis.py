@@ -54,6 +54,21 @@ class AIProviderPermanentError(ValueError):
     """Non-transient upstream or validation failure."""
 
 
+def _ai_config_secret_error(exc: Exception) -> AIProviderPermanentError:
+    detail = _sanitize_prompt_fragment(str(exc), max_len=220) or exc.__class__.__name__
+    return AIProviderPermanentError(
+        "Stored AI provider configuration could not be decrypted. "
+        "Check XIPHOS_AI_CONFIG_KEY or XIPHOS_SECRET_KEY. "
+        f"Detail: {detail}"
+    )
+
+
+def _allow_local_fallback_for_ai_config_error() -> bool:
+    dev_mode = os.environ.get("XIPHOS_DEV_MODE", "false").lower() == "true"
+    auth_enabled = os.environ.get("XIPHOS_AUTH_ENABLED", "false").lower() == "true"
+    return dev_mode and not auth_enabled and _local_fallback_enabled()
+
+
 def _sanitize_prompt_fragment(value: object, max_len: int = 160) -> str:
     text = str(value or "")
     text = _URL_RE.sub("[redacted]", text)
@@ -721,10 +736,14 @@ def get_ai_config(user_id: str) -> Optional[dict]:
             row = conn.execute("SELECT * FROM ai_config WHERE user_id = '__org_default__'").fetchone()
     if not row:
         return None
+    try:
+        api_key = _decrypt_key(row["api_key_enc"])
+    except Exception as exc:
+        raise _ai_config_secret_error(exc) from exc
     return {
         "provider": row["provider"],
         "model": row["model"],
-        "api_key": _decrypt_key(row["api_key_enc"]),
+        "api_key": api_key,
     }
 
 
@@ -1281,7 +1300,20 @@ def analyze_vendor(
         raise ValueError("score_data must contain 'composite_score' field. Score the vendor first.")
 
     input_hash = compute_analysis_fingerprint(vendor_data, score_data, enrichment_data)
-    config = get_ai_config(user_id)
+    try:
+        config = get_ai_config(user_id)
+    except AIProviderPermanentError as err:
+        if _allow_local_fallback_for_ai_config_error():
+            logger.warning("AI config unavailable in local dev; using deterministic fallback: %s", err)
+            return _persist_local_fallback_result(
+                user_id=user_id,
+                vendor_data=vendor_data,
+                score_data=score_data,
+                enrichment_data=enrichment_data,
+                input_hash=input_hash,
+                fallback_reason=str(err),
+            )
+        raise
     if not config:
         if not _local_fallback_enabled():
             raise ValueError(

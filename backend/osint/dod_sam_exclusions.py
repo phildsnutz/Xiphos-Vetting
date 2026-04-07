@@ -5,28 +5,28 @@ Checks if a vendor is on the Excluded Parties List System (EPLS).
 Uses the public SAM.gov API: https://api.sam.gov/entity-information/v3/exclusions
 
 This is a primary sanctions/exclusions check. If the API is unreachable,
-returns a simulated finding based on vendor name/country characteristics.
+the connector returns an explicit availability finding instead of inventing data.
 
 API docs: https://open.gsa.gov/api/entity-api/
 """
 
-import json
+import os
 import time
-import urllib.request
-import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+
+from http_transport import curl_json_get
 
 from . import EnrichmentResult, Finding
 
 BASE = "https://api.sam.gov/entity-information/v4/exclusions"
-
-import os
 # Use the same SAM API key as entity resolver (configured in docker-compose)
 API_KEY = os.environ.get("SAM_GOV_API_KEY", os.environ.get("XIPHOS_SAM_API_KEY", ""))
 
 USER_AGENT = "Xiphos-Vetting/2.1"
 _RATE_LIMIT_UNTIL: str = ""
+REQUEST_TIMEOUT_SECONDS = float(os.environ.get("XIPHOS_DOD_SAM_EXCLUSIONS_TIMEOUT_SECONDS", "6"))
+RESULT_PAGE_SIZE = int(os.environ.get("XIPHOS_DOD_SAM_EXCLUSIONS_PAGE_SIZE", "5"))
 
 
 def _get_api_key() -> str:
@@ -74,7 +74,13 @@ def _rate_limit_meta() -> dict:
     }
 
 
-def _get(url: str) -> tuple[dict | None, dict]:
+def _build_exclusions_url(vendor_name: str, *, page_size: int | None = None) -> str:
+    encoded = urllib.parse.quote(vendor_name)
+    size = max(int(page_size or RESULT_PAGE_SIZE), 1)
+    return f"{BASE}?exclusionName={encoded}&page=0&size={size}"
+
+
+def _get(url: str, *, timeout_seconds: float = REQUEST_TIMEOUT_SECONDS) -> tuple[dict | None, dict]:
     """GET with optional API key and explicit status metadata."""
     if _rate_limit_active():
         return None, _rate_limit_meta()
@@ -84,46 +90,38 @@ def _get(url: str) -> tuple[dict | None, dict]:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}api_key={api_key}"
 
-    # SAM.gov exclusions endpoint returns 406 when Accept: application/json
-    # is sent explicitly, even though it serves JSON by default.
-    req = urllib.request.Request(url, headers={
+    headers = {
         "User-Agent": USER_AGENT,
-    })
+    }
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            payload = json.loads(resp.read())
-            return payload, {"status": getattr(resp, "status", 200), "throttled": False, "error": ""}
-    except urllib.error.HTTPError as exc:
-        payload = None
-        try:
-            payload = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            payload = None
-        if exc.code == 429:
+        payload, meta = curl_json_get(
+            url,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+        )
+        if meta["status"] == 429:
             next_access_time = ""
             if isinstance(payload, dict):
                 next_access_time = str(payload.get("nextAccessTime", "") or "")
             _mark_rate_limit(next_access_time)
             return payload, _rate_limit_meta()
-        message = ""
-        if isinstance(payload, dict):
-            message = str(payload.get("message", "") or payload.get("description", "") or "")
-        return payload, {
-            "status": exc.code,
-            "throttled": False,
-            "error": message or f"SAM.gov exclusions API returned HTTP {exc.code}.",
-        }
-    except (urllib.error.URLError, TimeoutError) as exc:
+        if meta["status"] >= 400:
+            message = ""
+            if isinstance(payload, dict):
+                message = str(payload.get("message", "") or payload.get("description", "") or "")
+            return payload, {
+                "status": meta["status"],
+                "throttled": False,
+                "error": message or f"SAM.gov exclusions API returned HTTP {meta['status']}.",
+            }
+        if meta["status"] == 0:
+            raise RuntimeError(meta["error"] or "curl transport returned no status.")
+        return payload, {"status": meta["status"], "throttled": False, "error": ""}
+    except Exception as exc:
         return None, {
             "status": 0,
             "throttled": False,
             "error": f"SAM.gov exclusions API unavailable: {exc}",
-        }
-    except json.JSONDecodeError as exc:
-        return None, {
-            "status": 0,
-            "throttled": False,
-            "error": f"SAM.gov exclusions API returned invalid JSON: {exc}",
         }
 
 
@@ -138,14 +136,13 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
     try:
         # Try to query the API
-        encoded = urllib.parse.quote(vendor_name)
-        url = f"{BASE}?q={encoded}&page=0&size=10"
-        data, meta = _get(url)
+        url = _build_exclusions_url(vendor_name)
+        data, meta = _get(url, timeout_seconds=REQUEST_TIMEOUT_SECONDS)
 
         api_available = data is not None
 
         if api_available and data:
-            results = data.get("results", [])
+            results = data.get("excludedEntity", data.get("results", []))
 
             if results:
                 # Found exclusions

@@ -113,19 +113,10 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
     result = EnrichmentResult(source="gdelt_media", vendor_name=vendor_name)
 
     try:
-        # Step 1: Run a clean query to get baseline article count (no risk terms)
         clean_query = urllib.parse.quote(f'"{vendor_name}"')
-        clean_url = (
-            f"{BASE}/doc?"
-            f"query={clean_query}"
-            f"&mode=ArtList&maxrecords=10&format=json"
-        )
-        clean_data = _get(clean_url)
-        baseline_count = 0
-        if clean_data and "articles" in clean_data:
-            baseline_count = len(clean_data.get("articles", []))
 
-        # Step 2: Query with risk terms
+        # Step 1: Query with risk terms only. Most vendors resolve to no adverse
+        # media, so avoid paying for baseline and auxiliary queries up front.
         risk_query = f'"{vendor_name}" ({RISK_TERMS})'
         risk_query_encoded = urllib.parse.quote(risk_query)
         risk_url = (
@@ -142,8 +133,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 title="No adverse media found",
                 detail=(
                     f"No articles found for '{vendor_name}' with adverse keywords "
-                    f"(sanctions, fraud, corruption, indictment, money laundering, debarment, violation). "
-                    f"Baseline articles found: {baseline_count}"
+                    f"(sanctions, fraud, corruption, indictment, money laundering, debarment, violation)."
                 ),
                 severity="info",
                 confidence=0.8,
@@ -157,90 +147,24 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 source="gdelt_media",
                 category="adverse_media",
                 title="No adverse media found",
-                detail=(
-                    f"No articles found for '{vendor_name}' with adverse keywords. "
-                    f"Baseline articles found: {baseline_count}"
-                ),
+                detail=f"No articles found for '{vendor_name}' with adverse keywords.",
                 severity="info",
                 confidence=0.8,
             ))
             result.elapsed_ms = int((time.time() - t0) * 1000)
             return result
 
-        tone_url = (
-            f"{BASE}/doc?"
-            f"query={risk_query_encoded}"
-            f"&mode=ToneChart&format=json"
-        )
-        gkg_url = (
-            f"https://api.gdeltproject.org/api/v2/doc/doc?"
-            f"query={clean_query}"
-            f"&mode=TimelineSourceCountry&format=json"
-        )
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            tone_future = executor.submit(_get, tone_url)
-            gkg_future = executor.submit(_get, gkg_url)
-            tone_data = tone_future.result()
-            gkg_data = gkg_future.result()
         tone_info = {}
         avg_tone = 0.0
-        if tone_data and "tonechart" in tone_data:
-            tonechart = tone_data.get("tonechart", [])
-            if tonechart and isinstance(tonechart, list):
-                tone_info = tonechart[0] if tonechart else {}
-                # Compute average tone across all entries
-                tone_values = []
-                for entry in tonechart:
-                    if isinstance(entry, dict):
-                        tone_val = entry.get("tone", entry.get("value", None))
-                        if tone_val is not None:
-                            try:
-                                tone_values.append(float(tone_val))
-                            except (ValueError, TypeError):
-                                pass
-                if tone_values:
-                    avg_tone = sum(tone_values) / len(tone_values)
-                    result.identifiers["gdelt_avg_tone"] = round(avg_tone, 2)
-                    result.identifiers["gdelt_tone_sample_size"] = len(tone_values)
 
-        # Step 3b: Query GKG (Global Knowledge Graph) for structured event data.
-        # Run alongside tone fetch to avoid paying full remote latency twice.
-        if gkg_data and "timeline" in gkg_data:
-            timeline = gkg_data.get("timeline", [])
-            # Extract country distribution of media coverage
-            country_mentions = {}
-            for series in timeline:
-                if isinstance(series, dict):
-                    series_country = series.get("series", "")
-                    data_points = series.get("data", [])
-                    if series_country and data_points:
-                        total = sum(d.get("value", 0) for d in data_points if isinstance(d, dict))
-                        if total > 0:
-                            country_mentions[series_country] = total
-
-            if country_mentions:
-                result.identifiers["gdelt_coverage_countries"] = dict(
-                    sorted(country_mentions.items(), key=lambda x: -x[1])[:10]
-                )
-                # Flag if coverage is concentrated in adversary nations
-                adversary_countries = {"Russia", "China", "Iran", "North Korea", "Syria"}
-                adversary_coverage = sum(v for k, v in country_mentions.items()
-                                        if any(ac.lower() in k.lower() for ac in adversary_countries))
-                total_coverage = sum(country_mentions.values())
-                if total_coverage > 0 and adversary_coverage / total_coverage > 0.3:
-                    result.risk_signals.append({
-                        "signal": "adversary_media_concentration",
-                        "severity": "medium",
-                        "detail": f"Over 30% of media coverage originates from adversary-nation sources "
-                                  f"({adversary_coverage}/{total_coverage} articles)",
-                    })
-
-        # Step 4: Process findings with title-level filtering
+        # Step 2: Process findings with title-level filtering before paying for
+        # the slower tone and source-country calls.
         # Only flag as "adverse" if the vendor name AND a risk keyword appear in the TITLE
         # Body-only matches are noise (vendor mentioned in passing in a sanctions policy article)
         high_confidence_count = 0
         low_confidence_count = 0
         vendor_words = [w.lower() for w in vendor_name.split() if len(w) > 3]
+        classified_articles = []
 
         for article in articles:
             url = article.get("url", "")
@@ -287,27 +211,103 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 else:
                     continue
 
+            classified_articles.append({
+                "url": url,
+                "title": title,
+                "seen_date": seen_date,
+                "domain": domain,
+                "domain_credibility": domain_credibility,
+                "language": language,
+                "category": category,
+                "severity": severity,
+                "confidence": confidence,
+            })
+
+        if high_confidence_count > 0:
+            tone_url = (
+                f"{BASE}/doc?"
+                f"query={risk_query_encoded}"
+                f"&mode=ToneChart&format=json"
+            )
+            gkg_url = (
+                f"https://api.gdeltproject.org/api/v2/doc/doc?"
+                f"query={clean_query}"
+                f"&mode=TimelineSourceCountry&format=json"
+            )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                tone_future = executor.submit(_get, tone_url)
+                gkg_future = executor.submit(_get, gkg_url)
+                tone_data = tone_future.result()
+                gkg_data = gkg_future.result()
+
+            if tone_data and "tonechart" in tone_data:
+                tonechart = tone_data.get("tonechart", [])
+                if tonechart and isinstance(tonechart, list):
+                    tone_info = tonechart[0] if tonechart else {}
+                    tone_values = []
+                    for entry in tonechart:
+                        if isinstance(entry, dict):
+                            tone_val = entry.get("tone", entry.get("value", None))
+                            if tone_val is not None:
+                                try:
+                                    tone_values.append(float(tone_val))
+                                except (ValueError, TypeError):
+                                    pass
+                    if tone_values:
+                        avg_tone = sum(tone_values) / len(tone_values)
+                        result.identifiers["gdelt_avg_tone"] = round(avg_tone, 2)
+                        result.identifiers["gdelt_tone_sample_size"] = len(tone_values)
+
+            if gkg_data and "timeline" in gkg_data:
+                timeline = gkg_data.get("timeline", [])
+                country_mentions = {}
+                for series in timeline:
+                    if isinstance(series, dict):
+                        series_country = series.get("series", "")
+                        data_points = series.get("data", [])
+                        if series_country and data_points:
+                            total = sum(d.get("value", 0) for d in data_points if isinstance(d, dict))
+                            if total > 0:
+                                country_mentions[series_country] = total
+
+                if country_mentions:
+                    result.identifiers["gdelt_coverage_countries"] = dict(
+                        sorted(country_mentions.items(), key=lambda x: -x[1])[:10]
+                    )
+                    adversary_countries = {"Russia", "China", "Iran", "North Korea", "Syria"}
+                    adversary_coverage = sum(v for k, v in country_mentions.items()
+                                            if any(ac.lower() in k.lower() for ac in adversary_countries))
+                    total_coverage = sum(country_mentions.values())
+                    if total_coverage > 0 and adversary_coverage / total_coverage > 0.3:
+                        result.risk_signals.append({
+                            "signal": "adversary_media_concentration",
+                            "severity": "medium",
+                            "detail": f"Over 30% of media coverage originates from adversary-nation sources "
+                                      f"({adversary_coverage}/{total_coverage} articles)",
+                        })
+
+        for article in classified_articles:
             finding_detail = (
-                f"URL: {url}\n"
-                f"Title: {title}\n"
-                f"Seen: {seen_date}\n"
-                f"Domain: {domain} (Credibility: {domain_credibility})\n"
-                f"Language: {language}"
+                f"URL: {article['url']}\n"
+                f"Title: {article['title']}\n"
+                f"Seen: {article['seen_date']}\n"
+                f"Domain: {article['domain']} (Credibility: {article['domain_credibility']})\n"
+                f"Language: {article['language']}"
             )
 
             result.findings.append(Finding(
                 source="gdelt_media",
-                category=category,
-                title=f"{'[ADVERSE] ' if severity == 'high' else ''}{title[:80]}",
+                category=article["category"],
+                title=f"{'[ADVERSE] ' if article['severity'] == 'high' else ''}{article['title'][:80]}",
                 detail=finding_detail,
-                severity=severity,
-                confidence=confidence,
-                url=url,
+                severity=article["severity"],
+                confidence=article["confidence"],
+                url=article["url"],
                 raw_data={
-                    "domain": domain,
-                    "domain_credibility": domain_credibility,
-                    "seen_date": seen_date,
-                    "language": language,
+                    "domain": article["domain"],
+                    "domain_credibility": article["domain_credibility"],
+                    "seen_date": article["seen_date"],
+                    "language": article["language"],
                     "detection": "ml" if (_ml_available and _ml_classify) else "keyword",
                     "tone": avg_tone,
                 },
@@ -336,7 +336,6 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                     f"{low_confidence_count} contextual mentions filtered as low-confidence."
                 ),
                 "article_count": high_confidence_count,
-                "baseline_count": baseline_count,
                 "tone_data": tone_info,
             })
         elif len(articles) > 0:

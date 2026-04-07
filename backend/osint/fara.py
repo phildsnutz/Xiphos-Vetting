@@ -25,12 +25,11 @@ Endpoints used:
   GET /api/v1/ForeignPrincipals/json/Active/{regNum}  -> foreign principals
 """
 
-import json
+import os
 import re
 import time
-import urllib.request
-import urllib.error
-import urllib.parse
+
+from http_transport import curl_json_get_to_file
 
 from . import EnrichmentResult, Finding
 
@@ -42,7 +41,10 @@ ACTIVE_FP_TEMPLATE   = f"{BASE}/api/v1/ForeignPrincipals/json/Active/{{reg_num}}
 FARA_SEARCH_URL = "https://efile.fara.gov/ords/fara/f?p=1235:10"
 
 USER_AGENT = "Xiphos-Vetting/2.5"
-TIMEOUT = 20
+TIMEOUT = float(os.environ.get("XIPHOS_FARA_TIMEOUT_SECONDS", "8"))
+RATE_LIMIT_DELAY_SECONDS = float(os.environ.get("XIPHOS_FARA_RATE_LIMIT_DELAY_SECONDS", "0.1"))
+REGISTRANT_CACHE_TTL_SECONDS = float(os.environ.get("XIPHOS_FARA_REGISTRANT_CACHE_TTL_SECONDS", "21600"))
+_REGISTRANT_CACHE: dict[str, tuple[float, list[dict]]] = {}
 
 # Adversarial nations for severity escalation (defense acquisition context)
 ADVERSARIAL_NATIONS = {
@@ -93,23 +95,26 @@ def _name_score(query: str, candidate: str) -> float:
 
 def _get_json(url: str) -> dict | list | None:
     """Fetch JSON from FARA API."""
-    req = urllib.request.Request(url, headers={
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            raw = resp.read()
-            if not raw:
-                return None
-            return json.loads(raw)
-    except (urllib.error.URLError, urllib.error.HTTPError,
-            TimeoutError, json.JSONDecodeError, ValueError):
+    payload, meta = curl_json_get_to_file(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+        },
+        timeout_seconds=TIMEOUT,
+    )
+    if meta.get("status", 0) >= 400 or meta.get("status", 0) == 0:
         return None
+    return payload
 
 
 def _fetch_registrants(url: str) -> list[dict]:
     """Parse the FARA registrant list response."""
+    cached = _REGISTRANT_CACHE.get(url)
+    now = time.time()
+    if cached and now - cached[0] < REGISTRANT_CACHE_TTL_SECONDS:
+        return list(cached[1])
+
     data = _get_json(url)
     if not data or not isinstance(data, dict):
         return []
@@ -119,7 +124,9 @@ def _fetch_registrants(url: str) -> list[dict]:
         inner = data[key]
         if isinstance(inner, dict) and "ROW" in inner:
             rows = inner["ROW"]
-            return rows if isinstance(rows, list) else [rows]
+            normalized = rows if isinstance(rows, list) else [rows]
+            _REGISTRANT_CACHE[url] = (now, normalized)
+            return normalized
     return []
 
 
@@ -180,7 +187,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
 
         # ---- Step 2: if no active match, check terminated ----
         if not matches:
-            time.sleep(0.5)  # rate limit: 5 req / 10s
+            if RATE_LIMIT_DELAY_SECONDS > 0:
+                time.sleep(RATE_LIMIT_DELAY_SECONDS)
             terminated_regs = _fetch_registrants(TERMINATED_REGISTRANTS)
             for reg in terminated_regs:
                 name = str(reg.get("Name", ""))
@@ -218,7 +226,8 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             principals = []
 
             if reg_num and match["status"] == "Active":
-                time.sleep(0.5)  # rate limit
+                if RATE_LIMIT_DELAY_SECONDS > 0:
+                    time.sleep(RATE_LIMIT_DELAY_SECONDS)
                 fp_url = ACTIVE_FP_TEMPLATE.format(reg_num=reg_num)
                 fp_data = _get_json(fp_url)
                 if fp_data and isinstance(fp_data, dict):

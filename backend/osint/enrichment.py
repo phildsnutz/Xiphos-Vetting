@@ -38,7 +38,9 @@ CONNECTORS = [
 
 PER_CONNECTOR_TIMEOUT = 45
 CONNECTOR_EXECUTION_TIMEOUTS = {
+    "dod_sam_exclusions": 12,
     "public_html_ownership": 75,
+    "sam_gov": 20,
 }
 
 # Retry configuration
@@ -53,6 +55,13 @@ MAX_RETRIES_CRITICAL = 3    # sanctions sources: retry up to 3 times
 MAX_RETRIES_STANDARD = 1    # non-critical: retry once
 RETRY_BASE_DELAY = 1.0      # base delay in seconds (doubles each retry)
 RETRY_MAX_DELAY = 8.0       # cap backoff at 8 seconds
+CONNECTOR_MAX_RETRIES = {
+    # These SAM endpoints either answer quickly or hang long enough to trip the
+    # watchdog. Immediate replay rarely changes the outcome and only stalls the
+    # counterparty lane.
+    "dod_sam_exclusions": 0,
+    "sam_gov": 0,
+}
 
 # Country-aware connector filtering.
 # US-only connectors query US government databases that won't have data for foreign entities.
@@ -198,6 +207,7 @@ CONNECTOR_REPLAY_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "osv_dev": ("package_inventory",),
     "deps_dev": ("package_inventory",),
     "openssf_scorecard": ("repository_urls",),
+    "careers_scraper": ("website", "sam_website"),
 }
 
 CONNECTOR_CACHE_VARIANT_KEYS: dict[str, tuple[str, ...]] = {
@@ -341,7 +351,10 @@ def _run_connector_with_timeout(mod, vendor_name: str, country: str, ids: dict, 
     Critical connectors (sanctions lists) get more retries because a missed
     sanctions hit due to a transient network blip is a compliance failure.
     """
-    max_retries = MAX_RETRIES_CRITICAL if connector_name in CRITICAL_CONNECTORS else MAX_RETRIES_STANDARD
+    max_retries = CONNECTOR_MAX_RETRIES.get(
+        connector_name,
+        MAX_RETRIES_CRITICAL if connector_name in CRITICAL_CONNECTORS else MAX_RETRIES_STANDARD,
+    )
     last_error = None
 
     for attempt in range(max_retries + 1):

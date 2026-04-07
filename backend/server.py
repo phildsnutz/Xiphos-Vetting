@@ -59,6 +59,28 @@ import importlib.util
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
+_RUNTIME_ENV_BOOTSTRAP: dict[str, object] = {
+    "loaded": False,
+    "path": "",
+    "available_keys": [],
+    "injected_keys": [],
+    "paths_checked": [],
+}
+if __name__ == "__main__" and os.environ.get("XIPHOS_SKIP_RUNTIME_ENV", "").lower() not in {"1", "true", "yes"}:
+    try:
+        from secure_runtime_env import load_runtime_env as _load_runtime_env
+
+        _RUNTIME_ENV_BOOTSTRAP = _load_runtime_env()
+    except Exception as exc:  # pragma: no cover - defensive bootstrap logging
+        _RUNTIME_ENV_BOOTSTRAP = {
+            "loaded": False,
+            "path": "",
+            "available_keys": [],
+            "injected_keys": [],
+            "paths_checked": [],
+            "error": str(exc),
+        }
+
 from flask import Flask, Response, g, jsonify, request, send_file, stream_with_context
 
 from fgamlogit import (
@@ -6111,6 +6133,10 @@ def main():
     print(f"  Dossier PDF: {'enabled' if HAS_DOSSIER_PDF else 'not available'}")
     print(f"  AI analysis: {'enabled' if HAS_AI else 'not available'}")
     print(f"  Network risk: {'enabled' if HAS_NETWORK_RISK else 'not available'}")
+    if _RUNTIME_ENV_BOOTSTRAP.get("loaded"):
+        print(f"  Runtime env: loaded ({_RUNTIME_ENV_BOOTSTRAP.get('path')})")
+    elif _RUNTIME_ENV_BOOTSTRAP.get("error"):
+        print(f"  Runtime env: load failed ({_RUNTIME_ENV_BOOTSTRAP.get('error')})")
     dev_mode = os.environ.get("XIPHOS_DEV_MODE", "false").lower() == "true"
     auth_mode = 'ENFORCED' if AUTH_ENABLED else ('DEV MODE (anonymous admin passthrough)' if dev_mode else 'AUTH DISABLED (protected routes still require a token)')
     print(f"  Auth/RBAC: {auth_mode}")
