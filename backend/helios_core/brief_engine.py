@@ -12,6 +12,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from helios_core.intelligence_thesis import build_intelligence_thesis
 from helios_core.recommendations import resolve_case_recommendation
 
 
@@ -938,15 +939,6 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "top_relationships": top_relationships,
     }
 
-    summary_line = _compose_summary_line(
-        vendor.get("name", "Unknown"),
-        recommendation,
-        probability,
-        confidence_low,
-        confidence_high,
-        material_signals,
-    )
-
     recommended_actions = axiom["actions"][:4] if axiom["actions"] else gaps[:4]
 
     # Build posture assessment from decision-relevant evidence, not platform state.
@@ -999,6 +991,27 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "critical_count": critical_count,
     }
 
+    thesis = build_intelligence_thesis(
+        vendor_name=vendor.get("name", "Unknown"),
+        recommendation=recommendation,
+        supplier_passport=supplier_passport,
+        graph_summary=graph_summary,
+        material_signals=material_signals,
+        decision_shifters=decision_shifters,
+        what_holds=what_holds[:6],
+        gaps=gaps[:6],
+        posture_assessment=posture_assessment,
+    )
+
+    summary_line = thesis.get("thesis_line") or _compose_summary_line(
+        vendor.get("name", "Unknown"),
+        recommendation,
+        probability,
+        confidence_low,
+        confidence_high,
+        material_signals,
+    )
+
     # Build prioritized gap closure roadmap
     gap_roadmap = []
     for idx, gap in enumerate(gaps[:6], start=1):
@@ -1020,6 +1033,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "gaps": gaps[:6],
         "gap_roadmap": gap_roadmap,
         "posture_assessment": posture_assessment,
+        "thesis": thesis,
         "material_signals": material_signals,
         "decision_shifters": decision_shifters,
         "recommended_actions": recommended_actions,
@@ -1042,6 +1056,10 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     recommendation = payload["recommendation"]
     posture = recommendation["posture"]
     graph_read = payload["graph_read"]
+    thesis = payload.get("thesis") or {}
+    principal_judgment = thesis.get("principal_judgment") or {}
+    counterview = thesis.get("counterview") or {}
+    dark_space = thesis.get("dark_space") or []
     material_signals = payload.get("material_signals") or []
     decision_shifters = payload.get("decision_shifters") or []
     finding_rows = "".join(
@@ -1356,50 +1374,65 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
 
     <section class="grid">
       <article class="card">
-        <h2>Axiom Assessment</h2>
-        <div class="axiom-summary">{escape(payload['axiom']['summary'])}</div>
-        <div class="subtle">{escape(payload['axiom']['support'])}</div>
-        <div class="support-line">{escape(payload['axiom']['graph_change'])}</div>
-        <div class="subtle">Confidence read: {escape(payload['axiom']['confidence'])}</div>
+        <h2>Decision Thesis</h2>
+        <div class="axiom-summary">{escape(principal_judgment.get('headline') or payload['summary_line'])}</div>
+        <div class="subtle">{escape(principal_judgment.get('narrative') or payload['axiom']['summary'])}</div>
+        <div class="support-line">{escape(payload['posture_assessment']['authority'])}</div>
         <div class="split">
           <div>
-            <h2 style="font-size:16px;">Confirmed evidence</h2>
-            <ul>{_html_list(payload['what_holds'], 'No confirmed holds established.')}</ul>
+            <h2 style="font-size:16px;">Why this read holds</h2>
+            <ul>{_html_list(principal_judgment.get('support_points') or payload['what_holds'], 'No confirmed support points established.')}</ul>
           </div>
           <div>
-            <h2 style="font-size:16px;">Decision-shifting questions</h2>
+            <h2 style="font-size:16px;">What changes the call</h2>
             <ul>{shifter_list}</ul>
           </div>
         </div>
       </article>
 
       <article class="card">
-        <h2>Supplier Passport</h2>
-        <div class="support-line">Identity verification, control posture, and review authority for this entity.</div>
-        <div class="metrics">
-          {passport_cards}
-        </div>
+        <h2>{escape(counterview.get('label') or 'Competing Case')}</h2>
+        <div class="axiom-summary">{escape(counterview.get('headline') or payload['axiom']['summary'])}</div>
+        <div class="subtle">{escape(counterview.get('narrative') or payload['axiom']['support'])}</div>
         <div class="split" style="margin-top: 16px;">
           <div>
-            <h2 style="font-size:16px;">Verification status</h2>
-            <ul>{passport_lines or '<li class="empty-line">Insufficient verification data for summary.</li>'}</ul>
+            <h2 style="font-size:16px;">Why it does not win</h2>
+            <ul>{_html_list(counterview.get('reasons') or [counterview.get('why_not_current')], 'No competing case is strong enough to summarize cleanly.')}</ul>
           </div>
           <div>
-            <h2 style="font-size:16px;">Closure Roadmap</h2>
-            <table style="margin-top: 0;">
-              <thead>
-                <tr>
-                  <th style="width:56px;">Step</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {action_rows}
-              </tbody>
-            </table>
+            <h2 style="font-size:16px;">Dark space</h2>
+            <ul>{_html_list(dark_space, 'No material dark space identified.')}</ul>
           </div>
         </div>
       </article>
+    </section>
+
+    <section class="section-card">
+      <h2>Supplier Passport</h2>
+      <div class="support-line">Identity verification, control posture, and review authority for this entity.</div>
+      <div class="metrics">
+        {passport_cards}
+      </div>
+      <div class="split" style="margin-top: 16px;">
+        <div>
+          <h2 style="font-size:16px;">Verification status</h2>
+          <ul>{passport_lines or '<li class="empty-line">Insufficient verification data for summary.</li>'}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">Closure Roadmap</h2>
+          <table style="margin-top: 0;">
+            <thead>
+              <tr>
+                <th style="width:56px;">Step</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {action_rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <section class="section-card">
@@ -1515,6 +1548,10 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
     payload = _distill_context(context)
     recommendation = payload["recommendation"]
     accent = HexColor(_COLOR_BY_POSTURE[recommendation["posture"]])
+    thesis = payload.get("thesis") or {}
+    principal_judgment = thesis.get("principal_judgment") or {}
+    counterview = thesis.get("counterview") or {}
+    dark_space = thesis.get("dark_space") or []
 
     pdf_buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -1584,18 +1621,29 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         story.append(Paragraph("Identity anchors: " + " | ".join(payload["identity_lines"]), body))
 
     story.append(Spacer(1, 0.14 * inch))
-    story.append(Paragraph("Axiom Assessment", heading))
-    story.append(Paragraph(payload["axiom"]["summary"], body))
-    story.append(Paragraph(payload["axiom"]["support"], body))
-    story.append(Paragraph(payload["axiom"]["graph_change"], body))
-    story.append(Paragraph(f"Confidence read: {payload['axiom']['confidence']}", muted))
-    if payload["what_holds"]:
-        story.append(Paragraph("Confirmed Evidence", heading))
-        for item in payload["what_holds"][:4]:
+    story.append(Paragraph("Decision Thesis", heading))
+    story.append(Paragraph(principal_judgment.get("headline") or payload["summary_line"], body))
+    story.append(Paragraph(principal_judgment.get("narrative") or payload["axiom"]["summary"], body))
+    story.append(Paragraph(payload["posture_assessment"]["authority"], muted))
+    if principal_judgment.get("support_points"):
+        story.append(Paragraph("Why this read holds", heading))
+        for item in principal_judgment["support_points"][:4]:
             story.append(Paragraph(item, bullet, bulletText="•"))
     if payload["decision_shifters"]:
-        story.append(Paragraph("Decision-Shifting Questions", heading))
+        story.append(Paragraph("What changes the call", heading))
         for item in payload["decision_shifters"]:
+            story.append(Paragraph(item, bullet, bulletText="•"))
+
+    story.append(Paragraph(counterview.get("label") or "Competing Case", heading))
+    story.append(Paragraph(counterview.get("headline") or payload["axiom"]["summary"], body))
+    story.append(Paragraph(counterview.get("narrative") or payload["axiom"]["support"], body))
+    if counterview.get("reasons"):
+        story.append(Paragraph("Why it does not win", heading))
+        for item in counterview["reasons"][:3]:
+            story.append(Paragraph(item, bullet, bulletText="•"))
+    if dark_space:
+        story.append(Paragraph("Dark space", heading))
+        for item in dark_space:
             story.append(Paragraph(item, bullet, bulletText="•"))
 
     story.append(Paragraph("Material Signals", heading))

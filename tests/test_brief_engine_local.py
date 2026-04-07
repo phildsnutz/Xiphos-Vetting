@@ -15,6 +15,7 @@ from helios_core.brief_engine import (  # type: ignore  # noqa: E402
     _collect_graph_holds,
     _collect_passport_gaps,
     _distill_context,
+    _render_html_brief,
 )
 from helios_core.recommendations import resolve_case_recommendation  # type: ignore  # noqa: E402
 
@@ -234,3 +235,128 @@ def test_distilled_posture_stays_conditional_when_decision_moving_signals_are_un
     assert ownership_row["confidence"] == "UNCONFIRMED"
     assert payload["posture_assessment"]["narrative"].startswith("Posture is CONDITIONAL.")
     assert "SUPPORTED" not in payload["posture_assessment"]["narrative"]
+
+
+def test_distilled_context_builds_intelligence_thesis_and_counterview():
+    context = {
+        "vendor": {
+            "id": "acme-review",
+            "name": "ACME DEFENSE SYSTEMS",
+            "country": "US",
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "vendor_input": {},
+        },
+        "score": {
+            "calibrated": {
+                "calibrated_probability": 0.34,
+                "calibrated_tier": "TIER_3_CONDITIONAL",
+                "program_recommendation": "review",
+                "interval": {"lower": 0.24, "upper": 0.42},
+            }
+        },
+        "graph_summary": {
+            "relationship_count": 1,
+            "entity_count": 2,
+            "relationships": [],
+            "entities": [],
+            "intelligence": {
+                "claim_coverage_pct": 0.3,
+                "thin_graph": True,
+                "thin_control_paths": True,
+                "missing_required_edge_families": ["ownership_control"],
+            },
+        },
+        "enrichment": {
+            "findings": [
+                {
+                    "title": "ICIJ: ACME Holdings (Panama Papers)",
+                    "detail": "Name-proximity hit only. No confirmed identifier match.",
+                    "severity": "medium",
+                    "source": "icij_offshore",
+                }
+            ]
+        },
+        "supplier_passport": {
+            "identity": {
+                "identifiers": {"lei": "123"},
+                "identifier_status": {"uei": {"state": "verified_absent"}},
+                "official_corroboration": {"coverage_level": "public_only"},
+            },
+            "tribunal": {
+                "recommended_label": "Watch / Conditional",
+                "recommended_view": "watch",
+                "consensus_level": "moderate",
+                "views": [
+                    {
+                        "stance": "watch",
+                        "label": "Watch / Conditional",
+                        "summary": "Control-path coverage is still thin and should be improved before a clean decision.",
+                        "reasons": [
+                            "Control-path coverage is still thin and should be improved before a clean decision.",
+                            "Official-source corroboration is too thin for a clean approval.",
+                        ],
+                    },
+                    {
+                        "stance": "approve",
+                        "label": "Approve / Proceed",
+                        "summary": "No hard-stop is active.",
+                        "reasons": [
+                            "No hard-stop is active.",
+                            "Identifier anchors are strong enough to trust the entity match.",
+                        ],
+                    },
+                ],
+            },
+            "graph": {"control_paths": [], "intelligence": {"claim_coverage_pct": 0.3}},
+        },
+        "analysis_state": "idle",
+        "storyline": {"cards": []},
+        "decisions": [],
+    }
+
+    payload = _distill_context(context)
+
+    thesis = payload["thesis"]
+    assert "REVIEW" in thesis["principal_judgment"]["headline"]
+    assert thesis["counterview"]["label"] == "Why proceed"
+    assert thesis["dark_space"]
+    assert "Axiom" not in thesis["principal_judgment"]["headline"]
+
+
+def test_rendered_html_uses_decision_thesis_and_not_axiom_heading():
+    context = {
+        "vendor": {
+            "id": "render-case",
+            "name": "RENDER TEST SYSTEMS",
+            "country": "US",
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "vendor_input": {},
+        },
+        "score": {
+            "calibrated": {
+                "calibrated_probability": 0.22,
+                "calibrated_tier": "TIER_3_CONDITIONAL",
+                "program_recommendation": "review",
+                "interval": {"lower": 0.18, "upper": 0.29},
+            }
+        },
+        "graph_summary": {"relationship_count": 0, "entity_count": 1, "relationships": [], "entities": [], "intelligence": {}},
+        "enrichment": {"findings": []},
+        "supplier_passport": {
+            "identity": {"identifiers": {}, "identifier_status": {}},
+            "tribunal": {"recommended_label": "Watch / Conditional", "recommended_view": "watch", "views": []},
+            "graph": {"control_paths": [], "intelligence": {}},
+        },
+        "analysis_state": "idle",
+        "storyline": {"cards": []},
+        "decisions": [],
+    }
+
+    payload = _distill_context(context)
+    html = _render_html_brief(payload)
+
+    assert "Decision Thesis" in html
+    assert "Competing Case" in html
+    assert "Axiom Assessment" not in html
