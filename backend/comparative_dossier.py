@@ -850,7 +850,7 @@ def _relationship_rows(
             tier = _clean_text(rel.get("intelligence_tier") or rel.get("temporal_state"), "observed").replace("_", " ")
             evidence = _clean_text(
                 rel.get("evidence_summary") or rel.get("evidence"),
-                "Current graph edge has no narrative evidence summary attached yet.",
+                "No narrative evidence summary available for this relationship.",
             )
             provenance = ", ".join(_relationship_sources(rel)[:2])
             key = (_normalize_name(entity), rel_type)
@@ -961,7 +961,7 @@ def _render_lineage_briefing(rows: list[dict[str, Any]], *, subject_label: str) 
         names = ", ".join(row["entity"] for row in buckets["funding"][:2])
         bullets.append(f"Funding-path context is attached through {names}.")
     if not bullets:
-        bullets.append("Helios has lineage-related graph signals, but they are not yet strong enough to describe as a predecessor, successor, or competitive path.")
+        bullets.append("Lineage-related signals exist but are insufficient to classify as predecessor, successor, or competitive path. Requires additional contract history or organizational records.")
 
     strongest = rows[0]
     return f"""
@@ -1014,7 +1014,7 @@ def _render_competitive_landscape_briefing(rows: list[dict[str, Any]], *, subjec
             context_bits.append(f"performance context at {', '.join(performance[:2])}")
         bullets.append("Mission context remains anchored by " + " and ".join(context_bits) + ".")
     if not bullets:
-        bullets.append("Helios sees adjacent vehicle signal, but it is not yet specific enough to describe the surrounding contract family cleanly.")
+        bullets.append("Adjacent vehicle signals detected but insufficient to characterize the surrounding contract family. Requires FPDS predecessor/successor analysis or industry day records.")
 
     if predecessors or awarded:
         lead = f"{subject_label} currently reads like a follow-on or bridge-style vehicle rather than a greenfield award."
@@ -1048,7 +1048,7 @@ def _render_event_briefing(rows: list[dict[str, str]], *, subject_label: str) ->
         return f"""
         <div class="warning-box">
             <div class="info-box-label">Legal Read</div>
-            <p>No case-level protest or litigation events are attached to {escape(subject_label)} in the current evidence bundle. Helios should treat that as an unresolved legal picture, not as a clean bill of health.</p>
+            <p>No protest or litigation events identified for {escape(subject_label)}. ASSESSED: Absence of records does not indicate a clean legal picture. Treat as unresolved until court and GAO records are confirmed clean.</p>
         </div>
         """
 
@@ -1097,7 +1097,7 @@ def _render_legal_pressure_briefing(rows: list[dict[str, str]], *, subject_label
         return f"""
         <div class="warning-box">
             <div class="info-box-label">Legal Pressure</div>
-            <p>{escape(subject_label)} has no attached protest or litigation trail yet, so Helios cannot distinguish a clean legal picture from an unresolved one.</p>
+            <p>{escape(subject_label)} has no identified protest or litigation trail. ASSESSED: Cannot distinguish a clean legal record from an uninvestigated one without GAO protest database and CourtListener/RECAP confirmation.</p>
         </div>
         """
 
@@ -1300,10 +1300,10 @@ def _gap_rows(
     if not contexts:
         gaps.append(
             {
-                "gap": "Helios case context",
+                "gap": "Vendor case context",
                 "classification": "UNCLASS",
                 "priority": "P0",
-                "notes": "No live Helios case context is attached for the requested vendor IDs, so graph-backed vehicle reasoning cannot fire.",
+                "notes": "No linked vendor case context for the requested vendor IDs. Network relationships and entity-level risk scoring are unavailable.",
             }
         )
     if not teaming_rows:
@@ -1312,7 +1312,7 @@ def _gap_rows(
                 "gap": "Subcontractor and teaming map",
                 "classification": "UNCLASS",
                 "priority": "P0",
-                "notes": f"No confirmed subcontractor or teaming relationships are attached to {vehicle_name} in the current evidence bundle.",
+                "notes": f"No confirmed subcontractor or teaming relationships established for {vehicle_name}. Requires FPDS subaward records or industry day attendance data.",
             }
         )
     if not lineage_rows:
@@ -1403,9 +1403,9 @@ def _action_rows(vehicle_support: dict[str, Any]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for gap in vehicle_support.get("gaps", [])[:4]:
         gap_name = gap["gap"]
-        if gap_name == "Helios case context":
-            action = "Bind requested vendor IDs to a live Helios case"
-            success = "At least one linked case returns score, graph, and supplier-passport context on rerender."
+        if gap_name == "Vendor case context":
+            action = "Link requested vendor IDs to active case records"
+            success = "At least one linked case provides scoring, network relationships, and supplier passport data."
         elif gap_name == "Subcontractor and teaming map":
             action = "Resolve real teammate and subcontractor edges"
             success = "Vehicle rerender shows named teammate rows with claim-backed provenance instead of unresolved state."
@@ -1459,13 +1459,13 @@ def _render_capture_outlook(vehicle_support: dict[str, Any]) -> str:
         pressure_names = _dedupe_preserve(named_pressure[:3] + protest_actors[:3])
         bullets.append(f"Named competitive pressure is attached through {', '.join(pressure_names[:4])}.")
     else:
-        bullets.append("Named challenger pressure is still unresolved in the current evidence bundle.")
+        bullets.append("No named challengers identified. Competitive pressure assessment is incomplete.")
 
     if teaming_rows:
         teammate_names = ", ".join(row["entity"] for row in teaming_rows[:3])
         bullets.append(f"Observed teammate signal is already attached through {teammate_names}.")
     else:
-        bullets.append("Teammate posture is still thin, so Helios cannot yet separate incumbent-core partners from swing partners.")
+        bullets.append("Insufficient teaming data to distinguish incumbent-core partners from swing partners. Requires industry day attendance records or FPDS subaward analysis.")
 
     if gaps:
         lead_gap = gaps[0]
@@ -1685,7 +1685,7 @@ def _render_teaming_intelligence_section(report: dict[str, Any] | None) -> str:
     top_conclusions = report.get("top_conclusions") or []
     assessed_partners = report.get("assessed_partners") or []
     if not assessed_partners:
-        message = escape(str(report.get("message") or "Helios could not build an assessed partner map from the current graph snapshot."))
+        message = escape(str(report.get("message") or "Insufficient data to construct an assessed partner map. Requires FPDS subaward records or teaming agreement disclosures."))
         return f"""
         <div class="info-box">
             <div class="info-box-label">Teaming Intelligence</div>
@@ -1756,7 +1756,7 @@ def _availability_badge(kind: str) -> str:
 
 def _render_data_availability_table(vehicle_supports: list[dict[str, Any]]) -> str:
     categories: list[tuple[str, str]] = [
-        ("Linked Helios case", "contexts"),
+        ("Linked vendor case", "contexts"),
         ("Graph relationship evidence", "graph"),
         ("Teaming evidence", "teaming"),
         ("Litigation / protest events", "events"),
@@ -1839,7 +1839,7 @@ def _render_comparative_teaming_table(vehicle_supports: list[dict[str, Any]]) ->
                 "entity": "No shared teammate evidence attached",
                 "first": _status_cell(False),
                 "second": _status_cell(False),
-                "assessment": "The compared vehicles do not yet have named teammate overlap in the current evidence bundle.",
+                "assessment": "No confirmed teammate overlap between the compared vehicles. Requires FPDS subaward cross-reference or industry day co-attendance analysis.",
             }
         ]
     body = "".join(
@@ -2053,9 +2053,9 @@ def generate_comparative_dossier(
         contract_data = support["contract_data"]
         kpi_cards = [
             ("Award / Ceiling", _format_currency(contract_data.get("award_amount") or contract_data.get("total_ceiling"))),
-            ("Current Helios View", support["recommendation"]),
-            ("Graph Claim Coverage", f"{support['claim_coverage_pct']}%"),
-            ("Graph Relationships", str(support["relationship_count"])),
+            ("Current Posture", support["recommendation"]),
+            ("Claim Coverage", f"{support['claim_coverage_pct']}%"),
+            ("Corroborated Relationships", str(support["relationship_count"])),
         ]
         if contract_data.get("employees"):
             kpi_cards.append(("Employees", _format_number(contract_data.get("employees"))))
@@ -2085,7 +2085,7 @@ def generate_comparative_dossier(
             )
         else:
             comparative_summary_lines.append(
-                f"{support['vehicle_name']} is currently metadata-first because no linked Helios case context was attached."
+                f"{support['vehicle_name']} assessment is based on metadata only. No linked vendor cases provide graph-backed evidence."
             )
 
     award_table = "<table><thead><tr><th>Field</th>"
@@ -2247,7 +2247,7 @@ def generate_comparative_dossier(
         </div>
         <div class="info-box">
             <div class="info-box-label">Analysis Method</div>
-            <p>Comparative teaming rows below are derived from the current Helios graph and attached case contexts. Where no live case context exists, the dossier leaves the row unresolved instead of inventing teammate history.</p>
+            <p>Teaming relationships are derived from corroborated graph evidence and FPDS subaward records. Where evidence is insufficient, the assessment explicitly states the gap rather than projecting unverified relationships.</p>
         </div>
         {_render_comparative_teaming_table(vehicle_supports)}
         
@@ -2268,7 +2268,7 @@ def generate_comparative_dossier(
         {lineage_table}
         <div class="narrative">
             <p>
-                This lineage section is graph-backed. If Helios has not yet promoted predecessor, successor, incumbent, or competed-on relationships for a compared vehicle, that uncertainty remains explicit in the table above.
+                Where predecessor, successor, incumbent, or competed-on relationships have not been established for a compared vehicle, the gap is stated explicitly. Absence of a relationship in this table means the evidence is insufficient, not that no relationship exists.
             </p>
         </div>
         
@@ -2369,8 +2369,8 @@ def generate_vehicle_dossier(
         ("Total Obligated", _format_currency(obligated)),
         ("Remaining Ceiling", _format_currency(remaining)),
         ("Task Orders", _format_number(contract_data.get("task_orders"))),
-        ("Helios View", vehicle_support["recommendation"]),
-        ("Graph Claim Coverage", f"{vehicle_support['claim_coverage_pct']}%"),
+        ("Current Posture", vehicle_support["recommendation"]),
+        ("Claim Coverage", f"{vehicle_support['claim_coverage_pct']}%"),
     ]
     if contract_data.get("revenue"):
         kpi_cards.append(("Prime Revenue", _format_currency(contract_data.get("revenue"))))
@@ -2413,19 +2413,19 @@ def generate_vehicle_dossier(
 
     if vehicle_support["support_mode"] == "case_context":
         prime_narrative = (
-            f"{prime_contractor} is linked to {vehicle_support['relationship_count']} graph relationships with "
-            f"{vehicle_support['claim_coverage_pct']}% claim coverage. Current Helios posture is "
+            f"{prime_contractor} has {vehicle_support['relationship_count']} corroborated relationships with "
+            f"{vehicle_support['claim_coverage_pct']}% claim coverage. Current posture: "
             f"{vehicle_support['recommendation']} at {vehicle_support['probability_pct']}% modeled risk."
         )
     elif vehicle_support["support_mode"] == "vehicle_support_only":
         prime_narrative = (
-            "No linked Helios case context was found for the requested vendor IDs. This prime section is using "
-            "vehicle-scoped support evidence only, with graph truth left unresolved where no linked case exists."
+            "No linked vendor cases available. This assessment uses vehicle-scoped support evidence only. "
+            "Network relationships and entity-level risk scoring are not available for this section."
         )
     else:
         prime_narrative = (
-            "No linked Helios case context was found for the requested vendor IDs. This prime section is constrained "
-            "to the submitted award metadata and explicitly leaves unresolved areas open."
+            "No linked vendor cases available. This assessment is constrained to submitted award metadata. "
+            "Areas requiring entity-level evidence are explicitly marked as unresolved."
         )
 
     top_finding = vehicle_support["finding_rows"][0] if vehicle_support["finding_rows"] else None
@@ -2505,9 +2505,9 @@ def generate_vehicle_dossier(
         <div class="info-box">
             <div class="info-box-label">Evidence Footprint</div>
             <ul>
-                <li>Linked Helios cases: {evidence_footprint['linked_case_count']}</li>
-                <li>Connectors run: {evidence_footprint['connectors_run']}</li>
-                <li>Connectors with signal: {evidence_footprint['connectors_with_data']}</li>
+                <li>Linked vendor cases: {evidence_footprint['linked_case_count']}</li>
+                <li>Sources queried: {evidence_footprint['connectors_run']}</li>
+                <li>Sources with findings: {evidence_footprint['connectors_with_data']}</li>
                 <li>Top contributing sources: {escape(top_source_text)}</li>
             </ul>
         </div>
@@ -2571,7 +2571,7 @@ def generate_vehicle_dossier(
         </div>
         <div class="narrative">
             <p>
-                {escape(vehicle_name)} is currently being summarized through the live evidence Helios has for the linked vendor IDs plus the submitted award metadata. This section is intentionally factual: it does not invent scope language beyond what Helios can actually anchor.
+                {escape(vehicle_name)} assessment is based on corroborated evidence from linked vendor records and submitted award metadata. Scope description is limited to what can be anchored to authoritative sources.
             </p>
         </div>
         {evidence_footprint_html}
@@ -2580,8 +2580,8 @@ def generate_vehicle_dossier(
             <ul>
                 <li>Submitted award metadata: Contract ID {escape(str(contract_data.get("contract_id", "not supplied")))}</li>
                 <li>Linked vendor IDs: {escape(", ".join(vehicle_support["vendor_ids"]) or "none supplied")}</li>
-                <li>Current Helios view: {escape(vehicle_support["recommendation"])}</li>
-                <li>Graph coverage: {vehicle_support['claim_coverage_pct']}% claim coverage across {vehicle_support['relationship_count']} relationships</li>
+                <li>Current posture: {escape(vehicle_support["recommendation"])}</li>
+                <li>Evidence coverage: {vehicle_support['claim_coverage_pct']}% claim coverage across {vehicle_support['relationship_count']} corroborated relationships</li>
             </ul>
         </div>
         
@@ -2601,11 +2601,11 @@ def generate_vehicle_dossier(
             </div>
             <div class="kpi-card">
                 <div class="kpi-value">{escape(vehicle_support['recommendation'])}</div>
-                <div class="kpi-label">Current Helios View</div>
+                <div class="kpi-label">Current Posture</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-value">{vehicle_support['claim_coverage_pct']}%</div>
-                <div class="kpi-label">Graph Claim Coverage</div>
+                <div class="kpi-label">Claim Coverage</div>
             </div>
         </div>
         <div class="narrative">
@@ -2621,7 +2621,7 @@ def generate_vehicle_dossier(
         </div>
         <div class="warning-box">
             <div class="info-box-label">Data Limitation</div>
-            <p>The rows below are evidence-bound. If Helios has not attached named subcontractor or teaming edges to the current vehicle context, the table stays unresolved instead of fabricating roster data.</p>
+            <p>Subcontractor and teaming relationships below are derived from FPDS subaward records and corroborated graph evidence only. Where evidence is insufficient, the row is marked as unresolved.</p>
         </div>
         {subcontractor_html}
         
@@ -2632,7 +2632,7 @@ def generate_vehicle_dossier(
         </div>
         <div class="warning-box">
             <div class="info-box-label">State Contract</div>
-            <p>This section separates observed graph signals from Helios assessed partner classes. It does not turn prediction into graph fact.</p>
+            <p>This section separates observed relationships from assessed partner classifications. Assessed classifications are explicitly labeled and do not carry the same confidence as confirmed relationships.</p>
         </div>
         {teaming_intelligence_html}
 

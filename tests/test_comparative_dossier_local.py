@@ -196,8 +196,8 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
     assert "Named protest actors include Leidos." in html
     assert "Capture Outlook" in html
     assert "Evidence Footprint" in html
-    assert "Connectors run: 8" in html
-    assert "Connectors with signal: 5" in html
+    assert "Sources queried: 8" in html
+    assert "Sources with findings: 5" in html
     assert "Contract Opportunities Archive Fixture" in html
     assert "GAO Bid Protests Fixture" in html
     assert "Tribunal consensus" in html
@@ -217,11 +217,11 @@ def test_generate_vehicle_dossier_marks_unresolved_instead_of_inventing_rows(mon
         contract_data={"naics": "541715"},
     )
 
-    assert "No linked Helios case context was found" in html
+    assert "No linked vendor cases available" in html
     assert "No confirmed subcontractor or teaming relationships are attached" in html
     assert "No predecessor, successor, incumbent, competed-on, or award-under relationships are attached" in html
-    assert "Connectors run: 0" in html
-    assert "Connectors with signal: 0" in html
+    assert "Sources queried: 0" in html
+    assert "Sources with findings: 0" in html
     assert "TechFlow Defense" not in html
     assert "Acme Systems Integration" not in html
 
@@ -248,7 +248,7 @@ def test_generate_vehicle_dossier_uses_vehicle_support_without_linked_case(monke
     assert "Evidence Footprint" in html
     assert "Contract Opportunities Public" in html
     assert "Contract Opportunities Archive Fixture" in html
-    assert "Connectors with signal: 3" in html
+    assert "Sources with findings: 3" in html
 
 
 def test_generate_vehicle_dossier_uses_support_only_path_for_broader_seeded_vehicle_set(monkeypatch):
@@ -279,7 +279,7 @@ def test_generate_vehicle_dossier_uses_support_only_path_for_broader_seeded_vehi
         assert "Capture Outlook" in html
         assert "Evidence Footprint" in html
         assert "Contract Opportunities Public" in html
-        assert "Connectors with signal: 2" in html
+        assert "Sources with findings: 2" in html
         assert "No case-level protest or litigation events are attached" in html
 
     assert "SEWP V" in sewp_html
@@ -309,7 +309,7 @@ def test_generate_vehicle_dossier_support_only_non_seeded_vehicle_uses_live_awar
     assert "Vehicle Live" in html
     assert "General Services Administration" in html
     assert "OASIS Systems, LLC" in html
-    assert "Connectors with signal: 1" in html
+    assert "Sources with findings: 1" in html
 
 
 def test_generate_vehicle_dossier_lineage_read_uses_wayback_support_relationships(monkeypatch):
@@ -541,5 +541,5 @@ def test_generate_comparative_dossier_support_only_proves_multiple_seeded_vehicl
     assert "Vehicle Lineage Map" in html
     assert "Litigation & Protest Profile" in html
     assert "Contract Opportunities Public" in html
-    assert "Comparative teaming rows below are derived from the current Helios graph" in html
+    assert "Teaming relationships are derived from corroborated graph evidence" in html
     assert "Both vehicles are populated." in html
