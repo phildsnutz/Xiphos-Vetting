@@ -92,6 +92,14 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         authority_level="official_program_system",
         access_model="public_api",
     ),
+    "usaspending_vendor_live": ConnectorRegistryEntry(
+        label="USAspending Vendor Live",
+        category="Collector",
+        description="Live USAspending vendor procurement footprint covering prime vehicles, sub vehicles, teammate recurrence, and customer concentration",
+        source_class="public_connector",
+        authority_level="official_program_system",
+        access_model="public_api",
+    ),
     "dod_sam_exclusions": ConnectorRegistryEntry(
         label="DoD EPLS Exclusions",
         category="Sanctions",

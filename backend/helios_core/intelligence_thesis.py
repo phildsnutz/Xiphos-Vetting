@@ -98,15 +98,28 @@ def _build_graph_read(graph_summary: dict[str, Any] | None) -> list[str]:
 def _build_support_points(
     *,
     recommendation: dict[str, Any],
+    procurement_read: dict[str, Any] | None,
     material_signals: list[dict[str, Any]],
     what_holds: list[str],
     graph_lines: list[str],
     posture_assessment: dict[str, Any],
 ) -> list[str]:
     points: list[str] = []
-    if material_signals:
+    procurement_points = []
+    if isinstance(procurement_read, dict):
+        procurement_points = [
+            _clean(item)
+            for item in ((procurement_read.get("market_position_lines") or []) + (procurement_read.get("implication_lines") or []))
+            if _clean(item)
+        ]
+    recommendation_label = _clean(recommendation.get("label"))
+    if recommendation_label == "APPROVED" and procurement_points:
+        points.extend(procurement_points[:2])
+    if material_signals and not (recommendation_label == "APPROVED" and procurement_points):
         lead = material_signals[0]
         points.append(_join_sentences(lead.get("title"), lead.get("read")))
+    elif procurement_points:
+        points.extend(procurement_points[:1])
     points.extend(item for item in what_holds[:2] if _clean(item))
     points.extend(item for item in graph_lines[:2] if _clean(item))
     if not points:
@@ -131,9 +144,19 @@ def _build_support_points(
 def _build_principal_headline(
     vendor_name: str,
     recommendation: dict[str, Any],
+    procurement_read: dict[str, Any] | None,
     material_signals: list[dict[str, Any]],
 ) -> str:
     label = _clean(recommendation.get("label"), "PENDING")
+    procurement_read = procurement_read if isinstance(procurement_read, dict) else {}
+    if label == "APPROVED":
+        prime_names = [_clean(item) for item in (procurement_read.get("top_prime_vehicle_names") or []) if _clean(item)]
+        upstream_names = [_clean(item) for item in (procurement_read.get("top_upstream_prime_names") or []) if _clean(item)]
+        if prime_names:
+            prime_phrase = ", ".join(prime_names[:3])
+            if upstream_names:
+                return f"{label} holds with direct access on {prime_phrase}, plus recurring work under {', '.join(upstream_names[:2])}."
+            return f"{label} holds with direct access on {prime_phrase}."
     if material_signals:
         lead = material_signals[0]
         lead_title = _clean(lead.get("title"))
@@ -284,6 +307,7 @@ def build_intelligence_thesis(
     recommendation: dict[str, Any],
     supplier_passport: dict[str, Any] | None,
     graph_summary: dict[str, Any] | None,
+    procurement_read: dict[str, Any] | None,
     material_signals: list[dict[str, Any]],
     decision_shifters: list[str],
     what_holds: list[str],
@@ -298,12 +322,13 @@ def build_intelligence_thesis(
     graph_lines = _build_graph_read(graph_summary)
     support_points = _build_support_points(
         recommendation=recommendation,
+        procurement_read=procurement_read,
         material_signals=material_signals,
         what_holds=what_holds,
         graph_lines=graph_lines,
         posture_assessment=posture_assessment,
     )
-    principal_headline = _build_principal_headline(vendor_name, recommendation, material_signals)
+    principal_headline = _build_principal_headline(vendor_name, recommendation, procurement_read, material_signals)
     principal_narrative = _build_principal_narrative(
         vendor_name,
         recommendation,

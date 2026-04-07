@@ -12,7 +12,7 @@ import dossier  # type: ignore  # noqa: E402
 
 def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch):
     vendor_id = "c-cache"
-    calls = {"graph": 0, "passport": 0, "vehicle_intelligence": 0}
+    calls = {"vendor_procurement": 0, "graph": 0, "passport": 0, "vehicle_intelligence": 0}
 
     monkeypatch.setattr(
         dossier.db,
@@ -50,6 +50,21 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
         assert max_evidence_records == 2
         return {"entity_count": 1, "relationship_count": 1, "entities": [], "relationships": []}
 
+    def fake_vendor_procurement_support(*, vendor_id, vendor, sync_graph=False):
+        calls["vendor_procurement"] += 1
+        assert vendor_id == "c-cache"
+        assert vendor["id"] == vendor_id
+        assert sync_graph is False
+        return {
+            "vendor_name": vendor["name"],
+            "connectors_run": 1,
+            "connectors_with_data": 1,
+            "relationships": [],
+            "findings": [],
+            "prime_vehicles": [],
+            "sub_vehicles": [],
+        }
+
     def fake_passport(_vendor_id, **kwargs):
         calls["passport"] += 1
         assert kwargs.get("graph_summary", {}).get("entity_count") == 1
@@ -58,7 +73,7 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
 
     def fake_vehicle_intelligence(*, vehicle_name, vendor, sync_graph=False):
         calls["vehicle_intelligence"] += 1
-        assert vehicle_name == "ITEAMS"
+        assert vehicle_name in {"ITEAMS", "LEIA"}
         assert vendor["id"] == vendor_id
         assert sync_graph is True
         return {
@@ -71,6 +86,8 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
         }
 
     monkeypatch.setattr(dossier, "HAS_GRAPH_SUMMARY", True)
+    monkeypatch.setattr(dossier, "HAS_VENDOR_PROCUREMENT_SUPPORT", True)
+    monkeypatch.setattr(dossier, "build_vendor_procurement_support", fake_vendor_procurement_support)
     monkeypatch.setattr(dossier, "get_vendor_graph_summary", fake_graph_summary)
     monkeypatch.setattr(dossier, "HAS_SUPPLIER_PASSPORT", True)
     monkeypatch.setattr(dossier, "build_supplier_passport", fake_passport)
@@ -85,8 +102,9 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
     assert first is not None
     assert second is not None
     assert third is not None
-    assert calls == {"graph": 2, "passport": 2, "vehicle_intelligence": 2}
+    assert calls == {"vendor_procurement": 2, "graph": 2, "passport": 2, "vehicle_intelligence": 2}
     assert second["vendor"]["id"] == vendor_id
+    assert first["vendor_procurement"]["vendor_name"] == "Cache Vendor"
     assert first["vehicle_intelligence"]["vehicle_name"] == "ITEAMS"
 
 

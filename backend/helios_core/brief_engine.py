@@ -77,7 +77,7 @@ _CONFIRMED_SOURCES = frozenset({
     "sam", "fpds", "usaspending", "sbir", "dla_cage", "fara", "fedramp", "piee",
     "ofac", "csl", "un_sanctions", "eu_sanctions", "uk_hmt", "worldbank",
     "sec", "sec_edgar", "gleif", "opencorporates", "courtlistener", "recap",
-    "opensanctions",
+    "opensanctions", "usaspending_vendor_live", "usaspending_vehicle_live",
 })
 
 _INFERRED_SOURCES = frozenset({
@@ -323,6 +323,174 @@ def _collect_evidence_findings(context: dict[str, Any]) -> list[dict[str, str]]:
         )
 
     return findings
+
+
+def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
+    support = context.get("vendor_procurement") if isinstance(context.get("vendor_procurement"), dict) else {}
+    if not support:
+        return {
+            "metrics": {
+                "prime_vehicle_count": 0,
+                "sub_vehicle_count": 0,
+                "prime_award_count": 0,
+                "subaward_row_count": 0,
+            },
+            "market_position_lines": [],
+            "prime_vehicle_lines": [],
+            "sub_vehicle_lines": [],
+            "upstream_prime_lines": [],
+            "downstream_sub_lines": [],
+            "customer_lines": [],
+            "implication_lines": [],
+        }
+
+    prime_vehicles = [row for row in (support.get("prime_vehicles") or []) if isinstance(row, dict)]
+    sub_vehicles = [row for row in (support.get("sub_vehicles") or []) if isinstance(row, dict)]
+    upstream_primes = [row for row in (support.get("upstream_primes") or []) if isinstance(row, dict)]
+    downstream_subs = [row for row in (support.get("downstream_subcontractors") or []) if isinstance(row, dict)]
+    top_customers = [row for row in (support.get("top_customers") or []) if isinstance(row, dict)]
+    momentum = support.get("award_momentum") if isinstance(support.get("award_momentum"), dict) else {}
+
+    prime_vehicle_lines = [
+        _join_sentences(
+            f"{row.get('vehicle_name', 'Unknown vehicle')} appears as direct prime access",
+            f"{row.get('award_count', 0)} observed award row(s) worth ${float(row.get('total_amount') or 0.0):,.0f}",
+            f"Agencies: {', '.join(row.get('agencies') or [])}" if row.get("agencies") else "",
+        )
+        for row in prime_vehicles[:4]
+    ]
+    sub_vehicle_lines = [
+        _join_sentences(
+            f"{row.get('vehicle_name', 'Unknown vehicle')} appears in subcontract flow",
+            f"${float(row.get('total_amount') or 0.0):,.0f} observed under {', '.join(row.get('counterparties') or []) or 'named primes not surfaced'}",
+        )
+        for row in sub_vehicles[:4]
+    ]
+    upstream_prime_lines = [
+        _join_sentences(
+            f"{row.get('name', 'Unknown')} recurs as upstream prime",
+            f"${float(row.get('total_amount') or 0.0):,.0f} across {row.get('count', 0)} observed row(s)",
+            f"Vehicles: {', '.join(row.get('vehicles') or [])}" if row.get("vehicles") else "",
+        )
+        for row in upstream_primes[:3]
+    ]
+    downstream_sub_lines = [
+        _join_sentences(
+            f"{row.get('name', 'Unknown')} recurs as downstream subcontractor",
+            f"${float(row.get('total_amount') or 0.0):,.0f} across {row.get('count', 0)} observed row(s)",
+            f"Vehicles: {', '.join(row.get('vehicles') or [])}" if row.get("vehicles") else "",
+        )
+        for row in downstream_subs[:3]
+    ]
+    customer_lines = [
+        _join_sentences(
+            f"{row.get('agency', 'Unknown agency')} dominates visible customer flow",
+            f"${float((row.get('prime_amount') or 0.0) + (row.get('sub_amount') or 0.0)):,.0f} combined visible value",
+            f"{row.get('prime_awards', 0)} direct award row(s) and {row.get('subaward_rows', 0)} subcontract row(s)",
+        )
+        for row in top_customers[:4]
+    ]
+
+    implication_lines: list[str] = []
+    named_prime_vehicles = [str(row.get("vehicle_name") or "").strip() for row in prime_vehicles[:3] if str(row.get("vehicle_name") or "").strip()]
+    named_sub_vehicles = [str(row.get("vehicle_name") or "").strip() for row in sub_vehicles[:3] if str(row.get("vehicle_name") or "").strip()]
+    named_upstream_primes = [str(row.get("name") or "").strip() for row in upstream_primes[:3] if str(row.get("name") or "").strip()]
+    named_downstream_subs = [str(row.get("name") or "").strip() for row in downstream_subs[:3] if str(row.get("name") or "").strip()]
+    named_customers = [str(row.get("agency") or "").strip() for row in top_customers[:3] if str(row.get("agency") or "").strip()]
+    if prime_vehicles and sub_vehicles:
+        implication_lines.append(
+            "Procurement posture is mixed rather than one-dimensional: direct vehicle access exists, but the vendor also rides under other primes on adjacent work."
+        )
+    elif prime_vehicles:
+        implication_lines.append(
+            "Procurement posture is prime-led: visible vehicle access comes directly rather than mainly through another contractor."
+        )
+    elif sub_vehicles:
+        implication_lines.append(
+            "Visible federal access is subcontract-heavy, which means the company may depend on upstream primes for market entry on key work."
+        )
+    if named_prime_vehicles:
+        implication_lines.append(
+            "Visible prime access includes " + ", ".join(named_prime_vehicles) + "."
+        )
+    if named_sub_vehicles:
+        implication_lines.append(
+            "Visible subcontract lanes include " + ", ".join(named_sub_vehicles) + "."
+        )
+    if len(upstream_primes) >= 2:
+        implication_lines.append(
+            "Teaming posture is not random. The same upstream primes recur, which is more informative than one-off subcontract mentions."
+        )
+    if named_upstream_primes:
+        implication_lines.append(
+            "Repeated upstream prime relationships include " + ", ".join(named_upstream_primes) + "."
+        )
+    if top_customers:
+        lead_customer = top_customers[0]
+        implication_lines.append(
+            _join_sentences(
+                f"Customer concentration tilts toward {lead_customer.get('agency', 'the lead customer')}",
+                f"Latest visible activity is {momentum.get('latest_activity_date') or 'undated'}",
+            )
+        )
+    if not implication_lines and support.get("findings"):
+        first = support["findings"][0]
+        if isinstance(first, dict):
+            implication_lines.append(_clean_detail(first.get("detail")))
+
+    market_position_lines: list[str] = []
+    if named_prime_vehicles and named_upstream_primes:
+        market_position_lines.append(
+            f"The visible federal footprint is dual-posture rather than purely prime-led: direct access shows on {', '.join(named_prime_vehicles)}, while repeated upstream primes include {', '.join(named_upstream_primes)}."
+        )
+    elif named_prime_vehicles:
+        market_position_lines.append(
+            _join_sentences(
+                "The visible federal footprint is prime-led",
+                f"Direct access shows on {', '.join(named_prime_vehicles)}",
+            )
+        )
+    elif named_upstream_primes:
+        market_position_lines.append(
+            _join_sentences(
+                "The visible federal footprint is carried mainly through upstream primes",
+                f"Repeated prime relationships include {', '.join(named_upstream_primes)}",
+            )
+        )
+    if named_downstream_subs:
+        market_position_lines.append(
+            _join_sentences(
+                "Parsons also carries meaningful downstream performers on its own work",
+                f"Visible downstream names include {', '.join(named_downstream_subs)}",
+            )
+        )
+    if named_customers:
+        market_position_lines.append(
+            _join_sentences(
+                "Customer concentration is not diffuse",
+                f"Visible demand clusters around {', '.join(named_customers)}",
+            )
+        )
+
+    return {
+        "metrics": {
+            "prime_vehicle_count": len(prime_vehicles),
+            "sub_vehicle_count": len(sub_vehicles),
+            "prime_award_count": int(momentum.get("prime_awards") or len(support.get("prime_awards") or [])),
+            "subaward_row_count": int(momentum.get("subaward_rows") or len(support.get("subaward_rows") or [])),
+        },
+        "top_prime_vehicle_names": [str(row.get("vehicle_name") or "").strip() for row in prime_vehicles[:4] if str(row.get("vehicle_name") or "").strip()],
+        "top_sub_vehicle_names": [str(row.get("vehicle_name") or "").strip() for row in sub_vehicles[:4] if str(row.get("vehicle_name") or "").strip()],
+        "top_upstream_prime_names": [str(row.get("name") or "").strip() for row in upstream_primes[:4] if str(row.get("name") or "").strip()],
+        "lead_customer": str(top_customers[0].get("agency") or "").strip() if top_customers else "",
+        "market_position_lines": [line for line in market_position_lines if line],
+        "prime_vehicle_lines": [line for line in prime_vehicle_lines if line],
+        "sub_vehicle_lines": [line for line in sub_vehicle_lines if line],
+        "upstream_prime_lines": [line for line in upstream_prime_lines if line],
+        "downstream_sub_lines": [line for line in downstream_sub_lines if line],
+        "customer_lines": [line for line in customer_lines if line],
+        "implication_lines": [line for line in implication_lines if line],
+    }
 
 
 def _collect_gap_lines(context: dict[str, Any]) -> list[str]:
@@ -817,6 +985,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
     score = context.get("score") if isinstance(context.get("score"), dict) else {}
     calibrated = score.get("calibrated") if isinstance(score.get("calibrated"), dict) else {}
     supplier_passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
+    vendor_procurement = context.get("vendor_procurement") if isinstance(context.get("vendor_procurement"), dict) else {}
     latest_decision = None
     decisions = context.get("decisions")
     if isinstance(decisions, list) and decisions:
@@ -883,6 +1052,24 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
                 "confidence": tag,
             }
         )
+    for finding in (vendor_procurement.get("findings") or []):
+        if not isinstance(finding, dict):
+            continue
+        source = _clean_detail(finding.get("source"), "unknown")
+        severity = str(finding.get("severity") or "info").lower()
+        curated_findings.append(
+            {
+                "title": _clean_detail(finding.get("title"), "Untitled finding"),
+                "detail": _clean_detail(finding.get("detail") or finding.get("assessment"), "No analyst-ready detail attached."),
+                "severity": severity,
+                "source": source,
+                "confidence": _confidence_tag(source, severity),
+                "next_check": _clean_detail(
+                    (finding.get("structured_fields") or {}).get("next_check")
+                    or finding.get("next_check"),
+                ),
+            }
+        )
     curated_findings.extend(_collect_evidence_findings(context))
     normalized_findings = []
     for finding in curated_findings:
@@ -906,6 +1093,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
             identity_lines.append(f"{key.upper()}: {value}")
 
     storyline = context.get("storyline") if isinstance(context.get("storyline"), dict) else {}
+    procurement_read = _build_procurement_read(context)
     story_cards = storyline.get("cards") if isinstance(storyline.get("cards"), list) else []
     what_holds = []
     for card in story_cards[:3]:
@@ -919,6 +1107,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
                 what_holds.append(joined)
     what_holds.extend(_collect_graph_holds(graph_summary))
     what_holds.extend(_collect_passport_holds(context))
+    what_holds.extend(procurement_read.get("implication_lines") or [])
 
     axiom = _build_axiom_assessment(context, recommendation)
     gaps = _collect_gap_lines(context)
@@ -996,6 +1185,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         recommendation=recommendation,
         supplier_passport=supplier_passport,
         graph_summary=graph_summary,
+        procurement_read=procurement_read,
         material_signals=material_signals,
         decision_shifters=decision_shifters,
         what_holds=what_holds[:6],
@@ -1029,6 +1219,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "axiom": axiom,
         "recommendation_authority": _recommendation_authority_line(recommendation),
         "passport_snapshot": _build_passport_snapshot(context, recommendation, probability),
+        "procurement_read": procurement_read,
         "what_holds": what_holds[:6],
         "gaps": gaps[:6],
         "gap_roadmap": gap_roadmap,
@@ -1056,10 +1247,12 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     recommendation = payload["recommendation"]
     posture = recommendation["posture"]
     graph_read = payload["graph_read"]
+    procurement_read = payload.get("procurement_read") or {}
     thesis = payload.get("thesis") or {}
     principal_judgment = thesis.get("principal_judgment") or {}
     counterview = thesis.get("counterview") or {}
     dark_space = thesis.get("dark_space") or []
+    procurement_read = payload.get("procurement_read") or {}
     material_signals = payload.get("material_signals") or []
     decision_shifters = payload.get("decision_shifters") or []
     finding_rows = "".join(
@@ -1122,6 +1315,14 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
         for idx, item in enumerate(payload["recommended_actions"], start=1)
     ) or '<tr><td colspan="2" class="empty-line">No recommended actions at this time.</td></tr>'
     shifter_list = _html_list(decision_shifters, "No decision-shifting actions identified.")
+    procurement_metrics = procurement_read.get("metrics") or {}
+    procurement_market_read = _html_list(procurement_read.get("market_position_lines") or [], "No procurement market-position read established yet.")
+    procurement_prime_lines = _html_list(procurement_read.get("prime_vehicle_lines") or [], "No direct prime vehicle access observed.")
+    procurement_sub_lines = _html_list(procurement_read.get("sub_vehicle_lines") or [], "No subcontract vehicle access observed.")
+    procurement_upstream_lines = _html_list(procurement_read.get("upstream_prime_lines") or [], "No recurring upstream primes surfaced.")
+    procurement_downstream_lines = _html_list(procurement_read.get("downstream_sub_lines") or [], "No recurring downstream subcontractors surfaced.")
+    procurement_customer_lines = _html_list(procurement_read.get("customer_lines") or [], "No customer concentration surfaced.")
+    procurement_implications = _html_list(procurement_read.get("implication_lines") or [], "No procurement implications established yet.")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1408,6 +1609,51 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     </section>
 
     <section class="section-card">
+      <h2>Procurement Footprint</h2>
+      <div class="support-line">Prime vehicles, subcontract vehicles, recurring teammates, and customer concentration derived from public federal award flow.</div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Prime Vehicles</div><div class="metric-value">{int(procurement_metrics.get('prime_vehicle_count') or 0)}</div></div>
+        <div class="metric"><div class="metric-label">Sub Vehicles</div><div class="metric-value">{int(procurement_metrics.get('sub_vehicle_count') or 0)}</div></div>
+        <div class="metric"><div class="metric-label">Direct Awards</div><div class="metric-value">{int(procurement_metrics.get('prime_award_count') or 0)}</div></div>
+        <div class="metric"><div class="metric-label">Subaward Rows</div><div class="metric-value">{int(procurement_metrics.get('subaward_row_count') or 0)}</div></div>
+      </div>
+      <div style="margin-top: 18px;">
+        <h2 style="font-size:16px;">Market Position Read</h2>
+        <ul>{procurement_market_read}</ul>
+      </div>
+      <div class="split" style="margin-top: 16px;">
+        <div>
+          <h2 style="font-size:16px;">Prime Vehicles</h2>
+          <ul>{procurement_prime_lines}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">Subcontract Vehicles</h2>
+          <ul>{procurement_sub_lines}</ul>
+        </div>
+      </div>
+      <div class="split" style="margin-top: 16px;">
+        <div>
+          <h2 style="font-size:16px;">Recurring Upstream Primes</h2>
+          <ul>{procurement_upstream_lines}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">Recurring Downstream Subs</h2>
+          <ul>{procurement_downstream_lines}</ul>
+        </div>
+      </div>
+      <div class="split" style="margin-top: 16px;">
+        <div>
+          <h2 style="font-size:16px;">Customer Concentration</h2>
+          <ul>{procurement_customer_lines}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">What this implies</h2>
+          <ul>{procurement_implications}</ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-card">
       <h2>Supplier Passport</h2>
       <div class="support-line">Identity verification, control posture, and review authority for this entity.</div>
       <div class="metrics">
@@ -1652,6 +1898,40 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         story.append(Paragraph(f"<b>[{confidence}] {signal['title']}</b>", body))
         story.append(Paragraph(signal["read"], body))
         story.append(Paragraph(f"Closure method: {signal['next_check']}", muted))
+
+    story.append(Paragraph("Procurement Footprint", heading))
+    procurement_metrics = procurement_read.get("metrics") or {}
+    procurement_table = Table(
+        [[
+            Paragraph(f"<b>Prime vehicles</b><br/>{int(procurement_metrics.get('prime_vehicle_count') or 0)}", body),
+            Paragraph(f"<b>Sub vehicles</b><br/>{int(procurement_metrics.get('sub_vehicle_count') or 0)}", body),
+            Paragraph(f"<b>Direct awards</b><br/>{int(procurement_metrics.get('prime_award_count') or 0)}", body),
+            Paragraph(f"<b>Subaward rows</b><br/>{int(procurement_metrics.get('subaward_row_count') or 0)}", body),
+        ]],
+        colWidths=[1.78 * inch, 1.78 * inch, 1.78 * inch, 1.78 * inch],
+    )
+    procurement_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F8FAFC")),
+        ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#D8E0EA")),
+        ("GRID", (0, 0), (-1, -1), 0.4, HexColor("#D8E0EA")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(procurement_table)
+    for section_title, items in (
+        ("Market Position Read", procurement_read.get("market_position_lines") or []),
+        ("Prime Vehicles", procurement_read.get("prime_vehicle_lines") or []),
+        ("Subcontract Vehicles", procurement_read.get("sub_vehicle_lines") or []),
+        ("Recurring Upstream Primes", procurement_read.get("upstream_prime_lines") or []),
+        ("Recurring Downstream Subs", procurement_read.get("downstream_sub_lines") or []),
+        ("Customer Concentration", procurement_read.get("customer_lines") or []),
+        ("What this implies", procurement_read.get("implication_lines") or []),
+    ):
+        story.append(Paragraph(section_title, heading))
+        for item in items[:4]:
+            story.append(Paragraph(item, bullet, bulletText="•"))
 
     story.append(Paragraph("Supplier Passport", heading))
     passport_rows = [[Paragraph(f"<b>{label}</b>", body), Paragraph(value, body)] for label, value in payload["passport_snapshot"]["cards"]]

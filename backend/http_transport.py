@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from typing import Mapping
+from typing import Any, Mapping
 
 
 def curl_json_get(
@@ -91,6 +91,108 @@ def curl_json_get(
         "throttled": False,
         "error": error,
         "raw_body": raw_body[:500],
+    }
+
+
+def curl_json_post(
+    url: str,
+    payload: Mapping[str, Any] | list[Any] | str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    timeout_seconds: float = 10.0,
+) -> tuple[dict | list | None, dict]:
+    """POST JSON over curl to avoid slow or brittle local TLS behavior."""
+    curl_path = shutil.which("curl")
+    if not curl_path:
+        return None, {
+            "status": 0,
+            "throttled": False,
+            "error": "curl is not available on this system.",
+        }
+
+    timeout_s = max(float(timeout_seconds), 0.1)
+    connect_timeout_s = max(min(timeout_s, 3.0), 0.1)
+    if isinstance(payload, str):
+        body = payload
+    else:
+        body = json.dumps(payload)
+
+    merged_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    for key, value in (headers or {}).items():
+        merged_headers[str(key)] = str(value)
+
+    cmd = [
+        curl_path,
+        "--silent",
+        "--show-error",
+        "--location",
+        "--ipv4",
+        "--http1.1",
+        "--request",
+        "POST",
+        "--max-time",
+        f"{timeout_s:.3f}",
+        "--connect-timeout",
+        f"{connect_timeout_s:.3f}",
+        "--data-binary",
+        "@-",
+        "--write-out",
+        "\n__XIPHOS_HTTP_STATUS__:%{http_code}",
+        url,
+    ]
+    for key, value in merged_headers.items():
+        cmd.extend(["-H", f"{key}: {value}"])
+
+    try:
+        completed = subprocess.run(
+            cmd,
+            input=body,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return None, {
+            "status": 0,
+            "throttled": False,
+            "error": f"curl transport unavailable: {exc}",
+        }
+
+    stdout = completed.stdout or ""
+    marker = "\n__XIPHOS_HTTP_STATUS__:"
+    raw_body, _, status_text = stdout.rpartition(marker)
+    if not status_text:
+        return None, {
+            "status": 0,
+            "throttled": False,
+            "error": (completed.stderr or "curl transport returned no status marker.").strip(),
+        }
+
+    try:
+        status = int(status_text.strip() or "0")
+    except ValueError:
+        status = 0
+
+    parsed = None
+    body_text = raw_body.strip()
+    if body_text:
+        try:
+            parsed = json.loads(body_text)
+        except json.JSONDecodeError:
+            parsed = None
+
+    error = ""
+    if completed.returncode != 0:
+        error = (completed.stderr or "").strip() or f"curl exited with status {completed.returncode}."
+
+    return parsed, {
+        "status": status,
+        "throttled": False,
+        "error": error,
+        "raw_body": body_text[:500],
     }
 
 

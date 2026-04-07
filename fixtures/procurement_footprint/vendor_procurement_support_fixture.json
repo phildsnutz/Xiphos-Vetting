@@ -1,0 +1,190 @@
+{
+  "vendors": [
+    {
+      "vendor_name": "PARSONS CORPORATION",
+      "aliases": [
+        "PARSONS GOVERNMENT SERVICES INC."
+      ],
+      "matched_recipients": [
+        {
+          "recipient_name": "PARSONS GOVERNMENT SERVICES INC.",
+          "recipient_hash": "parsons-gov-services",
+          "score": 45
+        }
+      ],
+      "prime_awards": [
+        {
+          "award_id": "47QFCA21F0042",
+          "generated_internal_id": "CONT_AWD_47QFCA21F0042_4732_GS00Q14OADU127_4732",
+          "recipient_name": "PARSONS GOVERNMENT SERVICES INC.",
+          "award_amount": 89160609.89,
+          "awarding_agency": "GSA FAS AAS FEDSIM",
+          "awarding_sub_agency": "Federal Acquisition Service",
+          "funding_agency": "General Services Administration",
+          "description": "SERVICES IN SUPPORT OF FEDSIM TASK ORDER",
+          "start_date": "2021-09-14",
+          "end_date": "2026-09-13",
+          "vehicle_key": "CONT_IDV_GS00Q14OADU127_4732",
+          "vehicle_name": "OASIS",
+          "vehicle_source": "parent_award",
+          "parent_award_id": "GS00Q14OADU127",
+          "parent_generated_id": "CONT_IDV_GS00Q14OADU127_4732"
+        },
+        {
+          "award_id": "DEAC0902SR22210",
+          "generated_internal_id": "CONT_AWD_DEAC0902SR22210_8900_-NONE-_-NONE-",
+          "recipient_name": "PARSONS GOVERNMENT SERVICES INC.",
+          "award_amount": 2276893314.21,
+          "awarding_agency": "Department of Energy",
+          "awarding_sub_agency": "Department of Energy",
+          "funding_agency": "Department of Energy",
+          "description": "SALT WASTE PROCESSING FACILITY CONCEPTUAL DESIGN",
+          "start_date": "2020-10-01",
+          "end_date": "2027-09-30",
+          "vehicle_key": "DEAC0902SR22210",
+          "vehicle_name": "DEAC0902SR22210",
+          "vehicle_source": "standalone_award",
+          "parent_award_id": "",
+          "parent_generated_id": ""
+        }
+      ],
+      "subaward_rows": [
+        {
+          "prime_name": "SMARTRONIX, LLC",
+          "subawardee_name": "PARSONS GOVERNMENT SERVICES INC.",
+          "amount": 45753840.13,
+          "prime_award_id": "47QFCA20F0013",
+          "prime_award_generated_internal_id": "CONT_AWD_47QFCA20F0013_4732_GS00Q14OADU313_4732",
+          "awarding_agency": "General Services Administration",
+          "subaward_date": "2024-08-19",
+          "vehicle_key": "CONT_IDV_GS00Q14OADU313_4732",
+          "vehicle_name": "OASIS",
+          "parent_award_id": "GS00Q14OADU313"
+        },
+        {
+          "prime_name": "CACI TECHNOLOGIES, INC.",
+          "subawardee_name": "PARSONS GOVERNMENT SERVICES INC.",
+          "amount": 15775894.95,
+          "prime_award_id": "47QFCA20F0012",
+          "prime_award_generated_internal_id": "CONT_AWD_47QFCA20F0012_4732_GS00Q14OADU189_4732",
+          "awarding_agency": "General Services Administration",
+          "subaward_date": "2024-07-02",
+          "vehicle_key": "CONT_IDV_GS00Q14OADU189_4732",
+          "vehicle_name": "OASIS",
+          "parent_award_id": "GS00Q14OADU189"
+        },
+        {
+          "prime_name": "GENERAL DYNAMICS GLOBAL FORCE, LLC",
+          "subawardee_name": "PARSONS GOVERNMENT SERVICES INC.",
+          "amount": 5657956.76,
+          "prime_award_id": "N0018924C0029",
+          "prime_award_generated_internal_id": "CONT_AWD_N0018924C0029_9700_N0018922D0013_9700",
+          "awarding_agency": "Department of Defense",
+          "subaward_date": "2024-05-14",
+          "vehicle_key": "N0018922D0013",
+          "vehicle_name": "N0018922D0013",
+          "parent_award_id": "N0018922D0013"
+        }
+      ],
+      "prime_vehicles": [
+        {
+          "vehicle_key": "CONT_IDV_GS00Q14OADU127_4732",
+          "vehicle_name": "OASIS",
+          "total_amount": 89160609.89,
+          "award_count": 1,
+          "counterparties": [
+            "GSA FAS AAS FEDSIM"
+          ],
+          "agencies": [
+            "GSA FAS AAS FEDSIM"
+          ],
+          "award_ids": [
+            "47QFCA21F0042"
+          ]
+        }
+      ],
+      "sub_vehicles": [
+        {
+          "vehicle_key": "CONT_IDV_GS00Q14OADU313_4732",
+          "vehicle_name": "OASIS",
+          "total_amount": 61589735.08,
+          "award_count": 2,
+          "counterparties": [
+            "CACI TECHNOLOGIES, INC.",
+            "SMARTRONIX, LLC"
+          ],
+          "agencies": [
+            "Department of Defense",
+            "General Services Administration"
+          ],
+          "award_ids": [
+            "47QFCA20F0012",
+            "47QFCA20F0013"
+          ]
+        }
+      ],
+      "upstream_primes": [
+        {
+          "name": "SMARTRONIX, LLC",
+          "total_amount": 45753840.13,
+          "count": 1,
+          "vehicles": [
+            "OASIS"
+          ]
+        },
+        {
+          "name": "CACI TECHNOLOGIES, INC.",
+          "total_amount": 15775894.95,
+          "count": 1,
+          "vehicles": [
+            "OASIS"
+          ]
+        }
+      ],
+      "downstream_subcontractors": [
+        {
+          "name": "HII MISSION TECHNOLOGIES CORP",
+          "total_amount": 28503983.98,
+          "count": 1,
+          "vehicles": [
+            "OASIS"
+          ]
+        },
+        {
+          "name": "L3HARRIS UNMANNED SYSTEMS, INC",
+          "total_amount": 5128840.0,
+          "count": 1,
+          "vehicles": [
+            "OASIS"
+          ]
+        }
+      ],
+      "top_customers": [
+        {
+          "agency": "General Services Administration",
+          "prime_awards": 1,
+          "subaward_rows": 2,
+          "prime_amount": 89160609.89,
+          "sub_amount": 61589735.08
+        },
+        {
+          "agency": "Department of Energy",
+          "prime_awards": 1,
+          "subaward_rows": 0,
+          "prime_amount": 2276893314.21,
+          "sub_amount": 0.0
+        }
+      ],
+      "award_momentum": {
+        "prime_awards": 2,
+        "prime_total_amount": 2366053924.1,
+        "subaward_rows": 3,
+        "sub_total_amount": 67217691.84,
+        "recent_prime_awards_24m": 1,
+        "recent_subaward_rows_24m": 3,
+        "latest_activity_date": "2024-10-22"
+      },
+      "errors": []
+    }
+  ]
+}

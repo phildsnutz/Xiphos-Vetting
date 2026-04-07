@@ -360,3 +360,110 @@ def test_rendered_html_uses_decision_thesis_and_not_axiom_heading():
     assert "Decision Thesis" in html
     assert "Competing Case" in html
     assert "Axiom Assessment" not in html
+
+
+def test_rendered_html_surfaces_procurement_footprint_when_available():
+    context = {
+        "vendor": {
+            "id": "parsons-review",
+            "name": "PARSONS CORPORATION",
+            "country": "US",
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "vendor_input": {},
+        },
+        "score": {
+            "calibrated": {
+                "calibrated_probability": 0.12,
+                "calibrated_tier": "TIER_4_APPROVED",
+                "program_recommendation": "approved",
+                "interval": {"lower": 0.08, "upper": 0.16},
+            }
+        },
+        "graph_summary": {
+            "relationship_count": 4,
+            "entity_count": 5,
+            "relationships": [],
+            "entities": [],
+            "intelligence": {"claim_coverage_pct": 0.5, "missing_required_edge_families": []},
+        },
+        "enrichment": {"findings": []},
+        "supplier_passport": {
+            "identity": {"identifiers": {"lei": "549300ZXH0VRBSEPX752"}, "identifier_status": {}},
+            "tribunal": {"recommended_label": "Approve", "recommended_view": "approve", "consensus_level": "strong"},
+            "graph": {"control_paths": [], "intelligence": {"claim_coverage_pct": 0.5, "missing_required_edge_families": []}},
+        },
+        "vendor_procurement": {
+            "findings": [
+                {
+                    "title": "Prime vehicle access: OASIS",
+                    "detail": "OBSERVED: PARSONS CORPORATION appears as a direct prime on OASIS through visible GSA award flow.",
+                    "severity": "info",
+                    "source": "usaspending_vendor_live",
+                }
+            ],
+            "prime_vehicles": [
+                {
+                    "vehicle_name": "OASIS",
+                    "award_count": 2,
+                    "total_amount": 89160609.89,
+                    "agencies": ["GSA FAS AAS FEDSIM"],
+                }
+            ],
+            "sub_vehicles": [
+                {
+                    "vehicle_name": "OASIS",
+                    "total_amount": 61589735.08,
+                    "counterparties": ["SMARTRONIX, LLC", "CACI TECHNOLOGIES, INC."],
+                }
+            ],
+            "upstream_primes": [
+                {
+                    "name": "SMARTRONIX, LLC",
+                    "total_amount": 45753840.13,
+                    "count": 1,
+                    "vehicles": ["OASIS"],
+                }
+            ],
+            "downstream_subcontractors": [
+                {
+                    "name": "HII MISSION TECHNOLOGIES CORP",
+                    "total_amount": 28503983.98,
+                    "count": 1,
+                    "vehicles": ["OASIS"],
+                }
+            ],
+            "top_customers": [
+                {
+                    "agency": "General Services Administration",
+                    "prime_awards": 2,
+                    "subaward_rows": 2,
+                    "prime_amount": 89160609.89,
+                    "sub_amount": 61589735.08,
+                }
+            ],
+            "award_momentum": {
+                "prime_awards": 2,
+                "subaward_rows": 2,
+                "latest_activity_date": "2024-10-22",
+            },
+        },
+        "analysis_state": "idle",
+        "storyline": {"cards": []},
+        "decisions": [],
+    }
+
+    payload = _distill_context(context)
+    html = _render_html_brief(payload)
+
+    assert payload["procurement_read"]["metrics"]["prime_vehicle_count"] == 1
+    assert payload["procurement_read"]["metrics"]["sub_vehicle_count"] == 1
+    assert any("mixed" in item.lower() for item in payload["procurement_read"]["implication_lines"])
+    assert any("dual-posture" in item.lower() for item in payload["procurement_read"]["market_position_lines"])
+    assert any("visible prime access includes oasis" in item.lower() for item in payload["procurement_read"]["implication_lines"])
+    assert "Procurement Footprint" in html
+    assert "Market Position Read" in html
+    assert "Prime Vehicles" in html
+    assert "Recurring Upstream Primes" in html
+    assert "Recurring Downstream Subs" in html
+    assert "OASIS" in html

@@ -77,6 +77,12 @@ try:
 except ImportError:
     HAS_VEHICLE_INTEL_SUPPORT = False
 
+try:
+    from vendor_procurement_support import build_vendor_procurement_support
+    HAS_VENDOR_PROCUREMENT_SUPPORT = True
+except ImportError:
+    HAS_VENDOR_PROCUREMENT_SUPPORT = False
+
 
 _DOSSIER_CONTEXT_CACHE: dict[tuple[str, str, str, str, str, bool, str, str, str], dict] = {}
 _DOSSIER_CONTEXT_CACHE_LOCK = threading.Lock()
@@ -1624,6 +1630,18 @@ def build_dossier_context(
         if HAS_EXPORT_EVIDENCE else None
     )
     storyline = _build_dossier_storyline(vendor_id, vendor, score, enrichment, case_events, intel_summary)
+    vendor_procurement = None
+    if HAS_VENDOR_PROCUREMENT_SUPPORT:
+        try:
+            vendor_procurement = build_vendor_procurement_support(
+                vendor_id=vendor_id,
+                vendor=vendor,
+                sync_graph=False,
+            )
+        except Exception as err:
+            print(f"[dossier] Vendor procurement support build failed: {err}")
+            vendor_procurement = None
+
     graph_summary = None
     if HAS_GRAPH_SUMMARY:
         try:
@@ -1699,6 +1717,7 @@ def build_dossier_context(
         "storyline": storyline,
         "graph_summary": graph_summary,
         "supplier_passport": supplier_passport,
+        "vendor_procurement": vendor_procurement,
         "vehicle_intelligence": vehicle_intelligence,
         "analysis_data": analysis_data,
         "analysis_state": analysis_state,
