@@ -163,11 +163,17 @@ def test_generate_vehicle_dossier_uses_live_case_context(monkeypatch):
     assert "ITEAMS award protest" in html
     assert "ITEAMS task-order protest" in html
     assert "Lineage Read" in html
+    assert "Competitive Landscape" in html
     assert "Legal Read" in html
+    assert "Legal Pressure" in html
     assert "Award scaffold remains attached through OASIS." in html
     assert "Competitive pressure is currently visible from Leidos." in html
+    assert "Award scaffold still ties ITEAMS to OASIS." in html
+    assert "Named competitive pressure currently comes from Leidos." in html
     assert "Protest pressure is attached in 2 case events." in html
     assert "Protester: Leidos" in html
+    assert "Named protest actors include Leidos." in html
+    assert "Capture Outlook" in html
     assert "Evidence Footprint" in html
     assert "Connectors run: 8" in html
     assert "Connectors with signal: 5" in html
@@ -259,6 +265,7 @@ def test_generate_vehicle_dossier_lineage_read_uses_wayback_support_relationship
     assert "Lineage Read" in html
     assert "Award scaffold remains attached through OASIS." in html
     assert "Predecessor path observed through IPIESS." in html
+    assert "Follow-on posture still traces back to IPIESS." in html
     assert "Contract Vehicle Wayback" in html
 
 
@@ -397,6 +404,7 @@ def test_generate_comparative_dossier_uses_observed_overlap_not_sample_rows(monk
     assert "C3PO corrective action protest" in html
     assert "Lineage Read" in html
     assert "Legal Read" in html
+    assert "Competitive Landscape" in html
     assert "Acme Defense Systems" not in html
     assert "TechFlow Corp" not in html
     assert "Complete audit trail of vehicle evolution." not in html

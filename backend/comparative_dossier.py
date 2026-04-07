@@ -851,6 +851,65 @@ def _render_lineage_briefing(rows: list[dict[str, Any]], *, subject_label: str) 
     """
 
 
+def _entities_for_bucket(rows: list[dict[str, Any]], bucket_name: str) -> list[str]:
+    return [row["entity"] for row in rows if _lineage_bucket(row.get("signal", "")) == bucket_name]
+
+
+def _render_competitive_landscape_briefing(rows: list[dict[str, Any]], *, subject_label: str) -> str:
+    if not rows:
+        return f"""
+        <div class="warning-box">
+            <div class="info-box-label">Competitive Landscape</div>
+            <p>{escape(subject_label)} does not yet have enough lineage evidence attached to describe the adjacent vehicle family, named challengers, or follow-on posture with confidence.</p>
+        </div>
+        """
+
+    awarded = _dedupe_preserve(_entities_for_bucket(rows, "award"))
+    predecessors = _dedupe_preserve(_entities_for_bucket(rows, "predecessor"))
+    successors = _dedupe_preserve(_entities_for_bucket(rows, "successor"))
+    incumbents = _dedupe_preserve(_entities_for_bucket(rows, "incumbency"))
+    competitors = _dedupe_preserve(_entities_for_bucket(rows, "competition"))
+    funding = _dedupe_preserve(_entities_for_bucket(rows, "funding"))
+    performance = _dedupe_preserve(_entities_for_bucket(rows, "performance"))
+
+    bullets: list[str] = []
+    if awarded:
+        bullets.append(f"Award scaffold still ties {subject_label} to {', '.join(awarded[:2])}.")
+    if predecessors:
+        bullets.append(f"Follow-on posture still traces back to {', '.join(predecessors[:2])}.")
+    if successors:
+        bullets.append(f"Successor pressure is already visible through {', '.join(successors[:2])}.")
+    named_pressure = _dedupe_preserve(incumbents + competitors)
+    if named_pressure:
+        bullets.append(f"Named competitive pressure currently comes from {', '.join(named_pressure[:3])}.")
+    if funding or performance:
+        context_bits = []
+        if funding:
+            context_bits.append(f"customer path through {', '.join(funding[:2])}")
+        if performance:
+            context_bits.append(f"performance context at {', '.join(performance[:2])}")
+        bullets.append("Mission context remains anchored by " + " and ".join(context_bits) + ".")
+    if not bullets:
+        bullets.append("Helios sees adjacent vehicle signal, but it is not yet specific enough to describe the surrounding contract family cleanly.")
+
+    if predecessors or awarded:
+        lead = f"{subject_label} currently reads like a follow-on or bridge-style vehicle rather than a greenfield award."
+    elif named_pressure:
+        lead = f"{subject_label} currently reads as a contested vehicle with named adjacent pressure already attached."
+    else:
+        lead = f"{subject_label} has some adjacent-vehicle signal, but the competitive landscape is still forming."
+
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Competitive Landscape</div>
+        <p>{escape(lead)}</p>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
+
+
 def _event_bucket(row: dict[str, str]) -> str:
     merged = f"{row.get('event', '')} {row.get('assessment', '')}".lower()
     if "protest" in merged or "gao" in merged or "corrective action" in merged:
@@ -891,6 +950,56 @@ def _render_event_briefing(rows: list[dict[str, str]], *, subject_label: str) ->
     <div class="info-box">
         <div class="info-box-label">Legal Read</div>
         <p>{escape(subject_label)} currently has {len(rows)} attached legal event{'s' if len(rows) != 1 else ''}. Status mix: {escape(status_summary)}.</p>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
+
+
+def _named_protest_actors(rows: list[dict[str, str]]) -> list[str]:
+    actors: list[str] = []
+    for row in rows:
+        assessment = row.get("assessment", "")
+        for match in re.finditer(r"Protester:\s*([^.|]+)", assessment, flags=re.IGNORECASE):
+            actor = _clean_text(match.group(1)).strip(" .")
+            if actor:
+                actors.append(actor)
+    return _dedupe_preserve(actors)
+
+
+def _render_legal_pressure_briefing(rows: list[dict[str, str]], *, subject_label: str) -> str:
+    if not rows:
+        return f"""
+        <div class="warning-box">
+            <div class="info-box-label">Legal Pressure</div>
+            <p>{escape(subject_label)} has no attached protest or litigation trail yet, so Helios cannot distinguish a clean legal picture from an unresolved one.</p>
+        </div>
+        """
+
+    actors = _named_protest_actors(rows)
+    statuses = Counter(row["status"].lower() for row in rows if row.get("status"))
+    dominant_status = max(statuses.items(), key=lambda item: item[1])[0] if statuses else "observed"
+
+    bullets: list[str] = []
+    if actors:
+        bullets.append(f"Named protest actors include {', '.join(actors[:3])}.")
+    if "corrective action" in statuses or "corrective_action" in statuses:
+        bullets.append("Corrective-action history is attached, which matters more for recompete friction than a clean dismissal.")
+    elif all(status in {"dismissed", "denied"} for status in statuses):
+        bullets.append("Current legal record points to pressure around execution, not a full vehicle reset.")
+    if rows:
+        top_row = rows[0]
+        bullets.append(f"Most recent attached event remains {top_row['event']} ({top_row['status'].lower()}).")
+    sources = _dedupe_preserve([row.get("source", "") for row in rows if row.get("source")])
+    if sources:
+        bullets.append(f"Legal signal is currently carried through {', '.join(sources[:2])}.")
+
+    lead = f"{subject_label} has active legal pressure in the record, with dispositions currently leaning {dominant_status}."
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Legal Pressure</div>
+        <p>{escape(lead)}</p>
         <ul>
             {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
         </ul>
@@ -1199,6 +1308,54 @@ def _action_rows(vehicle_support: dict[str, Any]) -> list[dict[str, str]]:
             }
         )
     return rows
+
+
+def _render_capture_outlook(vehicle_support: dict[str, Any]) -> str:
+    vehicle_name = vehicle_support.get("vehicle_name", "This vehicle")
+    recommendation = vehicle_support.get("recommendation", "watch")
+    probability_pct = int(vehicle_support.get("probability_pct") or 0)
+    lineage_rows = vehicle_support.get("lineage_rows") or []
+    event_rows = vehicle_support.get("event_rows") or []
+    teaming_rows = vehicle_support.get("teaming_rows") or []
+    gaps = vehicle_support.get("gaps") or []
+
+    predecessors = _entities_for_bucket(lineage_rows, "predecessor")
+    awarded = _entities_for_bucket(lineage_rows, "award")
+    named_pressure = _dedupe_preserve(_entities_for_bucket(lineage_rows, "competition") + _entities_for_bucket(lineage_rows, "incumbency"))
+    protest_actors = _named_protest_actors(event_rows)
+
+    bullets: list[str] = []
+    if predecessors or awarded:
+        family_bits = _dedupe_preserve(predecessors[:2] + awarded[:2])
+        bullets.append(f"{vehicle_name} currently reads like a follow-on family play anchored by {', '.join(family_bits)}.")
+    else:
+        bullets.append(f"{vehicle_name} still lacks enough adjacent-vehicle evidence to call it a clean follow-on or greenfield pursuit.")
+
+    if named_pressure or protest_actors:
+        pressure_names = _dedupe_preserve(named_pressure[:3] + protest_actors[:3])
+        bullets.append(f"Named competitive pressure is attached through {', '.join(pressure_names[:4])}.")
+    else:
+        bullets.append("Named challenger pressure is still unresolved in the current evidence bundle.")
+
+    if teaming_rows:
+        teammate_names = ", ".join(row["entity"] for row in teaming_rows[:3])
+        bullets.append(f"Observed teammate signal is already attached through {teammate_names}.")
+    else:
+        bullets.append("Teammate posture is still thin, so Helios cannot yet separate incumbent-core partners from swing partners.")
+
+    if gaps:
+        lead_gap = gaps[0]
+        bullets.append(f"Primary blocker remains {lead_gap['gap'].lower()}: {lead_gap['notes']}")
+
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Capture Outlook</div>
+        <p>{escape(vehicle_name)} currently reads as <strong>{escape(recommendation)}</strong> with {probability_pct}% modeled risk. The points below explain what is actually driving that posture.</p>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
 
 
 def _build_vehicle_support(
@@ -1648,6 +1805,70 @@ def _render_comparative_event_table(vehicle_supports: list[dict[str, Any]]) -> s
     """
 
 
+def _render_comparative_landscape_briefing(vehicle_supports: list[dict[str, Any]]) -> str:
+    bullets: list[str] = []
+    shared_pressure: list[str] = []
+    pressure_sets: list[set[str]] = []
+    for support in vehicle_supports[:2]:
+        lineage_rows = support.get("lineage_rows") or []
+        predecessors = _dedupe_preserve(_entities_for_bucket(lineage_rows, "predecessor"))
+        awarded = _dedupe_preserve(_entities_for_bucket(lineage_rows, "award"))
+        named_pressure = _dedupe_preserve(_entities_for_bucket(lineage_rows, "competition") + _entities_for_bucket(lineage_rows, "incumbency"))
+        pressure_sets.append(set(named_pressure))
+        parts: list[str] = []
+        if predecessors:
+            parts.append(f"follow-on path through {', '.join(predecessors[:2])}")
+        if awarded:
+            parts.append(f"award scaffold under {', '.join(awarded[:2])}")
+        if named_pressure:
+            parts.append(f"named pressure from {', '.join(named_pressure[:3])}")
+        if parts:
+            bullets.append(f"{support['vehicle_name']}: " + "; ".join(parts) + ".")
+        else:
+            bullets.append(f"{support['vehicle_name']}: adjacent vehicle family is still unresolved.")
+
+    if len(pressure_sets) >= 2:
+        shared_pressure = sorted(pressure_sets[0] & pressure_sets[1])
+    if shared_pressure:
+        bullets.append(f"Shared competitive pressure is visible through {', '.join(shared_pressure[:3])}.")
+
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Competitive Landscape</div>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
+
+
+def _render_comparative_legal_briefing(vehicle_supports: list[dict[str, Any]]) -> str:
+    bullets: list[str] = []
+    for support in vehicle_supports[:2]:
+        event_rows = support.get("event_rows") or []
+        if not event_rows:
+            bullets.append(f"{support['vehicle_name']}: no attached protest or litigation trail yet.")
+            continue
+        actors = _named_protest_actors(event_rows)
+        statuses = Counter(row["status"].lower() for row in event_rows if row.get("status"))
+        dominant_status = max(statuses.items(), key=lambda item: item[1])[0] if statuses else "observed"
+        if actors:
+            bullets.append(
+                f"{support['vehicle_name']}: legal pressure leans {dominant_status} and names {', '.join(actors[:3])}."
+            )
+        else:
+            bullets.append(f"{support['vehicle_name']}: legal pressure leans {dominant_status}.")
+
+    return f"""
+    <div class="info-box">
+        <div class="info-box-label">Legal Pressure</div>
+        <ul>
+            {"".join(f"<li>{escape(item)}</li>" for item in bullets[:4])}
+        </ul>
+    </div>
+    """
+
+
 def generate_comparative_dossier(
     vehicle_configs: list[dict],
     title: str = "",
@@ -1809,6 +2030,7 @@ def generate_comparative_dossier(
         ],
         subject_label="the compared vehicles",
     )
+    comparative_landscape_html = _render_comparative_landscape_briefing(vehicle_supports)
     comparative_event_rows = _aggregated_event_rows(vehicle_supports)
     litigation_briefing_html = _render_event_briefing(
         [
@@ -1822,6 +2044,7 @@ def generate_comparative_dossier(
         ],
         subject_label="the compared vehicles",
     )
+    comparative_legal_pressure_html = _render_comparative_legal_briefing(vehicle_supports)
 
     aggregated_findings = []
     for support in vehicle_supports:
@@ -1906,6 +2129,7 @@ def generate_comparative_dossier(
             <span class="section-title">Vehicle Lineage Map</span>
         </div>
         {lineage_briefing_html}
+        {comparative_landscape_html}
         {lineage_table}
         <div class="narrative">
             <p>
@@ -1919,6 +2143,7 @@ def generate_comparative_dossier(
             <span class="section-title">Litigation & Protest Profile</span>
         </div>
         {litigation_briefing_html}
+        {comparative_legal_pressure_html}
         {_render_comparative_event_table(vehicle_supports)}
 
         <!-- Section 7: Risk Signals -->
@@ -2090,6 +2315,10 @@ def generate_vehicle_dossier(
         vehicle_support["lineage_rows"],
         subject_label=vehicle_name,
     )
+    competitive_landscape_html = _render_competitive_landscape_briefing(
+        vehicle_support["lineage_rows"],
+        subject_label=vehicle_name,
+    )
     litigation_html = _render_event_table(
         vehicle_support["event_rows"],
         "No case-level protest or litigation events are attached to this vehicle in the current evidence bundle.",
@@ -2098,8 +2327,13 @@ def generate_vehicle_dossier(
         vehicle_support["event_rows"],
         subject_label=vehicle_name,
     )
+    legal_pressure_html = _render_legal_pressure_briefing(
+        vehicle_support["event_rows"],
+        subject_label=vehicle_name,
+    )
     gaps_html = _render_gap_table(vehicle_support["gaps"])
     actions_html = _render_action_table(_action_rows(vehicle_support))
+    capture_outlook_html = _render_capture_outlook(vehicle_support)
 
     if vehicle_support["contexts"]:
         assessment_copy = (
@@ -2260,6 +2494,7 @@ def generate_vehicle_dossier(
             <span class="section-title">Vehicle Lineage & Competitive Landscape</span>
         </div>
         {lineage_briefing_html}
+        {competitive_landscape_html}
         {lineage_html}
         
         <!-- Section 7: Litigation Profile -->
@@ -2268,6 +2503,7 @@ def generate_vehicle_dossier(
             <span class="section-title">Litigation & Protest Profile</span>
         </div>
         {litigation_briefing_html}
+        {legal_pressure_html}
         {litigation_html}
         
         <!-- Section 8: Risk Assessment -->
@@ -2293,6 +2529,7 @@ def generate_vehicle_dossier(
             <span class="section-number">10.</span>
             <span class="section-title">Preliminary Capture Viability Assessment</span>
         </div>
+        {capture_outlook_html}
         <div class="narrative">
             <p>{escape(assessment_copy)}</p>
             <p><strong>Current blockers:</strong> {escape(blocking_gap_notes)}</p>
