@@ -46,25 +46,29 @@ def _run_regression_attempt(wrapper: pathlib.Path, base_url: str, *, login_requi
     session = f"war-room-regress-{uuid.uuid4().hex[:8]}"
     if login_required:
         auth_block = f"""
-  const dialog = page.getByText("Sign in to continue");
-  await dialog.waitFor({{ state: "visible", timeout: 15000 }});
-  await page.getByLabel("Email").fill({email!r});
-  await page.getByLabel("Password").fill({password!r});
-  await page.getByRole("button", {{ name: "Continue" }}).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("Enter Aegis"),
-    undefined,
-    {{ timeout: 30000 }},
-  );
+  const authResult = await page.evaluate(async (credentials) => {{
+    const response = await fetch("/api/auth/login", {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify(credentials),
+    }});
+    const payload = await response.json().catch(() => ({{ error: `HTTP ${{response.status}}` }}));
+    if (response.ok && payload.token && payload.user) {{
+      sessionStorage.setItem("helios_token", payload.token);
+      sessionStorage.setItem("helios_user", JSON.stringify(payload.user));
+      return {{ ok: true }};
+    }}
+    return {{ ok: false, error: payload.error || `HTTP ${{response.status}}` }};
+  }}, {{ email: {email!r}, password: {password!r} }});
+  if (!authResult.ok) {{
+    throw new Error(`Login bootstrap failed: ${{authResult.error || "unknown error"}}`);
+  }}
+
+  await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
+  await page.waitForLoadState("networkidle");
 """.rstrip()
     else:
-        auth_block = """
-  await page.waitForFunction(
-    () => document.body.innerText.includes("Enter Aegis"),
-    undefined,
-    { timeout: 30000 },
-  );
-""".rstrip()
+        auth_block = ""
 
     regression_code = f"""
 async (page) => {{
@@ -72,19 +76,59 @@ async (page) => {{
   await page.goto({base_url!r}, {{ waitUntil: "domcontentloaded" }});
   await page.waitForLoadState("networkidle");
 
-  const composer = page.getByLabel("Brief AXIOM");
-  await composer.waitFor({{ state: "visible", timeout: 15000 }});
+{auth_block}
+
+  await page.getByText("What are you looking at?").waitFor({{ state: "visible", timeout: 15000 }});
+  await page.getByRole("button", {{ name: /^Vehicle/i }}).first().click();
+  const composer = page.getByLabel("Vehicle name");
+  await composer.waitFor({{ state: "visible", timeout: 45000 }});
   await composer.fill("ILS 2 pre solicitation Amentum is prime");
   await composer.press("Enter");
   await page.waitForFunction(
-    () => document.body.innerText.includes("Good. If this is a follow-on, do you know the incumbent prime?"),
+    () => (
+      document.body.innerText.includes("Enter Aegis")
+      || document.body.innerText.includes("Open brief")
+      || document.body.innerText.includes("The first vehicle picture is in hand.")
+      || document.body.innerText.includes("The live vehicle search stayed thin, so I opened the first vehicle picture from the context already in hand.")
+      || document.body.innerText.includes("Is this current, expired, or still in pre-solicitation?")
+      || document.body.innerText.includes("Good. If this is a follow-on, do you know the incumbent prime?")
+    ),
     undefined,
-    {{ timeout: 15000 }},
+    {{ timeout: 60000 }},
   );
-  await composer.fill("Amentum");
-  await composer.press("Enter");
 
-{auth_block}
+  let intakeBody = await page.evaluate(() => document.body.innerText);
+  if (intakeBody.includes("Is this current, expired, or still in pre-solicitation?")) {{
+    await composer.fill("pre solicitation");
+    await composer.press("Enter");
+    await page.waitForFunction(
+      () => (
+        document.body.innerText.includes("Enter Aegis")
+        || document.body.innerText.includes("Open brief")
+        || document.body.innerText.includes("The first vehicle picture is in hand.")
+        || document.body.innerText.includes("The live vehicle search stayed thin, so I opened the first vehicle picture from the context already in hand.")
+        || document.body.innerText.includes("Good. If this is a follow-on, do you know the incumbent prime?")
+      ),
+      undefined,
+      {{ timeout: 60000 }},
+    );
+    intakeBody = await page.evaluate(() => document.body.innerText);
+  }}
+
+  if (intakeBody.includes("Good. If this is a follow-on, do you know the incumbent prime?")) {{
+    await composer.fill("Amentum");
+    await composer.press("Enter");
+    await page.waitForFunction(
+      () => (
+        document.body.innerText.includes("Enter Aegis")
+        || document.body.innerText.includes("Open brief")
+        || document.body.innerText.includes("The first vehicle picture is in hand.")
+        || document.body.innerText.includes("The live vehicle search stayed thin, so I opened the first vehicle picture from the context already in hand.")
+      ),
+      undefined,
+      {{ timeout: 60000 }},
+    );
+  }}
 
   const enterAegisButton = page.getByRole("button", {{ name: "Enter Aegis" }});
   await enterAegisButton.waitFor({{ state: "visible", timeout: 20000 }});

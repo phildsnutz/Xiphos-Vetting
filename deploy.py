@@ -154,7 +154,7 @@ BUNDLE_MUST_HAVE = [
     "Entity and vehicle intelligence",
     "Stoa",
     "Aegis",
-    "Brief AXIOM",
+    "What are you looking at?",
 ]
 BUNDLE_MUST_NOT_HAVE = ["32 OSINT", "Weapons System", "xiphos-dashboard"]
 
