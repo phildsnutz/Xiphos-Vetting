@@ -198,6 +198,25 @@ def _has_transient_failure(payload: dict) -> bool:
     return any(marker in failure_text for marker in transient_markers)
 
 
+def _exception_payload(entry: dict, exc: Exception) -> dict:
+    company = str(entry.get("company") or "unknown")
+    return {
+        "verdict": "NO_GO",
+        "company_name": company,
+        "case_id": "",
+        "failures": [f"demo gate execution failed: {type(exc).__name__}: {exc}"],
+        "warnings": [],
+        "timings_ms": {},
+        "identifiers": {},
+        "identifier_status": {},
+        "graph": {},
+        "ai_status": {},
+        "assistant_ok": False,
+        "artifacts": {"html": "", "pdf": ""},
+        "stabilization_steps": [],
+    }
+
+
 def _run_entry(index: int, total: int, entry: dict, args: argparse.Namespace, output_dir: Path) -> tuple[int, dict]:
     _progress(f"[counterparty canary {index}/{total}] starting {entry['company']}")
     started = time.time()
@@ -205,10 +224,14 @@ def _run_entry(index: int, total: int, entry: dict, args: argparse.Namespace, ou
     max_attempts = max(1, int(args.transient_retries_per_company) + 1)
     for attempt in range(1, max_attempts + 1):
         ns = _build_gate_namespace(args, entry, output_dir=output_dir, wait_for_ready_seconds=0)
-        result = gate.run_demo_gate(ns)
-        gate.write_report(Path(result.artifacts["html"]).parent, result)
-        payload = asdict(result)
-        if result.verdict != "NO_GO" or not _has_transient_failure(payload) or attempt >= max_attempts:
+        try:
+            result = gate.run_demo_gate(ns)
+            gate.write_report(Path(result.artifacts["html"]).parent, result)
+            payload = asdict(result)
+        except Exception as exc:
+            payload = _exception_payload(entry, exc)
+            _progress(f"[failed] {payload['failures'][0]}")
+        if payload.get("verdict") != "NO_GO" or not _has_transient_failure(payload) or attempt >= max_attempts:
             break
         backoff_seconds = float(min(2 ** (attempt - 1), 4))
         _progress(

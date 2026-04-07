@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 from pathlib import Path
+from requests import exceptions as requests_exceptions
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_counterparty_canary_pack.py"
@@ -119,6 +120,47 @@ def test_entry_specific_connectors_override_pack_level_defaults(tmp_path, monkey
 
     assert code == 0
     assert captured["connectors"] == ["public_html_ownership"]
+
+
+def test_run_entry_converts_exceptions_into_no_go_payload(tmp_path, monkeypatch):
+    def fake_run_demo_gate(ns, client=None):
+        raise requests_exceptions.ReadTimeout("read timeout=90")
+
+    monkeypatch.setattr(pack.gate, "run_demo_gate", fake_run_demo_gate)
+    args = pack.argparse.Namespace(
+        base_url="https://helios.xiphosllc.com",
+        email="",
+        password="",
+        token="abc123",
+        program="dod_unclassified",
+        profile="defense_acquisition",
+        connector=[],
+        include_ai=False,
+        ai_readiness_mode="surface",
+        check_assistant=False,
+        require_dossier_html=False,
+        require_dossier_pdf=False,
+        max_enrich_seconds=90,
+        max_dossier_seconds=60,
+        max_pdf_seconds=60,
+        max_ai_seconds=90,
+        max_warnings=2,
+        wait_for_ready_seconds=0,
+        auto_stabilize=True,
+        workers=1,
+        start_stagger_seconds=0.0,
+        transient_retries_per_company=0,
+        max_blocked_official_connectors=-1,
+        minimum_official_corroboration="missing",
+        report_dir=str(tmp_path),
+        print_json=False,
+    )
+
+    _, payload = pack._run_entry(1, 1, {"company": "Demo Co"}, args, tmp_path / "reports")
+
+    assert payload["verdict"] == "NO_GO"
+    assert payload["company_name"] == "Demo Co"
+    assert "ReadTimeout" in payload["failures"][0]
 
 
 def test_entry_specific_official_thresholds_flow_into_gate_namespace(tmp_path):

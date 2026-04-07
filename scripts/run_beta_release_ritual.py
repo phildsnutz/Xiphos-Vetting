@@ -119,25 +119,17 @@ def _run_json_script(script: Path, args: argparse.Namespace, token: str) -> dict
         "--base-url",
         args.base_url,
         "--print-json",
-        "--token",
-        token,
     ]
+    if token:
+        command.extend(["--token", token])
     if script == QUERY_TO_DOSSIER_SCRIPT:
         command.extend(["--spec-file", str(RELEASE_SPEC_FILE)])
     if script == CURRENT_PRODUCT_SCRIPT:
         email, password = _deploy_credentials(args)
         if email and password:
-            command = [
-                sys.executable,
-                str(script),
-                "--base-url",
-                args.base_url,
-                "--print-json",
-                "--email",
-                email,
-                "--password",
-                password,
-            ]
+            command.extend(["--email", email, "--password", password])
+        elif not token:
+            raise RuntimeError("current product stress harness requires a token or deploy credentials")
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
     payload = _decode_json(completed.stdout)
     if payload is None:

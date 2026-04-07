@@ -88,6 +88,31 @@ def test_check_dossier_text_flags_banned_phrase():
     assert warnings == []
 
 
+def test_check_dossier_text_accepts_pdf_marker_with_line_breaks():
+    pdf_like_text = "\n".join(
+        [
+            "HELIOS",
+            "Intelligence Brief",
+            "RISK STORYLINE",
+            "SUPPLIER PASSPORT",
+            "GRAPH READ",
+            "AXIOM ASSESSMENT",
+            "RECOMMENDED ACTIONS",
+            "EVIDENCE LEDGER",
+        ]
+    )
+
+    failures, warnings = gate.check_dossier_text(
+        pdf_like_text,
+        gate.PDF_SECTION_CHECKS,
+        include_ai=True,
+        label="pdf dossier",
+    )
+
+    assert failures == []
+    assert warnings == []
+
+
 def test_analyze_passport_flags_empty_graph_and_missing_ids():
     passport = {
         "identity": {"identifiers": {}, "identifier_status": {}},

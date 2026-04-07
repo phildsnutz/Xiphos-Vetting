@@ -223,6 +223,7 @@ READINESS_PRIMARY_CONNECTORS: tuple[str, ...] = (
 
 NAME_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 REPO_RELATIVE_FIXTURE_KEYS = {"public_html_fixture_page", "public_html_fixture_pages"}
+WHITESPACE_RE = re.compile(r"\s+")
 
 
 @dataclass
@@ -559,8 +560,10 @@ def check_dossier_text(document: str, checks: dict[str, str], *, include_ai: boo
     required = dict(checks)
     if not include_ai:
         required.pop("ai_brief", None)
+    normalized_document = WHITESPACE_RE.sub(" ", document).strip().casefold()
     for name, marker in required.items():
-        if marker not in document:
+        normalized_marker = WHITESPACE_RE.sub(" ", marker).strip().casefold()
+        if normalized_marker not in normalized_document:
             failures.append(f"{label} missing {name.replace('_', ' ')}")
     for phrase in BANNED_DOSSIER_PHRASES:
         if phrase.lower() in document.lower():
