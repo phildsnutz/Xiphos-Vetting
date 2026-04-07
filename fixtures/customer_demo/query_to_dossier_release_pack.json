@@ -1,0 +1,134 @@
+[
+  {
+    "flow_name": "counterparty_defense",
+    "enabled_modes": ["local-auth"],
+    "preserve_case_name": true,
+    "expected_workflow_lane": "counterparty",
+    "run_enrich_and_score": true,
+    "compare_payload": {
+      "name": "Harbor Beacon Holdings",
+      "country": "US"
+    },
+    "case_payload": {
+      "name": "Harbor Beacon Holdings",
+      "country": "US",
+      "profile": "defense_acquisition",
+      "program": "dod_unclassified",
+      "ownership": {
+        "publicly_traded": false,
+        "state_owned": false,
+        "beneficial_owner_known": false,
+        "named_beneficial_owner_known": false,
+        "ownership_pct_resolved": 0.25,
+        "shell_layers": 3,
+        "pep_connection": true,
+        "parent_chain": [
+          "Beacon Strategic Holdings",
+          "North Harbor Capital Partners"
+        ],
+        "financing_entities": [
+          {"name": "Sentinel Growth Capital", "entity_type": "holding_company"}
+        ],
+        "payment_banks": [
+          {"name": "Atlantic Settlement Bank", "entity_type": "bank"}
+        ]
+      },
+      "data_quality": {
+        "has_lei": false,
+        "has_cage": true,
+        "has_duns": true,
+        "has_tax_id": true,
+        "has_audited_financials": false,
+        "years_of_records": 2
+      },
+      "exec": {
+        "known_execs": 1,
+        "adverse_media": 1,
+        "pep_execs": 1,
+        "litigation_history": 1
+      }
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 1,
+      "require_edge_families": ["ownership_control"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
+    }
+  },
+  {
+    "flow_name": "yorktown_descriptor_only",
+    "enabled_modes": ["local-auth"],
+    "preserve_case_name": true,
+    "run_enrich_and_score": true,
+    "expected_workflow_lane": "counterparty",
+    "compare_payload": {
+      "name": "Yorktown Systems Group",
+      "country": "US"
+    },
+    "case_payload": {
+      "name": "Yorktown Systems Group",
+      "country": "US",
+      "profile": "defense_acquisition",
+      "program": "dod_unclassified"
+    },
+    "expected_oci": {
+      "named_beneficial_owner_known": false,
+      "owner_class_known": true,
+      "owner_class": "Service-Disabled Veteran",
+      "descriptor_only": true,
+      "ownership_gap": "descriptor_only_owner_class",
+      "min_ownership_resolution_pct": 0.5,
+      "min_control_resolution_pct": 0.3,
+      "require_owner_class_evidence": true
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 1,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
+    }
+  },
+  {
+    "flow_name": "cyber_supplier_review",
+    "enabled_modes": ["local-auth"],
+    "preserve_case_name": true,
+    "expected_workflow_lane": "cyber",
+    "run_enrich_and_score": true,
+    "compare_payload": {
+      "name": "Vector Mission Software",
+      "country": "US"
+    },
+    "case_payload": {
+      "name": "Vector Mission Software",
+      "country": "US",
+      "profile": "supplier_cyber_trust",
+      "program": "dod_unclassified",
+      "ownership": {
+        "publicly_traded": false,
+        "state_owned": false,
+        "beneficial_owner_known": false,
+        "named_beneficial_owner_known": false,
+        "ownership_pct_resolved": 0.3,
+        "shell_layers": 2,
+        "pep_connection": false,
+        "parent_chain": ["Vector Mission Holdings"]
+      },
+      "seed_metadata": {
+        "product_terms": ["mission firmware", "remote update service", "telemetry gateway"],
+        "network_providers": ["Orbital Mesh Telecom"],
+        "service_providers": ["Harbor Patch Signing Service"],
+        "facilities": ["Vector Mission West Integration Lab"],
+        "component_suppliers": [
+          {"supplier": "Beacon Firmware Works", "component": "secure boot module"}
+        ]
+      }
+    },
+    "expected_graph": {
+      "min_network_relationship_count": 3,
+      "require_edge_families": ["ownership_control", "cyber_supply_chain"],
+      "max_missing_required_edge_families": 0,
+      "max_legacy_unscoped_edges": 0,
+      "min_claim_coverage_pct": 0.5
+    }
+  }
+]

@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,9 @@ DEFAULT_REPORT_DIR = ROOT / "docs" / "reports" / "beta_release_ritual"
 CURRENT_PRODUCT_SCRIPT = ROOT / "scripts" / "run_current_product_stress_harness.py"
 QUERY_TO_DOSSIER_SCRIPT = ROOT / "scripts" / "run_live_query_to_dossier_canary.py"
 VEHICLE_INTEL_SCRIPT = ROOT / "scripts" / "run_vehicle_intelligence_canary.py"
+RELEASE_SPEC_FILE = ROOT / "fixtures" / "customer_demo" / "query_to_dossier_release_pack.json"
+READINESS_TOKEN_PATH = Path.home() / ".config" / "xiphos" / "readiness_token.json"
+DEPLOY_ENV_PATH = Path.home() / ".config" / "xiphos" / "deploy.env"
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +34,73 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _request_json(base_url: str, method: str, path: str, payload: dict[str, Any] | None = None, timeout: int = 30) -> dict[str, Any]:
+    data = None
+    headers = {}
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(f"{base_url.rstrip('/')}{path}", data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read()
+        return json.loads(body.decode("utf-8")) if body else {}
+
+
+def _cached_token(base_url: str) -> str:
+    if not READINESS_TOKEN_PATH.exists():
+        return ""
+    try:
+        payload = json.loads(READINESS_TOKEN_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    cached_base_url = str(payload.get("base_url") or "").rstrip("/")
+    if cached_base_url and cached_base_url != base_url.rstrip("/"):
+        return ""
+    return str(payload.get("token") or "").strip()
+
+
+def _deploy_credentials(args: argparse.Namespace) -> tuple[str, str]:
+    if args.email and args.password:
+        return args.email, args.password
+    if not DEPLOY_ENV_PATH.exists():
+        return "", ""
+    try:
+        lines = DEPLOY_ENV_PATH.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return "", ""
+    values: dict[str, str] = {}
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("'").strip('"')
+    email = values.get("XIPHOS_DEPLOY_ADMIN_EMAIL") or values.get("XIPHOS_DEPLOY_LOGIN_EMAIL") or ""
+    password = values.get("XIPHOS_DEPLOY_ADMIN_PASSWORD") or values.get("XIPHOS_DEPLOY_LOGIN_PASSWORD") or ""
+    return email, password
+
+
+def _login_token(args: argparse.Namespace) -> str:
+    if args.token:
+        return args.token
+    cached = _cached_token(args.base_url)
+    if cached:
+        return cached
+    if not (args.email and args.password):
+        raise RuntimeError("beta release ritual requires --token or --email/--password")
+    payload = _request_json(
+        args.base_url,
+        "POST",
+        "/api/auth/login",
+        {"email": args.email, "password": args.password},
+        timeout=30,
+    )
+    token = str(payload.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("beta release ritual login did not return a token")
+    return token
+
+
 def _decode_json(stdout: str) -> dict[str, Any] | None:
     text = stdout.strip()
     if not text:
@@ -41,18 +112,32 @@ def _decode_json(stdout: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _run_json_script(script: Path, args: argparse.Namespace) -> dict[str, Any]:
+def _run_json_script(script: Path, args: argparse.Namespace, token: str) -> dict[str, Any]:
     command = [
         sys.executable,
         str(script),
         "--base-url",
         args.base_url,
         "--print-json",
+        "--token",
+        token,
     ]
-    if args.token:
-        command.extend(["--token", args.token])
-    elif args.email and args.password:
-        command.extend(["--email", args.email, "--password", args.password])
+    if script == QUERY_TO_DOSSIER_SCRIPT:
+        command.extend(["--spec-file", str(RELEASE_SPEC_FILE)])
+    if script == CURRENT_PRODUCT_SCRIPT:
+        email, password = _deploy_credentials(args)
+        if email and password:
+            command = [
+                sys.executable,
+                str(script),
+                "--base-url",
+                args.base_url,
+                "--print-json",
+                "--email",
+                email,
+                "--password",
+                password,
+            ]
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
     payload = _decode_json(completed.stdout)
     if payload is None:
@@ -101,10 +186,11 @@ def _write_report(args: argparse.Namespace, results: list[dict[str, Any]]) -> tu
 
 def main() -> int:
     args = parse_args()
+    token = _login_token(args)
     results = [
-        _run_json_script(CURRENT_PRODUCT_SCRIPT, args),
-        _run_json_script(QUERY_TO_DOSSIER_SCRIPT, args),
-        _run_json_script(VEHICLE_INTEL_SCRIPT, args),
+        _run_json_script(CURRENT_PRODUCT_SCRIPT, args, token),
+        _run_json_script(QUERY_TO_DOSSIER_SCRIPT, args, token),
+        _run_json_script(VEHICLE_INTEL_SCRIPT, args, token),
     ]
     md_path, json_path, overall_verdict = _write_report(args, results)
     payload = {
