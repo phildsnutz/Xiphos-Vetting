@@ -244,6 +244,7 @@ def classify_ownership_relationships(relationships: list[dict[str, Any]] | None)
         row = {
             "rel_type": rel_type,
             "target_name": target_name,
+            "target_entity_type": str(rel.get("target_entity_type") or "").strip().lower(),
             "source": str(rel.get("data_source") or ""),
             "authority_level": str(rel.get("authority_level") or ""),
             "access_model": str(rel.get("access_model") or ""),
@@ -253,8 +254,10 @@ def classify_ownership_relationships(relationships: list[dict[str, Any]] | None)
         }
         if rel_type in _OWNERSHIP_REL_TYPES:
             if relationship_supports_named_owner_resolution(rel):
-                named_owners.append(row)
-                if rel_type in {"beneficially_owned_by", "ultimate_parent", "parent_of"}:
+                target_entity_type = str(row.get("target_entity_type") or "")
+                if target_entity_type in {"person", "individual", "natural_person"}:
+                    named_owners.append(row)
+                else:
                     controlling_parents.append(row)
             else:
                 weak_owner_candidates.append(row)

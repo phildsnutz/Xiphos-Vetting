@@ -83,6 +83,15 @@ try:
 except ImportError:
     HAS_VENDOR_PROCUREMENT_SUPPORT = False
 
+try:
+    from vendor_ownership_support import (
+        build_vendor_ownership_support,
+        merge_enrichment_with_ownership_support,
+    )
+    HAS_VENDOR_OWNERSHIP_SUPPORT = True
+except ImportError:
+    HAS_VENDOR_OWNERSHIP_SUPPORT = False
+
 
 _DOSSIER_CONTEXT_CACHE: dict[tuple[str, str, str, str, str, bool, str, str, str], dict] = {}
 _DOSSIER_CONTEXT_CACHE_LOCK = threading.Lock()
@@ -1629,7 +1638,23 @@ def build_dossier_context(
         get_export_evidence_summary(vendor_id, vendor_input.get("export_authorization"))
         if HAS_EXPORT_EVIDENCE else None
     )
-    storyline = _build_dossier_storyline(vendor_id, vendor, score, enrichment, case_events, intel_summary)
+    vendor_ownership = None
+    effective_enrichment = enrichment
+    if HAS_VENDOR_OWNERSHIP_SUPPORT:
+        try:
+            vendor_ownership = build_vendor_ownership_support(
+                vendor_id=vendor_id,
+                vendor=vendor,
+                enrichment=enrichment,
+                sync_graph=True,
+            )
+            effective_enrichment = merge_enrichment_with_ownership_support(enrichment, vendor_ownership)
+        except Exception as err:
+            print(f"[dossier] Vendor ownership support build failed: {err}")
+            vendor_ownership = None
+            effective_enrichment = enrichment
+
+    storyline = _build_dossier_storyline(vendor_id, vendor, score, effective_enrichment, case_events, intel_summary)
     vendor_procurement = None
     if HAS_VENDOR_PROCUREMENT_SUPPORT:
         try:
@@ -1664,7 +1689,7 @@ def build_dossier_context(
                 vendor_id,
                 vendor=vendor,
                 score=score,
-                enrichment=enrichment,
+                enrichment=effective_enrichment,
                 foci_summary=foci_summary,
                 cyber_summary=cyber_summary,
                 export_summary=export_summary,
@@ -1689,7 +1714,7 @@ def build_dossier_context(
         vendor_id,
         vendor,
         score,
-        enrichment,
+        effective_enrichment,
         user_id=user_id,
         hydrate_ai=hydrate_ai,
     )
@@ -1705,7 +1730,8 @@ def build_dossier_context(
     context = {
         "vendor": vendor,
         "score": score,
-        "enrichment": enrichment,
+        "enrichment": effective_enrichment,
+        "raw_enrichment": enrichment,
         "decisions": decisions,
         "monitoring_history": monitoring_history,
         "report_hash": report_hash,
@@ -1717,6 +1743,7 @@ def build_dossier_context(
         "storyline": storyline,
         "graph_summary": graph_summary,
         "supplier_passport": supplier_passport,
+        "vendor_ownership": vendor_ownership,
         "vendor_procurement": vendor_procurement,
         "vehicle_intelligence": vehicle_intelligence,
         "analysis_data": analysis_data,

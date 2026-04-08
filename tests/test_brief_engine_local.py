@@ -467,3 +467,125 @@ def test_rendered_html_surfaces_procurement_footprint_when_available():
     assert "Recurring Upstream Primes" in html
     assert "Recurring Downstream Subs" in html
     assert "OASIS" in html
+
+
+def test_rendered_html_surfaces_ownership_control_read_when_available():
+    context = {
+        "vendor": {
+            "id": "ownership-case",
+            "name": "HORIZON MISSION SYSTEMS LLC",
+            "country": "US",
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "vendor_input": {},
+        },
+        "score": {
+            "calibrated": {
+                "calibrated_probability": 0.11,
+                "calibrated_tier": "TIER_4_APPROVED",
+                "program_recommendation": "approved",
+                "interval": {"lower": 0.08, "upper": 0.16},
+            }
+        },
+        "graph_summary": {
+            "relationship_count": 1,
+            "entity_count": 2,
+            "relationships": [],
+            "entities": [],
+            "intelligence": {"claim_coverage_pct": 0.75, "missing_required_edge_families": []},
+        },
+        "enrichment": {"findings": []},
+        "supplier_passport": {
+            "identity": {"identifiers": {"lei": "549300ABC123XYZ78901"}, "identifier_status": {}},
+            "tribunal": {"recommended_label": "Approve", "recommended_view": "approve", "consensus_level": "strong"},
+            "graph": {"control_paths": [], "intelligence": {"claim_coverage_pct": 0.75, "missing_required_edge_families": []}},
+        },
+        "vendor_procurement": {},
+        "vendor_ownership": {
+            "metrics": {
+                "official_connectors_with_data": 1,
+                "ownership_relationship_count": 1,
+                "named_beneficial_owner_known": False,
+                "controlling_parent_known": True,
+            },
+            "control_lines": ["Controlling parent resolves to Horizon Holdings; named beneficial owner is still not publicly resolved."],
+            "registry_lines": ["LEI corroborated: 549300ABC123XYZ78901."],
+            "gap_lines": ["Named beneficial owner is still not public even though the controlling parent path is resolved."],
+            "oci_summary": {"controlling_parent_known": True, "controlling_parent": "Horizon Holdings"},
+        },
+        "analysis_state": "idle",
+        "storyline": {"cards": []},
+        "decisions": [],
+    }
+
+    payload = _distill_context(context)
+    html = _render_html_brief(payload)
+
+    assert payload["ownership_read"]["metrics"]["controlling_parent_known"] is True
+    assert "Ownership &amp; Control Read" in html
+    assert "Verified Control Read" in html
+    assert "Controlling parent resolves to Horizon Holdings" in html
+
+
+def test_summary_line_prefers_procurement_posture_over_weak_offshore_match():
+    context = {
+        "vendor": {
+            "id": "lockheed-like",
+            "name": "LOCKHEED MARTIN CORPORATION",
+            "country": "US",
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "vendor_input": {},
+        },
+        "score": {
+            "calibrated": {
+                "calibrated_probability": 0.13,
+                "calibrated_tier": "TIER_4_APPROVED",
+                "program_recommendation": "approved",
+                "interval": {"lower": 0.09, "upper": 0.18},
+            }
+        },
+        "graph_summary": {
+            "relationship_count": 2,
+            "entity_count": 3,
+            "relationships": [],
+            "entities": [],
+            "intelligence": {"claim_coverage_pct": 0.6, "missing_required_edge_families": []},
+        },
+        "enrichment": {
+            "findings": [
+                {
+                    "title": "ICIJ: Offshore leak proximity requires disambiguation",
+                    "detail": "Name-proximity hit only. No corporate-family corroboration yet.",
+                    "severity": "medium",
+                    "source": "icij_offshore",
+                }
+            ]
+        },
+        "supplier_passport": {
+            "identity": {"identifiers": {"lei": "549300XYZ"}, "identifier_status": {}},
+            "tribunal": {"recommended_label": "Approve", "recommended_view": "approve", "consensus_level": "strong"},
+            "graph": {"control_paths": [], "intelligence": {"claim_coverage_pct": 0.6, "missing_required_edge_families": []}},
+        },
+        "vendor_procurement": {
+            "upstream_primes": [
+                {"name": "BELL TEXTRON INC.", "total_amount": 12000000.0, "count": 2, "vehicles": ["OASIS"]},
+                {"name": "RAYTHEON COMPANY", "total_amount": 9000000.0, "count": 1, "vehicles": ["OASIS"]},
+            ],
+            "downstream_subcontractors": [
+                {"name": "NORTHROP GRUMMAN SYSTEMS CORPORATION", "total_amount": 8000000.0, "count": 1, "vehicles": ["OASIS"]},
+            ],
+            "top_customers": [
+                {"agency": "NAVAL AIR SYSTEMS COMMAND", "prime_awards": 0, "subaward_rows": 3, "prime_amount": 0.0, "sub_amount": 21000000.0},
+            ],
+            "award_momentum": {"latest_activity_date": "2025-02-14"},
+        },
+        "analysis_state": "idle",
+        "storyline": {"cards": []},
+        "decisions": [],
+    }
+
+    payload = _distill_context(context)
+
+    assert "offshore leak proximity" not in payload["summary_line"].lower()
+    assert "visible federal footprint" in payload["summary_line"].lower()

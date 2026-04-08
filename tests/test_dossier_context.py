@@ -12,7 +12,7 @@ import dossier  # type: ignore  # noqa: E402
 
 def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch):
     vendor_id = "c-cache"
-    calls = {"vendor_procurement": 0, "graph": 0, "passport": 0, "vehicle_intelligence": 0}
+    calls = {"vendor_ownership": 0, "vendor_procurement": 0, "graph": 0, "passport": 0, "vehicle_intelligence": 0}
 
     monkeypatch.setattr(
         dossier.db,
@@ -65,10 +65,34 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
             "sub_vehicles": [],
         }
 
+    def fake_vendor_ownership_support(*, vendor_id, vendor, enrichment=None, sync_graph=False):
+        calls["vendor_ownership"] += 1
+        assert vendor_id == "c-cache"
+        assert vendor["id"] == vendor_id
+        assert sync_graph is True
+        return {
+            "vendor_name": vendor["name"],
+            "connectors_run": 1,
+            "connectors_with_data": 1,
+            "metrics": {"official_connectors_with_data": 1},
+            "findings": [],
+            "relationships": [],
+            "control_lines": ["Controlling parent resolves to Cache Holdings."],
+            "registry_lines": ["LEI corroborated: 549300CACHE."],
+            "gap_lines": [],
+            "oci_summary": {"controlling_parent_known": True, "controlling_parent": "Cache Holdings"},
+        }
+
+    def fake_merge_enrichment_with_ownership_support(enrichment, support_bundle):
+        merged = dict(enrichment or {})
+        merged["merged_ownership"] = bool(support_bundle)
+        return merged
+
     def fake_passport(_vendor_id, **kwargs):
         calls["passport"] += 1
         assert kwargs.get("graph_summary", {}).get("entity_count") == 1
         assert kwargs.get("vendor", {}).get("id") == vendor_id
+        assert kwargs.get("enrichment", {}).get("merged_ownership") is True
         return {"identity": {}, "graph": {"entity_count": 1, "relationship_count": 1}}
 
     def fake_vehicle_intelligence(*, vehicle_name, vendor, sync_graph=False):
@@ -86,6 +110,9 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
         }
 
     monkeypatch.setattr(dossier, "HAS_GRAPH_SUMMARY", True)
+    monkeypatch.setattr(dossier, "HAS_VENDOR_OWNERSHIP_SUPPORT", True)
+    monkeypatch.setattr(dossier, "build_vendor_ownership_support", fake_vendor_ownership_support)
+    monkeypatch.setattr(dossier, "merge_enrichment_with_ownership_support", fake_merge_enrichment_with_ownership_support)
     monkeypatch.setattr(dossier, "HAS_VENDOR_PROCUREMENT_SUPPORT", True)
     monkeypatch.setattr(dossier, "build_vendor_procurement_support", fake_vendor_procurement_support)
     monkeypatch.setattr(dossier, "get_vendor_graph_summary", fake_graph_summary)
@@ -102,8 +129,9 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
     assert first is not None
     assert second is not None
     assert third is not None
-    assert calls == {"vendor_procurement": 2, "graph": 2, "passport": 2, "vehicle_intelligence": 2}
+    assert calls == {"vendor_ownership": 2, "vendor_procurement": 2, "graph": 2, "passport": 2, "vehicle_intelligence": 2}
     assert second["vendor"]["id"] == vendor_id
+    assert first["vendor_ownership"]["oci_summary"]["controlling_parent"] == "Cache Holdings"
     assert first["vendor_procurement"]["vendor_name"] == "Cache Vendor"
     assert first["vehicle_intelligence"]["vehicle_name"] == "ITEAMS"
 

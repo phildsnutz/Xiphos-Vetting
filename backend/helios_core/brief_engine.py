@@ -48,6 +48,10 @@ def _human_entity_label(value: Any) -> str:
     return text
 
 
+def _normalize_vendor_name(value: Any) -> str:
+    return " ".join(part for part in _clean_detail(value).upper().split())
+
+
 def _join_sentences(*parts: Any) -> str:
     cleaned: list[str] = []
     for part in parts:
@@ -125,6 +129,7 @@ def _collect_graph_holds(graph_summary: dict[str, Any] | None) -> list[str]:
 
 def _collect_passport_holds(context: dict[str, Any]) -> list[str]:
     passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
+    ownership_support = context.get("vendor_ownership") if isinstance(context.get("vendor_ownership"), dict) else {}
     holds: list[str] = []
     threat = passport.get("threat_intel") if isinstance(passport.get("threat_intel"), dict) else {}
     advisories = [str(item) for item in (threat.get("cisa_advisory_ids") or []) if str(item).strip()]
@@ -172,6 +177,12 @@ def _collect_passport_holds(context: dict[str, Any]) -> list[str]:
     if classification:
         holds.append(f"Export control evidence is anchored to {classification}.")
 
+    holds.extend(
+        _clean_detail(item)
+        for item in ((ownership_support.get("control_lines") or []) + (ownership_support.get("registry_lines") or []))[:3]
+        if _clean_detail(item)
+    )
+
     return holds
 
 
@@ -207,6 +218,7 @@ def _tribunal_counterview_line(tribunal: dict[str, Any]) -> str:
 
 def _collect_passport_gaps(context: dict[str, Any]) -> list[str]:
     passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
+    ownership_support = context.get("vendor_ownership") if isinstance(context.get("vendor_ownership"), dict) else {}
     gaps: list[str] = []
 
     ownership = passport.get("ownership") if isinstance(passport.get("ownership"), dict) else {}
@@ -220,12 +232,19 @@ def _collect_passport_gaps(context: dict[str, Any]) -> list[str]:
     if tribunal_gap:
         gaps.append(tribunal_gap)
 
+    gaps.extend(
+        _clean_detail(item)
+        for item in (ownership_support.get("gap_lines") or [])[:2]
+        if _clean_detail(item)
+    )
+
     return gaps
 
 
 def _collect_evidence_findings(context: dict[str, Any]) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     passport = context.get("supplier_passport") if isinstance(context.get("supplier_passport"), dict) else {}
+    ownership_support = context.get("vendor_ownership") if isinstance(context.get("vendor_ownership"), dict) else {}
 
     threat = passport.get("threat_intel") if isinstance(passport.get("threat_intel"), dict) else {}
     advisories = [str(item) for item in (threat.get("cisa_advisory_ids") or []) if str(item).strip()]
@@ -237,6 +256,38 @@ def _collect_evidence_findings(context: dict[str, Any]) -> list[dict[str, str]]:
                 "severity": str(threat.get("threat_pressure") or "medium").lower(),
                 "source": "threat_intel",
                 "confidence": "CONFIRMED",
+            }
+        )
+
+    oci_summary = ownership_support.get("oci_summary") if isinstance(ownership_support.get("oci_summary"), dict) else {}
+    if oci_summary.get("named_beneficial_owner_known"):
+        findings.append(
+            {
+                "title": "Named beneficial owner resolved",
+                "detail": _clean_detail(oci_summary.get("named_beneficial_owner")),
+                "severity": "low",
+                "source": "ownership_support",
+                "confidence": "CONFIRMED",
+            }
+        )
+    elif oci_summary.get("controlling_parent_known"):
+        findings.append(
+            {
+                "title": "Controlling parent resolved",
+                "detail": _clean_detail(oci_summary.get("controlling_parent")),
+                "severity": "low",
+                "source": "ownership_support",
+                "confidence": "CONFIRMED",
+            }
+        )
+    elif oci_summary.get("owner_class_known"):
+        findings.append(
+            {
+                "title": "Ownership resolves only to descriptor class",
+                "detail": _clean_detail(oci_summary.get("owner_class")),
+                "severity": "medium",
+                "source": "ownership_support",
+                "confidence": "ASSESSED",
             }
         )
 
@@ -327,6 +378,8 @@ def _collect_evidence_findings(context: dict[str, Any]) -> list[dict[str, str]]:
 
 def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
     support = context.get("vendor_procurement") if isinstance(context.get("vendor_procurement"), dict) else {}
+    vendor = context.get("vendor") if isinstance(context.get("vendor"), dict) else {}
+    vendor_name = _clean_detail(vendor.get("name"), "The vendor")
     if not support:
         return {
             "metrics": {
@@ -346,7 +399,10 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
 
     prime_vehicles = [row for row in (support.get("prime_vehicles") or []) if isinstance(row, dict)]
     sub_vehicles = [row for row in (support.get("sub_vehicles") or []) if isinstance(row, dict)]
-    upstream_primes = [row for row in (support.get("upstream_primes") or []) if isinstance(row, dict)]
+    upstream_primes = [
+        row for row in (support.get("upstream_primes") or [])
+        if isinstance(row, dict) and _normalize_vendor_name(row.get("name")) != _normalize_vendor_name(vendor_name)
+    ]
     downstream_subs = [row for row in (support.get("downstream_subcontractors") or []) if isinstance(row, dict)]
     top_customers = [row for row in (support.get("top_customers") or []) if isinstance(row, dict)]
     momentum = support.get("award_momentum") if isinstance(support.get("award_momentum"), dict) else {}
@@ -460,7 +516,7 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
     if named_downstream_subs:
         market_position_lines.append(
             _join_sentences(
-                "Parsons also carries meaningful downstream performers on its own work",
+                f"{vendor_name} also carries meaningful downstream performers on its own work",
                 f"Visible downstream names include {', '.join(named_downstream_subs)}",
             )
         )
@@ -490,6 +546,47 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
         "downstream_sub_lines": [line for line in downstream_sub_lines if line],
         "customer_lines": [line for line in customer_lines if line],
         "implication_lines": [line for line in implication_lines if line],
+    }
+
+
+def _build_ownership_read(context: dict[str, Any]) -> dict[str, Any]:
+    support = context.get("vendor_ownership") if isinstance(context.get("vendor_ownership"), dict) else {}
+    if not support:
+        return {
+            "metrics": {
+                "official_connectors_with_data": 0,
+                "ownership_relationship_count": 0,
+                "named_beneficial_owner_known": False,
+                "controlling_parent_known": False,
+            },
+            "control_lines": [],
+            "registry_lines": [],
+            "gap_lines": [],
+            "implication_lines": [],
+        }
+
+    metrics = dict(support.get("metrics") or {})
+    oci_summary = support.get("oci_summary") if isinstance(support.get("oci_summary"), dict) else {}
+    implication_lines: list[str] = []
+    if oci_summary.get("named_beneficial_owner_known"):
+        implication_lines.append("Natural-person control is public enough to carry a named ownership read instead of a descriptor-only placeholder.")
+    elif oci_summary.get("controlling_parent_known"):
+        implication_lines.append("Parentage is clear enough to reason about corporate control, even though natural-person ownership is still not public.")
+    elif oci_summary.get("owner_class_known"):
+        implication_lines.append("Descriptor-only ownership evidence can support set-aside posture but should not be mistaken for resolved control.")
+    else:
+        implication_lines.append("Ownership and control still rely on thin evidence, which limits how confidently hidden-control questions can be closed.")
+    return {
+        "metrics": {
+            "official_connectors_with_data": int(metrics.get("official_connectors_with_data") or 0),
+            "ownership_relationship_count": int(metrics.get("ownership_relationship_count") or 0),
+            "named_beneficial_owner_known": bool(metrics.get("named_beneficial_owner_known")),
+            "controlling_parent_known": bool(metrics.get("controlling_parent_known")),
+        },
+        "control_lines": [_clean_detail(item) for item in (support.get("control_lines") or []) if _clean_detail(item)],
+        "registry_lines": [_clean_detail(item) for item in (support.get("registry_lines") or []) if _clean_detail(item)],
+        "gap_lines": [_clean_detail(item) for item in (support.get("gap_lines") or []) if _clean_detail(item)],
+        "implication_lines": implication_lines[:2],
     }
 
 
@@ -1094,6 +1191,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
 
     storyline = context.get("storyline") if isinstance(context.get("storyline"), dict) else {}
     procurement_read = _build_procurement_read(context)
+    ownership_read = _build_ownership_read(context)
     story_cards = storyline.get("cards") if isinstance(storyline.get("cards"), list) else []
     what_holds = []
     for card in story_cards[:3]:
@@ -1108,6 +1206,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
     what_holds.extend(_collect_graph_holds(graph_summary))
     what_holds.extend(_collect_passport_holds(context))
     what_holds.extend(procurement_read.get("implication_lines") or [])
+    what_holds.extend(ownership_read.get("implication_lines") or [])
 
     axiom = _build_axiom_assessment(context, recommendation)
     gaps = _collect_gap_lines(context)
@@ -1220,6 +1319,7 @@ def _distill_context(context: dict[str, Any]) -> dict[str, Any]:
         "recommendation_authority": _recommendation_authority_line(recommendation),
         "passport_snapshot": _build_passport_snapshot(context, recommendation, probability),
         "procurement_read": procurement_read,
+        "ownership_read": ownership_read,
         "what_holds": what_holds[:6],
         "gaps": gaps[:6],
         "gap_roadmap": gap_roadmap,
@@ -1248,6 +1348,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     posture = recommendation["posture"]
     graph_read = payload["graph_read"]
     procurement_read = payload.get("procurement_read") or {}
+    ownership_read = payload.get("ownership_read") or {}
     thesis = payload.get("thesis") or {}
     principal_judgment = thesis.get("principal_judgment") or {}
     counterview = thesis.get("counterview") or {}
@@ -1316,6 +1417,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     ) or '<tr><td colspan="2" class="empty-line">No recommended actions at this time.</td></tr>'
     shifter_list = _html_list(decision_shifters, "No decision-shifting actions identified.")
     procurement_metrics = procurement_read.get("metrics") or {}
+    ownership_metrics = ownership_read.get("metrics") or {}
     procurement_market_read = _html_list(procurement_read.get("market_position_lines") or [], "No procurement market-position read established yet.")
     procurement_prime_lines = _html_list(procurement_read.get("prime_vehicle_lines") or [], "No direct prime vehicle access observed.")
     procurement_sub_lines = _html_list(procurement_read.get("sub_vehicle_lines") or [], "No subcontract vehicle access observed.")
@@ -1323,6 +1425,10 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     procurement_downstream_lines = _html_list(procurement_read.get("downstream_sub_lines") or [], "No recurring downstream subcontractors surfaced.")
     procurement_customer_lines = _html_list(procurement_read.get("customer_lines") or [], "No customer concentration surfaced.")
     procurement_implications = _html_list(procurement_read.get("implication_lines") or [], "No procurement implications established yet.")
+    ownership_control_lines = _html_list(ownership_read.get("control_lines") or [], "No ownership or control path has been resolved yet.")
+    ownership_registry_lines = _html_list(ownership_read.get("registry_lines") or [], "No registry-grade ownership corroboration captured yet.")
+    ownership_gap_lines = _html_list(ownership_read.get("gap_lines") or [], "No ownership gaps flagged.")
+    ownership_implication_lines = _html_list(ownership_read.get("implication_lines") or [], "No ownership implications established yet.")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1649,6 +1755,37 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
         <div>
           <h2 style="font-size:16px;">What this implies</h2>
           <ul>{procurement_implications}</ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-card">
+      <h2>Ownership &amp; Control Read</h2>
+      <div class="support-line">Registry-grade parentage, beneficial ownership, and control-path corroboration routed through the supplier passport contract.</div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Official Sources</div><div class="metric-value">{int(ownership_metrics.get('official_connectors_with_data') or 0)}</div></div>
+        <div class="metric"><div class="metric-label">Control Paths</div><div class="metric-value">{int(ownership_metrics.get('ownership_relationship_count') or 0)}</div></div>
+        <div class="metric"><div class="metric-label">Named Owner</div><div class="metric-value">{'Yes' if ownership_metrics.get('named_beneficial_owner_known') else 'No'}</div></div>
+        <div class="metric"><div class="metric-label">Controlling Parent</div><div class="metric-value">{'Yes' if ownership_metrics.get('controlling_parent_known') else 'No'}</div></div>
+      </div>
+      <div class="split" style="margin-top: 16px;">
+        <div>
+          <h2 style="font-size:16px;">Verified Control Read</h2>
+          <ul>{ownership_control_lines}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">Registry Signals</h2>
+          <ul>{ownership_registry_lines}</ul>
+        </div>
+      </div>
+      <div class="split" style="margin-top: 16px;">
+        <div>
+          <h2 style="font-size:16px;">What this implies</h2>
+          <ul>{ownership_implication_lines}</ul>
+        </div>
+        <div>
+          <h2 style="font-size:16px;">What remains unresolved</h2>
+          <ul>{ownership_gap_lines}</ul>
         </div>
       </div>
     </section>

@@ -39,6 +39,17 @@ def _label_for_stance(value: str) -> str:
     return "Competing case"
 
 
+def _is_weak_match_signal(signal: dict[str, Any] | None) -> bool:
+    item = signal if isinstance(signal, dict) else {}
+    title = _clean(item.get("title")).lower()
+    read = _clean(item.get("read")).lower()
+    source = _clean(item.get("source")).lower()
+    markers = ("offshore leak proximity", "name or entity-proximity", "requires disambiguation")
+    if source == "icij offshore":
+        return True
+    return any(marker in title or marker in read for marker in markers)
+
+
 def _is_generic_line(value: str) -> bool:
     lowered = _clean(value).lower()
     generic_markers = (
@@ -149,6 +160,7 @@ def _build_principal_headline(
 ) -> str:
     label = _clean(recommendation.get("label"), "PENDING")
     procurement_read = procurement_read if isinstance(procurement_read, dict) else {}
+    market_position_lines = [_clean(item) for item in (procurement_read.get("market_position_lines") or []) if _clean(item)]
     if label == "APPROVED":
         prime_names = [_clean(item) for item in (procurement_read.get("top_prime_vehicle_names") or []) if _clean(item)]
         upstream_names = [_clean(item) for item in (procurement_read.get("top_upstream_prime_names") or []) if _clean(item)]
@@ -157,6 +169,18 @@ def _build_principal_headline(
             if upstream_names:
                 return f"{label} holds with direct access on {prime_phrase}, plus recurring work under {', '.join(upstream_names[:2])}."
             return f"{label} holds with direct access on {prime_phrase}."
+        if market_position_lines:
+            return f"{label} holds with {market_position_lines[0].rstrip('.').lower()}."
+    if label == "REVIEW" and market_position_lines:
+        return f"{label} holds with {market_position_lines[0].rstrip('.').lower()}."
+    if material_signals and _is_weak_match_signal(material_signals[0]) and market_position_lines:
+        market_line = market_position_lines[0].rstrip(".")
+        if label == "APPROVED":
+            return f"{label} holds with {market_line.lower()}."
+        if label == "REVIEW":
+            return f"{label} holds with {market_line.lower()}."
+        if label == "BLOCKED":
+            return f"{label} holds against a backdrop where {market_line.lower()}."
     if material_signals:
         lead = material_signals[0]
         lead_title = _clean(lead.get("title"))
