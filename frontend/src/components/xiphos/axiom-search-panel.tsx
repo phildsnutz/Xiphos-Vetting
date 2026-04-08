@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { Play, Search, Upload, AlertCircle } from "lucide-react";
 import { getToken } from "@/lib/auth";
@@ -121,6 +121,7 @@ interface AxiomSearchPanelProps {
     domainFocus?: string;
     seedLabel?: string;
     autoRun?: boolean;
+    requestId?: string;
   } | null;
 }
 
@@ -289,6 +290,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
       targetEntity: seed.targetEntity,
       vehicleName: seed.vehicleName || "",
       domainFocus: nextDomainFocus,
+      requestId: seed.requestId || "",
     });
     if (autoRunSeedKeyRef.current === seedKey) return;
     autoRunSeedKeyRef.current = seedKey;
@@ -363,6 +365,14 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
     }
   };
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isRunning || !targetEntity.trim()) {
+      return;
+    }
+    void handleSearch();
+  };
+
   const runOnEnter = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || isRunning) {
       return;
@@ -379,7 +389,8 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
   ].filter(Boolean);
 
   return (
-    <div
+    <form
+      onSubmit={handleSubmit}
       className="flex flex-col gap-4 rounded-lg"
       style={{
         background: "rgba(12,16,24,0.82)",
@@ -714,8 +725,7 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
               : "The brief stays pinned. Scroll the findings below without losing the thread."}
           </div>
           <button
-            type="button"
-            onClick={handleSearch}
+            type="submit"
             disabled={isRunning || !targetEntity.trim()}
             aria-label="Run AXIOM collection pass"
             className="flex items-center justify-center gap-2 rounded cursor-pointer font-medium"
@@ -1025,6 +1035,6 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
           />
         ) : null}
       </div>
-    </div>
+    </form>
   );
 }

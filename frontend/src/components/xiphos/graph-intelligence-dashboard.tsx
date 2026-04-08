@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { type Core, type ElementDefinition, type EventObject, type NodeSingular } from "cytoscape";
 import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText, PanelLeft, PanelRight, ArrowLeft } from "lucide-react";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
-import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
+import { fetchFullGraphIntelligence, fetchGraphTopology, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
 import type { GraphEdge as ApiGraphEdge, GraphWorkspace } from "@/lib/api";
 import { useHotkey } from "@/lib/use-hotkeys";
 import { InlineMessage, LoadingPanel, PanelHeader, ShortcutBadge, StatusPill } from "./shell-primitives";
@@ -202,6 +202,8 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
   const [graphData, setGraphData] = useState<FullGraphIntelligence | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [backgroundStatus, setBackgroundStatus] = useState<string | null>(null);
+  const [isHydratingAnalytics, setIsHydratingAnalytics] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("cose");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedNode, setSelectedNode] = useState<EnrichedGraphNode | null>(null);
@@ -245,44 +247,104 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
   const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 3;
   const LOAD_TIMEOUT_MS = 75000;
+  const TOPOLOGY_TIMEOUT_MS = 20000;
+  const requestSequenceRef = useRef(0);
+
+  const normalizeGraphPayload = useCallback((raw: {
+    nodes: EnrichedGraphNode[];
+    edges: ApiGraphEdge[];
+    summary: FullGraphIntelligence["summary"];
+    top_by_importance: EnrichedGraphNode[];
+    top_by_structural_importance?: EnrichedGraphNode[];
+    top_by_risk: EnrichedGraphNode[];
+    communities: FullGraphIntelligence["communities"];
+    temporal: unknown;
+  }): FullGraphIntelligence => ({
+    ...raw,
+    temporal: (raw.temporal as TemporalProfile | null) ?? null,
+    nodes: (raw.nodes || []).map((node) => ({
+      ...node,
+      created_at: node.created_at,
+    })),
+    edges: (raw.edges || []).map((edge) => ({
+      source: edge.source_entity_id,
+      target: edge.target_entity_id,
+      rel_type: edge.rel_type,
+      confidence: edge.confidence,
+      data_source: edge.data_source,
+      created_at: edge.created_at,
+    })),
+    top_by_structural_importance: raw.top_by_structural_importance || [],
+  }), []);
+
+  const hydrateAnalytics = useCallback(async (requestId: number) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+    try {
+      const raw = await fetchFullGraphIntelligence({ signal: controller.signal });
+      if (requestId !== requestSequenceRef.current) return;
+      setGraphData(normalizeGraphPayload(raw));
+      setBackgroundStatus(null);
+    } catch (err) {
+      if (requestId !== requestSequenceRef.current) return;
+      const message = err instanceof DOMException && err.name === "AbortError"
+        ? "Topology is live. Full analytics are still warming in the background."
+        : "Topology is live. Deep analytics are delayed, but the room is usable.";
+      setBackgroundStatus(message);
+    } finally {
+      clearTimeout(timeoutId);
+      if (requestId === requestSequenceRef.current) {
+        setIsHydratingAnalytics(false);
+      }
+    }
+  }, [normalizeGraphPayload]);
 
   const loadGraphData = useCallback(async () => {
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TOPOLOGY_TIMEOUT_MS);
     try {
       setLoading(true);
       setError(null);
+      setBackgroundStatus(null);
+      setIsHydratingAnalytics(false);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
-
-      const raw = await fetchFullGraphIntelligence({ signal: controller.signal });
+      const topology = await fetchGraphTopology({ signal: controller.signal });
+      if (requestId !== requestSequenceRef.current) return;
 
       clearTimeout(timeoutId);
-
-      const data: FullGraphIntelligence = {
-        ...raw,
-        temporal: (raw.temporal as unknown as TemporalProfile | null) ?? null,
-        edges: (raw.edges || []).map((e: ApiGraphEdge) => ({
-          source: e.source_entity_id,
-          target: e.target_entity_id,
-          rel_type: e.rel_type,
-          confidence: e.confidence,
-          data_source: e.data_source,
-          created_at: undefined,
-        })),
-        top_by_structural_importance: raw.top_by_structural_importance || [],
-      };
-      setGraphData(data);
+      setGraphData(normalizeGraphPayload(topology));
       setRetryCount(0);
+      setIsHydratingAnalytics(true);
+      setBackgroundStatus("Topology is live. Hydrating graph pressure, centrality, and community signals.");
+      setLoading(false);
+      void hydrateAnalytics(requestId);
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setError("The Graph Room is still warming the live graph cache. Give it a moment and retry.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to load graph intelligence");
+      clearTimeout(timeoutId);
+      const fallbackController = new AbortController();
+      const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), LOAD_TIMEOUT_MS);
+      try {
+        const raw = await fetchFullGraphIntelligence({ signal: fallbackController.signal });
+        if (requestId !== requestSequenceRef.current) return;
+        setGraphData(normalizeGraphPayload(raw));
+        setRetryCount(0);
+      } catch (fallbackErr) {
+        if (requestId !== requestSequenceRef.current) return;
+        if (fallbackErr instanceof DOMException && fallbackErr.name === "AbortError") {
+          setError("The Graph Room is still warming the live graph cache. Give it a moment and retry.");
+        } else {
+          setError(fallbackErr instanceof Error ? fallbackErr.message : "Failed to load graph intelligence");
+        }
+      } finally {
+        clearTimeout(fallbackTimeoutId);
       }
     } finally {
-      setLoading(false);
+      if (requestId === requestSequenceRef.current) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [LOAD_TIMEOUT_MS, TOPOLOGY_TIMEOUT_MS, hydrateAnalytics, normalizeGraphPayload]);
 
   useEffect(() => {
     loadGraphData();
@@ -1054,6 +1116,7 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
                 {contextLabel ? <StatusPill tone="warning">Case context: {contextLabel}</StatusPill> : null}
                 <StatusPill tone="info">{filteredData.nodes.length} nodes</StatusPill>
                 <StatusPill tone="neutral">{filteredData.edges.length} edges</StatusPill>
+                {isHydratingAnalytics ? <StatusPill tone="warning">Analytics warming</StatusPill> : null}
                 <StatusPill tone="neutral">Paths beat pictures</StatusPill>
                 <StatusPill tone="neutral">
                   <ShortcutBadge>⌘F</ShortcutBadge>
@@ -1066,6 +1129,10 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
               </>
             }
           />
+
+          {backgroundStatus ? (
+            <InlineMessage tone="warning" title="Graph status" message={backgroundStatus} />
+          ) : null}
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, alignItems: "center" }}>
             <div

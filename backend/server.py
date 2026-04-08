@@ -6390,6 +6390,74 @@ def api_graph_full_intelligence():
     })
 
 
+@app.route("/api/graph/topology", methods=["GET"])
+@require_auth("screen:read")
+def api_graph_topology():
+    """Fast graph topology payload without cold analytics expansion."""
+    if not HAS_GRAPH_ANALYTICS:
+        return jsonify({"error": "Graph analytics not available"}), 503
+
+    try:
+        analytics = _get_graph_analytics()
+    except Exception as e:
+        return jsonify({"error": f"Graph load failed: {str(e)}"}), 500
+
+    nodes = []
+    for node_id, node_data in analytics.nodes.items():
+        nodes.append({
+            "id": node_id,
+            "canonical_name": node_data.get("canonical_name", ""),
+            "entity_type": node_data.get("entity_type", "unknown"),
+            "confidence": node_data.get("confidence", 0),
+            "country": node_data.get("country", ""),
+            "created_at": node_data.get("created_at", ""),
+            "centrality_composite": 0,
+            "centrality_structural": 0,
+            "centrality_decision": 0,
+            "centrality_degree": 0,
+            "centrality_betweenness": 0,
+            "centrality_pagerank": 0,
+            "sanctions_exposure": 0,
+            "risk_level": "CLEAR",
+            "community_id": None,
+        })
+
+    edges = []
+    for edge in analytics.edges:
+        edges.append({
+            "source_entity_id": edge.get("source"),
+            "target_entity_id": edge.get("target"),
+            "rel_type": edge.get("rel_type", "related_entity"),
+            "confidence": edge.get("confidence", 0.5),
+            "data_source": edge.get("data_source", ""),
+            "evidence": edge.get("evidence", ""),
+            "created_at": edge.get("created_at", ""),
+        })
+
+    type_dist = {}
+    for node in nodes:
+        entity_type = node.get("entity_type", "unknown")
+        type_dist[entity_type] = type_dist.get(entity_type, 0) + 1
+
+    return jsonify({
+        "nodes": nodes,
+        "edges": edges,
+        "summary": {
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "risk_distribution": {"CLEAR": len(nodes), "LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0},
+            "type_distribution": type_dist,
+            "community_count": 0,
+            "modularity": 0,
+        },
+        "top_by_importance": [],
+        "top_by_structural_importance": [],
+        "top_by_risk": [],
+        "communities": [],
+        "temporal": None,
+    })
+
+
 # ---- Person Network Risk (graph-aware) ----
 
 @app.route("/api/export/person-network-risk", methods=["POST"])

@@ -2880,6 +2880,7 @@ export interface EnrichedGraphNode {
   entity_type: string;
   confidence: number;
   country: string;
+  created_at?: string;
   centrality_composite: number;
   centrality_structural?: number;
   centrality_decision?: number;
@@ -2898,6 +2899,7 @@ export interface GraphEdge {
   confidence: number;
   data_source: string;
   evidence: string;
+  created_at?: string;
 }
 
 export interface FullGraphIntelligence {
@@ -2929,6 +2931,10 @@ export async function fetchGraphIntelligence(): Promise<GraphIntelligenceResult>
 
 export async function fetchFullGraphIntelligence(init?: RequestInit): Promise<FullGraphIntelligence> {
   return json("/api/graph/full-intelligence", init);
+}
+
+export async function fetchGraphTopology(init?: RequestInit): Promise<FullGraphIntelligence> {
+  return json("/api/graph/topology", init);
 }
 
 export async function fetchGraphCentrality(): Promise<{ entities: Array<Record<string, unknown>>; count: number }> {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Bell, ChevronRight, Eye, Grid3X3, Radar, Search } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Bell, ChevronRight, Eye, Grid3X3, Radar, Search, SendHorizontal } from "lucide-react";
 import type { VettingCase } from "@/lib/types";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { AxiomAlerts } from "./axiom-alerts";
@@ -21,6 +21,7 @@ interface AegisRoomProps {
     domainFocus?: string;
     seedLabel?: string;
     autoRun?: boolean;
+    requestId?: string;
   } | null;
 }
 
@@ -121,6 +122,9 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
   const [watchEntries, setWatchEntries] = useState<WatchlistSnapshot[]>([]);
   const [alerts, setAlerts] = useState<AlertSnapshot[]>([]);
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 1024);
+  const [collectionSeed, setCollectionSeed] = useState<AegisRoomProps["seed"]>(seed);
+  const [exchangeDraft, setExchangeDraft] = useState("");
+  const [exchangeError, setExchangeError] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
@@ -145,6 +149,36 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     return () => media.removeEventListener("change", handleChange);
   }, []);
 
+  useEffect(() => {
+    setCollectionSeed(seed);
+  }, [seed]);
+
+  const currentTargetAnchor = collectionSeed?.targetEntity || seed?.targetEntity || "";
+
+  const submitExchangePrompt = () => {
+    const prompt = exchangeDraft.trim();
+    if (!prompt) {
+      setExchangeError("Give AXIOM a target or a redirect before sending it back to work.");
+      return;
+    }
+
+    const hasPinnedTarget = Boolean(currentTargetAnchor.trim());
+    const nextSeed = {
+      targetEntity: hasPinnedTarget ? currentTargetAnchor : prompt,
+      vehicleName: collectionSeed?.vehicleName || seed?.vehicleName || "",
+      domainFocus: hasPinnedTarget ? prompt : "",
+      seedLabel: collectionSeed?.seedLabel || seed?.seedLabel || (hasPinnedTarget ? currentTargetAnchor : prompt),
+      autoRun: true,
+      requestId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    };
+
+    setMode("collection");
+    setCollectionSeed(nextSeed);
+    setSearchResults(null);
+    setExchangeError("");
+    setExchangeDraft("");
+  };
+
   const leadStatement = useMemo(() => {
     if (mode === "watch") {
       return "AXIOM is keeping live targets warm between dossier pulls and only surfaces drift that changes the picture.";
@@ -155,11 +189,11 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     if (searchResults) {
       return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, and ${searchResults.intelligenceGaps.length} open gaps from the current brief.`;
     }
-    if (seed?.targetEntity) {
-      return `AXIOM picked up ${seed.seedLabel || seed.targetEntity} from ${STOA_NAME} and is working the public picture from there.`;
+    if (collectionSeed?.targetEntity) {
+      return `AXIOM picked up ${collectionSeed.seedLabel || collectionSeed.targetEntity} from ${STOA_NAME} and is working the public picture from there.`;
     }
     return "Bring the knot, not the taxonomy. AXIOM will work the public picture, keep the weak residue explicit, and only push what holds.";
-  }, [mode, searchResults, seed]);
+  }, [collectionSeed, mode, searchResults]);
 
   const roomStatus = useMemo(() => {
     if (mode === "watch") {
@@ -175,11 +209,11 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     if (searchResults) {
       return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
     }
-    if (seed?.targetEntity) {
+    if (collectionSeed?.targetEntity) {
       return `${STOA_NAME} brief warming`;
     }
     return "Awaiting a live brief";
-  }, [activeWatchEntries.length, alerts.length, criticalAlerts.length, mode, searchResults, seed]);
+  }, [activeWatchEntries.length, alerts.length, collectionSeed, criticalAlerts.length, mode, searchResults]);
 
   const currentFrame = useMemo(() => {
     if (mode === "watch") {
@@ -237,15 +271,15 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
       };
     }
 
-    if (seed?.targetEntity) {
+    if (collectionSeed?.targetEntity) {
       return {
         eyebrow: "AXIOM exchange",
         title: `The ${STOA_NAME} brief is now live in the room.`,
-        lead: seed.vehicleName
-          ? `I picked up ${seed.seedLabel || seed.targetEntity} with ${seed.vehicleName} already in frame. I’m working the thread from there.`
-          : `I picked up ${seed.seedLabel || seed.targetEntity} from ${STOA_NAME} and I’m working the first public picture from there.`,
-        follow: seed.domainFocus
-          ? `I’m weighting ${seed.domainFocus} first unless you redirect me.`
+        lead: collectionSeed.vehicleName
+          ? `I picked up ${collectionSeed.seedLabel || collectionSeed.targetEntity} with ${collectionSeed.vehicleName} already in frame. I’m working the thread from there.`
+          : `I picked up ${collectionSeed.seedLabel || collectionSeed.targetEntity} from ${STOA_NAME} and I’m working the first public picture from there.`,
+        follow: collectionSeed.domainFocus
+          ? `I’m weighting ${collectionSeed.domainFocus} first unless you redirect me.`
           : "Redirect me only if the first thread is wrong. Otherwise I’ll work the full picture from the current brief.",
       };
     }
@@ -256,7 +290,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
       lead: "Start with the entity, vehicle, incumbent, teammate, or weak point that still feels unresolved. I’ll work outward from there and keep the dark space explicit.",
       follow: "Reply with the redirect, the harder question, or the thread you want pressed first.",
     };
-  }, [activeWatchEntries, alerts, criticalAlerts, mode, searchResults, seed]);
+  }, [activeWatchEntries, alerts, collectionSeed, criticalAlerts, mode, searchResults]);
 
   const openThreads = useMemo(() => {
     if (mode === "watch") {
@@ -696,6 +730,94 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
                 <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.65, maxWidth: 920 }}>
                   {roomExchange.follow}
                 </div>
+
+                {mode === "collection" ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      submitExchangePrompt();
+                    }}
+                    style={{
+                      display: "grid",
+                      gap: SP.sm,
+                      marginTop: SP.sm,
+                    }}
+                  >
+                    <label
+                      style={{
+                        fontSize: FS.xs,
+                        color: T.textTertiary,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Reply to AXIOM
+                    </label>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: SP.sm,
+                        alignItems: "center",
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={exchangeDraft}
+                        onChange={(event) => {
+                          setExchangeDraft(event.target.value);
+                          if (exchangeError) {
+                            setExchangeError("");
+                          }
+                        }}
+                        placeholder={currentTargetAnchor
+                          ? `Pressure the weak edge on ${currentTargetAnchor}`
+                          : "Name the target or the redirect you want AXIOM to press"}
+                        aria-label="Reply to AXIOM"
+                        className="w-full rounded border outline-none"
+                        style={{
+                          flex: "1 1 320px",
+                          minWidth: 0,
+                          padding: PAD.default,
+                          fontSize: FS.sm,
+                          background: T.bg,
+                          border: `1px solid ${exchangeError ? T.red : T.border}`,
+                          color: T.text,
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        className="helios-focus-ring"
+                        style={{
+                          border: `1px solid ${T.accent}${O["20"]}`,
+                          background: `${T.accent}${O["08"]}`,
+                          color: T.text,
+                          borderRadius: 999,
+                          padding: PAD.default,
+                          fontSize: FS.sm,
+                          fontWeight: 700,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: SP.xs,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <SendHorizontal size={14} />
+                        Send to AXIOM
+                      </button>
+                    </div>
+                    {exchangeError ? (
+                      <InlineMessage tone="danger" message={exchangeError} />
+                    ) : (
+                      <div style={{ fontSize: FS.caption, color: T.textTertiary, lineHeight: 1.6 }}>
+                        {currentTargetAnchor
+                          ? `This keeps ${currentTargetAnchor} pinned and redirects the next pass toward the pressure point you name.`
+                          : "If no target is pinned yet, AXIOM will treat this as the target to work first."}
+                      </div>
+                    )}
+                  </form>
+                ) : null}
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, alignItems: "center" }}>
@@ -741,7 +863,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
               }}
             >
               {mode === "collection" ? (
-                <AxiomSearchPanel seed={seed} onResultsChange={(next) => setSearchResults(next)} />
+                <AxiomSearchPanel seed={collectionSeed} onResultsChange={(next) => setSearchResults(next)} />
               ) : null}
               {mode === "watch" ? (
                 <AxiomWatchlist onEntriesChange={(next) => setWatchEntries(next)} />

@@ -378,6 +378,56 @@ def test_graph_full_intelligence_route_surfaces_decision_and_structural_importan
     assert payload["top_by_structural_importance"][0]["id"] == "node:bridge"
 
 
+def test_graph_topology_route_returns_fast_baseline_payload(client, monkeypatch):
+    server = sys.modules["server"]
+
+    class FakeAnalytics:
+        def __init__(self):
+            self.nodes = {
+                "node:vendor": {
+                    "canonical_name": "Parsons Government Services",
+                    "entity_type": "company",
+                    "confidence": 0.97,
+                    "country": "US",
+                    "created_at": "2026-04-08T00:00:00Z",
+                },
+                "node:vehicle": {
+                    "canonical_name": "OASIS",
+                    "entity_type": "contract_vehicle",
+                    "confidence": 0.74,
+                    "country": "US",
+                    "created_at": "2026-04-08T00:00:00Z",
+                },
+            }
+            self.edges = [
+                {
+                    "source": "node:vendor",
+                    "target": "node:vehicle",
+                    "rel_type": "prime_on_vehicle",
+                    "confidence": 0.83,
+                    "data_source": "usaspending",
+                    "created_at": "2026-04-08T00:00:00Z",
+                }
+            ]
+
+        def load_graph(self):
+            return None
+
+    monkeypatch.setattr(server, "HAS_GRAPH_ANALYTICS", True, raising=False)
+    monkeypatch.setattr(server, "GraphAnalytics", FakeAnalytics, raising=False)
+
+    response = client.get("/api/graph/topology")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["summary"]["total_nodes"] == 2
+    assert payload["summary"]["total_edges"] == 1
+    assert payload["summary"]["risk_distribution"]["CLEAR"] == 2
+    assert payload["nodes"][0]["centrality_decision"] == 0
+    assert payload["edges"][0]["rel_type"] == "prime_on_vehicle"
+    assert payload["temporal"] is None
+
+
 def test_supplier_passport_builder_combines_case_graph_and_control_paths(client, monkeypatch):
     server = sys.modules["server"]
     case_id = _create_case(
