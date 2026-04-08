@@ -715,6 +715,46 @@ export interface CaseAssistantExecutionResult {
   approval_boundary: string;
 }
 
+export interface CaseAssistantSituationBrief {
+  version: string;
+  generated_at: string;
+  case_id: string;
+  vendor_name: string;
+  run_id?: string | null;
+  run_status: string;
+  source: string;
+  quarterback?: CaseAssistantPlan["quarterback"];
+  playbook?: CaseAssistantPlan["playbook"];
+  preflight?: CaseAssistantPlan["preflight"];
+  phase: string;
+  current_situation: string;
+  best_next_play: {
+    label: string;
+    authority: string;
+    owner: string;
+    reason: string;
+  };
+  audibles: Array<{
+    label: string;
+    authority: string;
+    reason: string;
+  }>;
+  operator_brief?: string;
+  operator_updates?: string[];
+  field_state: {
+    executed_steps: number;
+    remaining_required_steps: number;
+    blocked_steps: number;
+    human_gate_required: boolean;
+    degraded_mode: boolean;
+  };
+  pack_state?: Array<Record<string, unknown>>;
+  coach_boundary: {
+    vesper_can_do: string[];
+    coach_required_for: string[];
+  };
+}
+
 export type AssistantFeedbackVerdict = "accepted" | "partial" | "rejected";
 export type AssistantFeedbackType =
   | "helpful"
@@ -924,6 +964,10 @@ export async function fetchCaseAssistantPlan(caseId: string, prompt: string, aut
     method: "POST",
     body: JSON.stringify({ prompt, auto_execute: autoExecute }),
   });
+}
+
+export async function fetchCaseAssistantSituation(caseId: string): Promise<CaseAssistantSituationBrief> {
+  return json<CaseAssistantSituationBrief>(`/api/cases/${caseId}/assistant-situation`);
 }
 
 export async function executeCaseAssistantPlan(

@@ -7,6 +7,7 @@ import {
 import {
   executeCaseAssistantPlan,
   fetchCaseAssistantPlan,
+  fetchCaseAssistantSituation,
   submitCaseAssistantFeedback,
   runAIAnalysis,
   fetchAIAnalysis,
@@ -22,6 +23,7 @@ import type {
   AssistantFeedbackVerdict,
   CaseAssistantExecutionResult,
   CaseAssistantPlan,
+  CaseAssistantSituationBrief,
   CyberEvidenceSummary,
   Decision,
 } from "@/lib/api";
@@ -46,6 +48,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
   const [assistantPrompt, setAssistantPrompt] = useState(`Why is ${vendorName} risky right now?`);
   const [assistantPlan, setAssistantPlan] = useState<CaseAssistantPlan | null>(null);
   const [assistantRunId, setAssistantRunId] = useState<string | null>(null);
+  const [assistantSituation, setAssistantSituation] = useState<CaseAssistantSituationBrief | null>(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantExecution, setAssistantExecution] = useState<CaseAssistantExecutionResult | null>(null);
@@ -77,10 +80,22 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
     setAssistantPrompt(`Why is ${vendorName} risky right now?`);
     setAssistantPlan(null);
     setAssistantRunId(null);
+    setAssistantSituation(null);
     setAssistantError(null);
     setAssistantExecution(null);
     setAssistantExecutionError(null);
   }, [caseId, vendorName]);
+
+  useEffect(() => {
+    fetchCaseAssistantSituation(caseId)
+      .then((brief) => {
+        setAssistantSituation(brief);
+        if (brief.run_id) {
+          setAssistantRunId(brief.run_id);
+        }
+      })
+      .catch(() => {});
+  }, [caseId]);
 
   const toggleSection = (key: string) => {
     setExpandedSections((prev) => {
@@ -119,6 +134,8 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       const result = await fetchCaseAssistantPlan(caseId, nextPrompt, autoExecute);
       setAssistantPlan(result);
       setAssistantRunId(result.run_id ?? null);
+      const nextSituation = await fetchCaseAssistantSituation(caseId);
+      setAssistantSituation(nextSituation);
       if (result.execution) {
         setAssistantExecution(result.execution);
       }
@@ -143,6 +160,8 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
       if (result.run_id) {
         setAssistantRunId(result.run_id);
       }
+      const nextSituation = await fetchCaseAssistantSituation(caseId);
+      setAssistantSituation(nextSituation);
     } catch (e) {
       setAssistantExecutionError(e instanceof Error ? e.message : "Approved execution failed");
     } finally {
@@ -214,6 +233,8 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             executionError={assistantExecutionError}
             runId={assistantRunId}
             onRunIdChange={setAssistantRunId}
+            situation={assistantSituation}
+            onSituationChange={setAssistantSituation}
           />
         </div>
       </div>
@@ -305,6 +326,8 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           executionError={assistantExecutionError}
           runId={assistantRunId}
           onRunIdChange={setAssistantRunId}
+          situation={assistantSituation}
+          onSituationChange={setAssistantSituation}
         />
       </div>
 
@@ -596,6 +619,8 @@ function ControlPlaneSection({
   executionError,
   runId,
   onRunIdChange,
+  situation,
+  onSituationChange,
 }: {
   caseId: string;
   vendorName: string;
@@ -612,6 +637,8 @@ function ControlPlaneSection({
   executionError: string | null;
   runId: string | null;
   onRunIdChange: (value: string | null) => void;
+  situation: CaseAssistantSituationBrief | null;
+  onSituationChange: (value: CaseAssistantSituationBrief | null) => void;
 }) {
   const [feedbackVerdict, setFeedbackVerdict] = useState<AssistantFeedbackVerdict>("partial");
   const [feedbackType, setFeedbackType] = useState<AssistantFeedbackType>("tool_missing");
@@ -683,6 +710,8 @@ function ControlPlaneSection({
       if (result.run_id) {
         onRunIdChange(result.run_id);
       }
+      const nextSituation = await fetchCaseAssistantSituation(caseId);
+      onSituationChange(nextSituation);
       setFeedbackSuccess(`Captured signal #${result.feedback_id}`);
     } catch (e) {
       setFeedbackError(e instanceof Error ? e.message : "Failed to capture assistant feedback");
@@ -817,6 +846,59 @@ function ControlPlaneSection({
         <div className="flex items-center gap-2 mt-3 rounded p-2.5" style={{ background: T.redBg, border: `1px solid ${T.red}33` }}>
           <XCircle size={12} color={T.red} className="shrink-0" />
           <span style={{ fontSize: FS.sm, color: T.red }}>{executionError}</span>
+        </div>
+      )}
+
+      {situation && (
+        <div className="mt-4 rounded-lg" style={{ padding: 12, background: `${T.accent}10`, border: `1px solid ${T.accent}33` }}>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.accent }}>
+              Vesper Situation Brief
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.muted }}>
+              {situation.phase} · {situation.run_status}
+            </div>
+          </div>
+          <div style={{ fontSize: FS.sm, color: T.text, marginTop: 8, lineHeight: 1.6 }}>
+            {situation.current_situation}
+          </div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", marginTop: 10 }}>
+            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Best Next Play
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.text, marginTop: 6, fontWeight: 700 }}>
+                {situation.best_next_play.label}
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                {situation.best_next_play.reason}
+              </div>
+            </div>
+            <div className="rounded-lg" style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Coach Boundary
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.text, marginTop: 6, lineHeight: 1.6 }}>
+                Vesper can: {situation.coach_boundary.vesper_can_do.slice(0, 2).join("; ")}.
+              </div>
+              <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                Coach holds: {situation.coach_boundary.coach_required_for[0]}.
+              </div>
+            </div>
+          </div>
+          {situation.audibles.length > 0 && (
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+              {situation.audibles.map((audible) => (
+                <span
+                  key={`${audible.label}-${audible.authority}`}
+                  className="rounded-full"
+                  style={{ padding: "5px 10px", fontSize: 11, fontWeight: 700, color: audible.authority === "coach_gate" ? T.amber : T.accent, background: audible.authority === "coach_gate" ? T.amberBg : `${T.accent}18` }}
+                >
+                  {audible.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

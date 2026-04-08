@@ -969,3 +969,151 @@ def prepare_case_assistant_feedback(
         "details": details[:4000],
         "training_signal": training_signal,
     }
+
+
+def build_case_assistant_situation_brief(
+    *,
+    case_id: str,
+    vendor_name: str,
+    plan_payload: dict[str, Any],
+    execution_payload: dict[str, Any] | None = None,
+    run_id: str = "",
+    run_status: str = "",
+    source: str = "assistant_run",
+) -> dict[str, Any]:
+    execution_payload = execution_payload or {}
+    plan_steps = list(plan_payload.get("plan") or [])
+    anomalies = list(plan_payload.get("anomalies") or [])
+    playbook = dict(plan_payload.get("playbook") or {})
+    preflight = dict(plan_payload.get("preflight") or {})
+    quarterback = dict(plan_payload.get("quarterback") or PACK_LIBRARY["vesper"])
+    pack_state = list(execution_payload.get("pack_state") or plan_payload.get("pack") or [])
+    phase = str(execution_payload.get("phase") or "plan")
+    status = str(run_status or execution_payload.get("status") or "planned")
+    feedback = dict(execution_payload.get("feedback") or {})
+    executed_steps = list(execution_payload.get("executed_steps") or [])
+    executed_tool_ids = [str(step.get("tool_id") or "").strip() for step in executed_steps if str(step.get("tool_id") or "").strip()]
+    blocked_tools = list(execution_payload.get("blocked_tools") or [])
+    blocked_tool_ids = [str(item.get("tool_id") or "").strip() for item in blocked_tools if str(item.get("tool_id") or "").strip()]
+    required_steps = [step for step in plan_steps if bool(step.get("required"))]
+    remaining_required = [
+        step for step in required_steps if str(step.get("tool_id") or "").strip() not in executed_tool_ids and str(step.get("tool_id") or "").strip() not in blocked_tool_ids
+    ]
+    top_anomaly = anomalies[0] if anomalies else None
+
+    best_next_play: dict[str, Any]
+    verdict = str(feedback.get("verdict") or "").strip().lower()
+    suggested_tool_ids = list((feedback.get("training_signal") or {}).get("suggested_tool_ids") or [])
+    if verdict == "accepted":
+        best_next_play = {
+            "label": "Hold the line",
+            "authority": "vesper",
+            "owner": quarterback.get("call_sign"),
+            "reason": "The current drive was accepted. Vesper recommends holding the current posture unless new evidence changes the field.",
+        }
+    elif suggested_tool_ids:
+        suggested = str(suggested_tool_ids[0] or "").strip()
+        suggested_step = next((step for step in plan_steps if str(step.get("tool_id") or "") == suggested), None)
+        best_next_play = {
+            "label": str((suggested_step or {}).get("label") or suggested.replace("_", " ").title()),
+            "authority": "coach_gate",
+            "owner": str((suggested_step or {}).get("pack_name") or quarterback.get("call_sign")),
+            "reason": f"Analyst feedback changed the field. Vesper recommends the audible `{suggested}` before trusting the run.",
+        }
+    elif remaining_required:
+        step = remaining_required[0]
+        best_next_play = {
+            "label": str(step.get("label") or "Next required play"),
+            "authority": "vesper" if phase in {"plan", "execute"} else "coach_gate",
+            "owner": str(step.get("pack_name") or quarterback.get("call_sign")),
+            "reason": str(step.get("reason") or "This is the next required play in the current command sequence."),
+        }
+    elif blocked_tool_ids:
+        best_next_play = {
+            "label": "Coach review",
+            "authority": "coach_gate",
+            "owner": "Coach",
+            "reason": "A required lane is blocked or outside the current safe boundary. Vesper is holding discipline and waiting for command.",
+        }
+    else:
+        best_next_play = {
+            "label": "Analyst review",
+            "authority": "coach_gate",
+            "owner": "Coach",
+            "reason": "The safe required work is complete. Vesper recommends analyst review, decision, or a new prompt.",
+        }
+
+    audibles: list[dict[str, str]] = []
+    if top_anomaly:
+        audibles.append(
+            {
+                "label": "Attack the top pressure point",
+                "authority": "vesper",
+                "reason": str(top_anomaly.get("message") or ""),
+            }
+        )
+    optional_candidates = [step for step in plan_steps if not bool(step.get("required"))][:2]
+    for step in optional_candidates:
+        audibles.append(
+            {
+                "label": str(step.get("label") or "Optional audible"),
+                "authority": "vesper",
+                "reason": str(step.get("reason") or ""),
+            }
+        )
+    if not audibles:
+        audibles.append(
+            {
+                "label": "Reassess the field",
+                "authority": "coach_gate",
+                "reason": "No obvious audible is queued. Vesper recommends reassessing the mission objective before opening a new drive.",
+            }
+        )
+
+    current_situation = (
+        f"{quarterback.get('call_sign', 'Vesper')} is holding {playbook.get('label', 'the current playbook')} on {vendor_name}. "
+        f"Phase is `{phase}` with `{preflight.get('anomaly_pressure', 'low')}` anomaly pressure and `{status}` run status."
+    )
+    if top_anomaly:
+        current_situation += f" Top pressure point: {str(top_anomaly.get('message') or '').rstrip('.')}."
+
+    return {
+        "version": "assistant-situation-v1",
+        "generated_at": _utc_now_iso(),
+        "case_id": case_id,
+        "vendor_name": vendor_name,
+        "run_id": run_id or None,
+        "run_status": status,
+        "source": source,
+        "quarterback": quarterback,
+        "playbook": playbook,
+        "preflight": preflight,
+        "phase": phase,
+        "current_situation": current_situation,
+        "best_next_play": best_next_play,
+        "audibles": audibles[:3],
+        "operator_brief": str(execution_payload.get("operator_brief") or plan_payload.get("operator_brief") or ""),
+        "operator_updates": list(execution_payload.get("operator_updates") or plan_payload.get("operator_updates") or []),
+        "field_state": {
+            "executed_steps": len(executed_steps),
+            "remaining_required_steps": len(remaining_required),
+            "blocked_steps": len(blocked_tools),
+            "human_gate_required": bool(preflight.get("human_gate_required", True)),
+            "degraded_mode": bool(preflight.get("degraded_mode")),
+        },
+        "pack_state": pack_state,
+        "coach_boundary": {
+            "vesper_can_do": [
+                "Plan the drive",
+                "Auto-run safe required typed tools",
+                "Recommend audibles",
+                "Hold discipline inside the current safe boundary",
+            ],
+            "coach_required_for": [
+                "Live mutation outside typed safe tools",
+                "Final judgment changes",
+                "Dossier generation decisions that need human approval",
+                "Risky reruns or degraded-mode overrides",
+            ],
+        },
+    }

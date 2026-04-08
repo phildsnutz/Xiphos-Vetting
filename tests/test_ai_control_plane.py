@@ -306,6 +306,87 @@ def test_assistant_plan_route_can_auto_execute_required_tools(client, monkeypatc
     assert saved_run["execution_payload"]["phase"] == "execute"
 
 
+def test_assistant_situation_route_works_without_existing_run(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Situation Vendor")
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 21,
+            "is_hard_stop": False,
+            "calibrated": {"calibrated_tier": "TIER_3_REVIEW"},
+        },
+    )
+    server.db.save_enrichment(
+        case_id,
+        {
+            "summary": {"findings_total": 2, "connectors_with_data": 1},
+            "identifiers": {"cage": "1ABC2"},
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "build_supplier_passport",
+        lambda _case_id: {
+            "posture": "review",
+            "tribunal": {"recommended_view": "watch", "consensus_level": "moderate"},
+            "identity": {"identifiers": {"cage": "1ABC2"}, "connectors_with_data": 1},
+            "graph": {
+                "relationship_count": 1,
+                "control_paths": [],
+                "claim_health": {"contradicted_claims": 0, "stale_paths": 0},
+            },
+        },
+    )
+
+    response = client.get(f"/api/cases/{case_id}/assistant-situation")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["version"] == "assistant-situation-v1"
+    assert body["source"] == "live_context"
+    assert body["quarterback"]["call_sign"] == "Vesper"
+    assert body["best_next_play"]["label"]
+    assert body["coach_boundary"]["vesper_can_do"]
+
+
+def test_assistant_situation_route_uses_latest_run_state(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Situation Run Vendor")
+    monkeypatch.setattr(
+        server,
+        "build_supplier_passport",
+        lambda _case_id: {
+            "posture": "review",
+            "tribunal": {"recommended_view": "watch", "consensus_level": "moderate"},
+            "identity": {"identifiers": {"cage": "1ABC2"}, "connectors_with_data": 2},
+            "graph": {
+                "relationship_count": 3,
+                "control_paths": [{"rel_type": "owned_by", "confidence": 0.81}],
+                "claim_health": {"contradicted_claims": 0, "stale_paths": 0},
+            },
+        },
+    )
+
+    plan_response = client.post(
+        f"/api/cases/{case_id}/assistant-plan",
+        json={"prompt": "Trace the control path and move fast.", "auto_execute": True},
+    )
+    assert plan_response.status_code == 200
+    run_id = plan_response.get_json()["run_id"]
+
+    response = client.get(f"/api/cases/{case_id}/assistant-situation")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["source"] == "assistant_run"
+    assert body["run_id"] == run_id
+    assert body["run_status"] == "executed"
+    assert body["phase"] == "execute"
+    assert body["current_situation"]
+    assert body["best_next_play"]["reason"]
+
+
 def test_prepare_case_assistant_execution_blocks_unplanned_or_unsafe_tools():
     executable, blocked = prepare_case_assistant_execution(
         [

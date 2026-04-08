@@ -274,6 +274,7 @@ except ImportError:
 try:
     from ai_control_plane import (
         build_case_assistant_plan,
+        build_case_assistant_situation_brief,
         prepare_case_assistant_execution,
         prepare_case_assistant_feedback,
     )
@@ -3163,6 +3164,59 @@ def api_get_case_assistant_run(case_id, run_id):
     if not payload or payload.get("case_id") != case_id:
         return jsonify({"error": "Assistant run not found"}), 404
     return jsonify(payload)
+
+
+@app.route("/api/cases/<case_id>/assistant-situation", methods=["GET"])
+@require_auth("cases:read")
+def api_get_case_assistant_situation(case_id):
+    if not HAS_AI_CONTROL_PLANE:
+        return jsonify({"error": "AI control plane planner not available"}), 501
+
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+
+    runs = db.list_case_assistant_runs(case_id, limit=1)
+    if runs:
+        latest = runs[0]
+        return jsonify(
+            build_case_assistant_situation_brief(
+                case_id=case_id,
+                vendor_name=str(vendor.get("name") or ""),
+                plan_payload=latest.get("plan_payload") or {},
+                execution_payload=latest.get("execution_payload") or {},
+                run_id=str(latest.get("id") or ""),
+                run_status=str(latest.get("status") or ""),
+                source="assistant_run",
+            )
+        )
+
+    prompt = str(request.args.get("prompt") or f"What is the situation on {vendor.get('name') or 'this case'} and what is the best next play?").strip()
+    score = db.get_latest_score(case_id)
+    enrichment = db.get_latest_enrichment(case_id)
+    passport = build_supplier_passport(case_id) if HAS_SUPPLIER_PASSPORT else None
+    network_risk = passport.get("network_risk") if isinstance(passport, dict) else None
+    storyline = _build_case_storyline_payload(case_id, vendor, score, network_risk=network_risk)
+    plan_payload = build_case_assistant_plan(
+        case_id=case_id,
+        analyst_prompt=prompt,
+        vendor=vendor,
+        score=score,
+        enrichment=enrichment,
+        supplier_passport=passport,
+        storyline=storyline,
+    )
+    return jsonify(
+        build_case_assistant_situation_brief(
+            case_id=case_id,
+            vendor_name=str(vendor.get("name") or ""),
+            plan_payload=plan_payload,
+            execution_payload={},
+            run_id="",
+            run_status="ready",
+            source="live_context",
+        )
+    )
 
 
 def _serialize_person_screenings_for_assistant(case_id: str) -> dict:
