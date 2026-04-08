@@ -129,6 +129,11 @@ _SOURCE_PROFILES: dict[str, dict[str, object]] = {
         "authority_level": "media_aggregation",
         "authority_score": 0.34,
     },
+    "rss_public": {
+        "source_class": "public_feed",
+        "authority_level": "first_party_self_disclosed",
+        "authority_score": 0.56,
+    },
 }
 
 

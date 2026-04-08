@@ -181,6 +181,15 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         access_model="public_feed",
         runtime_active=True,
     ),
+    "rss_public": ConnectorRegistryEntry(
+        label="First-Party RSS Feed",
+        category="Collector",
+        description="Seeded or discovered first-party RSS and Atom feeds parsed for contract, assurance, and activity signals",
+        source_class="public_connector",
+        authority_level="first_party_self_disclosed",
+        access_model="rss_public",
+        runtime_active=True,
+    ),
     "sec_edgar": ConnectorRegistryEntry(
         label="SEC EDGAR",
         category="Financial",
@@ -635,6 +644,7 @@ ACTIVE_CONNECTOR_ORDER: list[str] = [
     "fara",
     "gdelt_media",
     "google_news",
+    "rss_public",
     "sec_edgar",
     "gleif_lei",
     "gleif_bods_ownership_fixture",

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Vector Mission Systems Newsroom</title>
+    <link>https://vector.example/news</link>
+    <description>Latest updates from Vector Mission Systems</description>
+    <item>
+      <title>Vector Mission Systems wins $42M Navy task order on SeaPort NxG</title>
+      <link>https://vector.example/news/navy-task-order</link>
+      <pubDate>Tue, 01 Apr 2026 15:00:00 GMT</pubDate>
+      <description>Vector Mission Systems will deliver mission planning support under the SeaPort NxG vehicle.</description>
+    </item>
+    <item>
+      <title>Vector Mission Systems achieves CMMC Level 2 certification</title>
+      <link>https://vector.example/news/cmmc-level-2</link>
+      <pubDate>Sat, 15 Mar 2026 12:30:00 GMT</pubDate>
+      <description>The company completed its latest third-party certification milestone for controlled environment work.</description>
+    </item>
+    <item>
+      <title>Vector Mission Systems opens new integration lab in Huntsville</title>
+      <link>https://vector.example/news/huntsville-lab</link>
+      <pubDate>Fri, 07 Mar 2026 08:00:00 GMT</pubDate>
+      <description>The lab will support mission integration and prototype work.</description>
+    </item>
+  </channel>
+</rss>

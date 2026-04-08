@@ -380,7 +380,21 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
     support = context.get("vendor_procurement") if isinstance(context.get("vendor_procurement"), dict) else {}
     vendor = context.get("vendor") if isinstance(context.get("vendor"), dict) else {}
     vendor_name = _clean_detail(vendor.get("name"), "The vendor")
+    enrichment = context.get("enrichment") if isinstance(context.get("enrichment"), dict) else {}
+    enrichment_identifiers = enrichment.get("identifiers") if isinstance(enrichment.get("identifiers"), dict) else {}
+    rss_latest_activity = _clean_detail(enrichment_identifiers.get("rss_public_latest_item_at"))
+    rss_feed_title = _clean_detail(enrichment_identifiers.get("rss_public_feed_title"))
+    rss_latest_day = rss_latest_activity[:10] if rss_latest_activity else ""
     if not support:
+        activity_lines = []
+        if rss_latest_activity:
+            activity_lines.append(
+                _join_sentences(
+                    "First-party activity feed remains live even where procurement evidence is still thin",
+                    f"Latest surfaced feed item: {rss_latest_activity}",
+                    f"Feed: {rss_feed_title}" if rss_feed_title else "",
+                )
+            )
         return {
             "metrics": {
                 "prime_vehicle_count": 0,
@@ -388,13 +402,13 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
                 "prime_award_count": 0,
                 "subaward_row_count": 0,
             },
-            "market_position_lines": [],
+            "market_position_lines": activity_lines,
             "prime_vehicle_lines": [],
             "sub_vehicle_lines": [],
             "upstream_prime_lines": [],
             "downstream_sub_lines": [],
             "customer_lines": [],
-            "implication_lines": [],
+            "implication_lines": activity_lines,
         }
 
     prime_vehicles = [row for row in (support.get("prime_vehicles") or []) if isinstance(row, dict)]
@@ -426,6 +440,9 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
     recent_prime_awards = int(momentum.get("recent_prime_awards_24m") or 0)
     recent_subaward_rows = int(momentum.get("recent_subaward_rows_24m") or 0)
     latest_activity_date = str(momentum.get("latest_activity_date") or "").strip()
+    latest_activity_day = latest_activity_date[:10] if latest_activity_date else ""
+    if rss_latest_day and (not latest_activity_day or rss_latest_day > latest_activity_day):
+        latest_activity_date = rss_latest_activity
 
     prime_vehicle_lines = [
         _join_sentences(
@@ -543,6 +560,14 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
         implication_lines.append(
             f"Visible procurement activity may be cooling. The latest surfaced award or subaward date is {latest_activity_date}."
         )
+    if rss_latest_activity:
+        implication_lines.append(
+            _join_sentences(
+                "First-party activity feed also remains live",
+                f"Latest surfaced feed item: {rss_latest_activity}",
+                f"Feed: {rss_feed_title}" if rss_feed_title else "",
+            )
+        )
     if not implication_lines and support.get("findings"):
         first = support["findings"][0]
         if isinstance(first, dict):
@@ -600,6 +625,14 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
                     else ""
                 ),
                 f"Latest surfaced activity date: {latest_activity_date}" if latest_activity_date else "",
+            )
+        )
+    if rss_latest_activity:
+        market_position_lines.append(
+            _join_sentences(
+                "First-party feed activity is still current",
+                f"Latest surfaced feed item: {rss_latest_activity}",
+                f"Feed: {rss_feed_title}" if rss_feed_title else "",
             )
         )
 
@@ -2075,6 +2108,7 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         f"{payload['graph_read']['entity_count']} entities, "
         f"{len(payload['material_signals']) or len(payload['findings'])} promoted signals."
     )
+    procurement_read = payload.get("procurement_read") or {}
     story.append(Spacer(1, 0.08 * inch))
     story.append(Paragraph(f"Top risk signal: {top_risk_signal}", body))
     story.append(Paragraph(f"Immediate next move: {immediate_next_move}", body))

@@ -10,6 +10,7 @@ if BACKEND_DIR not in sys.path:
 from helios_core.brief_engine import (  # type: ignore  # noqa: E402
     _build_axiom_assessment,
     _build_material_signals,
+    _build_procurement_read,
     _confidence_tag,
     _collect_gap_lines,
     _collect_graph_holds,
@@ -471,6 +472,32 @@ def test_rendered_html_surfaces_procurement_footprint_when_available():
     assert "Recurring Upstream Primes" in html
     assert "Recurring Downstream Subs" in html
     assert "OASIS" in html
+
+
+def test_procurement_read_uses_first_party_rss_when_procurement_is_thin():
+    context = {
+        "vendor": {
+            "id": "vector-review",
+            "name": "Vector Mission Systems",
+            "country": "US",
+            "program": "dod_unclassified",
+            "profile": "defense_acquisition",
+            "vendor_input": {},
+        },
+        "enrichment": {
+            "identifiers": {
+                "rss_public_latest_item_at": "2026-04-01T15:00:00Z",
+                "rss_public_feed_title": "Vector Mission Systems Newsroom",
+            },
+            "findings": [],
+        },
+        "vendor_procurement": {},
+    }
+
+    read = _build_procurement_read(context)
+
+    assert any("first-party activity feed remains live" in item.lower() for item in read["market_position_lines"])
+    assert any("vector mission systems newsroom" in item.lower() for item in read["implication_lines"])
 
 
 def test_rendered_html_surfaces_ownership_control_read_when_available():

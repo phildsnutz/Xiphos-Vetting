@@ -458,6 +458,7 @@ SOURCE_DISPLAY_NAMES = {
     "fara": "Foreign Agent Registration (FARA)",
     "gdelt_media": "Adverse Media (GDELT)",
     "google_news": "News Coverage",
+    "rss_public": "First-Party RSS Feed",
     "sec_edgar": "SEC Filings (EDGAR)",
     "gleif_lei": "Legal Entity Identifier (GLEIF)",
     "opencorporates": "Corporate Registry (OpenCorporates)",

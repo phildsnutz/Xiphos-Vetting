@@ -127,6 +127,7 @@ GLOBAL_CONNECTORS = {
     "icij_offshore",       # ICIJ (global)
     "gdelt_media",         # GDELT (global media)
     "google_news",         # Google News (global)
+    "rss_public",          # First-party public RSS / Atom feeds
     "gleif_lei",           # GLEIF (global)
     "gleif_bods_ownership_fixture",  # standards-backed local ownership fixture
     "openownership_bods_fixture",  # replayable BODS beneficial ownership fixture
@@ -184,6 +185,20 @@ COMMON_MULTI_PART_TLDS = {
 }
 
 CONNECTOR_REPLAY_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "rss_public": (
+        "website",
+        "official_website",
+        "sam_website",
+        "rss_feed_url",
+        "rss_feed_urls",
+        "rss_public_feed_url",
+        "rss_public_feed_urls",
+        "rss_public_fixture",
+        "rss_public_fixture_path",
+        "rss_public_fixture_feed",
+        "rss_public_fixture_feeds",
+        "rss_public_fixture_only",
+    ),
     "public_html_ownership": (
         "website",
         "first_party_pages",
@@ -211,6 +226,20 @@ CONNECTOR_REPLAY_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 }
 
 CONNECTOR_CACHE_VARIANT_KEYS: dict[str, tuple[str, ...]] = {
+    "rss_public": (
+        "website",
+        "official_website",
+        "sam_website",
+        "rss_feed_url",
+        "rss_feed_urls",
+        "rss_public_feed_url",
+        "rss_public_feed_urls",
+        "rss_public_fixture",
+        "rss_public_fixture_path",
+        "rss_public_fixture_feed",
+        "rss_public_fixture_feeds",
+        "rss_public_fixture_only",
+    ),
     "public_html_ownership": (
         "website",
         "official_website",
