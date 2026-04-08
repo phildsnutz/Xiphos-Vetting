@@ -3004,6 +3004,7 @@ def api_get_case_assistant_plan(case_id):
 
     payload = request.get_json(silent=True) or {}
     prompt = str(payload.get("prompt") or "").strip()
+    auto_execute = bool(payload.get("auto_execute"))
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
 
@@ -3050,7 +3051,95 @@ def api_get_case_assistant_plan(case_id):
             "playbook_id": (plan_payload.get("playbook") or {}).get("playbook_id"),
         },
     )
-    return jsonify({**plan_payload, "run_id": run_id, "run_status": "planned"})
+    run_status = "planned"
+    execution_payload = None
+    if auto_execute:
+        approved_tool_ids = [
+            str(step.get("tool_id") or "").strip()
+            for step in (plan_payload.get("plan") or [])
+            if bool(step.get("required")) and str(step.get("tool_id") or "").strip()
+        ]
+        executable_ids, blocked_tools, executed_steps = _perform_case_assistant_execution(
+            case_id=case_id,
+            vendor=vendor,
+            score=score,
+            enrichment=enrichment,
+            supplier_passport=passport,
+            storyline=storyline,
+            plan_payload=plan_payload,
+            approved_tool_ids=approved_tool_ids,
+        )
+        if executable_ids:
+            run_status = "executed"
+            execution_payload = {
+                "version": "ai-control-plane-execution-v1",
+                "executed_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "case_id": case_id,
+                "run_id": run_id,
+                "run_status": "executed",
+                "objective": plan_payload.get("objective"),
+                "analyst_prompt": prompt,
+                "quarterback": plan_payload.get("quarterback"),
+                "playbook": plan_payload.get("playbook"),
+                "preflight": plan_payload.get("preflight"),
+                "pack": plan_payload.get("pack"),
+                "operator_brief": plan_payload.get("operator_brief"),
+                "operator_updates": list(plan_payload.get("operator_updates") or []) + ["Vesper took the snap and executed the safe required plays automatically."],
+                "approved_tool_ids": approved_tool_ids,
+                "executed_steps": executed_steps,
+                "blocked_tools": blocked_tools,
+                "approval_boundary": "analyst-approved typed tools only; no silent live reruns or state mutation",
+            }
+            db.update_assistant_run(
+                run_id,
+                status="executed",
+                plan_payload=plan_payload,
+                execution_payload=_assistant_run_snapshot(
+                    plan_payload,
+                    phase="execute",
+                    status="executed",
+                    approved_tool_ids=approved_tool_ids,
+                    executed_steps=executed_steps,
+                    blocked_tools=blocked_tools,
+                ),
+                last_error="",
+            )
+            db.save_beta_event(
+                user_id=_current_user_id(),
+                user_email=_current_user_email(),
+                user_role=_current_user_role(),
+                case_id=case_id,
+                workflow_lane=str(((plan_payload.get("preflight") or {}).get("workflow_lane") or "")),
+                screen="assistant_control_plane",
+                event_name="assistant_run_auto_executed",
+                metadata={"run_id": run_id, "executed_tool_ids": executable_ids},
+            )
+        else:
+            run_status = "blocked"
+            db.update_assistant_run(
+                run_id,
+                status="blocked",
+                plan_payload=plan_payload,
+                execution_payload=_assistant_run_snapshot(
+                    plan_payload,
+                    phase="execute",
+                    status="blocked",
+                    approved_tool_ids=approved_tool_ids,
+                    executed_steps=[],
+                    blocked_tools=blocked_tools,
+                ),
+                last_error="No approved tools were eligible for automatic execution",
+            )
+
+    return jsonify(
+        {
+            **plan_payload,
+            "run_id": run_id,
+            "run_status": run_status,
+            "auto_execute": auto_execute,
+            "execution": execution_payload,
+        }
+    )
 
 
 @app.route("/api/cases/<case_id>/assistant-runs", methods=["GET"])
@@ -3351,6 +3440,34 @@ def _assistant_run_snapshot(
     }
 
 
+def _perform_case_assistant_execution(
+    *,
+    case_id: str,
+    vendor: dict,
+    score: dict | None,
+    enrichment: dict | None,
+    supplier_passport: dict | None,
+    storyline: dict | None,
+    plan_payload: dict,
+    approved_tool_ids: list[str],
+) -> tuple[list[str], list[dict], list[dict]]:
+    executable_ids, blocked_tools = prepare_case_assistant_execution(plan_payload.get("plan", []), approved_tool_ids)
+    executed_steps = [
+        _execute_case_assistant_tool(
+            tool_id,
+            case_id=case_id,
+            vendor=vendor,
+            score=score,
+            enrichment=enrichment,
+            supplier_passport=supplier_passport,
+            storyline=storyline,
+            anomalies=plan_payload.get("anomalies", []),
+        )
+        for tool_id in executable_ids
+    ]
+    return executable_ids, blocked_tools, executed_steps
+
+
 @app.route("/api/cases/<case_id>/assistant-execute", methods=["POST"])
 @require_auth("cases:read")
 def api_execute_case_assistant_plan(case_id):
@@ -3391,7 +3508,16 @@ def api_execute_case_assistant_plan(case_id):
         if not assistant_run or assistant_run.get("case_id") != case_id:
             return jsonify({"error": "Assistant run not found"}), 404
 
-    executable_ids, blocked_tools = prepare_case_assistant_execution(plan_payload.get("plan", []), approved_tool_ids)
+    executable_ids, blocked_tools, executed_steps = _perform_case_assistant_execution(
+        case_id=case_id,
+        vendor=vendor,
+        score=score,
+        enrichment=enrichment,
+        supplier_passport=passport,
+        storyline=storyline,
+        plan_payload=plan_payload,
+        approved_tool_ids=approved_tool_ids,
+    )
     if not executable_ids:
         if run_id:
             db.update_assistant_run(
@@ -3415,20 +3541,6 @@ def api_execute_case_assistant_plan(case_id):
                 "plan": plan_payload,
             }
         ), 400
-
-    executed_steps = [
-        _execute_case_assistant_tool(
-            tool_id,
-            case_id=case_id,
-            vendor=vendor,
-            score=score,
-            enrichment=enrichment,
-            supplier_passport=passport,
-            storyline=storyline,
-            anomalies=plan_payload.get("anomalies", []),
-        )
-        for tool_id in executable_ids
-    ]
 
     if run_id:
         db.update_assistant_run(

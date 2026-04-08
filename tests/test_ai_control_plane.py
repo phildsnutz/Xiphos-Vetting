@@ -249,6 +249,63 @@ def test_assistant_run_routes_return_persistent_quarterback_state(client, monkey
     assert any(member["call_sign"] == "Vesper" and member["status"] == "command" for member in payload["execution_payload"]["pack_state"])
 
 
+def test_assistant_plan_route_can_auto_execute_required_tools(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Auto Execute Vendor")
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 33,
+            "is_hard_stop": False,
+            "calibrated": {"calibrated_tier": "TIER_3_REVIEW"},
+        },
+    )
+    server.db.save_enrichment(
+        case_id,
+        {
+            "summary": {"findings_total": 4, "connectors_with_data": 2},
+            "identifiers": {"cage": "1ABC2"},
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "build_supplier_passport",
+        lambda _case_id: {
+            "posture": "review",
+            "tribunal": {"recommended_view": "watch", "consensus_level": "moderate"},
+            "network_risk": {"score": 1.1, "level": "medium"},
+            "identity": {"identifiers": {"cage": "1ABC2"}, "connectors_with_data": 2},
+            "graph": {
+                "relationship_count": 3,
+                "control_paths": [{"rel_type": "owned_by", "confidence": 0.86}],
+                "claim_health": {"contradicted_claims": 0, "stale_paths": 0},
+            },
+        },
+    )
+
+    response = client.post(
+        f"/api/cases/{case_id}/assistant-plan",
+        json={
+            "prompt": "Trace the control path and move fast.",
+            "auto_execute": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["auto_execute"] is True
+    assert body["run_status"] == "executed"
+    assert body["execution"]["run_id"] == body["run_id"]
+    assert body["execution"]["quarterback"]["call_sign"] == "Vesper"
+    executed_tool_ids = [step["tool_id"] for step in body["execution"]["executed_steps"]]
+    assert "case_snapshot" in executed_tool_ids
+    assert "supplier_passport" in executed_tool_ids
+    assert len(executed_tool_ids) >= 2
+    saved_run = server.db.get_assistant_run(body["run_id"])
+    assert saved_run["status"] == "executed"
+    assert saved_run["execution_payload"]["phase"] == "execute"
+
+
 def test_prepare_case_assistant_execution_blocks_unplanned_or_unsafe_tools():
     executable, blocked = prepare_case_assistant_execution(
         [

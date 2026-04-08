@@ -104,7 +104,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
     }
   };
 
-  const handleAssistantPlan = async (promptOverride?: string) => {
+  const handleAssistantPlan = async (promptOverride?: string, autoExecute = false) => {
     const nextPrompt = (promptOverride ?? assistantPrompt).trim();
     if (!nextPrompt) {
       setAssistantError("Ask Helios what you want checked first.");
@@ -116,9 +116,12 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
     setAssistantExecution(null);
     setAssistantExecutionError(null);
     try {
-      const result = await fetchCaseAssistantPlan(caseId, nextPrompt);
+      const result = await fetchCaseAssistantPlan(caseId, nextPrompt, autoExecute);
       setAssistantPlan(result);
       setAssistantRunId(result.run_id ?? null);
+      if (result.execution) {
+        setAssistantExecution(result.execution);
+      }
     } catch (e) {
       setAssistantError(e instanceof Error ? e.message : "Planner request failed");
     } finally {
@@ -201,6 +204,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             prompt={assistantPrompt}
             onPromptChange={setAssistantPrompt}
             onRun={handleAssistantPlan}
+            onAutoplay={handleAssistantPlan}
             onExecute={handleAssistantExecute}
             plan={assistantPlan}
             loading={assistantLoading}
@@ -291,6 +295,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           prompt={assistantPrompt}
           onPromptChange={setAssistantPrompt}
           onRun={handleAssistantPlan}
+          onAutoplay={handleAssistantPlan}
           onExecute={handleAssistantExecute}
           plan={assistantPlan}
           loading={assistantLoading}
@@ -581,6 +586,7 @@ function ControlPlaneSection({
   prompt,
   onPromptChange,
   onRun,
+  onAutoplay,
   onExecute,
   plan,
   loading,
@@ -595,7 +601,8 @@ function ControlPlaneSection({
   vendorName: string;
   prompt: string;
   onPromptChange: (value: string) => void;
-  onRun: (prompt?: string) => void;
+  onRun: (prompt?: string, autoExecute?: boolean) => void;
+  onAutoplay: (prompt?: string, autoExecute?: boolean) => void;
   onExecute: () => void;
   plan: CaseAssistantPlan | null;
   loading: boolean;
@@ -745,6 +752,22 @@ function ControlPlaneSection({
           >
             {loading ? <Loader2 size={11} className="animate-spin" /> : <Brain size={11} />}
             {loading ? "Planning..." : "Plan next steps"}
+          </button>
+          <button
+            onClick={() => onAutoplay(undefined, true)}
+            disabled={loading || executionLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg font-medium border cursor-pointer btn-interactive focus-ring"
+            style={{
+              padding: "6px 12px",
+              fontSize: FS.sm,
+              background: loading || executionLoading ? T.border : `${T.accent}18`,
+              color: loading || executionLoading ? T.muted : T.accent,
+              borderColor: loading || executionLoading ? T.border : `${T.accent}44`,
+              opacity: loading || executionLoading ? 0.7 : 1,
+            }}
+          >
+            {loading ? <Loader2 size={11} className="animate-spin" /> : <Shield size={11} />}
+            {loading ? "Vesper working..." : "Let Vesper work"}
           </button>
           {quickPrompts.map((quickPrompt) => (
             <button

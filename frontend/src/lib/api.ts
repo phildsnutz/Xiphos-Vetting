@@ -576,6 +576,7 @@ export interface CaseAssistantPlan {
   case_id: string;
   run_id?: string | null;
   run_status?: string | null;
+  auto_execute?: boolean;
   vendor_name: string;
   analyst_prompt: string;
   objective: string;
@@ -629,6 +630,7 @@ export interface CaseAssistantPlan {
   guardrails: string[];
   suggested_followups: string[];
   storyline_available: boolean;
+  execution?: CaseAssistantExecutionResult | null;
 }
 
 export interface AssistantExportHybridReview {
@@ -917,10 +919,10 @@ export async function fetchSupplierPassport(caseId: string): Promise<SupplierPas
   return json<SupplierPassport>(`/api/cases/${caseId}/supplier-passport`);
 }
 
-export async function fetchCaseAssistantPlan(caseId: string, prompt: string): Promise<CaseAssistantPlan> {
+export async function fetchCaseAssistantPlan(caseId: string, prompt: string, autoExecute = false): Promise<CaseAssistantPlan> {
   return json<CaseAssistantPlan>(`/api/cases/${caseId}/assistant-plan`, {
     method: "POST",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, auto_execute: autoExecute }),
   });
 }
 
