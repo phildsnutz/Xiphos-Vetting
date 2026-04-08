@@ -3012,18 +3012,68 @@ def api_get_case_assistant_plan(case_id):
     passport = build_supplier_passport(case_id) if HAS_SUPPLIER_PASSPORT else None
     network_risk = passport.get("network_risk") if isinstance(passport, dict) else None
     storyline = _build_case_storyline_payload(case_id, vendor, score, network_risk=network_risk)
-
-    return jsonify(
-        build_case_assistant_plan(
-            case_id=case_id,
-            analyst_prompt=prompt,
-            vendor=vendor,
-            score=score,
-            enrichment=enrichment,
-            supplier_passport=passport,
-            storyline=storyline,
-        )
+    plan_payload = build_case_assistant_plan(
+        case_id=case_id,
+        analyst_prompt=prompt,
+        vendor=vendor,
+        score=score,
+        enrichment=enrichment,
+        supplier_passport=passport,
+        storyline=storyline,
     )
+    run_id = f"qr-{uuid.uuid4().hex[:10]}"
+    db.save_assistant_run(
+        run_id=run_id,
+        case_id=case_id,
+        workflow_lane=str(((plan_payload.get("preflight") or {}).get("workflow_lane") or "")),
+        objective=str(plan_payload.get("objective") or ""),
+        playbook_id=str(((plan_payload.get("playbook") or {}).get("playbook_id") or "")),
+        status="planned",
+        analyst_prompt=prompt,
+        plan_payload=plan_payload,
+        execution_payload=_assistant_run_snapshot(plan_payload, phase="plan", status="planned"),
+        created_by=_current_user_id(),
+        created_by_email=_current_user_email(),
+        created_by_role=_current_user_role(),
+    )
+    db.save_beta_event(
+        user_id=_current_user_id(),
+        user_email=_current_user_email(),
+        user_role=_current_user_role(),
+        case_id=case_id,
+        workflow_lane=str(((plan_payload.get("preflight") or {}).get("workflow_lane") or "")),
+        screen="assistant_control_plane",
+        event_name="assistant_run_planned",
+        metadata={
+            "run_id": run_id,
+            "objective": plan_payload.get("objective"),
+            "playbook_id": (plan_payload.get("playbook") or {}).get("playbook_id"),
+        },
+    )
+    return jsonify({**plan_payload, "run_id": run_id, "run_status": "planned"})
+
+
+@app.route("/api/cases/<case_id>/assistant-runs", methods=["GET"])
+@require_auth("cases:read")
+def api_list_case_assistant_runs(case_id):
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+    limit = max(1, min(int(request.args.get("limit", 20) or 20), 100))
+    runs = db.list_case_assistant_runs(case_id, limit=limit)
+    return jsonify({"assistant_runs": runs, "total": len(runs)})
+
+
+@app.route("/api/cases/<case_id>/assistant-runs/<run_id>", methods=["GET"])
+@require_auth("cases:read")
+def api_get_case_assistant_run(case_id, run_id):
+    vendor = db.get_vendor(case_id)
+    if not vendor:
+        return jsonify({"error": "Case not found"}), 404
+    payload = db.get_assistant_run(run_id)
+    if not payload or payload.get("case_id") != case_id:
+        return jsonify({"error": "Assistant run not found"}), 404
+    return jsonify(payload)
 
 
 def _serialize_person_screenings_for_assistant(case_id: str) -> dict:
@@ -3181,6 +3231,126 @@ def _execute_case_assistant_tool(
     }
 
 
+def _assistant_pack_state(
+    plan_payload: dict | None,
+    *,
+    phase: str,
+    executed_tool_ids: list[str] | None = None,
+    blocked_tool_ids: list[str] | None = None,
+) -> list[dict]:
+    executed = set(executed_tool_ids or [])
+    blocked = set(blocked_tool_ids or [])
+    step_map: dict[str, list[dict]] = {}
+    for step in (plan_payload or {}).get("plan", []) or []:
+        pack_id = str(step.get("pack_id") or "").strip()
+        if not pack_id:
+            continue
+        step_map.setdefault(pack_id, []).append(step)
+
+    pack_state: list[dict] = []
+    for member in (plan_payload or {}).get("pack", []) or []:
+        pack_id = str(member.get("id") or member.get("pack_id") or member.get("call_sign") or "").strip().lower()
+        assigned = step_map.get(pack_id, [])
+        assigned_tool_ids = [str(step.get("tool_id") or "").strip() for step in assigned if str(step.get("tool_id") or "").strip()]
+        completed_tool_ids = [tool_id for tool_id in assigned_tool_ids if tool_id in executed]
+        blocked_member_tool_ids = [tool_id for tool_id in assigned_tool_ids if tool_id in blocked]
+
+        if pack_id == "vesper":
+            status = "command"
+        elif phase == "plan":
+            status = "ready" if assigned_tool_ids else "reserve"
+        elif phase == "execute":
+            if completed_tool_ids and len(completed_tool_ids) == len(assigned_tool_ids):
+                status = "complete"
+            elif completed_tool_ids or blocked_member_tool_ids:
+                status = "engaged"
+            else:
+                status = "ready" if assigned_tool_ids else "reserve"
+        else:
+            status = "reviewing" if assigned_tool_ids else "reserve"
+
+        pack_state.append(
+            {
+                "id": pack_id,
+                "call_sign": member.get("call_sign"),
+                "breed": member.get("breed"),
+                "role": member.get("role"),
+                "function": member.get("function"),
+                "summary": member.get("summary"),
+                "duty": member.get("duty"),
+                "active": bool(member.get("active", True)),
+                "status": status,
+                "assigned_tool_ids": assigned_tool_ids,
+                "completed_tool_ids": completed_tool_ids,
+                "blocked_tool_ids": blocked_member_tool_ids,
+            }
+        )
+    return pack_state
+
+
+def _assistant_run_snapshot(
+    plan_payload: dict | None,
+    *,
+    phase: str,
+    status: str,
+    approved_tool_ids: list[str] | None = None,
+    executed_steps: list[dict] | None = None,
+    blocked_tools: list[dict] | None = None,
+    verdict: str = "",
+    feedback_type: str = "",
+    feedback_id: int | None = None,
+    training_signal: dict | None = None,
+) -> dict:
+    executed_tool_ids = [str(step.get("tool_id") or "").strip() for step in (executed_steps or []) if str(step.get("tool_id") or "").strip()]
+    blocked_tool_ids = [str(item.get("tool_id") or "").strip() for item in (blocked_tools or []) if str(item.get("tool_id") or "").strip()]
+    preflight = (plan_payload or {}).get("preflight") or {}
+    playbook = (plan_payload or {}).get("playbook") or {}
+    quarterback = (plan_payload or {}).get("quarterback") or {}
+    operator_updates = list((plan_payload or {}).get("operator_updates") or [])
+
+    if phase == "execute":
+        operator_updates.append(
+            f"{quarterback.get('call_sign', 'Quarterback')} kept {len(executed_tool_ids)} tool step(s) inside the approved boundary."
+        )
+    if phase == "review" and verdict:
+        operator_updates.append(
+            f"Analyst verdict: {verdict}. Feedback type: {feedback_type or 'unspecified'}."
+        )
+
+    return {
+        "quarterback": quarterback,
+        "playbook": playbook,
+        "preflight": preflight,
+        "phase": phase,
+        "status": status,
+        "approved_tool_ids": list(approved_tool_ids or []),
+        "executed_steps": executed_steps or [],
+        "blocked_tools": blocked_tools or [],
+        "feedback": {
+            "verdict": verdict,
+            "feedback_type": feedback_type,
+            "feedback_id": feedback_id,
+            "training_signal": training_signal or {},
+        },
+        "situation_report": {
+            "workflow_lane": str(preflight.get("workflow_lane") or ""),
+            "anomaly_pressure": str(preflight.get("anomaly_pressure") or ""),
+            "human_gate_required": bool(preflight.get("human_gate_required")),
+            "degraded_mode": bool(preflight.get("degraded_mode")),
+            "execution_mode": str(preflight.get("execution_mode") or ""),
+        },
+        "pack_state": _assistant_pack_state(
+            plan_payload,
+            phase=phase,
+            executed_tool_ids=executed_tool_ids,
+            blocked_tool_ids=blocked_tool_ids,
+        ),
+        "operator_brief": (plan_payload or {}).get("operator_brief") or "",
+        "operator_updates": operator_updates,
+        "captured_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+    }
+
+
 @app.route("/api/cases/<case_id>/assistant-execute", methods=["POST"])
 @require_auth("cases:read")
 def api_execute_case_assistant_plan(case_id):
@@ -3194,6 +3364,7 @@ def api_execute_case_assistant_plan(case_id):
 
     payload = request.get_json(silent=True) or {}
     prompt = str(payload.get("prompt") or "").strip()
+    run_id = str(payload.get("run_id") or "").strip()
     approved_tool_ids = payload.get("approved_tool_ids") or []
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
@@ -3214,9 +3385,29 @@ def api_execute_case_assistant_plan(case_id):
         supplier_passport=passport,
         storyline=storyline,
     )
+    assistant_run = None
+    if run_id:
+        assistant_run = db.get_assistant_run(run_id)
+        if not assistant_run or assistant_run.get("case_id") != case_id:
+            return jsonify({"error": "Assistant run not found"}), 404
 
     executable_ids, blocked_tools = prepare_case_assistant_execution(plan_payload.get("plan", []), approved_tool_ids)
     if not executable_ids:
+        if run_id:
+            db.update_assistant_run(
+                run_id,
+                status="blocked",
+                plan_payload=plan_payload,
+                execution_payload=_assistant_run_snapshot(
+                    plan_payload,
+                    phase="execute",
+                    status="blocked",
+                    approved_tool_ids=approved_tool_ids,
+                    executed_steps=[],
+                    blocked_tools=blocked_tools,
+                ),
+                last_error="No approved tools were eligible for execution",
+            )
         return jsonify(
             {
                 "error": "No approved tools were eligible for execution",
@@ -3239,13 +3430,47 @@ def api_execute_case_assistant_plan(case_id):
         for tool_id in executable_ids
     ]
 
+    if run_id:
+        db.update_assistant_run(
+            run_id,
+            status="executed",
+            plan_payload=plan_payload,
+            execution_payload=_assistant_run_snapshot(
+                plan_payload,
+                phase="execute",
+                status="executed",
+                approved_tool_ids=approved_tool_ids,
+                executed_steps=executed_steps,
+                blocked_tools=blocked_tools,
+            ),
+            last_error="",
+        )
+        db.save_beta_event(
+            user_id=_current_user_id(),
+            user_email=_current_user_email(),
+            user_role=_current_user_role(),
+            case_id=case_id,
+            workflow_lane=str(((plan_payload.get("preflight") or {}).get("workflow_lane") or "")),
+            screen="assistant_control_plane",
+            event_name="assistant_run_executed",
+            metadata={"run_id": run_id, "executed_tool_ids": executable_ids},
+        )
+
     return jsonify(
         {
             "version": "ai-control-plane-execution-v1",
             "executed_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
             "case_id": case_id,
+            "run_id": run_id or None,
+            "run_status": "executed" if run_id else "ephemeral",
             "objective": plan_payload.get("objective"),
             "analyst_prompt": prompt,
+            "quarterback": plan_payload.get("quarterback"),
+            "playbook": plan_payload.get("playbook"),
+            "preflight": plan_payload.get("preflight"),
+            "pack": plan_payload.get("pack"),
+            "operator_brief": plan_payload.get("operator_brief"),
+            "operator_updates": plan_payload.get("operator_updates"),
             "approved_tool_ids": approved_tool_ids,
             "executed_steps": executed_steps,
             "blocked_tools": blocked_tools,
@@ -3268,6 +3493,7 @@ def api_record_case_assistant_feedback(case_id):
 
     body = request.get_json(silent=True) or {}
     prompt = str(body.get("prompt") or "").strip()
+    run_id = str(body.get("run_id") or "").strip()
     objective = str(body.get("objective") or "").strip()
     verdict = str(body.get("verdict") or "").strip().lower()
     feedback_type = str(body.get("feedback_type") or "").strip().lower()
@@ -3289,6 +3515,12 @@ def api_record_case_assistant_feedback(case_id):
         return jsonify({"error": "suggested_tool_ids must be a list"}), 400
     if not isinstance(anomaly_codes, list):
         return jsonify({"error": "anomaly_codes must be a list"}), 400
+
+    assistant_run = None
+    if run_id:
+        assistant_run = db.get_assistant_run(run_id)
+        if not assistant_run or assistant_run.get("case_id") != case_id:
+            return jsonify({"error": "Assistant run not found"}), 404
 
     try:
         signal = prepare_case_assistant_feedback(
@@ -3329,15 +3561,39 @@ def api_record_case_assistant_feedback(case_id):
         event_name="assistant_feedback_recorded",
         metadata={
             "feedback_id": feedback_id,
+            "run_id": run_id or None,
             "objective": objective,
             "verdict": verdict,
             "feedback_type": feedback_type,
         },
     )
+    if assistant_run:
+        plan_payload = assistant_run.get("plan_payload") or {}
+        prior_execution = assistant_run.get("execution_payload") or {}
+        db.update_assistant_run(
+            run_id,
+            status=verdict or "reviewed",
+            plan_payload=plan_payload,
+            execution_payload=_assistant_run_snapshot(
+                plan_payload,
+                phase="review",
+                status=verdict or "reviewed",
+                approved_tool_ids=list(prior_execution.get("approved_tool_ids") or approved_tool_ids),
+                executed_steps=list(prior_execution.get("executed_steps") or []),
+                blocked_tools=list(prior_execution.get("blocked_tools") or []),
+                verdict=verdict,
+                feedback_type=feedback_type,
+                feedback_id=feedback_id,
+                training_signal=signal["training_signal"],
+            ),
+            last_error="" if verdict != "rejected" else "Analyst rejected the assistant run",
+        )
     return jsonify(
         {
             "status": "ok",
             "feedback_id": feedback_id,
+            "run_id": run_id or None,
+            "run_status": verdict or "reviewed",
             "training_signal": signal["training_signal"],
         }
     ), 201

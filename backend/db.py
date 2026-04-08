@@ -101,6 +101,28 @@ def _row_to_mission_brief(row) -> dict | None:
         "updated_at": row["updated_at"],
     }
 
+
+def _row_to_assistant_run(row) -> dict | None:
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "case_id": row["case_id"],
+        "workflow_lane": row["workflow_lane"],
+        "objective": row["objective"],
+        "playbook_id": row["playbook_id"],
+        "status": row["status"],
+        "analyst_prompt": row["analyst_prompt"],
+        "plan_payload": _safe_json_loads(row["plan_payload"]) or {},
+        "execution_payload": _safe_json_loads(row["execution_payload"]) or {},
+        "last_error": row["last_error"] or "",
+        "created_by": row["created_by"] or "",
+        "created_by_email": row["created_by_email"] or "",
+        "created_by_role": row["created_by_role"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
 # ---------------------------------------------------------------------------
 # Engine selection: set HELIOS_DB_ENGINE=postgres to use PostgreSQL
 # ---------------------------------------------------------------------------
@@ -515,6 +537,28 @@ def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_mission_thread_roles_unique
                 ON mission_thread_roles(mission_thread_id, role);
             CREATE INDEX IF NOT EXISTS idx_mission_thread_notes_thread ON mission_thread_notes(mission_thread_id);
+
+            CREATE TABLE IF NOT EXISTS assistant_runs (
+                id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+                workflow_lane TEXT NOT NULL DEFAULT '',
+                objective TEXT NOT NULL DEFAULT '',
+                playbook_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'planned',
+                analyst_prompt TEXT NOT NULL DEFAULT '',
+                plan_payload JSON,
+                execution_payload JSON,
+                last_error TEXT NOT NULL DEFAULT '',
+                created_by TEXT NOT NULL DEFAULT '',
+                created_by_email TEXT NOT NULL DEFAULT '',
+                created_by_role TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_assistant_runs_case ON assistant_runs(case_id);
+            CREATE INDEX IF NOT EXISTS idx_assistant_runs_status ON assistant_runs(status);
+            CREATE INDEX IF NOT EXISTS idx_assistant_runs_updated ON assistant_runs(updated_at);
 
             CREATE TABLE IF NOT EXISTS neo4j_sync_jobs (
                 job_id TEXT PRIMARY KEY,
@@ -1386,6 +1430,111 @@ def save_beta_event(
             params,
         )
         return cursor.lastrowid
+
+
+def save_assistant_run(
+    *,
+    run_id: str,
+    case_id: str,
+    workflow_lane: str = "",
+    objective: str = "",
+    playbook_id: str = "",
+    status: str = "planned",
+    analyst_prompt: str = "",
+    plan_payload: dict | None = None,
+    execution_payload: dict | None = None,
+    last_error: str = "",
+    created_by: str = "",
+    created_by_email: str = "",
+    created_by_role: str = "",
+) -> str:
+    payload = (
+        run_id,
+        case_id,
+        workflow_lane,
+        objective,
+        playbook_id,
+        status,
+        analyst_prompt,
+        json.dumps(plan_payload or {}),
+        json.dumps(execution_payload or {}),
+        last_error,
+        created_by,
+        created_by_email,
+        created_by_role,
+    )
+    with get_conn() as conn:
+        if _use_postgres:
+            conn.execute(
+                """
+                INSERT INTO assistant_runs
+                    (id, case_id, workflow_lane, objective, playbook_id, status,
+                     analyst_prompt, plan_payload, execution_payload, last_error,
+                     created_by, created_by_email, created_by_role)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                payload,
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO assistant_runs
+                    (id, case_id, workflow_lane, objective, playbook_id, status,
+                     analyst_prompt, plan_payload, execution_payload, last_error,
+                     created_by, created_by_email, created_by_role)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                payload,
+            )
+    return run_id
+
+
+def update_assistant_run(
+    run_id: str,
+    *,
+    status: str | None = None,
+    plan_payload: dict | None = None,
+    execution_payload: dict | None = None,
+    last_error: str | None = None,
+) -> None:
+    updates: list[str] = []
+    params: list[object] = []
+    if status is not None:
+        updates.append("status = ?")
+        params.append(status)
+    if plan_payload is not None:
+        updates.append("plan_payload = ?")
+        params.append(json.dumps(plan_payload))
+    if execution_payload is not None:
+        updates.append("execution_payload = ?")
+        params.append(json.dumps(execution_payload))
+    if last_error is not None:
+        updates.append("last_error = ?")
+        params.append(last_error)
+    if not updates:
+        return
+    updates.append("updated_at = datetime('now')" if not _use_postgres else "updated_at = NOW()")
+    params.append(run_id)
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE assistant_runs SET {', '.join(updates)} WHERE id = ?",
+            params,
+        )
+
+
+def get_assistant_run(run_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM assistant_runs WHERE id = ?", (run_id,)).fetchone()
+    return _row_to_assistant_run(row)
+
+
+def list_case_assistant_runs(case_id: str, limit: int = 20) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM assistant_runs WHERE case_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+            (case_id, limit),
+        ).fetchall()
+    return [_row_to_assistant_run(row) for row in rows if row]
 
 
 def get_beta_ops_summary(hours: int = 168) -> dict:

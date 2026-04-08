@@ -921,6 +921,28 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mission_thread_members_entity ON mission_thread_members(entity_id);
             CREATE INDEX IF NOT EXISTS idx_mission_thread_notes_thread ON mission_thread_notes(mission_thread_id);
 
+            CREATE TABLE IF NOT EXISTS assistant_runs (
+                id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+                workflow_lane TEXT NOT NULL DEFAULT '',
+                objective TEXT NOT NULL DEFAULT '',
+                playbook_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'planned',
+                analyst_prompt TEXT NOT NULL DEFAULT '',
+                plan_payload JSONB,
+                execution_payload JSONB,
+                last_error TEXT NOT NULL DEFAULT '',
+                created_by TEXT NOT NULL DEFAULT '',
+                created_by_email TEXT NOT NULL DEFAULT '',
+                created_by_role TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_assistant_runs_case ON assistant_runs(case_id);
+            CREATE INDEX IF NOT EXISTS idx_assistant_runs_status ON assistant_runs(status);
+            CREATE INDEX IF NOT EXISTS idx_assistant_runs_updated ON assistant_runs(updated_at);
+
             CREATE TABLE IF NOT EXISTS neo4j_sync_jobs (
                 job_id TEXT PRIMARY KEY,
                 sync_kind TEXT NOT NULL DEFAULT 'full',

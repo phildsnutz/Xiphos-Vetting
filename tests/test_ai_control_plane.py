@@ -195,12 +195,58 @@ def test_assistant_plan_route_returns_typed_plan(client, monkeypatch):
     assert response.status_code == 200
     body = response.get_json()
     assert body["version"] == "ai-control-plane-v1"
+    assert body["run_id"].startswith("qr-")
+    assert body["run_status"] == "planned"
     assert body["objective"] == "trace_control_path"
     assert body["recommended_view"] == "watch"
     assert body["quarterback"]["call_sign"] == "Vesper"
     assert body["playbook"]["playbook_id"] == "control_path_hardening"
     assert body["operator_brief"]
     assert any(step["tool_id"] == "supplier_passport" for step in body["plan"])
+    saved_run = server.db.get_assistant_run(body["run_id"])
+    assert saved_run is not None
+    assert saved_run["status"] == "planned"
+    assert saved_run["execution_payload"]["quarterback"]["call_sign"] == "Vesper"
+    assert saved_run["execution_payload"]["phase"] == "plan"
+
+
+def test_assistant_run_routes_return_persistent_quarterback_state(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Run State Vendor")
+    monkeypatch.setattr(
+        server,
+        "build_supplier_passport",
+        lambda _case_id: {
+            "posture": "review",
+            "tribunal": {"recommended_view": "watch", "consensus_level": "moderate"},
+            "identity": {"identifiers": {"cage": "1ABC2"}, "connectors_with_data": 2},
+            "graph": {
+                "relationship_count": 2,
+                "control_paths": [{"rel_type": "owned_by", "confidence": 0.82}],
+                "claim_health": {"contradicted_claims": 0, "stale_paths": 0},
+            },
+        },
+    )
+
+    plan_response = client.post(
+        f"/api/cases/{case_id}/assistant-plan",
+        json={"prompt": "Trace the control path and keep the quarterback visible"},
+    )
+    assert plan_response.status_code == 200
+    run_id = plan_response.get_json()["run_id"]
+
+    list_response = client.get(f"/api/cases/{case_id}/assistant-runs")
+    assert list_response.status_code == 200
+    listed = list_response.get_json()["assistant_runs"]
+    assert listed[0]["id"] == run_id
+    assert listed[0]["execution_payload"]["quarterback"]["call_sign"] == "Vesper"
+
+    get_response = client.get(f"/api/cases/{case_id}/assistant-runs/{run_id}")
+    assert get_response.status_code == 200
+    payload = get_response.get_json()
+    assert payload["id"] == run_id
+    assert payload["execution_payload"]["phase"] == "plan"
+    assert any(member["call_sign"] == "Vesper" and member["status"] == "command" for member in payload["execution_payload"]["pack_state"])
 
 
 def test_prepare_case_assistant_execution_blocks_unplanned_or_unsafe_tools():
@@ -286,6 +332,92 @@ def test_assistant_execute_route_runs_approved_safe_tools(client, monkeypatch):
     assert body["version"] == "ai-control-plane-execution-v1"
     assert [step["tool_id"] for step in body["executed_steps"]] == ["case_snapshot", "supplier_passport"]
     assert {item["tool_id"] for item in body["blocked_tools"]} == {"dossier"}
+
+
+def test_assistant_execute_and_feedback_keep_vesper_in_command(client, monkeypatch):
+    server = sys.modules["server"]
+    case_id = _create_case(client, name="Persistent Quarterback Vendor")
+    server.db.save_score(
+        case_id,
+        {
+            "composite_score": 37,
+            "is_hard_stop": False,
+            "calibrated": {"calibrated_tier": "TIER_3_REVIEW"},
+        },
+    )
+    server.db.save_enrichment(
+        case_id,
+        {
+            "summary": {"findings_total": 4, "connectors_with_data": 2},
+            "identifiers": {"cage": "1ABC2"},
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "build_supplier_passport",
+        lambda _case_id: {
+            "case_id": _case_id,
+            "posture": "review",
+            "tribunal": {"recommended_view": "watch", "consensus_level": "moderate"},
+            "identity": {"identifiers": {"cage": "1ABC2"}, "connectors_with_data": 2},
+            "graph": {
+                "entity_count": 3,
+                "relationship_count": 3,
+                "control_paths": [{"rel_type": "owned_by", "confidence": 0.9}],
+                "claim_health": {"contradicted_claims": 0, "stale_paths": 0},
+            },
+        },
+    )
+
+    plan_response = client.post(
+        f"/api/cases/{case_id}/assistant-plan",
+        json={"prompt": "Trace the control path and explain who is in command"},
+    )
+    assert plan_response.status_code == 200
+    run_id = plan_response.get_json()["run_id"]
+
+    execute_response = client.post(
+        f"/api/cases/{case_id}/assistant-execute",
+        json={
+            "run_id": run_id,
+            "prompt": "Trace the control path and explain who is in command",
+            "approved_tool_ids": ["case_snapshot", "supplier_passport"],
+        },
+    )
+    assert execute_response.status_code == 200
+    execute_body = execute_response.get_json()
+    assert execute_body["run_id"] == run_id
+    assert execute_body["run_status"] == "executed"
+    assert execute_body["quarterback"]["call_sign"] == "Vesper"
+    saved_after_execute = server.db.get_assistant_run(run_id)
+    assert saved_after_execute["status"] == "executed"
+    assert saved_after_execute["execution_payload"]["phase"] == "execute"
+    assert any(member["call_sign"] == "Vesper" and member["status"] == "command" for member in saved_after_execute["execution_payload"]["pack_state"])
+
+    feedback_response = client.post(
+        f"/api/cases/{case_id}/assistant-feedback",
+        json={
+            "run_id": run_id,
+            "prompt": "Trace the control path and explain who is in command",
+            "objective": "trace_control_path",
+            "verdict": "partial",
+            "feedback_type": "tool_missing",
+            "comment": "Vesper held command, but the pack still needs one more graph check.",
+            "approved_tool_ids": ["case_snapshot", "supplier_passport"],
+            "executed_tool_ids": ["case_snapshot", "supplier_passport"],
+            "suggested_tool_ids": ["graph_probe"],
+            "anomaly_codes": ["thin_graph"],
+        },
+    )
+    assert feedback_response.status_code == 201
+    feedback_body = feedback_response.get_json()
+    assert feedback_body["run_id"] == run_id
+    assert feedback_body["run_status"] == "partial"
+    saved_after_feedback = server.db.get_assistant_run(run_id)
+    assert saved_after_feedback["status"] == "partial"
+    assert saved_after_feedback["execution_payload"]["phase"] == "review"
+    assert saved_after_feedback["execution_payload"]["feedback"]["verdict"] == "partial"
+    assert any(member["call_sign"] == "Vesper" and member["status"] == "command" for member in saved_after_feedback["execution_payload"]["pack_state"])
 
 
 def test_assistant_execute_route_returns_hybrid_assurance_review(client, monkeypatch):

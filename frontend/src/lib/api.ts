@@ -574,6 +574,8 @@ export interface CaseAssistantPlan {
   version: string;
   generated_at: string;
   case_id: string;
+  run_id?: string | null;
+  run_status?: string | null;
   vendor_name: string;
   analyst_prompt: string;
   objective: string;
@@ -695,8 +697,16 @@ export interface CaseAssistantExecutionResult {
   version: string;
   executed_at: string;
   case_id: string;
+  run_id?: string | null;
+  run_status?: string | null;
   objective: string;
   analyst_prompt: string;
+  quarterback?: CaseAssistantPlan["quarterback"];
+  playbook?: CaseAssistantPlan["playbook"];
+  preflight?: CaseAssistantPlan["preflight"];
+  pack?: CaseAssistantPlan["pack"];
+  operator_brief?: string;
+  operator_updates?: string[];
   approved_tool_ids: string[];
   executed_steps: CaseAssistantExecutionStep[];
   blocked_tools: CaseAssistantExecutionBlockedTool[];
@@ -713,6 +723,7 @@ export type AssistantFeedbackType =
   | "wrong_explanation";
 
 export interface CaseAssistantFeedbackPayload {
+  run_id?: string;
   prompt: string;
   objective: string;
   verdict: AssistantFeedbackVerdict;
@@ -727,6 +738,8 @@ export interface CaseAssistantFeedbackPayload {
 export interface CaseAssistantFeedbackResult {
   status: string;
   feedback_id: number;
+  run_id?: string | null;
+  run_status?: string | null;
   training_signal: {
     version: string;
     captured_at: string;
@@ -915,10 +928,11 @@ export async function executeCaseAssistantPlan(
   caseId: string,
   prompt: string,
   approvedToolIds: string[],
+  runId?: string,
 ): Promise<CaseAssistantExecutionResult> {
   return json<CaseAssistantExecutionResult>(`/api/cases/${caseId}/assistant-execute`, {
     method: "POST",
-    body: JSON.stringify({ prompt, approved_tool_ids: approvedToolIds }),
+    body: JSON.stringify({ prompt, approved_tool_ids: approvedToolIds, run_id: runId }),
   });
 }
 

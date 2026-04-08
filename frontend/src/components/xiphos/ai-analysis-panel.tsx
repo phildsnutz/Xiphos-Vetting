@@ -45,6 +45,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [assistantPrompt, setAssistantPrompt] = useState(`Why is ${vendorName} risky right now?`);
   const [assistantPlan, setAssistantPlan] = useState<CaseAssistantPlan | null>(null);
+  const [assistantRunId, setAssistantRunId] = useState<string | null>(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantExecution, setAssistantExecution] = useState<CaseAssistantExecutionResult | null>(null);
@@ -75,6 +76,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
   useEffect(() => {
     setAssistantPrompt(`Why is ${vendorName} risky right now?`);
     setAssistantPlan(null);
+    setAssistantRunId(null);
     setAssistantError(null);
     setAssistantExecution(null);
     setAssistantExecutionError(null);
@@ -116,6 +118,7 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
     try {
       const result = await fetchCaseAssistantPlan(caseId, nextPrompt);
       setAssistantPlan(result);
+      setAssistantRunId(result.run_id ?? null);
     } catch (e) {
       setAssistantError(e instanceof Error ? e.message : "Planner request failed");
     } finally {
@@ -132,8 +135,11 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
     setAssistantExecutionLoading(true);
     setAssistantExecutionError(null);
     try {
-      const result = await executeCaseAssistantPlan(caseId, assistantPlan.analyst_prompt, approvedToolIds);
+      const result = await executeCaseAssistantPlan(caseId, assistantPlan.analyst_prompt, approvedToolIds, assistantRunId ?? undefined);
       setAssistantExecution(result);
+      if (result.run_id) {
+        setAssistantRunId(result.run_id);
+      }
     } catch (e) {
       setAssistantExecutionError(e instanceof Error ? e.message : "Approved execution failed");
     } finally {
@@ -202,6 +208,8 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
             execution={assistantExecution}
             executionLoading={assistantExecutionLoading}
             executionError={assistantExecutionError}
+            runId={assistantRunId}
+            onRunIdChange={setAssistantRunId}
           />
         </div>
       </div>
@@ -290,6 +298,8 @@ export function AIAnalysisPanel({ caseId, vendorName }: AIAnalysisPanelProps) {
           execution={assistantExecution}
           executionLoading={assistantExecutionLoading}
           executionError={assistantExecutionError}
+          runId={assistantRunId}
+          onRunIdChange={setAssistantRunId}
         />
       </div>
 
@@ -578,6 +588,8 @@ function ControlPlaneSection({
   execution,
   executionLoading,
   executionError,
+  runId,
+  onRunIdChange,
 }: {
   caseId: string;
   vendorName: string;
@@ -591,6 +603,8 @@ function ControlPlaneSection({
   execution: CaseAssistantExecutionResult | null;
   executionLoading: boolean;
   executionError: string | null;
+  runId: string | null;
+  onRunIdChange: (value: string | null) => void;
 }) {
   const [feedbackVerdict, setFeedbackVerdict] = useState<AssistantFeedbackVerdict>("partial");
   const [feedbackType, setFeedbackType] = useState<AssistantFeedbackType>("tool_missing");
@@ -648,6 +662,7 @@ function ControlPlaneSection({
       const executedToolIds = execution?.executed_steps.map((step) => step.tool_id) ?? [];
       const anomalyCodes = plan.anomalies.map((item) => item.code);
       const result = await submitCaseAssistantFeedback(caseId, {
+        run_id: runId ?? undefined,
         prompt: plan.analyst_prompt,
         objective: plan.objective,
         verdict: feedbackVerdict,
@@ -658,6 +673,9 @@ function ControlPlaneSection({
         suggested_tool_ids: suggestedToolIds,
         anomaly_codes: anomalyCodes,
       });
+      if (result.run_id) {
+        onRunIdChange(result.run_id);
+      }
       setFeedbackSuccess(`Captured signal #${result.feedback_id}`);
     } catch (e) {
       setFeedbackError(e instanceof Error ? e.message : "Failed to capture assistant feedback");
@@ -782,6 +800,22 @@ function ControlPlaneSection({
       {plan && (
         <div className="mt-4 flex flex-col gap-3">
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {plan.quarterback && (
+              <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+                <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                  Quarterback
+                </div>
+                <div style={{ fontSize: FS.sm, color: T.text, marginTop: 8, lineHeight: 1.6 }}>
+                  <strong>{plan.quarterback.call_sign}</strong> · {plan.quarterback.breed}<br />
+                  {plan.quarterback.summary}
+                </div>
+                {plan.playbook && (
+                  <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+                    Playbook: {plan.playbook.label}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
               <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
                 Context Snapshot
@@ -805,7 +839,46 @@ function ControlPlaneSection({
                 ))}
               </div>
             </div>
+            {plan.preflight && (
+              <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+                <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                  Situation
+                </div>
+                <div style={{ fontSize: FS.sm, color: T.text, marginTop: 8, lineHeight: 1.6 }}>
+                  Lane: {plan.preflight.workflow_lane || "counterparty"}<br />
+                  Pressure: {plan.preflight.anomaly_pressure}<br />
+                  Mode: {plan.preflight.execution_mode}
+                </div>
+              </div>
+            )}
           </div>
+
+          {plan.pack && plan.pack.length > 0 && (
+            <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+              <div className="font-semibold uppercase tracking-wider" style={{ fontSize: 11, color: T.muted }}>
+                Pack Status
+              </div>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+                {plan.pack.map((member) => (
+                  <div
+                    key={`${member.call_sign}-${member.role}`}
+                    className="rounded-lg"
+                    style={{ padding: "8px 10px", background: member.call_sign === "Vesper" ? `${T.accent}18` : T.raised, border: `1px solid ${member.call_sign === "Vesper" ? `${T.accent}33` : T.border}` }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 700, color: member.call_sign === "Vesper" ? T.accent : T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      {member.call_sign}
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.text, marginTop: 4 }}>
+                      {member.role}
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 4, lineHeight: 1.4 }}>
+                      {member.duty}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {plan.anomalies.length > 0 && (
             <div className="rounded-lg" style={{ padding: 12, background: T.surface, border: `1px solid ${T.border}` }}>
