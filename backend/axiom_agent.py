@@ -52,8 +52,8 @@ MAX_ITERATIONS = 5          # Maximum OODA loops before forced termination
 MAX_FOLLOW_UPS_PER_ITER = 3 # Max follow-up queries per iteration
 SCRAPE_DELAY = 2.0          # Seconds between scraper calls
 LLM_TIMEOUT = 30            # Seconds for LLM API calls
-DEFAULT_PROVIDER = "openai"
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_PROVIDER = "anthropic"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 _ENV_PROVIDER_KEYS: dict[str, tuple[str, ...]] = {
     "anthropic": ("ANTHROPIC_API_KEY",),

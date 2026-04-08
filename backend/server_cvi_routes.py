@@ -107,7 +107,7 @@ def _serialize_gap_fill_result(result):
     }
 
 
-def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "openai", default_model: str = "gpt-4o"):
+def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "anthropic", default_model: str = "claude-sonnet-4-6"):
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     provider = body.get("provider", default_provider)
     model = body.get("model", default_model)

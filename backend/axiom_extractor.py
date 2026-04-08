@@ -30,8 +30,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROVIDER = "openai"
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_PROVIDER = "anthropic"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 LLM_TIMEOUT = 30
 
 

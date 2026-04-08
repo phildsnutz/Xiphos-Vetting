@@ -33,8 +33,8 @@
 #    XIPHOS_DEPLOY_LOGIN_EMAIL    Legacy alias for admin email
 #    XIPHOS_DEPLOY_LOGIN_PASSWORD Legacy alias for admin password
 #    XIPHOS_DEPLOY_VERIFY_TLS     true/false. Defaults by URL scheme
-#    XIPHOS_AI_PROVIDER           Org-default AI provider (default: openai)
-#    XIPHOS_AI_MODEL              Org-default AI model (default: gpt-4o)
+#    XIPHOS_AI_PROVIDER           Org-default AI provider (default: anthropic)
+#    XIPHOS_AI_MODEL              Org-default AI model (default: claude-sonnet-4-6)
 #    XIPHOS_AI_KEY                Org-default AI API key
 #
 #  Options:
@@ -87,8 +87,8 @@ ADMIN_EMAIL="${XIPHOS_DEPLOY_ADMIN_EMAIL:-${XIPHOS_DEPLOY_LOGIN_EMAIL:-}}"
 ADMIN_PASSWORD="${XIPHOS_DEPLOY_ADMIN_PASSWORD:-${XIPHOS_DEPLOY_LOGIN_PASSWORD:-}}"
 VERIFY_TLS_RAW="${XIPHOS_DEPLOY_VERIFY_TLS:-}"
 
-AI_PROVIDER="${XIPHOS_AI_PROVIDER:-openai}"
-AI_MODEL="${XIPHOS_AI_MODEL:-gpt-4o}"
+AI_PROVIDER="${XIPHOS_AI_PROVIDER:-anthropic}"
+AI_MODEL="${XIPHOS_AI_MODEL:-claude-sonnet-4-6}"
 AI_KEY="${XIPHOS_AI_KEY:-}"
 
 SKIP_AI=false

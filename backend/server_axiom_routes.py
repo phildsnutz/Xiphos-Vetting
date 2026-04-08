@@ -647,8 +647,8 @@ def register_axiom_routes(*, app, require_auth, db):
 
             result = run_agent(
                 target=target,
-                provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-4o"),
+                provider=body.get("provider", "anthropic"),
+                model=body.get("model", "claude-sonnet-4-6"),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
@@ -711,8 +711,8 @@ def register_axiom_routes(*, app, require_auth, db):
 
             result = run_agent(
                 target=target,
-                provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-4o"),
+                provider=body.get("provider", "anthropic"),
+                model=body.get("model", "claude-sonnet-4-6"),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
@@ -785,8 +785,8 @@ def register_axiom_routes(*, app, require_auth, db):
             # Resolve API key
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
-                provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-4o"),
+                provider=body.get("provider", "anthropic"),
+                model=body.get("model", "claude-sonnet-4-6"),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
             )
@@ -849,8 +849,8 @@ def register_axiom_routes(*, app, require_auth, db):
 
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
-                provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-4o"),
+                provider=body.get("provider", "anthropic"),
+                model=body.get("model", "claude-sonnet-4-6"),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
             )
