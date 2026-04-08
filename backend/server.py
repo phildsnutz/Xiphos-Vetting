@@ -59,6 +59,8 @@ import importlib.util
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
+from ai_lane_routing import lane_for_surface
+
 _RUNTIME_ENV_BOOTSTRAP: dict[str, object] = {
     "loaded": False,
     "path": "",
@@ -1528,7 +1530,13 @@ def _run_ai_analysis_job(job_id: str, case_id: str, user_id: str) -> None:
     while True:
         attempt += 1
         try:
-            result = analyze_vendor(user_id, vendor, score, enrichment)
+            result = analyze_vendor(
+                user_id,
+                vendor,
+                score,
+                enrichment,
+                lane_id=lane_for_surface("vendor_analysis"),
+            )
             break
         except AIProviderTemporaryError as err:
             retry_index = attempt - 1
@@ -4115,7 +4123,13 @@ def api_run_ai_analysis(case_id):
     enrichment = db.get_latest_enrichment(case_id)
 
     try:
-        result = analyze_vendor(_current_user_id(), vendor, score, enrichment)
+        result = analyze_vendor(
+            _current_user_id(),
+            vendor,
+            score,
+            enrichment,
+            lane_id=lane_for_surface("vendor_analysis"),
+        )
     except ValueError as err:
         status_code = 503 if err.__class__.__name__ == "AIProviderTemporaryError" else 400
         return jsonify({"error": str(err)}), status_code

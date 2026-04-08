@@ -40,6 +40,8 @@ import os
 from datetime import datetime, timezone
 from flask import Blueprint, g, jsonify, request
 
+from ai_lane_routing import get_lane_policy
+
 logger = logging.getLogger(__name__)
 
 cvi_bp = Blueprint("cvi", __name__, url_prefix="/api/cvi")
@@ -107,10 +109,21 @@ def _serialize_gap_fill_result(result):
     }
 
 
-def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "anthropic", default_model: str = "claude-sonnet-4-6"):
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    provider = body.get("provider", default_provider)
-    model = body.get("model", default_model)
+def _env_key_for_provider(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "openai":
+        return str(os.environ.get("OPENAI_API_KEY", "")).strip()
+    if normalized == "gemini":
+        return str(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    return str(os.environ.get("ANTHROPIC_API_KEY", "")).strip()
+
+
+def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "anthropic", default_model: str = "claude-sonnet-4-6", lane_id: str = "adverse_case_adjudication"):
+    lane_policy = get_lane_policy(lane_id)
+    primary = lane_policy.get("primary") if isinstance(lane_policy.get("primary"), dict) else {}
+    provider = body.get("provider") or primary.get("provider") or default_provider or "anthropic"
+    model = body.get("model") or primary.get("model") or default_model or "claude-sonnet-4-6"
+    api_key = _env_key_for_provider(str(provider))
 
     try:
         from ai_analysis import get_ai_config

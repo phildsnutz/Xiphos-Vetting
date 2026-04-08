@@ -458,9 +458,13 @@ def test_rendered_html_surfaces_procurement_footprint_when_available():
 
     assert payload["procurement_read"]["metrics"]["prime_vehicle_count"] == 1
     assert payload["procurement_read"]["metrics"]["sub_vehicle_count"] == 1
+    assert payload["procurement_read"]["metrics"]["prime_share_pct"] > 50
+    assert payload["procurement_read"]["metrics"]["lead_customer_share_pct"] > 0
     assert any("mixed" in item.lower() for item in payload["procurement_read"]["implication_lines"])
     assert any("dual-posture" in item.lower() for item in payload["procurement_read"]["market_position_lines"])
     assert any("visible prime access includes oasis" in item.lower() for item in payload["procurement_read"]["implication_lines"])
+    assert any("visible federal activity remains current" in item.lower() for item in payload["procurement_read"]["market_position_lines"])
+    assert any("lead customer accounts for" in item.lower() for item in payload["procurement_read"]["market_position_lines"])
     assert "Procurement Footprint" in html
     assert "Market Position Read" in html
     assert "Prime Vehicles" in html

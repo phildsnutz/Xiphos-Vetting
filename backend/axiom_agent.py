@@ -35,6 +35,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
 
+from ai_lane_routing import build_runtime_chain_for_lane, get_lane_policy
+
 logger = logging.getLogger(__name__)
 
 # Connector registry for OODA loop
@@ -173,11 +175,19 @@ def resolve_runtime_ai_credentials(
     api_key: str = "",
     provider_locked: bool = False,
     model_locked: bool = False,
+    lane_id: str = "mission_command",
 ) -> tuple[str, str, str]:
     """Resolve runtime LLM credentials from explicit args, stored config, then env fallback."""
     resolved_provider = str(provider or DEFAULT_PROVIDER).strip().lower() or DEFAULT_PROVIDER
     resolved_model = str(model or "").strip() or _default_model_for_provider(resolved_provider)
     resolved_api_key = str(api_key or "").strip()
+    lane_policy = get_lane_policy(lane_id)
+    lane_primary = dict(lane_policy.get("primary") or {})
+
+    if not provider_locked and str(provider or "").strip() in {"", DEFAULT_PROVIDER}:
+        resolved_provider = str(lane_primary.get("provider") or resolved_provider).strip().lower() or resolved_provider
+    if not model_locked and str(model or "").strip() in {"", DEFAULT_MODEL}:
+        resolved_model = str(lane_primary.get("model") or resolved_model).strip() or resolved_model
 
     if resolved_api_key:
         return resolved_provider, resolved_model, resolved_api_key
@@ -196,9 +206,22 @@ def resolve_runtime_ai_credentials(
         except Exception as e:
             logger.warning("axiom_agent: could not retrieve AI config: %s", e)
 
-    env_api_key = _env_api_key_for_provider(resolved_provider)
-    if env_api_key:
-        return resolved_provider, resolved_model, env_api_key
+    for idx, candidate in enumerate(build_runtime_chain_for_lane(lane_id)):
+        fallback_provider = str(candidate.get("provider") or "").strip().lower()
+        if not fallback_provider:
+            continue
+        fallback_model = str(candidate.get("model") or "").strip() or _default_model_for_provider(fallback_provider)
+        if idx == 0:
+            if provider_locked and fallback_provider != resolved_provider:
+                continue
+            if model_locked and resolved_model:
+                fallback_model = resolved_model
+        elif provider_locked:
+            continue
+        fallback_key = _env_api_key_for_provider(fallback_provider)
+        if not fallback_key:
+            continue
+        return fallback_provider, fallback_model, fallback_key
 
     if not provider_locked:
         for fallback_provider in _ENV_PROVIDER_KEYS:
@@ -889,7 +912,8 @@ def _run_web_search(query: str) -> list[dict]:
 
 def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_PROVIDER,
               model: str = DEFAULT_MODEL, user_id: str = "",
-              provider_locked: bool = False, model_locked: bool = False) -> AgentResult:
+              provider_locked: bool = False, model_locked: bool = False,
+              lane_id: str = "mission_command") -> AgentResult:
     """
     Execute the AXIOM agentic search loop.
 
@@ -919,6 +943,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
         api_key=api_key,
         provider_locked=provider_locked,
         model_locked=model_locked,
+        lane_id=lane_id,
     )
 
     if not api_key:

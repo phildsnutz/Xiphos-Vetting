@@ -164,10 +164,19 @@ def _build_principal_headline(
     if label == "APPROVED":
         prime_names = [_clean(item) for item in (procurement_read.get("top_prime_vehicle_names") or []) if _clean(item)]
         upstream_names = [_clean(item) for item in (procurement_read.get("top_upstream_prime_names") or []) if _clean(item)]
+        lead_customer = _clean(procurement_read.get("lead_customer"))
+        prime_share = float((procurement_read.get("metrics") or {}).get("prime_share_pct") or 0.0)
         if prime_names:
             prime_phrase = ", ".join(prime_names[:3])
             if upstream_names:
+                if lead_customer:
+                    return (
+                        f"{label} holds with direct access on {prime_phrase}, recurring work under {', '.join(upstream_names[:2])}, "
+                        f"and visible demand concentrated around {lead_customer}."
+                    )
                 return f"{label} holds with direct access on {prime_phrase}, plus recurring work under {', '.join(upstream_names[:2])}."
+            if lead_customer and prime_share > 0:
+                return f"{label} holds with direct access on {prime_phrase} and {prime_share:.1f}% of visible federal dollars arriving through prime awards."
             return f"{label} holds with direct access on {prime_phrase}."
         if market_position_lines:
             return f"{label} holds with {market_position_lines[0].rstrip('.').lower()}."

@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Any
 import re
 
+from ai_lane_routing import get_pack_runtime_profile, lane_for_objective
+
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -115,6 +117,14 @@ PACK_LIBRARY: dict[str, dict[str, str]] = {
         "summary": "Provides balanced fallback coverage when the case does not justify a more specialized play.",
     },
 }
+
+
+def _pack_member(pack_id: str, **extra: Any) -> dict[str, Any]:
+    member = dict(PACK_LIBRARY[pack_id])
+    member["pack_id"] = pack_id
+    member["runtime"] = get_pack_runtime_profile(pack_id)
+    member.update(extra)
+    return member
 
 EXECUTABLE_TOOL_IDS = frozenset(
     {
@@ -321,11 +331,19 @@ def _select_playbook(objective: str, anomalies: list[dict[str, Any]], supplier_p
 def _pack_lineup(playbook: dict[str, Any], anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
     pressure = _anomaly_pressure(anomalies)
     lineup = [
-        {**PACK_LIBRARY["vesper"], "active": True, "duty": "Call the play, set budgets, and decide when enough is enough."},
-        {**PACK_LIBRARY["mako"], "active": True, "duty": "Drive high-signal collection and close the most valuable evidence gaps first."},
-        {**PACK_LIBRARY["bruno"], "active": pressure != "low" or playbook.get("style") in {"skeptical", "pressure"}, "duty": "Challenge contradictions, hidden-control pressure, and stop-case evidence."},
-        {**PACK_LIBRARY["sable"], "active": playbook.get("phases", [])[-1:] == ["package"] or playbook.get("lead") == "sable", "duty": "Finish the artifact so the opening tells the operator what matters."},
-        {**PACK_LIBRARY["rex"], "active": True, "duty": "Carry balanced fallback coverage when the case does not justify more specialized aggression."},
+        _pack_member("vesper", active=True, duty="Call the play, set budgets, and decide when enough is enough."),
+        _pack_member("mako", active=True, duty="Drive high-signal collection and close the most valuable evidence gaps first."),
+        _pack_member(
+            "bruno",
+            active=pressure != "low" or playbook.get("style") in {"skeptical", "pressure"},
+            duty="Challenge contradictions, hidden-control pressure, and stop-case evidence.",
+        ),
+        _pack_member(
+            "sable",
+            active=playbook.get("phases", [])[-1:] == ["package"] or playbook.get("lead") == "sable",
+            duty="Finish the artifact so the opening tells the operator what matters.",
+        ),
+        _pack_member("rex", active=True, duty="Carry balanced fallback coverage when the case does not justify more specialized aggression."),
     ]
     return lineup
 
@@ -352,6 +370,7 @@ def _assign_pack_owners(plan_steps: list[dict[str, Any]], objective: str) -> lis
         enriched["pack_id"] = pack_id
         enriched["pack_name"] = pack_name
         enriched["phase"] = phase
+        enriched["runtime"] = get_pack_runtime_profile(pack_id)
         owned_steps.append(enriched)
     return owned_steps
 
@@ -792,14 +811,16 @@ def build_case_assistant_plan(
         *_cyber_anomalies(supplier_passport),
         *_lane_anomalies(supplier_passport, objective),
     ]
+    objective_lane = lane_for_objective(objective)
     playbook = _select_playbook(objective, anomalies, supplier_passport)
     plan = _assign_pack_owners(_plan_steps(objective, anomalies), objective)
     tribunal = ((supplier_passport or {}).get("tribunal") or {}) if isinstance(supplier_passport, dict) else {}
     graph = ((supplier_passport or {}).get("graph") or {}) if isinstance(supplier_passport, dict) else {}
     pack = _pack_lineup(playbook, anomalies)
-    quarterback = dict(PACK_LIBRARY["vesper"])
+    quarterback = _pack_member("vesper")
     preflight = {
         "workflow_lane": _resolve_workflow_lane(supplier_passport, objective),
+        "objective_runtime_lane": objective_lane,
         "anomaly_pressure": _anomaly_pressure(anomalies),
         "execution_mode": playbook.get("execution_mode"),
         "human_gate_required": True,
@@ -824,6 +845,7 @@ def build_case_assistant_plan(
         "operator_updates": _operator_updates(playbook, anomalies),
         "anomalies": anomalies,
         "plan": plan,
+        "pack_training": {pack_id: get_pack_runtime_profile(pack_id) for pack_id in PACK_LIBRARY},
         "context_snapshot": {
             "tier": str(((score or {}).get("calibrated") or {}).get("calibrated_tier") or ""),
             "findings_total": int(((enrichment or {}).get("summary") or {}).get("findings_total") or 0),
@@ -1100,6 +1122,10 @@ def build_case_assistant_situation_brief(
             "blocked_steps": len(blocked_tools),
             "human_gate_required": bool(preflight.get("human_gate_required", True)),
             "degraded_mode": bool(preflight.get("degraded_mode")),
+        },
+        "runtime_doctrine": {
+            "objective_lane": preflight.get("objective_runtime_lane") or lane_for_objective(str(plan_payload.get("objective") or "")),
+            "quarterback_lane": ((quarterback.get("runtime") or {}) if isinstance(quarterback.get("runtime"), dict) else {}).get("lane_id", ""),
         },
         "pack_state": pack_state,
         "coach_boundary": {

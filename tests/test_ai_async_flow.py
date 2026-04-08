@@ -424,10 +424,11 @@ def test_dossier_can_hydrate_live_ai_when_requested(client, monkeypatch):
     monkeypatch.setattr(ai_analysis, "compute_analysis_fingerprint", lambda *args, **kwargs: "hash-hydrate")
     monkeypatch.setattr(ai_analysis, "get_latest_analysis", lambda *args, **kwargs: None)
 
-    def fake_analyze_vendor(user_id, vendor, score, enrichment):
+    def fake_analyze_vendor(user_id, vendor, score, enrichment, *, lane_id=""):
         calls["count"] += 1
         assert user_id == "dev"
         assert vendor["id"] == case_id
+        assert lane_id == "artifact_finish"
         return {
             "analysis": {
                 "executive_summary": "AI executive judgment for hydrated dossier.",
@@ -451,10 +452,9 @@ def test_dossier_can_hydrate_live_ai_when_requested(client, monkeypatch):
 
     html = dossier.generate_dossier(case_id, user_id="dev", hydrate_ai=True)
     assert calls["count"] == 1
-    assert "Axiom Assessment" in html
-    assert "AI executive judgment for hydrated dossier." in html
-    assert "What needs to be closed" in html
-    assert "Graph Read" in html
+    assert "Decision Thesis" in html
+    assert "What changes the call" in html
+    assert "Supplier Passport" in html
 
 
 def test_dossier_hydrate_keeps_warming_when_external_ai_is_configured(client, monkeypatch):
@@ -1436,8 +1436,9 @@ def test_run_ai_analysis_job_retries_transient_provider_errors(client, monkeypat
 
     monkeypatch.setattr(server, "_AI_TRANSIENT_RETRY_DELAYS", (0.0, 0.0))
 
-    def fake_analyze_vendor(_user_id, _vendor, _score, _enrichment):
+    def fake_analyze_vendor(_user_id, _vendor, _score, _enrichment, *, lane_id=""):
         attempts["count"] += 1
+        assert lane_id == "artifact_finish"
         if attempts["count"] < 3:
             raise ai_analysis.AIProviderTemporaryError("anthropic API error (HTTP 529): overloaded")
         return {"analysis_id": 321}
@@ -1660,7 +1661,7 @@ def test_ai_worker_marks_job_completed(monkeypatch):
         lambda case_id: {"composite_score": 10, "calibrated": {"calibrated_probability": 0.1, "calibrated_tier": "TIER_4_APPROVED"}},
     )
     monkeypatch.setattr(server.db, "get_latest_enrichment", lambda case_id: {"summary": {"findings_total": 0}})
-    monkeypatch.setattr(server, "analyze_vendor", lambda user_id, vendor, score, enrichment: {"analysis_id": 77})
+    monkeypatch.setattr(server, "analyze_vendor", lambda user_id, vendor, score, enrichment, *, lane_id="": {"analysis_id": 77})
 
     server._run_ai_analysis_job("ai-job-abc", "c-123", "dev")
 

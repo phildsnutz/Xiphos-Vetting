@@ -98,8 +98,12 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
 
     assert plan["objective"] == "data_repair"
     assert plan["quarterback"]["call_sign"] == "Vesper"
+    assert plan["quarterback"]["runtime"]["lane_id"] == "mission_command"
     assert plan["playbook"]["playbook_id"] == "identity_repair_sprint"
     assert plan["preflight"]["anomaly_pressure"] == "high"
+    assert plan["preflight"]["objective_runtime_lane"] == "edge_collection"
+    assert plan["pack_training"]["sable"]["lane_id"] == "artifact_finish"
+    assert plan["pack_training"]["bruno"]["primary_provider"] == "anthropic"
     assert any(member["call_sign"] == "Vesper" and member["role"] == "quarterback" for member in plan["pack"])
     anomaly_codes = {item["code"] for item in plan["anomalies"]}
     assert "missing_core_identifiers" in anomaly_codes
@@ -114,6 +118,7 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
     assert any(step["tool_id"] == "identity_repair" for step in plan["plan"])
     assert any(step["pack_name"] == "Vesper" for step in plan["plan"])
     assert any(step["phase"] == "collect" for step in plan["plan"])
+    assert any(step["runtime"]["lane_id"] == "edge_collection" for step in plan["plan"] if step["tool_id"] == "identity_repair")
 
 
 def test_build_case_assistant_plan_flags_export_route_ambiguity():
@@ -200,7 +205,10 @@ def test_assistant_plan_route_returns_typed_plan(client, monkeypatch):
     assert body["objective"] == "trace_control_path"
     assert body["recommended_view"] == "watch"
     assert body["quarterback"]["call_sign"] == "Vesper"
+    assert body["quarterback"]["runtime"]["primary_model"] == "gpt-4o"
     assert body["playbook"]["playbook_id"] == "control_path_hardening"
+    assert body["pack_training"]["vesper"]["lane_id"] == "mission_command"
+    assert body["pack_training"]["sable"]["primary_model"] == "claude-sonnet-4-6"
     assert body["operator_brief"]
     assert any(step["tool_id"] == "supplier_passport" for step in body["plan"])
     saved_run = server.db.get_assistant_run(body["run_id"])

@@ -30,6 +30,7 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
+from ai_lane_routing import build_runtime_chain_for_lane
 from runtime_paths import get_ai_config_secret, get_main_db_path
 import db
 
@@ -821,6 +822,55 @@ def _build_ai_failover_chain(user_id: str, primary_config: dict) -> list[dict]:
     return chain
 
 
+def _build_ai_failover_chain_for_lane(
+    *,
+    lane_id: str,
+    primary_config: dict | None = None,
+) -> list[dict]:
+    chain: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _append_candidate(candidate: dict, source: str) -> None:
+        provider = str(candidate.get("provider") or "").strip().lower()
+        model = str(candidate.get("model") or "").strip()
+        api_key = str(candidate.get("api_key") or "").strip()
+        config_id = str(candidate.get("config_id") or "").strip()
+        signature = (provider, model, api_key)
+        if not provider or not model or not api_key or signature in seen:
+            return
+        chain.append(
+            {
+                "provider": provider,
+                "model": model,
+                "api_key": api_key,
+                "source": source,
+                "config_id": config_id,
+            }
+        )
+        seen.add(signature)
+
+    for idx, policy_candidate in enumerate(build_runtime_chain_for_lane(lane_id)):
+        config_id = str(policy_candidate.get("config_id") or "").strip()
+        exact = _get_exact_ai_config(config_id) if config_id else None
+        if exact:
+            _append_candidate(exact, "policy_primary" if idx == 0 else "policy_backup")
+            continue
+        if idx == 0 and primary_config:
+            _append_candidate(
+                {
+                    "provider": primary_config.get("provider"),
+                    "model": primary_config.get("model"),
+                    "api_key": primary_config.get("api_key"),
+                    "config_id": config_id or "__org_default__",
+                },
+                "policy_primary",
+            )
+
+    if not chain and primary_config:
+        return _build_ai_failover_chain("__org_default__", primary_config)
+    return chain
+
+
 def _attempt_provider_analysis(provider: str, model: str, api_key: str, prompt: str) -> tuple[dict, dict, int]:
     caller = PROVIDER_CALLERS.get(provider)
     if not caller:
@@ -1380,6 +1430,8 @@ def analyze_vendor(
     vendor_data: dict,
     score_data: dict,
     enrichment_data: Optional[dict] = None,
+    *,
+    lane_id: str = "artifact_finish",
 ) -> dict:
     """
     Run AI analysis on a vendor using the user's configured provider.
@@ -1453,7 +1505,7 @@ def analyze_vendor(
     active_config_id = str(user_id or "__org_default__")
     fallback_from: Optional[dict] = None
 
-    chain = _build_ai_failover_chain(user_id, config)
+    chain = _build_ai_failover_chain_for_lane(lane_id=lane_id, primary_config=config)
     if not chain:
         raise ValueError("No usable AI provider configuration available")
 
@@ -1544,6 +1596,7 @@ def analyze_vendor(
         "prompt_version": _ANALYSIS_PROMPT_VERSION,
         "runtime_source": active_source,
         "runtime_config_id": active_config_id,
+        "runtime_lane": lane_id,
         "fallback_used": bool(fallback_from),
         "fallback_from": fallback_from,
     }

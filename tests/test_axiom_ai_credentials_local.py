@@ -35,6 +35,27 @@ def test_resolve_runtime_ai_credentials_falls_back_to_env_provider(monkeypatch):
     assert api_key == "sk-test-openai-env"
 
 
+def test_resolve_runtime_ai_credentials_uses_lane_primary_when_defaults_are_unset(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-lane")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    axiom_agent = _reload_module("axiom_agent")
+
+    provider, model, api_key = axiom_agent.resolve_runtime_ai_credentials(
+        user_id="",
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        api_key="",
+        provider_locked=False,
+        model_locked=False,
+        lane_id="mission_command",
+    )
+
+    assert provider == "openai"
+    assert model == "gpt-4o"
+    assert api_key == "sk-test-openai-lane"
+
+
 def test_axiom_extract_route_uses_env_fallback_when_ai_config_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))

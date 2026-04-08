@@ -22,6 +22,7 @@ from typing import Optional
 
 import db
 from event_extraction import compute_report_hash
+from ai_lane_routing import lane_for_surface
 
 try:
     from storyline import build_case_storyline
@@ -1486,7 +1487,13 @@ def _get_dossier_analysis_data(
             # Keep the dossier honest and render the warming state until a real external analysis lands.
             return None
 
-        generated = analyze_vendor(user_id, vendor, score, enrichment)
+        generated = analyze_vendor(
+            user_id,
+            vendor,
+            score,
+            enrichment,
+            lane_id=lane_for_surface("dossier_generation"),
+        )
         refreshed = get_latest_analysis(vendor_id, user_id=user_id, input_hash=input_hash)
         if refreshed:
             return refreshed

@@ -18,6 +18,8 @@ import os
 from datetime import datetime, timezone
 from flask import g, jsonify, request
 
+from ai_lane_routing import get_lane_policy
+
 logger = logging.getLogger(__name__)
 
 
@@ -644,14 +646,16 @@ def register_axiom_routes(*, app, require_auth, db):
 
             # Get user ID from Flask g context (set by require_auth)
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
+            runtime_defaults = dict(get_lane_policy("mission_command").get("primary") or {})
 
             result = run_agent(
                 target=target,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", runtime_defaults.get("provider", "anthropic")),
+                model=body.get("model", runtime_defaults.get("model", "claude-sonnet-4-6")),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
+                lane_id="mission_command",
             )
 
             if result.error:
@@ -708,14 +712,16 @@ def register_axiom_routes(*, app, require_auth, db):
 
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
             user_email = g.user.get("email", "") if getattr(g, "user", None) else ""
+            runtime_defaults = dict(get_lane_policy("mission_command").get("primary") or {})
 
             result = run_agent(
                 target=target,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", runtime_defaults.get("provider", "anthropic")),
+                model=body.get("model", runtime_defaults.get("model", "claude-sonnet-4-6")),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
+                lane_id="mission_command",
             )
 
             if result.error:
@@ -781,14 +787,16 @@ def register_axiom_routes(*, app, require_auth, db):
                 return jsonify({"error": "Missing required field: content"}), 400
 
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
+            runtime_defaults = dict(get_lane_policy("edge_collection").get("primary") or {})
 
             # Resolve API key
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", runtime_defaults.get("provider", "anthropic")),
+                model=body.get("model", runtime_defaults.get("model", "claude-sonnet-4-6")),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
+                lane_id="edge_collection",
             )
 
             result = extract_from_text(
@@ -846,13 +854,15 @@ def register_axiom_routes(*, app, require_auth, db):
                 return jsonify({"error": "Missing required field: postings"}), 400
 
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
+            runtime_defaults = dict(get_lane_policy("edge_collection").get("primary") or {})
 
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", runtime_defaults.get("provider", "anthropic")),
+                model=body.get("model", runtime_defaults.get("model", "claude-sonnet-4-6")),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
+                lane_id="edge_collection",
             )
 
             result = extract_from_job_postings(

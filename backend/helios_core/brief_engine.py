@@ -407,10 +407,35 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
     top_customers = [row for row in (support.get("top_customers") or []) if isinstance(row, dict)]
     momentum = support.get("award_momentum") if isinstance(support.get("award_momentum"), dict) else {}
 
+    prime_total_amount = float(
+        momentum.get("prime_total_amount")
+        or sum(float(row.get("total_amount") or 0.0) for row in prime_vehicles)
+        or 0.0
+    )
+    sub_total_amount = float(
+        momentum.get("sub_total_amount")
+        or sum(float(row.get("total_amount") or 0.0) for row in sub_vehicles)
+        or 0.0
+    )
+    visible_total_amount = prime_total_amount + sub_total_amount
+    prime_share_pct = round((prime_total_amount / visible_total_amount) * 100.0, 1) if visible_total_amount > 0 else 0.0
+    sub_share_pct = round((sub_total_amount / visible_total_amount) * 100.0, 1) if visible_total_amount > 0 else 0.0
+    lead_customer = top_customers[0] if top_customers else {}
+    lead_customer_amount = float((lead_customer.get("prime_amount") or 0.0) + (lead_customer.get("sub_amount") or 0.0))
+    lead_customer_share_pct = round((lead_customer_amount / visible_total_amount) * 100.0, 1) if visible_total_amount > 0 else 0.0
+    recent_prime_awards = int(momentum.get("recent_prime_awards_24m") or 0)
+    recent_subaward_rows = int(momentum.get("recent_subaward_rows_24m") or 0)
+    latest_activity_date = str(momentum.get("latest_activity_date") or "").strip()
+
     prime_vehicle_lines = [
         _join_sentences(
             f"{row.get('vehicle_name', 'Unknown vehicle')} appears as direct prime access",
             f"{row.get('award_count', 0)} observed award row(s) worth ${float(row.get('total_amount') or 0.0):,.0f}",
+            (
+                f"{round((float(row.get('total_amount') or 0.0) / prime_total_amount) * 100.0, 1)}% of visible prime dollars"
+                if prime_total_amount > 0 and float(row.get("total_amount") or 0.0) > 0
+                else ""
+            ),
             f"Agencies: {', '.join(row.get('agencies') or [])}" if row.get("agencies") else "",
         )
         for row in prime_vehicles[:4]
@@ -419,6 +444,11 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
         _join_sentences(
             f"{row.get('vehicle_name', 'Unknown vehicle')} appears in subcontract flow",
             f"${float(row.get('total_amount') or 0.0):,.0f} observed under {', '.join(row.get('counterparties') or []) or 'named primes not surfaced'}",
+            (
+                f"{round((float(row.get('total_amount') or 0.0) / sub_total_amount) * 100.0, 1)}% of visible subcontract dollars"
+                if sub_total_amount > 0 and float(row.get("total_amount") or 0.0) > 0
+                else ""
+            ),
         )
         for row in sub_vehicles[:4]
     ]
@@ -443,6 +473,11 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
             f"{row.get('agency', 'Unknown agency')} dominates visible customer flow",
             f"${float((row.get('prime_amount') or 0.0) + (row.get('sub_amount') or 0.0)):,.0f} combined visible value",
             f"{row.get('prime_awards', 0)} direct award row(s) and {row.get('subaward_rows', 0)} subcontract row(s)",
+            (
+                f"{round((((row.get('prime_amount') or 0.0) + (row.get('sub_amount') or 0.0)) / visible_total_amount) * 100.0, 1)}% of visible federal flow"
+                if visible_total_amount > 0
+                else ""
+            ),
         )
         for row in top_customers[:4]
     ]
@@ -482,12 +517,31 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
             "Repeated upstream prime relationships include " + ", ".join(named_upstream_primes) + "."
         )
     if top_customers:
-        lead_customer = top_customers[0]
         implication_lines.append(
             _join_sentences(
                 f"Customer concentration tilts toward {lead_customer.get('agency', 'the lead customer')}",
-                f"Latest visible activity is {momentum.get('latest_activity_date') or 'undated'}",
+                (
+                    f"{lead_customer_share_pct:.1f}% of visible federal flow sits with that customer"
+                    if lead_customer_share_pct > 0
+                    else ""
+                ),
+                f"Latest visible activity is {latest_activity_date or 'undated'}",
             )
+        )
+    if recent_prime_awards or recent_subaward_rows:
+        implication_lines.append(
+            _join_sentences(
+                "Recent procurement activity is still live rather than historical only",
+                (
+                    f"{recent_prime_awards} direct award row(s) and {recent_subaward_rows} subcontract row(s) fell inside the last 24 months"
+                    if recent_prime_awards or recent_subaward_rows
+                    else ""
+                ),
+            )
+        )
+    elif latest_activity_date:
+        implication_lines.append(
+            f"Visible procurement activity may be cooling. The latest surfaced award or subaward date is {latest_activity_date}."
         )
     if not implication_lines and support.get("findings"):
         first = support["findings"][0]
@@ -497,13 +551,20 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
     market_position_lines: list[str] = []
     if named_prime_vehicles and named_upstream_primes:
         market_position_lines.append(
-            f"The visible federal footprint is dual-posture rather than purely prime-led: direct access shows on {', '.join(named_prime_vehicles)}, while repeated upstream primes include {', '.join(named_upstream_primes)}."
+            (
+                f"The visible federal footprint is dual-posture rather than purely prime-led: "
+                f"{prime_share_pct:.1f}% of visible dollars arrive through prime awards and {sub_share_pct:.1f}% through subcontract flow. "
+                f"Direct access shows on {', '.join(named_prime_vehicles)}, while repeated upstream primes include {', '.join(named_upstream_primes)}."
+                if visible_total_amount > 0
+                else f"The visible federal footprint is dual-posture rather than purely prime-led: direct access shows on {', '.join(named_prime_vehicles)}, while repeated upstream primes include {', '.join(named_upstream_primes)}."
+            )
         )
     elif named_prime_vehicles:
         market_position_lines.append(
             _join_sentences(
                 "The visible federal footprint is prime-led",
                 f"Direct access shows on {', '.join(named_prime_vehicles)}",
+                f"{prime_share_pct:.1f}% of visible federal dollars arrive as direct awards" if prime_share_pct > 0 else "",
             )
         )
     elif named_upstream_primes:
@@ -511,6 +572,7 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
             _join_sentences(
                 "The visible federal footprint is carried mainly through upstream primes",
                 f"Repeated prime relationships include {', '.join(named_upstream_primes)}",
+                f"{sub_share_pct:.1f}% of visible federal dollars are coming through subcontract flow" if sub_share_pct > 0 else "",
             )
         )
     if named_downstream_subs:
@@ -525,6 +587,19 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
             _join_sentences(
                 "Customer concentration is not diffuse",
                 f"Visible demand clusters around {', '.join(named_customers)}",
+                f"The lead customer accounts for {lead_customer_share_pct:.1f}% of visible federal dollars" if lead_customer_share_pct > 0 else "",
+            )
+        )
+    if recent_prime_awards or recent_subaward_rows or latest_activity_date:
+        market_position_lines.append(
+            _join_sentences(
+                "Visible federal activity remains current",
+                (
+                    f"{recent_prime_awards} direct award row(s) and {recent_subaward_rows} subcontract row(s) surfaced in the last 24 months"
+                    if recent_prime_awards or recent_subaward_rows
+                    else ""
+                ),
+                f"Latest surfaced activity date: {latest_activity_date}" if latest_activity_date else "",
             )
         )
 
@@ -534,11 +609,17 @@ def _build_procurement_read(context: dict[str, Any]) -> dict[str, Any]:
             "sub_vehicle_count": len(sub_vehicles),
             "prime_award_count": int(momentum.get("prime_awards") or len(support.get("prime_awards") or [])),
             "subaward_row_count": int(momentum.get("subaward_rows") or len(support.get("subaward_rows") or [])),
+            "prime_share_pct": prime_share_pct,
+            "sub_share_pct": sub_share_pct,
+            "lead_customer_share_pct": lead_customer_share_pct,
+            "recent_prime_awards_24m": recent_prime_awards,
+            "recent_subaward_rows_24m": recent_subaward_rows,
         },
         "top_prime_vehicle_names": [str(row.get("vehicle_name") or "").strip() for row in prime_vehicles[:4] if str(row.get("vehicle_name") or "").strip()],
         "top_sub_vehicle_names": [str(row.get("vehicle_name") or "").strip() for row in sub_vehicles[:4] if str(row.get("vehicle_name") or "").strip()],
         "top_upstream_prime_names": [str(row.get("name") or "").strip() for row in upstream_primes[:4] if str(row.get("name") or "").strip()],
         "lead_customer": str(top_customers[0].get("agency") or "").strip() if top_customers else "",
+        "latest_activity_date": latest_activity_date,
         "market_position_lines": [line for line in market_position_lines if line],
         "prime_vehicle_lines": [line for line in prime_vehicle_lines if line],
         "sub_vehicle_lines": [line for line in sub_vehicle_lines if line],
