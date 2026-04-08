@@ -88,6 +88,36 @@ def auth_client(tmp_path, monkeypatch):
         }
 
 
+@pytest.fixture
+def locked_host_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-host-lock.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("XIPHOS_PUBLIC_BASE_URL", "https://helios.xiphosllc.com")
+
+    if "server" in sys.modules:
+        server = importlib.reload(sys.modules["server"])
+    else:
+        server = importlib.import_module("server")
+    graph_runtime = importlib.import_module("graph_runtime")
+    graph_runtime.reset_cached_graph_analytics()
+
+    server.db.init_db()
+    server.init_auth_db()
+    if server.HAS_AI:
+        server.init_ai_tables()
+
+    import hardening
+
+    hardening.reset_rate_limiter()
+
+    with server.app.test_client() as test_client:
+        yield test_client
+
+
 def _create_case(client, name="Acme Corp", country="US", headers=None, extra_payload=None, *, suppress_ai_prime=True):
     payload = {
         "name": name,
@@ -218,6 +248,39 @@ def test_supplier_passport_route_returns_portable_summary(client, monkeypatch):
     assert payload["passport_version"] == "supplier-passport-v1"
     assert payload["posture"] == "approved"
     assert captured["mode"] == "light"
+
+
+def test_unexpected_get_host_redirects_to_canonical_domain(locked_host_client):
+    response = locked_host_client.get(
+        "/api/health?view=full",
+        headers={"Host": "24.199.122.225.sslip.io"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 308
+    assert response.headers["Location"] == "https://helios.xiphosllc.com/api/health?view=full"
+
+
+def test_unexpected_post_host_is_rejected(locked_host_client):
+    response = locked_host_client.post(
+        "/api/cases",
+        json={"name": "Blocked Host Vendor"},
+        headers={"Host": "24.199.122.225.sslip.io"},
+    )
+
+    assert response.status_code == 421
+    payload = response.get_json()
+    assert payload["error"] == "Unexpected host header"
+    assert payload["expected_host"] == "helios.xiphosllc.com"
+
+
+def test_localhost_health_check_remains_allowed_with_host_lock(locked_host_client):
+    response = locked_host_client.get(
+        "/api/health",
+        headers={"Host": "localhost"},
+    )
+
+    assert response.status_code == 200
 
 
 def test_graph_full_intelligence_route_surfaces_decision_and_structural_importance(client, monkeypatch):

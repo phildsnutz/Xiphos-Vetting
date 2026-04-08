@@ -412,6 +412,80 @@ _monitor_scheduler_instance = None
 _monitor_scheduler_started = False
 
 
+def _canonical_public_base_url() -> str:
+    raw = (
+        os.environ.get("XIPHOS_PUBLIC_BASE_URL", "").strip()
+        or os.environ.get("XIPHOS_DEPLOY_APP_URL", "").strip()
+    )
+    if not raw:
+        return ""
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    path = parsed.path.rstrip("/")
+    return f"{base}{path}" if path else base
+
+
+def _normalize_host(raw_host: str | None) -> str:
+    host = str(raw_host or "").strip().lower()
+    if not host:
+        return ""
+    if "," in host:
+        host = host.split(",", 1)[0].strip()
+    if host.startswith("[") and "]" in host:
+        host = host[1:host.index("]")]
+    elif ":" in host:
+        host = host.split(":", 1)[0].strip()
+    return host
+
+
+def _allowed_request_hosts() -> set[str]:
+    hosts = {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "xiphos",
+    }
+    configured = os.environ.get("XIPHOS_ALLOWED_HOSTS", "")
+    for candidate in configured.split(","):
+        normalized = _normalize_host(candidate)
+        if normalized:
+            hosts.add(normalized)
+    canonical = _canonical_public_base_url()
+    if canonical:
+        hostname = _normalize_host(urlparse(canonical).hostname)
+        if hostname:
+            hosts.add(hostname)
+    return hosts
+
+
+def _unexpected_host_response() -> Response | None:
+    canonical = _canonical_public_base_url()
+    if not canonical:
+        return None
+
+    request_host = _normalize_host(request.headers.get("X-Forwarded-Host") or request.host)
+    allowed_hosts = _allowed_request_hosts()
+    if not request_host or request_host in allowed_hosts:
+        return None
+
+    if request.method in {"GET", "HEAD"}:
+        location = f"{canonical.rstrip('/')}{request.path}"
+        if request.query_string:
+            location = f"{location}?{request.query_string.decode('utf-8', errors='ignore')}"
+        response = Response(status=308)
+        response.headers["Location"] = location
+        return response
+
+    return jsonify(
+        {
+            "error": "Unexpected host header",
+            "expected_host": _normalize_host(urlparse(canonical).hostname),
+        }
+    ), 421
+
+
 def _log_event(event: str, **fields):
     payload = {"event": event, **fields}
     LOGGER.info(json.dumps(payload, default=str, sort_keys=True))
@@ -587,6 +661,9 @@ def _augment_connector_status(case_id: str, report: dict) -> dict:
 def _request_context():
     g.request_id = request.headers.get("X-Request-Id", f"req-{uuid.uuid4().hex[:12]}")
     g.request_started_at = time.perf_counter()
+    response = _unexpected_host_response()
+    if response is not None:
+        return response
 
 
 @app.after_request

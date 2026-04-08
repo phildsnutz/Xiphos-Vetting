@@ -68,11 +68,22 @@ if [ -z "$SSH_TARGET" ]; then
 fi
 
 if [ -z "$DOMAIN" ]; then
-  if [ -z "$DEPLOY_HOST" ]; then
-    echo "Set XIPHOS_DEPLOY_DOMAIN when using an SSH alias without XIPHOS_DEPLOY_HOST"
+  PUBLIC_BASE_URL="${XIPHOS_PUBLIC_BASE_URL:-${XIPHOS_DEPLOY_APP_URL:-}}"
+  if [ -n "$PUBLIC_BASE_URL" ]; then
+    DOMAIN="$(python3 - <<'PY'
+from urllib.parse import urlparse
+import os
+
+raw = os.environ.get("PUBLIC_BASE_URL", "").strip()
+parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+print(parsed.hostname or "")
+PY
+)"
+  fi
+  if [ -z "$DOMAIN" ]; then
+    echo "Set XIPHOS_DEPLOY_DOMAIN or XIPHOS_PUBLIC_BASE_URL before running deploy-ssl.sh"
     exit 1
   fi
-  DOMAIN="${DEPLOY_HOST}.sslip.io"
 fi
 
 SSH_ARGS=(-o StrictHostKeyChecking=accept-new)

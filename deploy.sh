@@ -392,7 +392,9 @@ sync_repo
 sync_secure_runtime_env
 run "Stopping existing containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose down"
 run "Building Docker image..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && export DOCKER_BUILDKIT=0 && BUILD_LOG=/tmp/xiphos-build.log && rm -f \$BUILD_LOG && if docker build --no-cache -t xiphos-xiphos . >\$BUILD_LOG 2>&1; then echo '  Docker build OK'; else code=\$?; tail -n 200 \$BUILD_LOG; exit \$code; fi"
-run "Starting containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose up -d --no-build"
+PUBLIC_BASE_URL_Q=$(printf "%q" "$PUBLIC_BASE_URL")
+ALLOWED_HOSTS_Q=$(printf "%q" "${XIPHOS_ALLOWED_HOSTS:-}")
+run "Starting containers..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && export XIPHOS_PUBLIC_BASE_URL=$PUBLIC_BASE_URL_Q && export XIPHOS_ALLOWED_HOSTS=$ALLOWED_HOSTS_Q && docker compose up -d --no-build"
 run "Container status..." "cd $REMOTE_DIR && export XIPHOS_SECRET_KEY='$XIPHOS_SECRET_KEY' && docker compose ps"
 
 REMOTE_HEALTH_WAIT_CMD=$(cat <<EOF
