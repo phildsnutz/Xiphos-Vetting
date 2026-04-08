@@ -31,6 +31,7 @@ import {
 import type { ProductPillar, WorkflowLane } from "@/components/xiphos/portfolio-utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InlineMessage, ShortcutBadge, StatusPill } from "@/components/xiphos/shell-primitives";
+import { APP_VERSION } from "@/lib/app-version";
 
 function mapCalibration(apiCal: Record<string, unknown>): Calibration {
   const cal = apiCal as {
@@ -639,7 +640,7 @@ export default function App() {
   });
   useHotkey("g", () => {
     if (selected) {
-      triggerCaseWorkspace("graph");
+      setTab("graph");
       return;
     }
     setSelected(null);
@@ -709,6 +710,7 @@ export default function App() {
   const showSupportingLayerControls = false;
   const frontPorchMode = !selected && tab === "helios";
   const aegisMode = !selected && tab === "axiom";
+  const graphRoomMode = tab === "graph";
   const shellContent = selected ? (
     <CaseDetail
       c={selected}
@@ -716,6 +718,7 @@ export default function App() {
       onRescore={apiAvailable ? handleRescore : undefined}
       onDossier={handleDossier}
       onCaseRefresh={handleCaseCreated}
+      onOpenGraphRoom={() => setTab("graph")}
       laneSummary={shellLaneSummary}
     />
   ) : tab === "dashboard" ? (
@@ -820,7 +823,7 @@ export default function App() {
         style={{
           background: T.bg,
           color: T.text,
-          overflow: aegisMode ? "hidden" : authRequired && !user || frontPorchMode ? "auto" : "hidden",
+          overflow: aegisMode || graphRoomMode ? "hidden" : authRequired && !user || frontPorchMode ? "auto" : "hidden",
         }}
       >
         {authRequired && !user ? (
@@ -880,6 +883,13 @@ export default function App() {
               }
               void handleCaseCreated(caseId);
             }}
+          />
+        ) : graphRoomMode ? (
+          <GraphIntelligenceDashboard
+            onExit={() => {
+              setTab(selected ? "portfolio" : "helios");
+            }}
+            exitLabel={selected ? `Return to ${selected.name}` : "Return to Helios"}
           />
         ) : (
           <div className="h-screen flex overflow-hidden">
@@ -1438,11 +1448,11 @@ export default function App() {
                 </div>
               </header>
 
-              <main className="flex-1 min-h-0 overflow-auto" style={{ padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : PAD.default }}>
+              <main className="flex-1 min-h-0 overflow-auto" style={{ padding: selected || tab === "dashboard" ? 0 : PAD.default }}>
                 <div
                   style={{
                     minHeight: "100%",
-                    padding: selected || tab === "graph" || tab === "dashboard" || tab === "axiom" ? 0 : 0,
+                    padding: 0,
                   }}
                 >
                   {shellContent}
@@ -1459,7 +1469,7 @@ export default function App() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div style={{ fontSize: FS.sm, color: T.textSecondary }}>
-                    Helios v5.2.1 · {cases.length} cases in memory
+                    Helios v{APP_VERSION} · {cases.length} cases in memory
                     {user ? ` · ${user.email}` : ""}
                   </div>
                   <div style={{ fontSize: FS.xs, color: T.textTertiary }}>

@@ -39,11 +39,12 @@ interface CaseDetailPropsLegacy {
   onRescore?: (caseId: string) => Promise<void>;
   onDossier?: (caseId: string) => Promise<void>;
   onCaseRefresh?: (caseId: string) => Promise<void>;
+  onOpenGraphRoom?: () => void;
   globalLane?: WorkflowLane;
   laneSummary?: unknown;
 }
 
-const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({ isReadOnly, hasApi }) => {
+const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean; onOpenGraphRoom?: () => void }> = ({ isReadOnly, hasApi, onOpenGraphRoom }) => {
   const {
     c,
     cal,
@@ -188,12 +189,21 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
 
   const evidenceTabs: EvidenceTabItem[] = [
     { id: "model", label: "Model", disabled: !cal },
-    { id: "graph", label: "Graph", disabled: !graphData },
+    { id: "graph", label: "Graph Intel", disabled: false },
     { id: "findings", label: "Findings", disabled: !enrichment },
     { id: "events", label: "Timeline", disabled: !enrichment },
   ];
 
   const openEvidence = (tab: EvidenceTabId) => {
+    if (tab === "graph") {
+      setAnalystView("evidence");
+      setEvidenceTab("graph");
+      setPendingEvidenceTab(null);
+      if (!graphData && !graphLoading) {
+        void loadGraphData(graphDepth as 3 | 4);
+      }
+      return;
+    }
     if (tab !== "model" && !enrichment) {
       if (isReadOnly) {
         return;
@@ -206,9 +216,6 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
     setAnalystView(tab === "model" ? "model" : "evidence");
     setEvidenceTab(tab);
     setPendingEvidenceTab(null);
-    if (tab === "graph" && !graphData && !graphLoading) {
-      void loadGraphData(graphDepth as 3 | 4);
-    }
   };
 
   const switchGraphDepth = (depth: 3 | 4) => {
@@ -418,6 +425,7 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean }> = ({
             c={c}
             evidenceTabs={evidenceTabs}
             graphDepth={graphDepth}
+            onOpenGraphRoom={onOpenGraphRoom}
             openEvidence={openEvidence}
             switchGraphDepth={switchGraphDepth}
           />
@@ -474,7 +482,7 @@ export const CaseDetail: React.FC<CaseDetailPropsLegacy> = (props) => {
       onCaseRefresh={props.onCaseRefresh}
       isReadOnly={!!isReadOnly}
     >
-      <CaseDetailContent isReadOnly={!!isReadOnly} hasApi={true} />
+      <CaseDetailContent isReadOnly={!!isReadOnly} hasApi={true} onOpenGraphRoom={props.onOpenGraphRoom} />
     </CaseDetailProvider>
   );
 };

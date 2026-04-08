@@ -59,6 +59,7 @@ import importlib.util
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
+from app_version import APP_VERSION
 from ai_lane_routing import lane_for_surface
 
 _RUNTIME_ENV_BOOTSTRAP: dict[str, object] = {
@@ -2268,7 +2269,7 @@ def health():
 
     return jsonify({
         "status": "ok",
-        "version": "5.2.0",
+        "version": APP_VERSION,
         "auth_enabled": AUTH_ENABLED,
         "dev_mode": dev_mode,
         "login_required": login_required,

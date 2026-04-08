@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { type Core, type ElementDefinition, type EventObject, type NodeSingular } from "cytoscape";
-import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText, PanelLeft, PanelRight } from "lucide-react";
+import { Search, Grid3X3, Download, Eye, EyeOff, Globe, Pin, PinOff, MessageSquare, Save, FolderOpen, Trash2, FileText, PanelLeft, PanelRight, ArrowLeft } from "lucide-react";
 import { T, FS, PAD, SP, O } from "@/lib/tokens";
 import { fetchFullGraphIntelligence, listWorkspaces, createWorkspace, deleteWorkspace, findShortestPath, simulateRiskPropagation, generateGraphBriefing } from "@/lib/api";
 import type { GraphEdge as ApiGraphEdge, GraphWorkspace } from "@/lib/api";
@@ -186,7 +186,12 @@ function getStructuralImportance(node: EnrichedGraphNode): number {
 // Main Component
 // ============================================================================
 
-export function GraphIntelligenceDashboard() {
+interface GraphIntelligenceDashboardProps {
+  onExit?: () => void;
+  exitLabel?: string;
+}
+
+export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return" }: GraphIntelligenceDashboardProps) {
   const cyContainerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
@@ -438,34 +443,38 @@ export function GraphIntelligenceDashboard() {
     if (!cyContainerRef.current || !filteredData.nodes.length) return;
 
     const elements = buildCytoscapeElements(filteredData.nodes, filteredData.edges);
+    let cy: Core | null = null;
 
-    const layoutConfig = layoutMode === "geo"
-      ? {
-          name: "preset",
-          positions: (node: NodeSingular) => {
-            const nodeData = filteredData.nodes.find((n) => n.id === node.id());
-            const country = nodeData?.country;
-            const centroid = country ? COUNTRY_CENTROIDS[country] : null;
-            if (centroid) {
-              // Equirectangular projection: lng -> x, lat -> y (inverted)
-              const jitter = (Math.random() - 0.5) * 30; // Spread nodes from same country
-              return { x: centroid[0] * 8 + jitter, y: -centroid[1] * 8 + jitter };
-            }
-            // No country: random position at center
-            return { x: (Math.random() - 0.5) * 200, y: (Math.random() - 0.5) * 200 };
-          },
-          animate: true,
-          animationDuration: 400,
-        }
-      : { name: layoutMode, animate: true, animationDuration: 400 };
+    try {
+      const layoutConfig = layoutMode === "geo"
+        ? {
+            name: "preset",
+            positions: (node: NodeSingular) => {
+              const nodeData = filteredData.nodes.find((n) => n.id === node.id());
+              const country = nodeData?.country;
+              const centroid = country ? COUNTRY_CENTROIDS[country] : null;
+              if (centroid) {
+                const jitter = (Math.random() - 0.5) * 30;
+                return { x: centroid[0] * 8 + jitter, y: -centroid[1] * 8 + jitter };
+              }
+              return { x: (Math.random() - 0.5) * 200, y: (Math.random() - 0.5) * 200 };
+            },
+            animate: true,
+            animationDuration: 400,
+          }
+        : { name: layoutMode, animate: true, animationDuration: 400 };
 
-    const cy = cytoscape({
-      container: cyContainerRef.current,
-      elements,
-      style: buildCytoscapeStyle(),
-      layout: layoutConfig,
-      pixelRatio: "auto",
-    });
+      cy = cytoscape({
+        container: cyContainerRef.current,
+        elements,
+        style: buildCytoscapeStyle(),
+        layout: layoutConfig,
+        pixelRatio: "auto",
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Graph render failed");
+      return;
+    }
 
     cyRef.current = cy;
 
@@ -569,10 +578,26 @@ export function GraphIntelligenceDashboard() {
     cy.on("mouseout", "node", onMouseout);
     cy.on("render", renderMinimap);
     cy.on("pan zoom", renderMinimap);
-    cy.fit(cy.elements(), 40);
-    setTimeout(renderMinimap, 500);
+
+    const resizeAndFit = () => {
+      if (!cy || cy.destroyed()) return;
+      cy.resize();
+      if (cy.elements().length > 0) {
+        cy.fit(cy.elements(), 40);
+      }
+      renderMinimap();
+    };
+
+    const frameId = window.requestAnimationFrame(resizeAndFit);
+    const resizeObserver = new ResizeObserver(() => {
+      resizeAndFit();
+    });
+    resizeObserver.observe(cyContainerRef.current);
+    window.setTimeout(renderMinimap, 500);
 
     return () => {
+      window.cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
       cy.off("select", "node", onNodeSelect);
       cy.off("zoom", onZoom);
       cy.off("mouseover", "node", onMouseover);
@@ -991,6 +1016,33 @@ export function GraphIntelligenceDashboard() {
             zIndex: 10,
           }}
         >
+          {onExit ? (
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="helios-focus-ring"
+                aria-label={exitLabel}
+                onClick={onExit}
+                style={{
+                  padding: PAD.default,
+                  background: T.bg,
+                  border: `1px solid ${T.border}`,
+                  color: T.textSecondary,
+                  borderRadius: 999,
+                  cursor: "pointer",
+                  fontSize: `${FS.sm}px`,
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: SP.xs,
+                }}
+              >
+                <ArrowLeft size={14} />
+                {exitLabel}
+              </button>
+            </div>
+          ) : null}
+
           <PanelHeader
             eyebrow="Graph room"
             title={
@@ -2404,11 +2456,11 @@ function buildCytoscapeElements(nodes: EnrichedGraphNode[], edges: GraphEdge[]):
     };
   });
 
-  edges.forEach((edge) => {
+  edges.forEach((edge, index) => {
     const relColor = REL_COLORS[edge.rel_type] || "#94a3b8";
     elements.push({
       data: {
-        id: `${edge.source}-${edge.target}`,
+        id: `${edge.source}-${edge.target}-${edge.rel_type}-${index}`,
         source: edge.source,
         target: edge.target,
         color: relColor,

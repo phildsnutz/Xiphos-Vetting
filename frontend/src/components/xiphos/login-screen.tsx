@@ -3,6 +3,7 @@ import { Shield, Lock, AlertTriangle, UserPlus } from "lucide-react";
 import { T, FS } from "@/lib/tokens";
 import { login, setup } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
+import { APP_VERSION } from "@/lib/app-version";
 
 interface LoginScreenProps {
   onLogin: (user: AuthUser) => void;
@@ -300,7 +301,7 @@ export function LoginScreen({ onLogin, needsSetup }: LoginScreenProps) {
           className="text-center mt-4"
           style={{ fontSize: FS.sm, color: T.muted, lineHeight: 1.5 }}
         >
-          Helios v5.2
+          Helios v{APP_VERSION}
           <br />
           For authorized workspace use only
           <br />

@@ -1,16 +1,12 @@
 import React from "react";
-import { Loader2, Network, Radar } from "lucide-react";
+import { Network, Radar, ArrowRight } from "lucide-react";
 import { LoadingSpinner } from "../loader";
 import { useCaseDetail } from "./case-context";
-import { EntityGraph } from "../entity-graph";
-import { GraphTrainingReviewPanel } from "../graph-training-review-panel";
-import { GraphProvenancePanel } from "../graph-provenance-panel";
 import { EnrichmentPanel } from "../enrichment-panel";
 import { T, FS, PAD, SP } from "@/lib/tokens";
-import type { CaseGraphData, EnrichmentReport, GraphEntity } from "@/lib/api";
+import type { CaseGraphData, EnrichmentReport } from "@/lib/api";
 import type { Calibration, VettingCase } from "@/lib/types";
 import type { EvidenceTabId, EvidenceTabItem } from "./case-detail-types";
-import { emit } from "@/lib/telemetry";
 
 interface EvidenceViewProps {
   evidenceRef: React.RefObject<HTMLDivElement | null>;
@@ -27,6 +23,7 @@ interface EvidenceViewProps {
   c: VettingCase;
   evidenceTabs: EvidenceTabItem[];
   graphDepth: number;
+  onOpenGraphRoom?: () => void;
   openEvidence: (tab: EvidenceTabId) => void;
   switchGraphDepth: (depth: 3 | 4) => void;
 }
@@ -46,6 +43,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
   c,
   evidenceTabs,
   graphDepth,
+  onOpenGraphRoom,
   openEvidence,
   switchGraphDepth,
 }) => {
@@ -61,7 +59,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
     analystView === "model"
       ? "Model reasoning"
       : evidenceTab === "graph"
-        ? "Knowledge graph"
+        ? "Graph Intel"
         : evidenceTab === "events"
           ? "Evidence timeline"
           : evidenceTab === "findings"
@@ -71,7 +69,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
     analystView === "model"
       ? "Read the calibrated view, confidence, and factor pressure without leaving the case."
       : evidenceTab === "graph"
-        ? "Use the graph to explain why a relationship matters, not just to look at it."
+        ? "Use the graph room to interrogate the relationship fabric instead of relying on an old local snapshot."
         : "Stay inside the evidence stream, then pivot deeper only when the case needs it.";
 
   return (
@@ -157,7 +155,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
               <div className="flex items-center gap-2">
                 <Network size={15} color={T.accent} />
                 <span className="font-semibold uppercase tracking-wider" style={{ fontSize: FS.sm, color: T.muted, letterSpacing: "0.06em" }}>
-                  Entity Association Graph
+                  Graph Intel Room
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -193,62 +191,129 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
               </div>
             </div>
 
-            <GraphTrainingReviewPanel
-              rootEntityId={graphData?.root_entity_id}
-              entityName={graphData?.entities.find((entity: GraphEntity) => entity.id === graphData.root_entity_id)?.canonical_name || c.name}
-              onGraphRefresh={() => refreshDerivedCaseData({ reloadGraph: true })}
-            />
-
-            {graphLoading && (
-              <div className="glass-card flex items-center justify-center py-10 animate-fade-in" style={{ marginTop: 14 }}>
-                <Loader2 className="animate-spin" size={18} color={T.muted} />
-                <span style={{ fontSize: FS.sm, color: T.muted, marginLeft: 8 }}>Loading graph data...</span>
+            <div
+              className="glass-card animate-fade-in"
+              style={{
+                marginTop: 14,
+                padding: PAD.comfortable,
+                display: "flex",
+                flexDirection: "column",
+                gap: SP.md,
+                border: `1px solid ${T.border}`,
+                background: T.bg,
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: SP.xs }}>
+                <div style={{ fontSize: FS.md, color: T.text, fontWeight: 700 }}>
+                  The graph room is the canonical graph surface now
+                </div>
+                <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6, maxWidth: 760 }}>
+                  This case workspace no longer renders the stale embedded graph. Open Graph Intel to interrogate the full relationship fabric without falling back to the old local graph UI.
+                </div>
               </div>
-            )}
 
-            {graphData && (
-              <EntityGraph
-                entities={graphData.entities}
-                relationships={graphData.relationships}
-                rootEntityId={graphData.root_entity_id}
-                width={780}
-                height={520}
-                onEntityClick={(entity: GraphEntity) => {
-                  setProvenanceRelId(null);
-                  setProvenanceEntityId(entity.id);
-                  emit("graph_entity_clicked", {
-                    screen: "case_graph",
-                    case_id: c.id,
-                    metadata: { entity_id: entity.id, entity_type: entity.entity_type, entity_name: entity.canonical_name },
-                  });
-                }}
-                onRelationshipClick={(relId: string | number) => {
-                  if (typeof relId !== "number") return;
-                  setProvenanceEntityId(null);
-                  setProvenanceRelId(relId);
-                  emit("graph_relationship_clicked", { screen: "case_graph", case_id: c.id, metadata: { relationship_id: relId } });
-                }}
-              />
-            )}
-
-            {(provenanceEntityId || provenanceRelId != null) && (
-              <GraphProvenancePanel
-                entityId={provenanceEntityId}
-                relationshipId={provenanceRelId}
-                onClose={() => {
-                  setProvenanceEntityId(null);
-                  setProvenanceRelId(null);
-                }}
-              />
-            )}
-
-            {!graphLoading && !graphData && (
-              <div className="glass-card flex flex-col items-center justify-center py-10 animate-fade-in" style={{ marginTop: SP.md + 2 }}>
-                <Network size={28} color={T.muted} style={{ marginBottom: 10, opacity: 0.5 }} />
-                <div style={{ fontSize: FS.sm, color: T.dim, fontWeight: 600 }}>No graph data yet</div>
-                <div style={{ fontSize: FS.caption, color: T.muted, marginTop: SP.xs }}>Re-run the assessment to populate the knowledge graph.</div>
+              <div className="flex flex-wrap gap-2">
+                <div
+                  style={{
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    border: `1px solid ${T.border}`,
+                    background: T.surface,
+                    fontSize: FS.sm,
+                    color: T.textSecondary,
+                    fontWeight: 700,
+                  }}
+                >
+                  {graphLoading ? "Refreshing network…" : `${graphData?.entity_count ?? graphData?.entities.length ?? 0} nodes`}
+                </div>
+                <div
+                  style={{
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    border: `1px solid ${T.border}`,
+                    background: T.surface,
+                    fontSize: FS.sm,
+                    color: T.textSecondary,
+                    fontWeight: 700,
+                  }}
+                >
+                  {graphLoading ? "Collecting edges…" : `${graphData?.relationship_count ?? graphData?.relationships.length ?? 0} edges`}
+                </div>
+                <div
+                  style={{
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    border: `1px solid ${T.border}`,
+                    background: T.surface,
+                    fontSize: FS.sm,
+                    color: T.textSecondary,
+                    fontWeight: 700,
+                  }}
+                >
+                  Depth {graphDepth}
+                </div>
               </div>
-            )}
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={onOpenGraphRoom}
+                  className="helios-focus-ring"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: SP.xs,
+                    border: "none",
+                    background: T.accent,
+                    color: T.textInverse,
+                    borderRadius: 999,
+                    padding: `${PAD.default}`,
+                    fontSize: FS.sm,
+                    fontWeight: 800,
+                    cursor: onOpenGraphRoom ? "pointer" : "default",
+                    opacity: onOpenGraphRoom ? 1 : 0.65,
+                  }}
+                  disabled={!onOpenGraphRoom}
+                >
+                  Open Graph Intel room
+                  <ArrowRight size={14} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void refreshDerivedCaseData({ reloadGraph: true })}
+                  className="helios-focus-ring"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: SP.xs,
+                    borderRadius: 999,
+                    border: `1px solid ${T.border}`,
+                    background: T.surface,
+                    color: T.textSecondary,
+                    padding: PAD.default,
+                    fontSize: FS.sm,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Refresh case graph
+                </button>
+              </div>
+
+              {graphLoading ? (
+                <div className="flex items-center gap-2" style={{ fontSize: FS.sm, color: T.muted }}>
+                  <LoadingSpinner />
+                  Rebuilding the case network snapshot…
+                </div>
+              ) : null}
+
+              {!graphLoading && !graphData ? (
+                <div style={{ fontSize: FS.sm, color: T.muted }}>
+                  No case graph has been built yet. Re-run the assessment or refresh the case graph before opening the room.
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
 
