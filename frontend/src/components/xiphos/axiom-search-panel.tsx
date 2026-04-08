@@ -115,6 +115,7 @@ interface AxiomSearchResult {
 
 interface AxiomSearchPanelProps {
   onResultsChange?: (results: AxiomSearchResult) => void;
+  onRunStateChange?: (state: { running: boolean; status: string; requestId?: string | null }) => void;
   seed?: {
     targetEntity: string;
     vehicleName?: string;
@@ -165,7 +166,7 @@ function formatMillis(elapsedMs: number): string {
   return `${(elapsedMs / 1000).toFixed(1)} s`;
 }
 
-export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPanelProps) {
+export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = null }: AxiomSearchPanelProps) {
   const targetInputRef = useRef<HTMLInputElement | null>(null);
   const resultsScrollRef = useRef<HTMLDivElement | null>(null);
   const autoRunSeedKeyRef = useRef<string>("");
@@ -174,8 +175,8 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
   const [domainFocus, setDomainFocus] = useState("");
-  const [provider, setProvider] = useState<AxiomProvider>("anthropic");
-  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [provider, setProvider] = useState<AxiomProvider>("openai");
+  const [model, setModel] = useState("gpt-4o");
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [iteration, setIteration] = useState(0);
@@ -213,6 +214,14 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
     el.scrollTop = 0;
     window.requestAnimationFrame(syncResultsScrollState);
   }, [error, isRunning, results, status, syncResultsScrollState]);
+
+  useEffect(() => {
+    onRunStateChange?.({
+      running: isRunning,
+      status,
+      requestId: seed?.requestId || null,
+    });
+  }, [isRunning, onRunStateChange, seed?.requestId, status]);
 
   useHotkey("cmd+f", () => {
     targetInputRef.current?.focus();
@@ -677,8 +686,9 @@ export function AxiomSearchPanel({ onResultsChange, seed = null }: AxiomSearchPa
                     )}
                     {provider === "openai" && (
                       <>
-                        <option value="gpt-4.1">GPT-4.1</option>
                         <option value="gpt-4o">GPT-4o</option>
+                        <option value="gpt-5.4">GPT-5.4</option>
+                        <option value="gpt-4.1">GPT-4.1</option>
                         <option value="gpt-4">GPT-4</option>
                       </>
                     )}

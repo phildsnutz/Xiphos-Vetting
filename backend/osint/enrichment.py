@@ -39,8 +39,10 @@ CONNECTORS = [
 PER_CONNECTOR_TIMEOUT = 45
 CONNECTOR_EXECUTION_TIMEOUTS = {
     "dod_sam_exclusions": 12,
+    "careers_scraper": 12,
     "public_html_ownership": 75,
     "sam_gov": 20,
+    "sbir_awards": 8,
 }
 
 # Retry configuration
@@ -905,7 +907,7 @@ def enrich_vendor_streaming(
     vendor_name: str,
     country: str = "",
     connectors: Optional[list[str]] = None,
-    timeout: int = 90,
+    timeout: int = 45,
     force: bool = False,
     **ids,
 ):

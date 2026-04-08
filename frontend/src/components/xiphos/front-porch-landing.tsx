@@ -3317,7 +3317,7 @@ export function FrontPorchLanding({
             ) : null}
 
             {vendorArtifact ? (
-              <div style={{ width: "min(760px, 100%)" }}>
+              <div style={{ width: "min(760px, 100%)", display: "grid", gap: SP.md }}>
                 <BriefArtifact
                   surface="light"
                   eyebrow={vendorArtifact.phase === "ready" ? "Returned brief" : "Working brief"}
@@ -3378,6 +3378,39 @@ export function FrontPorchLanding({
                     </>
                   }
                 />
+                {workingCaseId && vendorArtifact.phase !== "ready" ? (
+                  <div
+                    style={{
+                      borderRadius: 28,
+                      border: `1px solid ${T.border}`,
+                      background: "rgba(6,10,17,0.82)",
+                      padding: PAD.comfortable,
+                      display: "grid",
+                      gap: SP.sm,
+                    }}
+                  >
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <div
+                        style={{
+                          fontSize: FS.xs,
+                          color: T.textTertiary,
+                          fontWeight: 700,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Live collection
+                      </div>
+                      <div style={{ fontSize: FS.md, color: T.text, fontWeight: 650 }}>
+                        AXIOM is still building the returned brief.
+                      </div>
+                      <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.6 }}>
+                        Stay here and watch the sources land. The returned brief will unlock automatically when the warmup closes.
+                      </div>
+                    </div>
+                    <EnrichmentStream caseId={workingCaseId} apiBase={window.location.origin} onComplete={handleEnrichmentComplete} />
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -3390,12 +3423,6 @@ export function FrontPorchLanding({
             )}
           </div>
         </div>
-
-        {workingCaseId ? (
-          <div style={{ display: "none" }}>
-            <EnrichmentStream caseId={workingCaseId} apiBase={window.location.origin} onComplete={handleEnrichmentComplete} />
-          </div>
-        ) : null}
       </div>
     </div>
   );

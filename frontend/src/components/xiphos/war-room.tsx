@@ -76,6 +76,12 @@ interface AlertSnapshot {
   timestamp: string;
 }
 
+interface CollectionRuntimeState {
+  running: boolean;
+  status: string;
+  requestId?: string | null;
+}
+
 const ROOM_MODES: Array<{
   id: RoomMode;
   label: string;
@@ -123,6 +129,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
   const [alerts, setAlerts] = useState<AlertSnapshot[]>([]);
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 1024);
   const [collectionSeed, setCollectionSeed] = useState<AegisRoomProps["seed"]>(seed);
+  const [collectionRuntime, setCollectionRuntime] = useState<CollectionRuntimeState>({ running: false, status: "" });
   const [exchangeDraft, setExchangeDraft] = useState("");
   const [exchangeError, setExchangeError] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -175,6 +182,13 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     setMode("collection");
     setCollectionSeed(nextSeed);
     setSearchResults(null);
+    setCollectionRuntime({
+      running: true,
+      status: hasPinnedTarget
+        ? `AXIOM is pressing ${currentTargetAnchor} against ${prompt}.`
+        : `AXIOM is working ${prompt} as the new lead thread.`,
+      requestId: nextSeed.requestId,
+    });
     setExchangeError("");
     setExchangeDraft("");
   };
@@ -186,6 +200,9 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     if (mode === "alerts") {
       return "This room is for material changes, not noise. If it is visible here, it should alter the working judgment.";
     }
+    if (collectionRuntime.running) {
+      return collectionRuntime.status || "AXIOM is reworking the live thread now.";
+    }
     if (searchResults) {
       return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, and ${searchResults.intelligenceGaps.length} open gaps from the current brief.`;
     }
@@ -193,7 +210,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
       return `AXIOM picked up ${collectionSeed.seedLabel || collectionSeed.targetEntity} from ${STOA_NAME} and is working the public picture from there.`;
     }
     return "Bring the knot, not the taxonomy. AXIOM will work the public picture, keep the weak residue explicit, and only push what holds.";
-  }, [collectionSeed, mode, searchResults]);
+  }, [collectionRuntime.running, collectionRuntime.status, collectionSeed, mode, searchResults]);
 
   const roomStatus = useMemo(() => {
     if (mode === "watch") {
@@ -206,6 +223,9 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
         ? `${criticalAlerts.length} material drift signal${criticalAlerts.length === 1 ? "" : "s"} visible`
         : `${alerts.length} alert${alerts.length === 1 ? "" : "s"} in the room`;
     }
+    if (collectionRuntime.running) {
+      return "AXIOM working the thread";
+    }
     if (searchResults) {
       return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
     }
@@ -213,7 +233,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
       return `${STOA_NAME} brief warming`;
     }
     return "Awaiting a live brief";
-  }, [activeWatchEntries.length, alerts.length, collectionSeed, criticalAlerts.length, mode, searchResults]);
+  }, [activeWatchEntries.length, alerts.length, collectionRuntime.running, collectionSeed, criticalAlerts.length, mode, searchResults]);
 
   const currentFrame = useMemo(() => {
     if (mode === "watch") {
@@ -256,6 +276,15 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
       };
     }
 
+    if (mode === "collection" && collectionRuntime.running) {
+      return {
+        eyebrow: "AXIOM exchange",
+        title: "AXIOM is pressing the next thread.",
+        lead: collectionRuntime.status || "The next pass is already in motion. Stay on the thread and let the collection close.",
+        follow: "The lower collection pane is live. Findings will refresh when this pass closes.",
+      };
+    }
+
     if (searchResults) {
       const leadGap = searchResults.intelligenceGaps[0];
       const leadAdvisory = searchResults.advisory[0];
@@ -290,7 +319,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
       lead: "Start with the entity, vehicle, incumbent, teammate, or weak point that still feels unresolved. I’ll work outward from there and keep the dark space explicit.",
       follow: "Reply with the redirect, the harder question, or the thread you want pressed first.",
     };
-  }, [activeWatchEntries, alerts, collectionSeed, criticalAlerts, mode, searchResults]);
+  }, [activeWatchEntries, alerts, collectionRuntime.running, collectionRuntime.status, collectionSeed, criticalAlerts, mode, searchResults]);
 
   const openThreads = useMemo(() => {
     if (mode === "watch") {
@@ -789,6 +818,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
                       <button
                         type="submit"
                         className="helios-focus-ring"
+                        disabled={collectionRuntime.running}
                         style={{
                           border: `1px solid ${T.accent}${O["20"]}`,
                           background: `${T.accent}${O["08"]}`,
@@ -800,11 +830,12 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
                           display: "inline-flex",
                           alignItems: "center",
                           gap: SP.xs,
-                          cursor: "pointer",
+                          cursor: collectionRuntime.running ? "not-allowed" : "pointer",
+                          opacity: collectionRuntime.running ? 0.6 : 1,
                         }}
                       >
                         <SendHorizontal size={14} />
-                        Send to AXIOM
+                        {collectionRuntime.running ? "AXIOM working..." : "Send to AXIOM"}
                       </button>
                     </div>
                     {exchangeError ? (
@@ -863,7 +894,12 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
               }}
             >
               {mode === "collection" ? (
-                <AxiomSearchPanel seed={collectionSeed} onResultsChange={(next) => setSearchResults(next)} />
+                <AxiomSearchPanel
+                  key={collectionSeed?.requestId || collectionSeed?.targetEntity || "aegis-collection"}
+                  seed={collectionSeed}
+                  onResultsChange={(next) => setSearchResults(next)}
+                  onRunStateChange={(next) => setCollectionRuntime(next)}
+                />
               ) : null}
               {mode === "watch" ? (
                 <AxiomWatchlist onEntriesChange={(next) => setWatchEntries(next)} />
