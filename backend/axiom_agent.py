@@ -53,7 +53,7 @@ MAX_FOLLOW_UPS_PER_ITER = 3 # Max follow-up queries per iteration
 SCRAPE_DELAY = 2.0          # Seconds between scraper calls
 LLM_TIMEOUT = 30            # Seconds for LLM API calls
 DEFAULT_PROVIDER = "openai"
-DEFAULT_MODEL = "gpt-5.1"
+DEFAULT_MODEL = "gpt-4o"
 
 _ENV_PROVIDER_KEYS: dict[str, tuple[str, ...]] = {
     "anthropic": ("ANTHROPIC_API_KEY",),
@@ -63,7 +63,7 @@ _ENV_PROVIDER_KEYS: dict[str, tuple[str, ...]] = {
 
 _FALLBACK_PROVIDER_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
-    "openai": "gpt-5.1",
+    "openai": "gpt-4o",
     "gemini": "gemini-1.5-pro",
 }
 

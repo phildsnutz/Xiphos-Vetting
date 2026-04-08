@@ -31,7 +31,7 @@ def test_resolve_runtime_ai_credentials_falls_back_to_env_provider(monkeypatch):
     )
 
     assert provider == "openai"
-    assert model == "gpt-5.1"
+    assert model == "gpt-4o"
     assert api_key == "sk-test-openai-env"
 
 
@@ -81,7 +81,7 @@ def test_axiom_extract_route_uses_env_fallback_when_ai_config_missing(tmp_path, 
     assert response.status_code == 200
     assert captured["content"] == "SMX appears alongside two possible contractor names."
     assert captured["provider"] == "openai"
-    assert captured["model"] == "gpt-5.1"
+    assert captured["model"] == "gpt-4o"
     assert captured["api_key"] == "sk-test-openai-route"
 
 

@@ -333,7 +333,7 @@ def _call_ai_rerank(user_id: str, prompt: str) -> tuple[Optional[dict[str, Any]]
             return None, "no_config"
 
         provider = config.get("provider", "openai")
-        model = config.get("model", "gpt-5.1")
+        model = config.get("model", "gpt-4o")
         caller = PROVIDER_CALLERS.get(provider)
         if not caller:
             return None, "unsupported_provider"

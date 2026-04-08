@@ -609,7 +609,7 @@ def register_axiom_routes(*, app, require_auth, db):
             "known_subs": ["The Unconventional"],      // optional
             "context": "INDOPACOM IT services",        // optional
             "provider": "openai",                      // optional, default openai
-            "model": "gpt-5.1"                         // optional
+            "model": "gpt-4o"                          // optional
         }
 
         Returns:
@@ -648,7 +648,7 @@ def register_axiom_routes(*, app, require_auth, db):
             result = run_agent(
                 target=target,
                 provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-5.1"),
+                model=body.get("model", "gpt-4o"),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
@@ -712,7 +712,7 @@ def register_axiom_routes(*, app, require_auth, db):
             result = run_agent(
                 target=target,
                 provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-5.1"),
+                model=body.get("model", "gpt-4o"),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
@@ -768,7 +768,7 @@ def register_axiom_routes(*, app, require_auth, db):
             "context": "mission context",              // optional
             "focus_entities": ["entity1", "entity2"],  // optional
             "provider": "openai",                      // optional
-            "model": "gpt-5.1"                         // optional
+            "model": "gpt-4o"                          // optional
         }
         """
         try:
@@ -786,7 +786,7 @@ def register_axiom_routes(*, app, require_auth, db):
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
                 provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-5.1"),
+                model=body.get("model", "gpt-4o"),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
             )
@@ -833,7 +833,7 @@ def register_axiom_routes(*, app, require_auth, db):
             "postings": [{"title": "...", "company": "...", ...}],  // required
             "context": "mission context",                            // optional
             "provider": "openai",                                    // optional
-            "model": "gpt-5.1"                                      // optional
+            "model": "gpt-4o"                                       // optional
         }
         """
         try:
@@ -850,7 +850,7 @@ def register_axiom_routes(*, app, require_auth, db):
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
                 provider=body.get("provider", "openai"),
-                model=body.get("model", "gpt-5.1"),
+                model=body.get("model", "gpt-4o"),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
             )

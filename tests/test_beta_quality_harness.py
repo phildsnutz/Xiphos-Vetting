@@ -143,7 +143,7 @@ def test_run_case_harness_passes_happy_path(monkeypatch):
                         "recommended_actions": ["Continue monitoring"],
                     },
                     "provider": "openai",
-                    "model": "gpt-5.1",
+                    "model": "gpt-4o",
                 },
             ),
             ("GET", "/api/cases/case-1/graph?depth=3"): (
