@@ -747,6 +747,113 @@ def get_ai_config(user_id: str) -> Optional[dict]:
     }
 
 
+def _get_exact_ai_config(user_id: str) -> Optional[dict]:
+    """Get a config row by exact id without falling back to __org_default__."""
+    try:
+        with db.get_conn() as conn:
+            row = conn.execute("SELECT * FROM ai_config WHERE user_id = ?", (user_id,)).fetchone()
+    except Exception as exc:
+        logger.warning("AI exact config lookup failed for %s: %s", user_id, exc)
+        return None
+    if not row:
+        return None
+    try:
+        api_key = _decrypt_key(row["api_key_enc"])
+    except Exception as exc:
+        logger.warning("AI exact config decrypt failed for %s: %s", user_id, exc)
+        return None
+    return {
+        "provider": row["provider"],
+        "model": row["model"],
+        "api_key": api_key,
+        "config_id": user_id,
+    }
+
+
+def _backup_config_ids_for_provider(provider: str) -> tuple[str, ...]:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "openai":
+        return ("__anthropic_backup__",)
+    if normalized == "anthropic":
+        return ("__openai_backup__",)
+    if normalized == "gemini":
+        return ("__openai_backup__", "__anthropic_backup__")
+    return ("__anthropic_backup__", "__openai_backup__")
+
+
+def _build_ai_failover_chain(user_id: str, primary_config: dict) -> list[dict]:
+    chain: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    primary_provider = str(primary_config.get("provider") or "").strip().lower()
+    primary_model = str(primary_config.get("model") or "").strip()
+    primary_key = str(primary_config.get("api_key") or "").strip()
+    if primary_provider and primary_model and primary_key:
+        primary_entry = {
+            "provider": primary_provider,
+            "model": primary_model,
+            "api_key": primary_key,
+            "source": "primary",
+            "config_id": str(user_id or "__org_default__"),
+        }
+        chain.append(primary_entry)
+        seen.add((primary_provider, primary_model, primary_key))
+
+    for backup_id in _backup_config_ids_for_provider(primary_provider):
+        backup = _get_exact_ai_config(backup_id)
+        if not backup:
+            continue
+        backup_provider = str(backup.get("provider") or "").strip().lower()
+        backup_model = str(backup.get("model") or "").strip()
+        backup_key = str(backup.get("api_key") or "").strip()
+        signature = (backup_provider, backup_model, backup_key)
+        if not backup_provider or not backup_model or not backup_key or signature in seen:
+            continue
+        chain.append({
+            "provider": backup_provider,
+            "model": backup_model,
+            "api_key": backup_key,
+            "source": "backup",
+            "config_id": backup_id,
+        })
+        seen.add(signature)
+
+    return chain
+
+
+def _attempt_provider_analysis(provider: str, model: str, api_key: str, prompt: str) -> tuple[dict, dict, int]:
+    caller = PROVIDER_CALLERS.get(provider)
+    if not caller:
+        raise ValueError(f"Unknown provider: {provider}")
+
+    start_ms = time.time()
+    result = caller(api_key, model, prompt)
+    elapsed_ms = int((time.time() - start_ms) * 1000)
+
+    try:
+        analysis = _parse_analysis_json(result["text"])
+    except Exception as exc:
+        raise AIProviderPermanentError(f"Failed to parse AI response: {str(exc)}") from exc
+
+    return result, analysis, elapsed_ms
+
+
+def _combined_provider_failure(
+    attempts: list[dict],
+    error: ValueError,
+) -> ValueError:
+    summary = " | ".join(
+        f"{item['provider']}/{item['model']}[{item['source']}] -> {item['error']}"
+        for item in attempts
+    )
+    message = str(error)
+    if summary:
+        message = f"{message} | failover chain: {summary}"
+    if isinstance(error, AIProviderTemporaryError):
+        return AIProviderTemporaryError(message)
+    return AIProviderPermanentError(message)
+
+
 def delete_ai_config(user_id: str) -> bool:
     """Delete a user's AI config."""
     with db.get_conn() as conn:
@@ -1328,37 +1435,77 @@ def analyze_vendor(
             input_hash=input_hash,
         )
 
-    provider = config["provider"]
-    model = config["model"]
-    api_key = config["api_key"]
-
-    if provider not in PROVIDER_CALLERS:
-        raise ValueError(f"Unknown provider: {provider}")
-
     # Build prompt with graceful enrichment data handling
     try:
         prompt = _build_prompt(vendor_data, score_data, enrichment_data)
     except Exception as e:
         raise ValueError(f"Failed to build analysis prompt: {str(e)}")
 
-    caller = PROVIDER_CALLERS[provider]
-    start_ms = time.time()
+    attempts: list[dict] = []
+    active_provider = ""
+    active_model = ""
+    active_source = "primary"
+    active_config_id = str(user_id or "__org_default__")
+    fallback_from: Optional[dict] = None
 
-    try:
-        result = caller(api_key, model, prompt)
-        elapsed_ms = int((time.time() - start_ms) * 1000)
+    chain = _build_ai_failover_chain(user_id, config)
+    if not chain:
+        raise ValueError("No usable AI provider configuration available")
 
-        # Parse response
+    last_error: Optional[ValueError] = None
+    result: Optional[dict] = None
+    analysis: Optional[dict] = None
+    elapsed_ms = 0
+
+    for idx, candidate in enumerate(chain):
+        provider = candidate["provider"]
+        model = candidate["model"]
+        api_key = candidate["api_key"]
+        source = candidate["source"]
+        config_id = candidate["config_id"]
+
         try:
-            analysis = _parse_analysis_json(result["text"])
-        except Exception as e:
-            raise AIProviderPermanentError(f"Failed to parse AI response: {str(e)}")
-    except urllib.error.HTTPError as e:
-        raise _classify_provider_http_error(provider, e)
-    except Exception as e:
-        if isinstance(e, (AIProviderTemporaryError, AIProviderPermanentError)):
-            raise
-        raise _classify_provider_exception(provider, e)
+            result, analysis, elapsed_ms = _attempt_provider_analysis(provider, model, api_key, prompt)
+            active_provider = provider
+            active_model = model
+            active_source = source
+            active_config_id = config_id
+            if idx > 0 and chain:
+                fallback_from = {
+                    "provider": chain[0]["provider"],
+                    "model": chain[0]["model"],
+                    "config_id": chain[0]["config_id"],
+                }
+            break
+        except urllib.error.HTTPError as exc:
+            classified = _classify_provider_http_error(provider, exc)
+        except Exception as exc:
+            if isinstance(exc, (AIProviderTemporaryError, AIProviderPermanentError)):
+                classified = exc
+            else:
+                classified = _classify_provider_exception(provider, exc)
+
+        attempts.append({
+            "provider": provider,
+            "model": model,
+            "source": source,
+            "config_id": config_id,
+            "error": str(classified),
+        })
+        last_error = classified
+        if idx + 1 < len(chain):
+            logger.warning(
+                "AI provider %s/%s failed (%s). Trying backup config %s.",
+                provider,
+                model,
+                classified,
+                chain[idx + 1]["config_id"],
+            )
+            continue
+        raise _combined_provider_failure(attempts, classified)
+
+    if result is None or analysis is None:
+        raise _combined_provider_failure(attempts, last_error or AIProviderPermanentError("AI analysis failed"))
 
     # Persist the analysis
     vendor_id = vendor_data.get("id", "unknown")
@@ -1366,8 +1513,8 @@ def analyze_vendor(
     try:
         analysis_id = save_analysis(
             vendor_id=vendor_id,
-            provider=provider,
-            model=model,
+            provider=active_provider,
+            model=active_model,
             analysis=analysis,
             prompt_tokens=result.get("prompt_tokens", 0),
             completion_tokens=result.get("completion_tokens", 0),
@@ -1382,14 +1529,18 @@ def analyze_vendor(
 
     return {
         "analysis": analysis,
-        "provider": provider,
-        "model": model,
+        "provider": active_provider,
+        "model": active_model,
         "prompt_tokens": result.get("prompt_tokens", 0),
         "completion_tokens": result.get("completion_tokens", 0),
         "elapsed_ms": elapsed_ms,
         "analysis_id": analysis_id,
         "input_hash": input_hash,
         "prompt_version": _ANALYSIS_PROMPT_VERSION,
+        "runtime_source": active_source,
+        "runtime_config_id": active_config_id,
+        "fallback_used": bool(fallback_from),
+        "fallback_from": fallback_from,
     }
 
 

@@ -1219,6 +1219,7 @@ def test_analysis_prompt_includes_graph_edge_quality_details(monkeypatch):
 def test_analyze_vendor_provider_failure_raises_transient_error(monkeypatch):
     import ai_analysis
 
+    monkeypatch.setattr(ai_analysis, "_get_exact_ai_config", lambda _user_id: None)
     monkeypatch.setattr(
         ai_analysis,
         "get_ai_config",
@@ -1250,12 +1251,87 @@ def test_analyze_vendor_provider_failure_raises_transient_error(monkeypatch):
                     "calibrated_tier": "TIER_3_CONDITIONAL",
                     "calibrated_probability": 0.22,
                 },
-                "soft_flags": [
-                    {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
-                ],
+            "soft_flags": [
+                {"trigger": "Foreign ownership depth", "explanation": "Needs analyst review", "confidence": 0.84},
+            ],
+        },
+        enrichment_data={"findings": []},
+    )
+
+
+def test_analyze_vendor_openai_failure_falls_back_to_anthropic_backup(monkeypatch):
+    import ai_analysis
+
+    monkeypatch.setattr(
+        ai_analysis,
+        "get_ai_config",
+        lambda _user_id: {"provider": "openai", "model": "gpt-4o", "api_key": "openai-key"},
+    )
+    monkeypatch.setattr(
+        ai_analysis,
+        "_get_exact_ai_config",
+        lambda user_id: (
+            {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "claude-key", "config_id": user_id}
+            if user_id == "__anthropic_backup__"
+            else None
+        ),
+    )
+
+    calls: list[tuple[str, str]] = []
+
+    def fail_openai(_api_key, model, _prompt):
+        calls.append(("openai", model))
+        raise ai_analysis.AIProviderTemporaryError("openai unavailable")
+
+    def succeed_anthropic(_api_key, model, _prompt):
+        calls.append(("anthropic", model))
+        return {
+            "text": "{\"executive_summary\": \"Claude carried the drive.\", \"risk_narrative\": \"Fallback succeeded.\", \"critical_concerns\": [], \"mitigating_factors\": [], \"recommended_actions\": [\"Keep monitoring\"], \"regulatory_exposure\": \"Low\", \"confidence_assessment\": \"Moderate\", \"verdict\": \"APPROVE\"}",
+            "prompt_tokens": 120,
+            "completion_tokens": 45,
+        }
+
+    monkeypatch.setattr(
+        ai_analysis,
+        "PROVIDER_CALLERS",
+        {
+            **ai_analysis.PROVIDER_CALLERS,
+            "openai": fail_openai,
+            "anthropic": succeed_anthropic,
+        },
+    )
+
+    result = ai_analysis.analyze_vendor(
+        user_id="dev",
+        vendor_data={
+            "id": "case-provider-fallback-success",
+            "name": "Fallback Systems",
+            "country": "US",
+            "ownership": {"publicly_traded": False, "beneficial_owner_known": True},
+            "data_quality": {"has_lei": True, "has_cage": True, "years_of_records": 9},
+            "exec": {"adverse_media": 0},
+        },
+        score_data={
+            "composite_score": 18,
+            "calibrated": {
+                "calibrated_tier": "TIER_3_CONDITIONAL",
+                "calibrated_probability": 0.22,
             },
-            enrichment_data={"findings": []},
-        )
+            "soft_flags": [],
+        },
+        enrichment_data={"findings": []},
+    )
+
+    assert calls == [("openai", "gpt-4o"), ("anthropic", "claude-sonnet-4-6")]
+    assert result["provider"] == "anthropic"
+    assert result["model"] == "claude-sonnet-4-6"
+    assert result["fallback_used"] is True
+    assert result["fallback_from"] == {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "config_id": "dev",
+    }
+    assert result["analysis"]["executive_summary"] == "Claude carried the drive."
 
 
 def test_analyze_vendor_bad_ai_config_raises_clear_error_when_not_in_local_dev(monkeypatch):
