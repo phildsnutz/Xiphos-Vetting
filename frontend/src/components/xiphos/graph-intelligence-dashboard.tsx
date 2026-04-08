@@ -189,9 +189,10 @@ function getStructuralImportance(node: EnrichedGraphNode): number {
 interface GraphIntelligenceDashboardProps {
   onExit?: () => void;
   exitLabel?: string;
+  contextLabel?: string;
 }
 
-export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return" }: GraphIntelligenceDashboardProps) {
+export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", contextLabel }: GraphIntelligenceDashboardProps) {
   const cyContainerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
@@ -1053,6 +1054,7 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return" }: Gra
             description="Follow the bridges, pressure points, and provenance without falling out of the live thread."
             meta={
               <>
+                {contextLabel ? <StatusPill tone="warning">Case context: {contextLabel}</StatusPill> : null}
                 <StatusPill tone="info">{filteredData.nodes.length} nodes</StatusPill>
                 <StatusPill tone="neutral">{filteredData.edges.length} edges</StatusPill>
                 <StatusPill tone="neutral">Paths beat pictures</StatusPill>

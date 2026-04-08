@@ -253,8 +253,8 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean; onOpen
     },
     {
       id: "graph",
-      label: "Graph",
-      description: "Knowledge graph and provenance pathing.",
+      label: "Graph Intel",
+      description: "Open the canonical graph room for relationship fabric and provenance.",
       active: analystView === "evidence" && evidenceTab === "graph",
       action: () => openEvidence("graph"),
     },
@@ -406,7 +406,7 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean; onOpen
           >
             <SectionEyebrow>Evidence rail</SectionEyebrow>
             <div style={{ fontSize: FS.sm, color: T.textSecondary, lineHeight: 1.55, marginTop: SP.xs }}>
-              Evidence stays primary. Expand graph, monitoring, and enrichment only when the case needs it.
+              Evidence stays primary. Open Graph Intel, monitoring, and enrichment only when the case needs deeper pressure testing.
             </div>
           </div>
 

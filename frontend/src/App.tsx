@@ -890,6 +890,7 @@ export default function App() {
               setTab(selected ? "portfolio" : "helios");
             }}
             exitLabel={selected ? `Return to ${selected.name}` : "Return to Helios"}
+            contextLabel={selected ? selected.name : undefined}
           />
         ) : (
           <div className="h-screen flex overflow-hidden">

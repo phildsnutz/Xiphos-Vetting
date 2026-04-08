@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Xiphos v5.0 API Server
+Xiphos v5.2.1 API Server
 
 Flask backend with SQLite persistence, JWT authentication, RBAC, and
 full audit logging. All scoring runs through the FGAMLogit v5.0 engine
