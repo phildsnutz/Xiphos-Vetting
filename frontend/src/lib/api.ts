@@ -565,6 +565,9 @@ export interface AssistantPlanStep {
   description: string;
   required: boolean;
   reason: string;
+  pack_id?: string;
+  pack_name?: string;
+  phase?: string;
 }
 
 export interface CaseAssistantPlan {
@@ -577,6 +580,42 @@ export interface CaseAssistantPlan {
   current_posture: string;
   recommended_view?: string | null;
   consensus_level?: string | null;
+  quarterback?: {
+    call_sign: string;
+    breed: string;
+    role: string;
+    function: string;
+    summary: string;
+  };
+  playbook?: {
+    playbook_id: string;
+    label: string;
+    lane: string;
+    style: string;
+    execution_mode: string;
+    lead: string;
+    phases: string[];
+    success_condition: string;
+    why_now: string;
+  };
+  preflight?: {
+    workflow_lane: string;
+    anomaly_pressure: string;
+    execution_mode: string;
+    human_gate_required: boolean;
+    degraded_mode: boolean;
+  };
+  pack?: Array<{
+    call_sign: string;
+    breed: string;
+    role: string;
+    function: string;
+    summary: string;
+    active: boolean;
+    duty: string;
+  }>;
+  operator_brief?: string;
+  operator_updates?: string[];
   anomalies: AssistantPlanAnomaly[];
   plan: AssistantPlanStep[];
   context_snapshot: {

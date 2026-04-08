@@ -78,6 +78,44 @@ TOOL_LIBRARY: dict[str, dict[str, str]] = {
     },
 }
 
+PACK_LIBRARY: dict[str, dict[str, str]] = {
+    "vesper": {
+        "call_sign": "Vesper",
+        "breed": "Dutch Shepherd",
+        "role": "quarterback",
+        "function": "mission_command",
+        "summary": "Controls preflight, playbook selection, execution order, fallback handling, and stop conditions.",
+    },
+    "mako": {
+        "call_sign": "Mako",
+        "breed": "Belgian Malinois",
+        "role": "collector",
+        "function": "edge_collection",
+        "summary": "Presses high-signal collectors, gap closure, and time-bounded evidence expansion at the edge.",
+    },
+    "bruno": {
+        "call_sign": "Bruno",
+        "breed": "Rottweiler",
+        "role": "adjudicator",
+        "function": "adverse_case_adjudication",
+        "summary": "Treats contradictions, hidden-control pressure, and stop-case evidence with skepticism and force discipline.",
+    },
+    "sable": {
+        "call_sign": "Sable",
+        "breed": "Doberman",
+        "role": "finisher",
+        "function": "artifact_finish",
+        "summary": "Converts the evidence state into a sharp analyst-facing brief without letting weak noise hijack the opening.",
+    },
+    "rex": {
+        "call_sign": "Rex",
+        "breed": "German Shepherd",
+        "role": "generalist",
+        "function": "balanced_fallback",
+        "summary": "Provides balanced fallback coverage when the case does not justify a more specialized play.",
+    },
+}
+
 EXECUTABLE_TOOL_IDS = frozenset(
     {
         "case_snapshot",
@@ -167,6 +205,181 @@ def _step(tool_id: str, reason: str, *, required: bool = True) -> dict[str, Any]
         "required": required,
         "reason": reason,
     }
+
+
+def _anomaly_pressure(anomalies: list[dict[str, Any]]) -> str:
+    high = sum(1 for item in anomalies if str(item.get("severity") or "").lower() == "high")
+    medium = sum(1 for item in anomalies if str(item.get("severity") or "").lower() == "medium")
+    if high >= 2 or (high >= 1 and medium >= 2):
+        return "high"
+    if high >= 1 or medium >= 2:
+        return "medium"
+    return "low"
+
+
+def _resolve_workflow_lane(passport: dict[str, Any] | None, objective: str) -> str:
+    workflow_lane = str((passport or {}).get("workflow_lane") or "").strip().lower()
+    if workflow_lane:
+        return workflow_lane
+    if objective == "export_review":
+        return "export_authorization"
+    if objective == "cyber_investigation":
+        return "supplier_cyber_trust"
+    return "counterparty"
+
+
+def _select_playbook(objective: str, anomalies: list[dict[str, Any]], supplier_passport: dict[str, Any] | None) -> dict[str, Any]:
+    anomaly_codes = {str(item.get("code") or "") for item in anomalies}
+    pressure = _anomaly_pressure(anomalies)
+    lane = _resolve_workflow_lane(supplier_passport, objective)
+
+    if objective == "trace_control_path":
+        return {
+            "playbook_id": "control_path_hardening",
+            "label": "Control Path Hardening",
+            "lane": lane,
+            "style": "skeptical",
+            "execution_mode": "escalated" if pressure != "low" else "standard",
+            "lead": "vesper",
+            "phases": ["preflight", "collect", "adjudicate", "package"],
+            "success_condition": "Control-path pressure either resolves to a credible owner or is honestly left open.",
+            "why_now": "The analyst is asking for hidden-control judgment, which requires tighter graph and ownership discipline than a generic explain flow.",
+        }
+    if objective == "data_repair":
+        return {
+            "playbook_id": "identity_repair_sprint",
+            "label": "Identity Repair Sprint",
+            "lane": lane,
+            "style": "surgical",
+            "execution_mode": "escalated" if "missing_core_identifiers" in anomaly_codes else "standard",
+            "lead": "vesper",
+            "phases": ["preflight", "collect", "repair", "re-score"],
+            "success_condition": "Weak identifiers stop distorting the case and the next read is anchored to repaired identity.",
+            "why_now": "The case is likely misbehaving because identity anchors or source matching are weak.",
+        }
+    if objective == "export_review":
+        return {
+            "playbook_id": "export_route_adjudication",
+            "label": "Export Route Adjudication",
+            "lane": lane,
+            "style": "controlled",
+            "execution_mode": "escalated" if "export_route_ambiguity" in anomaly_codes else "standard",
+            "lead": "vesper",
+            "phases": ["preflight", "collect", "adjudicate", "package"],
+            "success_condition": "Route ambiguity, end-user ambiguity, and release conditions are explicit before any proceed posture is trusted.",
+            "why_now": "Export cases fail when routing ambiguity hides inside an otherwise clean-looking authorization story.",
+        }
+    if objective == "cyber_investigation":
+        return {
+            "playbook_id": "assurance_pressure_thread",
+            "label": "Assurance Pressure Thread",
+            "lane": lane,
+            "style": "pressure",
+            "execution_mode": "escalated" if pressure == "high" else "standard",
+            "lead": "vesper",
+            "phases": ["preflight", "collect", "adjudicate", "package"],
+            "success_condition": "Cyber, dependency, and provenance pressure are either corroborated, bounded, or explicitly unresolved.",
+            "why_now": "Supply-chain assurance questions are usually weak-signal problems that need ordered pressure instead of one-shot explanation.",
+        }
+    if objective == "executive_brief":
+        return {
+            "playbook_id": "artifact_finish",
+            "label": "Artifact Finish",
+            "lane": lane,
+            "style": "finish",
+            "execution_mode": "standard",
+            "lead": "sable",
+            "phases": ["preflight", "adjudicate", "package"],
+            "success_condition": "The brief opens with the judgment that matters and does not let weak residue dominate the artifact.",
+            "why_now": "The request is brief-heavy, so Helios should package rather than keep expanding the search surface.",
+        }
+    if objective == "monitor_change":
+        return {
+            "playbook_id": "drift_scan",
+            "label": "Drift Scan",
+            "lane": lane,
+            "style": "watchful",
+            "execution_mode": "standard",
+            "lead": "rex",
+            "phases": ["preflight", "collect", "adjudicate"],
+            "success_condition": "Only changes that materially alter the trust picture are escalated.",
+            "why_now": "Monitoring work should stay light unless the drift actually changes the judgment.",
+        }
+    return {
+        "playbook_id": "balanced_explanation",
+        "label": "Balanced Explanation",
+        "lane": lane,
+        "style": "balanced",
+        "execution_mode": "standard" if pressure == "low" else "escalated",
+        "lead": "rex",
+        "phases": ["preflight", "collect", "adjudicate", "package"],
+        "success_condition": "The answer is grounded in the best available evidence bundle without pretending the case is cleaner than it is.",
+        "why_now": "This is a general analytical request that still needs explicit guardrails and task ownership.",
+    }
+
+
+def _pack_lineup(playbook: dict[str, Any], anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    pressure = _anomaly_pressure(anomalies)
+    lineup = [
+        {**PACK_LIBRARY["vesper"], "active": True, "duty": "Call the play, set budgets, and decide when enough is enough."},
+        {**PACK_LIBRARY["mako"], "active": True, "duty": "Drive high-signal collection and close the most valuable evidence gaps first."},
+        {**PACK_LIBRARY["bruno"], "active": pressure != "low" or playbook.get("style") in {"skeptical", "pressure"}, "duty": "Challenge contradictions, hidden-control pressure, and stop-case evidence."},
+        {**PACK_LIBRARY["sable"], "active": playbook.get("phases", [])[-1:] == ["package"] or playbook.get("lead") == "sable", "duty": "Finish the artifact so the opening tells the operator what matters."},
+        {**PACK_LIBRARY["rex"], "active": True, "duty": "Carry balanced fallback coverage when the case does not justify more specialized aggression."},
+    ]
+    return lineup
+
+
+def _step_owner(tool_id: str, objective: str) -> tuple[str, str, str]:
+    if tool_id in {"case_snapshot", "monitoring_history"}:
+        return "vesper", PACK_LIBRARY["vesper"]["call_sign"], "preflight"
+    if tool_id in {"identity_repair", "enrichment_findings", "person_screening"}:
+        return "mako", PACK_LIBRARY["mako"]["call_sign"], "collect"
+    if tool_id in {"graph_probe", "network_risk", "supplier_passport", "export_guidance", "cyber_evidence"}:
+        pack_id = "bruno" if objective in {"trace_control_path", "export_review", "cyber_investigation"} else "rex"
+        phase = "adjudicate" if pack_id == "bruno" else "collect"
+        return pack_id, PACK_LIBRARY[pack_id]["call_sign"], phase
+    if tool_id == "dossier":
+        return "sable", PACK_LIBRARY["sable"]["call_sign"], "package"
+    return "rex", PACK_LIBRARY["rex"]["call_sign"], "collect"
+
+
+def _assign_pack_owners(plan_steps: list[dict[str, Any]], objective: str) -> list[dict[str, Any]]:
+    owned_steps: list[dict[str, Any]] = []
+    for step in plan_steps:
+        pack_id, pack_name, phase = _step_owner(str(step.get("tool_id") or ""), objective)
+        enriched = dict(step)
+        enriched["pack_id"] = pack_id
+        enriched["pack_name"] = pack_name
+        enriched["phase"] = phase
+        owned_steps.append(enriched)
+    return owned_steps
+
+
+def _operator_brief(vendor_name: str, playbook: dict[str, Any], anomalies: list[dict[str, Any]]) -> str:
+    pressure = _anomaly_pressure(anomalies)
+    lead_name = PACK_LIBRARY[str(playbook.get("lead") or "vesper")]["call_sign"]
+    if pressure == "high":
+        return (
+            f"{lead_name} is running an escalated {playbook['label'].lower()} on {vendor_name}. "
+            "The case has enough pressure that Helios should act like a mission team, not a search box."
+        )
+    return (
+        f"{lead_name} is running the {playbook['label'].lower()} on {vendor_name}. "
+        "Helios will keep the run disciplined, visible, and bounded to what changes the judgment."
+    )
+
+
+def _operator_updates(playbook: dict[str, Any], anomalies: list[dict[str, Any]]) -> list[str]:
+    updates = [
+        f"Preflight selected `{playbook['playbook_id']}` because {str(playbook.get('why_now') or '').rstrip('.')}.",
+        f"Execution mode is `{playbook['execution_mode']}` with `{_anomaly_pressure(anomalies)}` anomaly pressure.",
+        f"Success condition: {str(playbook.get('success_condition') or '').rstrip('.')}.",
+    ]
+    if anomalies:
+        lead = anomalies[0]
+        updates.append(f"Top pressure point: {str(lead.get('message') or '').rstrip('.')}.")
+    return updates[:4]
 
 
 def _identity_anomalies(passport: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -579,9 +792,19 @@ def build_case_assistant_plan(
         *_cyber_anomalies(supplier_passport),
         *_lane_anomalies(supplier_passport, objective),
     ]
-    plan = _plan_steps(objective, anomalies)
+    playbook = _select_playbook(objective, anomalies, supplier_passport)
+    plan = _assign_pack_owners(_plan_steps(objective, anomalies), objective)
     tribunal = ((supplier_passport or {}).get("tribunal") or {}) if isinstance(supplier_passport, dict) else {}
     graph = ((supplier_passport or {}).get("graph") or {}) if isinstance(supplier_passport, dict) else {}
+    pack = _pack_lineup(playbook, anomalies)
+    quarterback = dict(PACK_LIBRARY["vesper"])
+    preflight = {
+        "workflow_lane": _resolve_workflow_lane(supplier_passport, objective),
+        "anomaly_pressure": _anomaly_pressure(anomalies),
+        "execution_mode": playbook.get("execution_mode"),
+        "human_gate_required": True,
+        "degraded_mode": any(str(item.get("code") or "") in {"official_connector_blocked", "missing_export_evidence", "missing_cyber_evidence"} for item in anomalies),
+    }
 
     return {
         "version": "ai-control-plane-v1",
@@ -593,6 +816,12 @@ def build_case_assistant_plan(
         "current_posture": str((supplier_passport or {}).get("posture") or ""),
         "recommended_view": tribunal.get("recommended_view"),
         "consensus_level": tribunal.get("consensus_level"),
+        "quarterback": quarterback,
+        "playbook": playbook,
+        "preflight": preflight,
+        "pack": pack,
+        "operator_brief": _operator_brief(str((vendor or {}).get("name") or "this case"), playbook, anomalies),
+        "operator_updates": _operator_updates(playbook, anomalies),
         "anomalies": anomalies,
         "plan": plan,
         "context_snapshot": {
@@ -602,6 +831,7 @@ def build_case_assistant_plan(
             "contradicted_claims": int((graph.get("claim_health") or {}).get("contradicted_claims") or 0),
         },
         "guardrails": [
+            "Vesper owns the play call, but analyst approval still gates any execution or mutation.",
             "Show the analyst the plan before any live mutation or rerun.",
             "Never suppress missing-data or connector-gap warnings from the analyst.",
             "Do not auto-rerun live sources or mutate case state without explicit analyst approval.",

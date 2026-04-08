@@ -97,6 +97,10 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
     )
 
     assert plan["objective"] == "data_repair"
+    assert plan["quarterback"]["call_sign"] == "Vesper"
+    assert plan["playbook"]["playbook_id"] == "identity_repair_sprint"
+    assert plan["preflight"]["anomaly_pressure"] == "high"
+    assert any(member["call_sign"] == "Vesper" and member["role"] == "quarterback" for member in plan["pack"])
     anomaly_codes = {item["code"] for item in plan["anomalies"]}
     assert "missing_core_identifiers" in anomaly_codes
     assert "thin_graph" in anomaly_codes
@@ -108,6 +112,8 @@ def test_build_case_assistant_plan_flags_missing_identifiers_and_thin_graph():
     assert "high_threat_pressure" in anomaly_codes
     assert "open_source_pressure" in anomaly_codes
     assert any(step["tool_id"] == "identity_repair" for step in plan["plan"])
+    assert any(step["pack_name"] == "Vesper" for step in plan["plan"])
+    assert any(step["phase"] == "collect" for step in plan["plan"])
 
 
 def test_build_case_assistant_plan_flags_export_route_ambiguity():
@@ -141,6 +147,8 @@ def test_build_case_assistant_plan_flags_export_route_ambiguity():
     )
 
     assert plan["objective"] == "export_review"
+    assert plan["playbook"]["playbook_id"] == "export_route_adjudication"
+    assert plan["preflight"]["workflow_lane"] == "export_authorization"
     anomaly_codes = {item["code"] for item in plan["anomalies"]}
     assert "export_route_ambiguity" in anomaly_codes
 
@@ -189,6 +197,9 @@ def test_assistant_plan_route_returns_typed_plan(client, monkeypatch):
     assert body["version"] == "ai-control-plane-v1"
     assert body["objective"] == "trace_control_path"
     assert body["recommended_view"] == "watch"
+    assert body["quarterback"]["call_sign"] == "Vesper"
+    assert body["playbook"]["playbook_id"] == "control_path_hardening"
+    assert body["operator_brief"]
     assert any(step["tool_id"] == "supplier_passport" for step in body["plan"])
 
 
