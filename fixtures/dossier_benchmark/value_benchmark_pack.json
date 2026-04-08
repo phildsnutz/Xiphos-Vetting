@@ -1,0 +1,51 @@
+[
+  {
+    "vendor_id": "c-051e0cee",
+    "vendor_name": "PARSONS CORPORATION",
+    "required_fragments": [
+      "Procurement Footprint",
+      "Market Position Read",
+      "Prime Vehicles",
+      "Subcontract Vehicles",
+      "Recurring Upstream Primes",
+      "Recurring Downstream Subs",
+      "Customer Concentration",
+      "OASIS",
+      "GSA IT GWAC"
+    ],
+    "min_weighted_score_pct": 72.0,
+    "min_dimension_scores": {
+      "opening_value": 4,
+      "procurement_specificity": 5,
+      "decision_usefulness": 4
+    }
+  },
+  {
+    "vendor_id": "c-56086eb3",
+    "vendor_name": "THE BOEING COMPANY",
+    "required_fragments": [
+      "Decision Thesis",
+      "Supplier Passport",
+      "Evidence Ledger"
+    ],
+    "min_weighted_score_pct": 55.0,
+    "min_dimension_scores": {
+      "opening_value": 3,
+      "readability": 4
+    }
+  },
+  {
+    "vendor_id": "c-91b73a55",
+    "vendor_name": "LOCKHEED MARTIN CORPORATION",
+    "required_fragments": [
+      "Decision Thesis",
+      "Supplier Passport",
+      "Evidence Ledger"
+    ],
+    "min_weighted_score_pct": 55.0,
+    "min_dimension_scores": {
+      "opening_value": 3,
+      "readability": 4
+    }
+  }
+]
