@@ -121,3 +121,21 @@ def test_axiom_search_ingest_uses_dev_fallback_without_provider_key(tmp_path, mo
     assert payload["entities"][0]["name"] == "SMX"
     assert payload["intelligence_gaps"]
     assert payload["kg_ingestion"]["entities_created"] == 0
+
+
+def test_save_ai_config_accepts_gpt41(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
+    monkeypatch.setenv("XIPHOS_SECRET_KEY", "test-secret-key")
+
+    ai_analysis = _reload_module("ai_analysis")
+
+    ai_analysis.init_ai_tables()
+    ai_analysis.save_ai_config("gpt41-user", "openai", "gpt-4.1", "sk-test-openai")
+
+    saved = ai_analysis.get_ai_config("gpt41-user")
+    assert saved is not None
+    assert saved["provider"] == "openai"
+    assert saved["model"] == "gpt-4.1"

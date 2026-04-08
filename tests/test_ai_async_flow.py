@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import sys
 from datetime import datetime
@@ -103,6 +104,58 @@ def test_sanitize_enrichment_data_strips_urls_and_directives():
     assert "ignore previous instructions" not in finding["title"].lower()
     assert "[redacted]" in finding["title"].lower()
     assert "http" not in finding["source"].lower()
+
+
+def test_openai_gpt54_uses_max_completion_tokens(monkeypatch):
+    import ai_analysis
+
+    captured = {}
+
+    class _FakeResponse:
+        def read(self):
+            return json.dumps({
+                "choices": [{"message": {"content": "{\"verdict\":\"ok\"}"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 2},
+            }).encode("utf-8")
+
+    def fake_urlopen(req, timeout=0):
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr(ai_analysis.urllib.request, "urlopen", fake_urlopen)
+
+    ai_analysis._call_openai("sk-test", "gpt-5.4", "test prompt")
+
+    assert captured["payload"]["model"] == "gpt-5.4"
+    assert captured["payload"]["max_completion_tokens"] == 4096
+    assert "max_tokens" not in captured["payload"]
+
+
+def test_openai_gpt4o_uses_legacy_max_tokens(monkeypatch):
+    import ai_analysis
+
+    captured = {}
+
+    class _FakeResponse:
+        def read(self):
+            return json.dumps({
+                "choices": [{"message": {"content": "{\"verdict\":\"ok\"}"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 2},
+            }).encode("utf-8")
+
+    def fake_urlopen(req, timeout=0):
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr(ai_analysis.urllib.request, "urlopen", fake_urlopen)
+
+    ai_analysis._call_openai("sk-test", "gpt-4o", "test prompt")
+
+    assert captured["payload"]["model"] == "gpt-4o"
+    assert captured["payload"]["max_tokens"] == 4096
+    assert "max_completion_tokens" not in captured["payload"]
 
 
 def test_dossier_curates_low_signal_and_gap_findings():

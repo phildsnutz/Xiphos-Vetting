@@ -440,7 +440,7 @@ PROVIDERS = {
     "openai": AIProvider(
         name="openai",
         display_name="OpenAI",
-        models=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+        models=["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
         default_model="gpt-4o",
         api_url="https://api.openai.com/v1/chat/completions",
         max_tokens=4096,
@@ -1260,15 +1260,20 @@ def _call_anthropic(api_key: str, model: str, prompt: str) -> dict:
 
 def _call_openai(api_key: str, model: str, prompt: str) -> dict:
     """Call OpenAI API."""
-    payload = json.dumps({
+    payload_dict = {
         "model": model,
-        "max_tokens": 4096,
         "messages": [
             {"role": "system", "content": "You are a defense acquisition intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt},
         ],
         "response_format": {"type": "json_object"},
-    }).encode("utf-8")
+    }
+    if model.startswith("gpt-5"):
+        payload_dict["max_completion_tokens"] = 4096
+    else:
+        payload_dict["max_tokens"] = 4096
+
+    payload = json.dumps(payload_dict).encode("utf-8")
 
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
