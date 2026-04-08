@@ -6,7 +6,7 @@ executive summaries, and intelligence assessments.
 
 Supported providers:
   - anthropic (Claude Sonnet/Opus)
-  - openai (GPT-4o / GPT-4o-mini)
+  - openai (GPT-5.1 / GPT-4o)
   - gemini (Gemini 1.5 Pro / Flash)
 
 API keys are stored encrypted per-user in SQLite. Each user can
@@ -440,8 +440,8 @@ PROVIDERS = {
     "openai": AIProvider(
         name="openai",
         display_name="OpenAI",
-        models=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-        default_model="gpt-4o",
+        models=["gpt-5.1", "gpt-5", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+        default_model="gpt-5.1",
         api_url="https://api.openai.com/v1/chat/completions",
         max_tokens=4096,
     ),
@@ -586,8 +586,8 @@ def init_ai_tables():
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS ai_config (
                     user_id     TEXT PRIMARY KEY,
-                    provider    TEXT NOT NULL DEFAULT 'anthropic',
-                    model       TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+                    provider    TEXT NOT NULL DEFAULT 'openai',
+                    model       TEXT NOT NULL DEFAULT 'gpt-5.1',
                     api_key_enc TEXT NOT NULL,
                     created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
                     updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
@@ -643,8 +643,8 @@ def init_ai_tables():
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS ai_config (
             user_id     TEXT PRIMARY KEY,
-            provider    TEXT NOT NULL DEFAULT 'anthropic',
-            model       TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+            provider    TEXT NOT NULL DEFAULT 'openai',
+            model       TEXT NOT NULL DEFAULT 'gpt-5.1',
             api_key_enc TEXT NOT NULL,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1279,8 +1279,8 @@ def analyze_vendor(
     Returns:
         {
             "analysis": { ... structured analysis ... },
-            "provider": "anthropic",
-            "model": "claude-sonnet-4-6",
+            "provider": "openai",
+            "model": "gpt-5.1",
             "prompt_tokens": 1234,
             "completion_tokens": 567,
             "elapsed_ms": 3456,

@@ -608,8 +608,8 @@ def register_axiom_routes(*, app, require_auth, db):
             "website": "https://smxtech.com",          // optional
             "known_subs": ["The Unconventional"],      // optional
             "context": "INDOPACOM IT services",        // optional
-            "provider": "anthropic",                   // optional, default anthropic
-            "model": "claude-sonnet-4-6"             // optional
+            "provider": "openai",                      // optional, default openai
+            "model": "gpt-5.1"                         // optional
         }
 
         Returns:
@@ -647,8 +647,8 @@ def register_axiom_routes(*, app, require_auth, db):
 
             result = run_agent(
                 target=target,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", "openai"),
+                model=body.get("model", "gpt-5.1"),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
@@ -711,8 +711,8 @@ def register_axiom_routes(*, app, require_auth, db):
 
             result = run_agent(
                 target=target,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", "openai"),
+                model=body.get("model", "gpt-5.1"),
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
@@ -767,8 +767,8 @@ def register_axiom_routes(*, app, require_auth, db):
             "content": "raw text to analyze",         // required
             "context": "mission context",              // optional
             "focus_entities": ["entity1", "entity2"],  // optional
-            "provider": "anthropic",                   // optional
-            "model": "claude-sonnet-4-6"             // optional
+            "provider": "openai",                      // optional
+            "model": "gpt-5.1"                         // optional
         }
         """
         try:
@@ -785,8 +785,8 @@ def register_axiom_routes(*, app, require_auth, db):
             # Resolve API key
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", "openai"),
+                model=body.get("model", "gpt-5.1"),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
             )
@@ -832,8 +832,8 @@ def register_axiom_routes(*, app, require_auth, db):
         {
             "postings": [{"title": "...", "company": "...", ...}],  // required
             "context": "mission context",                            // optional
-            "provider": "anthropic",                                 // optional
-            "model": "claude-sonnet-4-6"                           // optional
+            "provider": "openai",                                    // optional
+            "model": "gpt-5.1"                                      // optional
         }
         """
         try:
@@ -849,8 +849,8 @@ def register_axiom_routes(*, app, require_auth, db):
 
             provider, model, api_key = resolve_runtime_ai_credentials(
                 user_id=user_id,
-                provider=body.get("provider", "anthropic"),
-                model=body.get("model", "claude-sonnet-4-6"),
+                provider=body.get("provider", "openai"),
+                model=body.get("model", "gpt-5.1"),
                 provider_locked="provider" in body,
                 model_locked="model" in body,
             )

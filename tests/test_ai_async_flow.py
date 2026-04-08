@@ -525,7 +525,7 @@ def test_ai_narrative_handles_datetime_created_at():
         {"id": "case-123", "name": "Datetime Vendor"},
         analysis_data={
             "provider": "openai",
-            "model": "gpt-5.4",
+            "model": "gpt-5.1",
             "created_at": datetime(2026, 3, 27, 14, 30, 45),
             "analysis": {
                 "verdict": "CONDITIONAL_APPROVE",

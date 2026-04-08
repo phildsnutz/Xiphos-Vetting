@@ -332,8 +332,8 @@ def _call_ai_rerank(user_id: str, prompt: str) -> tuple[Optional[dict[str, Any]]
         if not config or not config.get("api_key"):
             return None, "no_config"
 
-        provider = config.get("provider", "anthropic")
-        model = config.get("model", "claude-sonnet-4-6")
+        provider = config.get("provider", "openai")
+        model = config.get("model", "gpt-5.1")
         caller = PROVIDER_CALLERS.get(provider)
         if not caller:
             return None, "unsupported_provider"

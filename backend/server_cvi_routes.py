@@ -107,7 +107,7 @@ def _serialize_gap_fill_result(result):
     }
 
 
-def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "anthropic", default_model: str = "claude-sonnet-4-6"):
+def _resolve_ai_runtime(user_id: str, body: dict, default_provider: str = "openai", default_model: str = "gpt-5.1"):
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     provider = body.get("provider", default_provider)
     model = body.get("model", default_model)
@@ -577,8 +577,8 @@ def api_cvi_fill_gaps():
         ],
         "vehicle_name": "ITEAMS",                          // optional
         "max_attempts_per_gap": 3,                          // optional
-        "provider": "anthropic",                            // optional
-        "model": "claude-sonnet-4-6"                       // optional
+        "provider": "openai",                               // optional
+        "model": "gpt-5.1"                                  // optional
     }
 
     Returns:
