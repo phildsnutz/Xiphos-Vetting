@@ -35,6 +35,7 @@ import { FrontPorchBriefView, type FrontPorchBriefViewModel } from "./front-porc
 import { BriefArtifact, InlineMessage, SectionEyebrow, StatusPill } from "./shell-primitives";
 import { DEEP_ROOM_NAME, STOA_NAME } from "./room-names";
 import { T, FS, SP, PAD, O, MOTION } from "@/lib/tokens";
+import { closePendingWindow, navigatePendingWindow, openPendingWindow } from "@/lib/popup";
 
 type RoomMenu = "recent" | "examples" | null;
 type ObjectType = "vendor" | "vehicle";
@@ -2324,12 +2325,14 @@ export function FrontPorchLanding({
     }
     setOpeningDossierFor(caseId);
     setErrorText(null);
+    const pendingWindow = openPendingWindow("Preparing dossier", "Helios is packaging the returned brief into a shareable artifact.");
     try {
       const data = await generateDossier(caseId);
       const url = data.download_url || `/api/dossiers/dossier-${caseId}.html`;
       const protectedUrl = await buildProtectedUrl(url);
-      window.open(protectedUrl, "_blank");
+      navigatePendingWindow(pendingWindow, protectedUrl);
     } catch (error) {
+      closePendingWindow(pendingWindow);
       const message = humanizeApiError(error, "The dossier is not ready to open yet.");
       setErrorText(message);
       appendMessage("axiom", "The dossier render hit a snag. The thread is still warm, and you can retry without losing the work.");

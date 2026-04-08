@@ -2927,8 +2927,8 @@ export async function fetchGraphIntelligence(): Promise<GraphIntelligenceResult>
   return json("/api/graph/analytics/intelligence");
 }
 
-export async function fetchFullGraphIntelligence(): Promise<FullGraphIntelligence> {
-  return json("/api/graph/full-intelligence");
+export async function fetchFullGraphIntelligence(init?: RequestInit): Promise<FullGraphIntelligence> {
+  return json("/api/graph/full-intelligence", init);
 }
 
 export async function fetchGraphCentrality(): Promise<{ entities: Array<Record<string, unknown>>; count: number }> {

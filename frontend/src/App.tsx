@@ -18,6 +18,7 @@ import { PortfolioSkeleton } from "@/components/xiphos/skeletons";
 import { buildProtectedUrl, rescore, generateDossier as apiDossier, fetchCases, setAuthErrorHandler, submitBetaFeedback, trackBetaEvent } from "@/lib/api";
 import { openDossier } from "@/lib/dossier";
 import { checkAuthEnabled, getToken, getUser, clearSession, roleLabel, hasPermission, login } from "@/lib/auth";
+import { closePendingWindow, navigatePendingWindow, openPendingWindow } from "@/lib/popup";
 import type { AuthUser } from "@/lib/auth";
 import type { VettingCase, Calibration, ScreeningPolicyBasis, ScoringPolicyMetadata } from "@/lib/types";
 import { parseTier, tierToRisk } from "@/lib/tokens";
@@ -458,14 +459,19 @@ export default function App() {
       metadata: { tab },
     });
     if (apiAvailable) {
+      const pendingWindow = openPendingWindow("Preparing dossier", "Helios is packaging the latest brief into a shareable artifact.");
       try {
         const result = await apiDossier(caseId);
         if (result.download_url) {
           const protectedUrl = await buildProtectedUrl(result.download_url);
-          window.open(protectedUrl, "_blank");
+          navigatePendingWindow(pendingWindow, protectedUrl);
           return;
         }
-      } catch { /* fall through */ }
+        closePendingWindow(pendingWindow);
+      } catch {
+        closePendingWindow(pendingWindow);
+        /* fall through */
+      }
     }
     openDossier(c);
   };

@@ -142,7 +142,7 @@ except ImportError:
 
 try:
     from graph_analytics import GraphAnalytics
-    from graph_runtime import load_cached_graph_analytics
+    from graph_runtime import load_cached_graph_analytics, warm_cached_graph_analytics
     HAS_GRAPH_ANALYTICS = True
 except ImportError:
     HAS_GRAPH_ANALYTICS = False
@@ -410,6 +410,46 @@ logging.basicConfig(level=getattr(logging, _LOG_LEVEL, logging.INFO), format="%(
 LOGGER = logging.getLogger("xiphos")
 _monitor_scheduler_instance = None
 _monitor_scheduler_started = False
+_graph_prewarm_started = False
+_graph_prewarm_lock = threading.Lock()
+_GRAPH_PREWARM_DELAY_SECONDS = max(float(os.environ.get("XIPHOS_GRAPH_PREWARM_DELAY_SECONDS", "20")), 0.0)
+
+
+def _prewarm_graph_runtime() -> dict:
+    if not HAS_GRAPH_ANALYTICS:
+        return {"status": "disabled"}
+    try:
+        result = warm_cached_graph_analytics(analytics_factory=GraphAnalytics)
+        LOGGER.info("graph_runtime_prewarm status=%s duration_ms=%s", result.get("status"), result.get("duration_ms"))
+        return result
+    except Exception as exc:
+        LOGGER.warning("graph_runtime_prewarm_failed error=%s", exc)
+        return {"status": "failed", "error": str(exc)}
+
+
+def _start_graph_prewarm_async(delay_seconds: float | None = None) -> bool:
+    global _graph_prewarm_started
+    if not HAS_GRAPH_ANALYTICS:
+        return False
+    with _graph_prewarm_lock:
+        if _graph_prewarm_started:
+            return False
+        _graph_prewarm_started = True
+
+    effective_delay = _GRAPH_PREWARM_DELAY_SECONDS if delay_seconds is None else max(float(delay_seconds), 0.0)
+
+    def _runner():
+        if effective_delay > 0:
+            time.sleep(effective_delay)
+        _prewarm_graph_runtime()
+
+    worker = threading.Thread(
+        target=_runner,
+        daemon=True,
+        name="graph-runtime-prewarm",
+    )
+    worker.start()
+    return True
 
 
 def _canonical_public_base_url() -> str:
@@ -3969,7 +4009,7 @@ def api_generate_dossier(case_id):
     hydrate_ai = body.get("hydrate_ai")
     user_id = _current_user_id()
     if include_ai:
-        _prime_ai_analysis_for_case(case_id, user_id)
+        _prime_ai_analysis_for_case(case_id, user_id, wait_seconds=0, poll_seconds=0.0)
     if hydrate_ai is None:
         hydrate_ai = bool(include_ai)
     html = generate_dossier(case_id, user_id=user_id, hydrate_ai=bool(hydrate_ai))
@@ -6716,6 +6756,7 @@ def main():
         auth_enabled=AUTH_ENABLED,
         osint_enabled=HAS_OSINT,
     )
+    _start_graph_prewarm_async()
 
     app.run(host=args.host, port=args.port, debug=False)
 

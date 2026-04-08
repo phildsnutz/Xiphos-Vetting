@@ -244,7 +244,7 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
   // Load graph data on mount with timeout and retry
   const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 3;
-  const LOAD_TIMEOUT_MS = 15000;
+  const LOAD_TIMEOUT_MS = 75000;
 
   const loadGraphData = useCallback(async () => {
     try {
@@ -254,14 +254,7 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
 
-      const raw = await Promise.race([
-        fetchFullGraphIntelligence(),
-        new Promise<never>((_, reject) => {
-          controller.signal.addEventListener("abort", () =>
-            reject(new Error("Request timed out after 15 seconds"))
-          );
-        }),
-      ]);
+      const raw = await fetchFullGraphIntelligence({ signal: controller.signal });
 
       clearTimeout(timeoutId);
 
@@ -281,7 +274,11 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
       setGraphData(data);
       setRetryCount(0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load graph intelligence");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("The Graph Room is still warming the live graph cache. Give it a moment and retry.");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load graph intelligence");
+      }
     } finally {
       setLoading(false);
     }
@@ -943,7 +940,7 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
         <div style={{ width: "100%", maxWidth: 520 }}>
           <LoadingPanel
             label="Opening Graph Room"
-            detail="Rebuilding the paths, bridges, and provenance behind the brief."
+            detail="Rebuilding the paths, bridges, and provenance behind the brief. The first load after a deploy can take longer while the graph cache warms."
           />
         </div>
       </div>

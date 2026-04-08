@@ -13,6 +13,15 @@ loglevel = os.environ.get("XIPHOS_LOG_LEVEL", "info").lower()
 
 
 def post_fork(server, worker):
+    if os.environ.get("XIPHOS_ENABLE_GRAPH_PREWARM", "true").lower() == "true":
+        try:
+            from server import _start_graph_prewarm_async
+
+            if _start_graph_prewarm_async():
+                server.log.info("Graph runtime prewarm started in worker %s", worker.pid)
+        except Exception as exc:
+            server.log.warning("Failed to start graph runtime prewarm: %s", exc)
+
     if os.environ.get("XIPHOS_ENABLE_PERIODIC_MONITORING", "false").lower() != "true":
         return
     effective_workers = int(getattr(getattr(server, "cfg", None), "workers", workers) or workers)

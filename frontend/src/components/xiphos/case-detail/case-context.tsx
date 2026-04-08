@@ -54,6 +54,7 @@ import type { VettingCase } from "@/lib/types";
 import type { WorkflowLane } from "../portfolio-utils";
 import type { TransactionAuthorizationResult } from "../transaction-authorization-panel";
 import { emit } from "@/lib/telemetry";
+import { closePendingWindow, navigatePendingWindow, openPendingWindow } from "@/lib/popup";
 
 type EvidenceTab = "intel" | "findings" | "events" | "model" | "graph";
 type GraphDepth = 3 | 4;
@@ -777,13 +778,15 @@ export function CaseDetailProvider({
   const handleDossier = async () => {
     setGenerating(true);
     setError(null);
+    const pendingWindow = openPendingWindow("Preparing dossier", "Helios is packaging the case into a shareable artifact.");
     try {
       const data = await requestDossier(c.id);
       const url = data.download_url || `/api/dossiers/dossier-${c.id}.html`;
       const protectedUrl = await buildProtectedUrl(url);
-      window.open(protectedUrl, "_blank");
+      navigatePendingWindow(pendingWindow, protectedUrl);
       void refreshAiBriefStatus();
     } catch (e) {
+      closePendingWindow(pendingWindow);
       if (onDossier) {
         try {
           await onDossier(c.id);

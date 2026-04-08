@@ -2157,9 +2157,10 @@ def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, m
         captured["hydrate_ai"] = hydrate_ai
         return "<html><body>Axiom Assessment</body></html>"
 
-    def fake_prime(case_id_arg, user_id_arg):
+    def fake_prime(case_id_arg, user_id_arg, **kwargs):
         primed["case_id"] = case_id_arg
         primed["user_id"] = user_id_arg
+        primed["kwargs"] = kwargs
         return {"status": "queued"}
 
     monkeypatch.setattr(server, "generate_dossier", fake_generate_dossier)
@@ -2172,7 +2173,11 @@ def test_dossier_route_primes_ai_and_uses_cached_generation_by_default(client, m
         "user_id": "dev",
         "hydrate_ai": True,
     }
-    assert primed == {"case_id": case_id, "user_id": "dev"}
+    assert primed == {
+        "case_id": case_id,
+        "user_id": "dev",
+        "kwargs": {"wait_seconds": 0, "poll_seconds": 0.0},
+    }
     assert "Axiom Assessment" in resp.get_data(as_text=True)
 
 
@@ -2713,3 +2718,25 @@ def test_case_enrich_reuses_latest_enrichment_identifiers(client, monkeypatch):
     assert enrich_calls[0]["ids"]["website"] == "https://seeded.example/company"
     assert enrich_calls[0]["ids"]["domain"] == "seeded.example"
     assert enrich_calls[0]["ids"]["lei"] == "LEI-123"
+
+
+def test_dossier_route_primes_ai_without_blocking(auth_client, monkeypatch):
+    server = auth_client["server"]
+    client = auth_client["client"]
+    headers = auth_client["headers"]
+    case_id = _create_case(client, name="Dossier Prime Vendor", headers=headers)
+
+    calls = {}
+
+    def _fake_prime(_case_id, _user_id, **kwargs):
+        calls.update(kwargs)
+        return {"status": "queued"}
+
+    monkeypatch.setattr(server, "_prime_ai_analysis_for_case", _fake_prime)
+    monkeypatch.setattr(server, "generate_dossier", lambda *_args, **_kwargs: "<html><body>ok</body></html>")
+
+    response = client.post(f"/api/cases/{case_id}/dossier", headers=headers)
+
+    assert response.status_code == 200
+    assert calls["wait_seconds"] == 0
+    assert calls["poll_seconds"] == 0.0

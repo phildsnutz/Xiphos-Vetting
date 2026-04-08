@@ -7,6 +7,8 @@ rebuilding the same graph world independently for every endpoint family.
 
 from __future__ import annotations
 
+import logging
+import time
 import threading
 from typing import Any, Callable
 
@@ -14,11 +16,19 @@ from graph_analytics import GraphAnalytics
 from knowledge_graph import get_graph_snapshot_signature
 
 
+LOGGER = logging.getLogger(__name__)
 _RUNTIME_LOCK = threading.RLock()
 _RUNTIME: dict[str, Any] = {
     "snapshot": "",
     "factory_key": "",
     "analytics": None,
+    "warm_state": {
+        "status": "idle",
+        "started_at": None,
+        "completed_at": None,
+        "duration_ms": None,
+        "error": "",
+    },
 }
 
 
@@ -66,3 +76,70 @@ def reset_cached_graph_analytics() -> None:
         _RUNTIME["snapshot"] = ""
         _RUNTIME["factory_key"] = ""
         _RUNTIME["analytics"] = None
+        _RUNTIME["warm_state"] = {
+            "status": "idle",
+            "started_at": None,
+            "completed_at": None,
+            "duration_ms": None,
+            "error": "",
+        }
+
+
+def get_graph_runtime_status() -> dict[str, Any]:
+    with _RUNTIME_LOCK:
+        state = dict(_RUNTIME.get("warm_state") or {})
+        state["snapshot"] = str(_RUNTIME.get("snapshot") or "")
+        state["factory_key"] = str(_RUNTIME.get("factory_key") or "")
+        state["loaded"] = _RUNTIME.get("analytics") is not None
+        return state
+
+
+def warm_cached_graph_analytics(
+    *,
+    analytics_factory: Callable[[], Any] = GraphAnalytics,
+    limit: int = 50000,
+) -> dict[str, Any]:
+    started_at = time.time()
+    with _RUNTIME_LOCK:
+        _RUNTIME["warm_state"] = {
+            "status": "warming",
+            "started_at": started_at,
+            "completed_at": None,
+            "duration_ms": None,
+            "error": "",
+        }
+
+    try:
+        analytics = load_cached_graph_analytics(
+            analytics_factory=analytics_factory,
+            limit=limit,
+        )
+        analytics.compute_all_centrality()
+        analytics.detect_communities()
+        analytics.compute_sanctions_exposure()
+        analytics.compute_temporal_profile()
+        completed_at = time.time()
+        result = {
+            "status": "ready",
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_ms": round((completed_at - started_at) * 1000, 2),
+            "error": "",
+        }
+        with _RUNTIME_LOCK:
+            _RUNTIME["warm_state"] = result
+        return result
+    except Exception as exc:
+        completed_at = time.time()
+        message = str(exc)
+        result = {
+            "status": "failed",
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_ms": round((completed_at - started_at) * 1000, 2),
+            "error": message,
+        }
+        with _RUNTIME_LOCK:
+            _RUNTIME["warm_state"] = result
+        LOGGER.warning("graph_runtime: warm-up failed: %s", message)
+        return result
