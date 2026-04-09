@@ -2,6 +2,7 @@ import importlib
 import json
 import os
 import sys
+import time
 
 
 BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
@@ -115,10 +116,7 @@ def test_run_agent_skips_careers_search_and_long_sleeps_in_mission_command(monke
     assert result.runtime["lane_id"] == "mission_command"
     assert len(result.iterations) == 2
     assert result.iterations[0].follow_up_queries == []
-    assert sleep_calls
-    assert 2.0 not in sleep_calls
-    assert 1.0 not in sleep_calls
-    assert max(sleep_calls) <= 0.05
+    assert sleep_calls == []
 
 
 def test_run_agent_keeps_broad_scraper_in_edge_collection(monkeypatch):
@@ -188,3 +186,40 @@ def test_mission_command_connector_window_expands_for_ownership_pressure():
     assert "sec_edgar" in window
     assert "gleif_lei" in window
     assert "public_search_ownership" in window
+
+
+def test_execute_connector_requests_runs_tactical_batch_in_parallel(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    def fake_run_connector(name, vendor_name, **kwargs):
+        time.sleep(0.08)
+        return {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": True,
+            "identifiers": {},
+            "relationship_count": 0,
+            "relationships": [],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 80,
+        }
+
+    monkeypatch.setattr(axiom_agent, "_run_connector", fake_run_connector)
+
+    profile = axiom_agent.LaneExecutionProfile(max_parallel_connector_requests=3)
+    requests = [
+        {"name": "sam_gov", "vendor_name": "Parsons Corporation", "parameters": {}},
+        {"name": "fpds_contracts", "vendor_name": "Parsons Corporation", "parameters": {}},
+        {"name": "usaspending", "vendor_name": "Parsons Corporation", "parameters": {}},
+    ]
+
+    start = time.perf_counter()
+    results = axiom_agent._execute_connector_requests(requests, profile)
+    elapsed = time.perf_counter() - start
+
+    assert [result["connector_name"] for result in results] == ["sam_gov", "fpds_contracts", "usaspending"]
+    assert elapsed < 0.18

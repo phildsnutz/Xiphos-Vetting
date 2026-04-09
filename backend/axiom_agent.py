@@ -31,6 +31,7 @@ import re
 import time
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -153,6 +154,7 @@ class LaneExecutionProfile:
     max_iterations: int = MAX_ITERATIONS
     max_follow_up_queries: int = MAX_FOLLOW_UPS_PER_ITER
     max_connector_requests_per_iteration: int = 6
+    max_parallel_connector_requests: int = 1
     allow_follow_up_queries: bool = True
     allowed_connectors: tuple[str, ...] = ()
 
@@ -797,10 +799,11 @@ def _build_lane_execution_profile(lane_id: str) -> LaneExecutionProfile:
             use_follow_up_search=False,
             reuse_connector_findings=True,
             scrape_delay_seconds=0.0,
-            connector_delay_seconds=0.05,
+            connector_delay_seconds=0.0,
             max_iterations=2,
             max_follow_up_queries=0,
             max_connector_requests_per_iteration=3,
+            max_parallel_connector_requests=3,
             allow_follow_up_queries=False,
         )
     return LaneExecutionProfile()
@@ -841,6 +844,57 @@ def _filter_connector_requests(
         if len(filtered) >= lane_profile.max_connector_requests_per_iteration:
             break
     return filtered
+
+
+def _execute_connector_request(
+    conn_req: dict,
+) -> dict:
+    conn_name = str(conn_req.get("name") or "").strip()
+    vendor = str(conn_req.get("vendor_name") or "").strip()
+    params = conn_req.get("parameters", {})
+    if not conn_name or not vendor:
+        return {
+            "success": False,
+            "connector_name": conn_name or "unknown",
+            "vendor_name": vendor or "unknown",
+            "error": "Incomplete connector request",
+        }
+    logger.info(
+        "axiom_agent: executing connector '%s' for vendor '%s'",
+        conn_name, vendor
+    )
+    return _run_connector(conn_name, vendor, **params)
+
+
+def _execute_connector_requests(
+    connector_requests: list[dict],
+    lane_profile: LaneExecutionProfile,
+) -> list[dict]:
+    if not connector_requests:
+        return []
+    if lane_profile.max_parallel_connector_requests <= 1 or len(connector_requests) <= 1:
+        return [_execute_connector_request(conn_req) for conn_req in connector_requests]
+
+    results: list[dict | None] = [None] * len(connector_requests)
+    max_workers = min(lane_profile.max_parallel_connector_requests, len(connector_requests))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="axiom-connector") as executor:
+        future_to_index = {
+            executor.submit(_execute_connector_request, conn_req): idx
+            for idx, conn_req in enumerate(connector_requests)
+        }
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            conn_req = connector_requests[idx]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                results[idx] = {
+                    "success": False,
+                    "connector_name": str(conn_req.get("name") or "unknown"),
+                    "vendor_name": str(conn_req.get("vendor_name") or "unknown"),
+                    "error": str(exc),
+                }
+    return [result or {} for result in results]
 
 
 # ---------------------------------------------------------------------------
@@ -1218,11 +1272,13 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 lane_profile,
             )
             connector_follow_on_findings: list[dict] = []
-            for conn_req in connector_requests:
+            for conn_req, conn_result in zip(
+                connector_requests,
+                _execute_connector_requests(connector_requests, lane_profile),
+            ):
                 try:
                     conn_name = conn_req.get("name", "")
                     vendor = conn_req.get("vendor_name", "")
-                    params = conn_req.get("parameters", {})
 
                     if not conn_name or not vendor:
                         logger.warning(
@@ -1231,12 +1287,6 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                         )
                         continue
 
-                    logger.info(
-                        "axiom_agent: executing connector '%s' for vendor '%s'",
-                        conn_name, vendor
-                    )
-
-                    conn_result = _run_connector(conn_name, vendor, **params)
                     iter_record.connector_calls.append(conn_result)
                     result.total_connector_calls += 1
 
@@ -1314,7 +1364,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                                     source_queries=list(queries),
                                     evidence=[f"Connector {conn_name} returned a structured relationship touching this entity."],
                                 )
-                        if lane_profile.connector_delay_seconds > 0:
+                        if lane_profile.connector_delay_seconds > 0 and lane_profile.max_parallel_connector_requests <= 1:
                             time.sleep(lane_profile.connector_delay_seconds)
                     else:
                         logger.warning(
