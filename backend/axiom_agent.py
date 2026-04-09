@@ -736,6 +736,7 @@ Rules:
 - Do not generate follow-up queries.
 - Keep reasoning under 70 words.
 - Convert only strong evidence into structure.
+- Ignore routine CDN, hosting, or generic service dependencies unless they materially change control-path or procurement posture.
 - If ownership, control-path, teammate, or vehicle specifics stay weak, say so in intelligence_gaps instead of bluffing."""
         lane_mode_block = f"""
 
@@ -886,13 +887,11 @@ def _mission_command_settings(target: SearchTarget) -> dict:
             "sam_gov",
         ],
         "ownership_procurement": [
-            "fpds_contracts",
-            "usaspending",
             "public_search_ownership",
             "sec_edgar",
+            "fpds_contracts",
             "sam_gov",
             "gleif_lei",
-            "sam_subaward_reporting",
         ],
         "adverse_pressure": [
             "courtlistener",
@@ -939,6 +938,36 @@ def _build_prefetched_connector_requests(
             }
         )
     return requests
+
+
+_ROUTINE_DEPENDENCY_NAMES = (
+    "CLOUDFLARE",
+    "AKAMAI",
+    "FASTLY",
+    "AMAZON WEB SERVICES",
+    "AWS",
+    "MICROSOFT AZURE",
+    "GOOGLE CLOUD",
+    "GCP",
+)
+
+
+def _is_routine_dependency_entity_name(name: str) -> bool:
+    normalized = re.sub(r"[^A-Z0-9]+", " ", str(name or "").upper()).strip()
+    if not normalized:
+        return False
+    return any(token in normalized for token in _ROUTINE_DEPENDENCY_NAMES)
+
+
+def _should_suppress_tactical_relationship(
+    relationship: DiscoveredRelationship,
+    lane_profile: LaneExecutionProfile,
+) -> bool:
+    if lane_profile.tactical_focus not in {"ownership_control", "ownership_procurement"}:
+        return False
+    if relationship.rel_type != "related_entity":
+        return False
+    return _is_routine_dependency_entity_name(relationship.source_entity) or _is_routine_dependency_entity_name(relationship.target_entity)
 
 
 def _build_lane_execution_profile(lane_id: str) -> LaneExecutionProfile:
@@ -1049,6 +1078,59 @@ def _execute_connector_requests(
                     "error": str(exc),
                 }
     return [result or {} for result in results]
+
+
+def _build_connector_summary_finding(conn_result: dict) -> dict | None:
+    connector_name = str(conn_result.get("connector_name") or "").strip()
+    if not connector_name:
+        return None
+    findings = conn_result.get("findings") or []
+    relationship_count = int(conn_result.get("relationship_count") or 0)
+    identifiers = dict(conn_result.get("identifiers") or {})
+    structured_fields = dict(conn_result.get("structured_fields") or {})
+    finding_titles = [
+        str(item.get("title") or "").strip()
+        for item in findings
+        if isinstance(item, dict) and str(item.get("title") or "").strip()
+    ][:3]
+    fragments: list[str] = []
+    if findings:
+        fragments.append(f"{len(findings)} finding(s)")
+    if relationship_count:
+        fragments.append(f"{relationship_count} relationship(s)")
+    if identifiers:
+        fragments.append(f"identifiers: {', '.join(sorted(identifiers.keys())[:5])}")
+    if structured_fields:
+        fragments.append(f"structured: {', '.join(sorted(structured_fields.keys())[:5])}")
+    if finding_titles:
+        fragments.append(f"highlights: {'; '.join(finding_titles)}")
+    if not fragments:
+        fragments.append("connector ran but returned thin evidence")
+    return {
+        "category": "connector_summary",
+        "title": f"{connector_name} tactical summary",
+        "detail": ". ".join(fragments),
+        "source": f"connector:{connector_name}",
+        "severity": "info",
+        "confidence": 0.7 if conn_result.get("has_data") else 0.5,
+        "connector_source": connector_name,
+    }
+
+
+def _merge_entity_attributes(existing: dict, updates: dict) -> dict:
+    merged = dict(existing or {})
+    for key, value in (updates or {}).items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if isinstance(current, list) or isinstance(value, list):
+            current_list = current if isinstance(current, list) else ([current] if current not in (None, "", [], {}) else [])
+            value_list = value if isinstance(value, list) else [value]
+            merged[key] = list(dict.fromkeys([item for item in current_list + value_list if item not in (None, "", [], {})]))
+            continue
+        if current in (None, "", [], {}):
+            merged[key] = value
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -1319,6 +1401,8 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     all_relationships: list[DiscoveredRelationship] = []
     all_findings: list[dict] = []
     carry_forward_findings: list[dict] = []
+    target_identifier_attrs: dict = {}
+    target_support_evidence: list[str] = []
     lane_profile = _build_lane_execution_profile(lane_id)
     if lane_id == "mission_command":
         mission_settings = _mission_command_settings(target)
@@ -1447,6 +1531,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 lane_profile,
             )
             connector_follow_on_findings: list[dict] = []
+            connector_summary_findings: list[dict] = []
             for conn_req, conn_result in zip(
                 connector_requests,
                 _execute_connector_requests(connector_requests, lane_profile),
@@ -1467,6 +1552,17 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
 
                     # Add connector findings to iteration findings
                     if conn_result["success"]:
+                        target_identifier_attrs = _merge_entity_attributes(
+                            target_identifier_attrs,
+                            dict(conn_result.get("identifiers") or {}),
+                        )
+                        summary_finding = _build_connector_summary_finding(conn_result)
+                        if summary_finding:
+                            iter_findings.append(summary_finding)
+                            connector_summary_findings.append(summary_finding)
+                            detail = str(summary_finding.get("detail") or "").strip()
+                            if detail:
+                                target_support_evidence.append(f"{conn_name}: {detail}")
                         for finding in conn_result["findings"]:
                             finding_payload = {
                                 "category": finding.get("category", "connector_finding"),
@@ -1519,20 +1615,27 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                                 if text
                             ] or [f"Connector {conn_name} returned a structured relationship."]
 
-                            all_relationships.append(
-                                DiscoveredRelationship(
-                                    source_entity=source_entity,
-                                    target_entity=target_entity,
-                                    rel_type=rel_type,
-                                    confidence=float(relationship.get("confidence") or 0.72),
-                                    evidence=evidence,
-                                )
+                            discovered_relationship = DiscoveredRelationship(
+                                source_entity=source_entity,
+                                target_entity=target_entity,
+                                rel_type=rel_type,
+                                confidence=float(relationship.get("confidence") or 0.72),
+                                evidence=evidence,
                             )
+                            if _should_suppress_tactical_relationship(discovered_relationship, lane_profile):
+                                continue
+
+                            all_relationships.append(discovered_relationship)
 
                             for entity_name in (source_entity, target_entity):
                                 if entity_name in all_entities:
                                     continue
-                            all_entities[entity_name] = DiscoveredEntity(
+                                if (
+                                    lane_profile.tactical_focus in {"ownership_control", "ownership_procurement"}
+                                    and _is_routine_dependency_entity_name(entity_name)
+                                ):
+                                    continue
+                                all_entities[entity_name] = DiscoveredEntity(
                                     name=entity_name,
                                     entity_type="company",
                                     confidence=float(relationship.get("confidence") or 0.68),
@@ -1563,6 +1666,11 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 name = ent_data.get("name", "").strip()
                 if not name:
                     continue
+                if (
+                    lane_profile.tactical_focus in {"ownership_control", "ownership_procurement"}
+                    and _is_routine_dependency_entity_name(name)
+                ):
+                    continue
 
                 if name in all_entities:
                     # Update existing entity with higher confidence
@@ -1590,7 +1698,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                     confidence=rel_data.get("confidence", 0.5),
                     evidence=rel_data.get("evidence", []),
                 )
-                if rel.source_entity and rel.target_entity:
+                if rel.source_entity and rel.target_entity and not _should_suppress_tactical_relationship(rel, lane_profile):
                     all_relationships.append(rel)
 
             # Process intelligence gaps
@@ -1636,7 +1744,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 (datetime.now(timezone.utc) - iter_start).total_seconds() * 1000
             )
             if lane_profile.reuse_connector_findings:
-                carry_forward_findings = connector_follow_on_findings[:20]
+                carry_forward_findings = (connector_summary_findings + connector_follow_on_findings)[:20]
             result.iterations.append(iter_record)
 
             # Check termination
@@ -1655,6 +1763,34 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
         result.error = str(e)
 
     # Finalize result
+    target_name = str(target.prime_contractor or "").strip()
+    if target_name and result.total_connector_calls > 0:
+        target_entity = all_entities.get(target_name)
+        target_confidence = 0.92 if target_identifier_attrs else 0.72
+        target_attributes = _merge_entity_attributes(
+            getattr(target_entity, "attributes", {}),
+            target_identifier_attrs,
+        )
+        if target.vehicle_name:
+            target_attributes = _merge_entity_attributes(target_attributes, {"vehicle_name": target.vehicle_name})
+        target_evidence = list(
+            dict.fromkeys((getattr(target_entity, "evidence", []) or []) + target_support_evidence)
+        )[:6]
+        if not target_evidence:
+            target_evidence = ["Target anchored by tactical connector evidence."]
+        if target_entity:
+            target_entity.confidence = max(target_entity.confidence, target_confidence)
+            target_entity.attributes = target_attributes
+            target_entity.evidence = target_evidence
+        else:
+            all_entities[target_name] = DiscoveredEntity(
+                name=target_name,
+                entity_type="company",
+                confidence=target_confidence,
+                attributes=target_attributes,
+                source_queries=[target_name],
+                evidence=target_evidence,
+            )
     result.entities = list(all_entities.values())
     deduped_relationships: dict[tuple[str, str, str], DiscoveredRelationship] = {}
     for relationship in all_relationships:

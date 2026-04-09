@@ -166,12 +166,12 @@ def test_mission_command_settings_prioritize_focus_specific_connectors():
     assert settings["focus"] == "ownership_procurement"
     assert settings["max_connector_requests_per_iteration"] == 3
     assert settings["allowed_connectors"][:4] == (
-        "fpds_contracts",
-        "usaspending",
         "public_search_ownership",
         "sec_edgar",
+        "fpds_contracts",
+        "sam_gov",
     )
-    assert "sam_gov" in settings["allowed_connectors"]
+    assert "gleif_lei" in settings["allowed_connectors"]
 
 
 def test_mission_command_prefetch_connector_requests_follow_focus_order():
@@ -183,15 +183,15 @@ def test_mission_command_prefetch_connector_requests_follow_focus_order():
             context="ownership control and procurement posture",
         ),
         axiom_agent.LaneExecutionProfile(
-            allowed_connectors=("fpds_contracts", "usaspending", "public_search_ownership", "sec_edgar"),
+            allowed_connectors=("public_search_ownership", "sec_edgar", "fpds_contracts", "sam_gov"),
             max_connector_requests_per_iteration=3,
         ),
     )
 
     assert [request["name"] for request in requests] == [
-        "fpds_contracts",
-        "usaspending",
         "public_search_ownership",
+        "sec_edgar",
+        "fpds_contracts",
     ]
 
 
@@ -219,6 +219,7 @@ def test_mission_command_second_pass_prompt_is_compact_and_terminal():
     assert '"connector_requests": []' in prompt
     assert '"follow_up_queries": []' in prompt
     assert "Do not request more connectors." in prompt
+    assert "Ignore routine CDN, hosting, or generic service dependencies" in prompt
 
 
 def test_execute_connector_requests_runs_tactical_batch_in_parallel(monkeypatch):
@@ -302,3 +303,238 @@ def test_run_agent_accepts_string_intelligence_gaps(monkeypatch):
         "Beneficial ownership remains unresolved.",
         "Vehicle-specific sub visibility is thin.",
     ]
+
+
+def test_build_connector_summary_finding_carries_connector_digest():
+    axiom_agent = _reload_module("axiom_agent")
+
+    finding = axiom_agent._build_connector_summary_finding(
+        {
+            "connector_name": "fpds_contracts",
+            "has_data": True,
+            "findings": [
+                {"title": "FPDS: 12 federal contract awards found (since 2019)"},
+                {"title": "DoD contract history confirmed (3 defense agencies)"},
+            ],
+            "relationship_count": 0,
+            "identifiers": {"fpds_contract_count": 12, "has_dod_contracts": True},
+            "structured_fields": {},
+        }
+    )
+
+    assert finding is not None
+    assert finding["connector_source"] == "fpds_contracts"
+    assert "12 federal contract awards" in finding["detail"]
+    assert "identifiers" in finding["detail"]
+
+
+def test_mission_command_suppresses_routine_dependency_entities(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    llm_calls = {"count": 0}
+
+    def fake_call_llm(**kwargs):
+        llm_calls["count"] += 1
+        return json.dumps(
+            {
+                "entities": [
+                    {
+                        "name": "Cloudflare",
+                        "entity_type": "company",
+                        "confidence": 0.78,
+                        "evidence": ["Website resolved behind Cloudflare."],
+                    }
+                ],
+                "relationships": [
+                    {
+                        "source_entity": "Parsons Corporation",
+                        "target_entity": "Cloudflare",
+                        "rel_type": "related_entity",
+                        "confidence": 0.78,
+                        "evidence": ["Public web infrastructure dependency."],
+                    }
+                ],
+                "connector_requests": [],
+                "follow_up_queries": [],
+                "reasoning": "Cloudflare is not a control-path actor.",
+                "intelligence_gaps": [],
+                "search_complete": True,
+            }
+        )
+
+    monkeypatch.setattr(
+        axiom_agent,
+        "resolve_runtime_ai_credentials",
+        lambda **kwargs: ("anthropic", "claude-sonnet-4-6", "sk-test-anthropic"),
+    )
+    monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
+    monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(axiom_agent, "_call_llm", fake_call_llm)
+    monkeypatch.setattr(
+        axiom_agent,
+        "_run_connector",
+        lambda name, vendor_name, **kwargs: {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": True,
+            "identifiers": {},
+            "relationship_count": 0,
+            "relationships": [],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        },
+    )
+
+    result = axiom_agent.run_agent(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control",
+        ),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        lane_id="mission_command",
+    )
+
+    assert llm_calls["count"] == 1
+    assert [entity.name for entity in result.entities] == ["Parsons Corporation"]
+    assert result.relationships == []
+
+
+def test_mission_command_suppresses_routine_dependency_connector_relationships(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    monkeypatch.setattr(
+        axiom_agent,
+        "resolve_runtime_ai_credentials",
+        lambda **kwargs: ("anthropic", "claude-sonnet-4-6", "sk-test-anthropic"),
+    )
+    monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
+    monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(
+        axiom_agent,
+        "_call_llm",
+        lambda **kwargs: json.dumps(
+            {
+                "entities": [],
+                "relationships": [],
+                "connector_requests": [],
+                "follow_up_queries": [],
+                "reasoning": "No controlling shareholder surfaced.",
+                "intelligence_gaps": [],
+                "search_complete": True,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        axiom_agent,
+        "_run_connector",
+        lambda name, vendor_name, **kwargs: {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": True,
+            "identifiers": {},
+            "relationship_count": 1,
+            "relationships": [
+                {
+                    "source_entity": "Parsons Corporation",
+                    "target_entity": "Cloudflare",
+                    "rel_type": "related_entity",
+                    "confidence": 0.81,
+                    "evidence_summary": "Website resolves behind Cloudflare CDN.",
+                }
+            ],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        },
+    )
+
+    result = axiom_agent.run_agent(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control",
+        ),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        lane_id="mission_command",
+    )
+
+    assert [entity.name for entity in result.entities] == ["Parsons Corporation"]
+    assert result.relationships == []
+
+
+def test_mission_command_anchors_target_entity_from_connector_identifiers(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    monkeypatch.setattr(
+        axiom_agent,
+        "resolve_runtime_ai_credentials",
+        lambda **kwargs: ("anthropic", "claude-sonnet-4-6", "sk-test-anthropic"),
+    )
+    monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
+    monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(
+        axiom_agent,
+        "_call_llm",
+        lambda **kwargs: json.dumps(
+            {
+                "entities": [],
+                "relationships": [],
+                "connector_requests": [],
+                "follow_up_queries": [],
+                "reasoning": "Parsons is publicly traded with no controlling shareholder surfaced.",
+                "intelligence_gaps": [],
+                "search_complete": True,
+            }
+        ),
+    )
+
+    def fake_run_connector(name, vendor_name, **kwargs):
+        identifiers = {}
+        if name == "public_search_ownership":
+            identifiers = {"uei": "FFCMDLMXRK49", "cage": "9R677", "website": "https://www.parsons.com"}
+        elif name == "sec_edgar":
+            identifiers = {"cik": "275880", "tickers": ["PSN"], "exchanges": ["NYSE"]}
+        elif name == "fpds_contracts":
+            identifiers = {"fpds_contract_count": 20, "has_dod_contracts": True}
+        return {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": True,
+            "identifiers": identifiers,
+            "relationship_count": 0,
+            "relationships": [],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        }
+
+    monkeypatch.setattr(axiom_agent, "_run_connector", fake_run_connector)
+
+    result = axiom_agent.run_agent(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control and procurement posture",
+        ),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        lane_id="mission_command",
+    )
+
+    assert len(result.entities) == 1
+    entity = result.entities[0]
+    assert entity.name == "Parsons Corporation"
+    assert entity.attributes["uei"] == "FFCMDLMXRK49"
+    assert entity.attributes["cik"] == "275880"
+    assert entity.attributes["tickers"] == ["PSN"]
+    assert entity.attributes["has_dod_contracts"] is True
