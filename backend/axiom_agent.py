@@ -155,8 +155,14 @@ class LaneExecutionProfile:
     max_follow_up_queries: int = MAX_FOLLOW_UPS_PER_ITER
     max_connector_requests_per_iteration: int = 6
     max_parallel_connector_requests: int = 1
+    llm_max_tokens: int = 4096
+    raw_findings_limit: int = 20
+    second_pass_raw_findings_limit: int = 10
     allow_follow_up_queries: bool = True
     allowed_connectors: tuple[str, ...] = ()
+    prefetch_connector_plan: bool = False
+    tactical_focus: str = ""
+    tactical_instruction: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +462,28 @@ or fill critical intelligence gaps."""
 SYSTEM_PROMPT = _build_system_prompt_with_connectors()
 
 
+def _build_tactical_system_prompt(lane_profile: LaneExecutionProfile) -> str:
+    connector_lines = "\n".join(f"- {name}" for name in (lane_profile.allowed_connectors or ()))
+    return f"""You are AXIOM mission command.
+
+This lane is tactical pressure, not broad exploration.
+Return valid JSON only.
+Use only the allowed connectors below when evidence is still thin:
+{connector_lines}
+
+Rules:
+- Keep reasoning concise and decision-oriented.
+- Prefer explicit abstention over speculative structure.
+- Convert only strong connector-backed or graph-backed evidence into entities and relationships.
+- If the pressure picture is good enough, close the search instead of asking for more work."""
+
+
+def _build_system_prompt_for_lane(lane_profile: LaneExecutionProfile) -> str:
+    if lane_profile.allowed_connectors:
+        return _build_tactical_system_prompt(lane_profile)
+    return SYSTEM_PROMPT
+
+
 def _support_relationship_digest(relationships: list[dict]) -> list[dict]:
     digested: list[dict] = []
     for relationship in relationships[:6]:
@@ -643,6 +671,13 @@ def _build_analysis_prompt(target: SearchTarget, raw_findings: list[dict],
                            lane_profile: LaneExecutionProfile,
                            vehicle_mode_support: dict | None = None) -> str:
     """Build the LLM prompt for analyzing scraper results and requesting connectors."""
+    findings_limit = (
+        lane_profile.second_pass_raw_findings_limit
+        if iteration > 1
+        else lane_profile.raw_findings_limit
+    )
+    findings_slice = raw_findings[:findings_limit]
+    previous_entities_slice = previous_entities[:8]
     vehicle_support_block = ""
     if vehicle_mode_support:
         vehicle_support_block = f"""
@@ -670,6 +705,38 @@ Rules:
     lane_mode_block = ""
     if lane_profile.allowed_connectors:
         connector_lines = "\n".join(f"- {name}" for name in lane_profile.allowed_connectors)
+        if iteration > 1:
+            return f"""FINAL TACTICAL SYNTHESIS PASS
+
+TARGET:
+- Prime Contractor: {target.prime_contractor}
+- Focus: {lane_profile.tactical_focus or 'tactical_pressure'}
+- Context: {target.context or 'General contract vehicle intelligence'}
+- Pressure instruction: {lane_profile.tactical_instruction or 'Close the pressure picture honestly.'}
+{vehicle_support_block}
+
+KNOWN ENTITIES: {', '.join(previous_entities_slice) if previous_entities_slice else 'None yet'}
+
+CONNECTOR FINDINGS ({len(findings_slice)} items):
+{json.dumps(findings_slice, indent=2, default=str)}
+
+Return valid JSON:
+{{
+  "entities": [],
+  "relationships": [],
+  "connector_requests": [],
+  "follow_up_queries": [],
+  "reasoning": "Brief tactical readout of what holds and what stays thin",
+  "intelligence_gaps": [],
+  "search_complete": true
+}}
+
+Rules:
+- Do not request more connectors.
+- Do not generate follow-up queries.
+- Keep reasoning under 70 words.
+- Convert only strong evidence into structure.
+- If ownership, control-path, teammate, or vehicle specifics stay weak, say so in intelligence_gaps instead of bluffing."""
         lane_mode_block = f"""
 
 TACTICAL LANE CONSTRAINTS:
@@ -679,9 +746,15 @@ TACTICAL LANE CONSTRAINTS:
 - Request at most {lane_profile.max_connector_requests_per_iteration} connectors this iteration.
 - {"Do not generate follow-up web-search queries in this lane." if not lane_profile.allow_follow_up_queries else f"Generate at most {lane_profile.max_follow_up_queries} follow-up queries."}
 - Close the search as soon as connector evidence is good enough to state what holds and what stays thin.
+- Focus: {lane_profile.tactical_focus or 'tactical_pressure'}
+- Pressure instruction: {lane_profile.tactical_instruction or 'Close the pressure picture honestly.'}
 """
 
-    return f"""Analyze the following job board scraping results and connector findings for intelligence value.
+    prompt_intro = "Analyze the following job board scraping results and connector findings for intelligence value."
+    if lane_profile.allowed_connectors:
+        prompt_intro = "Run a tactical pressure pass over the following evidence and decide the minimum next moves."
+
+    return f"""{prompt_intro}
 
 TARGET:
 - Prime Contractor: {target.prime_contractor}
@@ -693,10 +766,10 @@ TARGET:
 {lane_mode_block}
 
 ITERATION: {iteration} of {lane_profile.max_iterations}
-PREVIOUSLY DISCOVERED ENTITIES: {', '.join(previous_entities) if previous_entities else 'None yet'}
+PREVIOUSLY DISCOVERED ENTITIES: {', '.join(previous_entities_slice) if previous_entities_slice else 'None yet'}
 
-RAW FINDINGS ({len(raw_findings)} items):
-{json.dumps(raw_findings[:20], indent=2, default=str)}
+RAW FINDINGS ({len(findings_slice)} items):
+{json.dumps(findings_slice, indent=2, default=str)}
 
 Respond with valid JSON:
 {{
@@ -769,7 +842,7 @@ def _dedupe_connector_names(names: list[str]) -> tuple[str, ...]:
     return tuple(ordered)
 
 
-def _mission_command_connector_window(target: SearchTarget) -> tuple[str, ...]:
+def _classify_mission_command_focus(target: SearchTarget) -> str:
     context = " ".join(
         filter(
             None,
@@ -781,14 +854,91 @@ def _mission_command_connector_window(target: SearchTarget) -> tuple[str, ...]:
         )
     ).lower()
 
-    connectors = ["sam_gov", "fpds_contracts", "usaspending"]
-    if any(keyword in context for keyword in ("ownership", "owner", "control", "parent", "beneficial", "foci")):
-        connectors.extend(["sec_edgar", "gleif_lei", "public_search_ownership", "public_html_ownership"])
-    if any(keyword in context for keyword in ("vehicle", "prime", "procurement", "customer", "subcontract", "teammate")):
-        connectors.append("sam_subaward_reporting")
-    if any(keyword in context for keyword in ("adverse", "litigation", "protest", "suit", "court")):
-        connectors.append("courtlistener")
-    return _dedupe_connector_names(connectors)[:8]
+    ownership = any(keyword in context for keyword in ("ownership", "owner", "control", "parent", "beneficial", "foci"))
+    procurement = any(keyword in context for keyword in ("vehicle", "prime", "procurement", "customer", "subcontract", "teammate"))
+    adverse = any(keyword in context for keyword in ("adverse", "litigation", "protest", "suit", "court"))
+
+    if ownership and procurement:
+        return "ownership_procurement"
+    if ownership:
+        return "ownership_control"
+    if procurement:
+        return "procurement_posture"
+    if adverse:
+        return "adverse_pressure"
+    return "general_pressure"
+
+
+def _mission_command_settings(target: SearchTarget) -> dict:
+    focus = _classify_mission_command_focus(target)
+    connectors_by_focus = {
+        "ownership_control": [
+            "public_search_ownership",
+            "sec_edgar",
+            "gleif_lei",
+            "public_html_ownership",
+            "sam_gov",
+        ],
+        "procurement_posture": [
+            "fpds_contracts",
+            "usaspending",
+            "sam_subaward_reporting",
+            "sam_gov",
+        ],
+        "ownership_procurement": [
+            "fpds_contracts",
+            "usaspending",
+            "public_search_ownership",
+            "sec_edgar",
+            "sam_gov",
+            "gleif_lei",
+            "sam_subaward_reporting",
+        ],
+        "adverse_pressure": [
+            "courtlistener",
+            "epa_echo",
+            "osha_safety",
+            "sam_gov",
+        ],
+        "general_pressure": [
+            "fpds_contracts",
+            "usaspending",
+            "sam_gov",
+        ],
+    }
+    instructions = {
+        "ownership_control": "Prioritize who controls the entity, whether control-path confidence is real, and where ownership must stay unresolved.",
+        "procurement_posture": "Prioritize prime posture, vehicle relevance, customer concentration, and teammate/sub visibility without overclaiming.",
+        "ownership_procurement": "Prioritize control-path clarity first, then procurement posture. Do not trade ownership honesty for extra contract color.",
+        "adverse_pressure": "Prioritize adverse records that materially change risk posture. Ignore generic negative noise.",
+        "general_pressure": "Prioritize the single strongest pressure move and close fast when the public picture is already sufficient.",
+    }
+    connector_budget = 3 if focus == "ownership_procurement" else 2
+    return {
+        "focus": focus,
+        "allowed_connectors": _dedupe_connector_names(connectors_by_focus.get(focus, connectors_by_focus["general_pressure"]))[:7],
+        "max_connector_requests_per_iteration": connector_budget,
+        "tactical_instruction": instructions.get(focus, instructions["general_pressure"]),
+    }
+
+
+def _build_prefetched_connector_requests(
+    target: SearchTarget,
+    lane_profile: LaneExecutionProfile,
+) -> list[dict]:
+    requests: list[dict] = []
+    for connector_name in (lane_profile.allowed_connectors or ())[: lane_profile.max_connector_requests_per_iteration]:
+        params: dict = {}
+        if connector_name == "sam_gov":
+            params["country"] = "US"
+        requests.append(
+            {
+                "name": connector_name,
+                "vendor_name": target.prime_contractor,
+                "parameters": params,
+            }
+        )
+    return requests
 
 
 def _build_lane_execution_profile(lane_id: str) -> LaneExecutionProfile:
@@ -802,9 +952,13 @@ def _build_lane_execution_profile(lane_id: str) -> LaneExecutionProfile:
             connector_delay_seconds=0.0,
             max_iterations=2,
             max_follow_up_queries=0,
-            max_connector_requests_per_iteration=3,
+            max_connector_requests_per_iteration=2,
             max_parallel_connector_requests=3,
+            llm_max_tokens=2200,
+            raw_findings_limit=12,
+            second_pass_raw_findings_limit=8,
             allow_follow_up_queries=False,
+            prefetch_connector_plan=True,
         )
     return LaneExecutionProfile()
 
@@ -1167,10 +1321,14 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     carry_forward_findings: list[dict] = []
     lane_profile = _build_lane_execution_profile(lane_id)
     if lane_id == "mission_command":
+        mission_settings = _mission_command_settings(target)
         lane_profile = LaneExecutionProfile(
             **{
                 **lane_profile.__dict__,
-                "allowed_connectors": _mission_command_connector_window(target),
+                "allowed_connectors": mission_settings["allowed_connectors"],
+                "max_connector_requests_per_iteration": mission_settings["max_connector_requests_per_iteration"],
+                "tactical_focus": mission_settings["focus"],
+                "tactical_instruction": mission_settings["tactical_instruction"],
             }
         )
     vehicle_mode_support = _build_vehicle_mode_support(target)
@@ -1230,45 +1388,62 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 result.iterations.append(iter_record)
                 break
 
-            # LLM analysis
-            previous_entity_names = list(all_entities.keys())
-            analysis_prompt = _build_analysis_prompt(
-                target, iter_findings, iteration, previous_entity_names, lane_profile, vehicle_mode_support
-            )
+            # LLM analysis or deterministic tactical connector seed
+            if lane_profile.prefetch_connector_plan and iteration == 1:
+                analysis = {
+                    "entities": [],
+                    "relationships": [],
+                    "connector_requests": _build_prefetched_connector_requests(target, lane_profile),
+                    "follow_up_queries": [],
+                    "reasoning": (
+                        f"Using prefetched {lane_profile.tactical_focus or 'tactical'} connector plan "
+                        "before the final synthesis pass."
+                    ),
+                    "intelligence_gaps": [],
+                    "search_complete": False,
+                }
+            else:
+                previous_entity_names = list(all_entities.keys())
+                analysis_prompt = _build_analysis_prompt(
+                    target, iter_findings, iteration, previous_entity_names, lane_profile, vehicle_mode_support
+                )
 
-            llm_response = _call_llm(
-                prompt=analysis_prompt,
-                system=SYSTEM_PROMPT,
-                provider=provider,
-                model=model,
-                api_key=api_key,
-            )
+                llm_response = _call_llm(
+                    prompt=analysis_prompt,
+                    system=_build_system_prompt_for_lane(lane_profile),
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    max_tokens=lane_profile.llm_max_tokens,
+                )
 
-            if not llm_response:
-                iter_record.llm_reasoning = "LLM call failed or returned empty response."
-                result.iterations.append(iter_record)
-                continue
+                if not llm_response:
+                    iter_record.llm_reasoning = "LLM call failed or returned empty response."
+                    result.iterations.append(iter_record)
+                    continue
 
-            # Parse LLM response
-            try:
-                # Handle potential markdown code blocks in response
-                clean_response = llm_response.strip()
-                if clean_response.startswith("```"):
-                    clean_response = clean_response.split("\n", 1)[1]
-                    if clean_response.endswith("```"):
-                        clean_response = clean_response[:-3]
-                    clean_response = clean_response.strip()
+                # Parse LLM response
+                try:
+                    # Handle potential markdown code blocks in response
+                    clean_response = llm_response.strip()
+                    if clean_response.startswith("```"):
+                        clean_response = clean_response.split("\n", 1)[1]
+                        if clean_response.endswith("```"):
+                            clean_response = clean_response[:-3]
+                        clean_response = clean_response.strip()
 
-                analysis = json.loads(clean_response)
-            except json.JSONDecodeError as e:
-                logger.warning("axiom_agent: failed to parse LLM response: %s", e)
-                iter_record.llm_reasoning = f"LLM response parse error: {e}"
-                result.iterations.append(iter_record)
-                continue
+                    analysis = json.loads(clean_response)
+                except json.JSONDecodeError as e:
+                    logger.warning("axiom_agent: failed to parse LLM response: %s", e)
+                    iter_record.llm_reasoning = f"LLM response parse error: {e}"
+                    result.iterations.append(iter_record)
+                    continue
 
             # Execute connector requests if present
             connector_requests = _filter_connector_requests(
-                analysis.get("connector_requests", []),
+                []
+                if lane_profile.allowed_connectors and iteration > 1
+                else analysis.get("connector_requests", []),
                 lane_profile,
             )
             connector_follow_on_findings: list[dict] = []
@@ -1420,21 +1595,31 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
 
             # Process intelligence gaps
             for gap_data in analysis.get("intelligence_gaps", []):
+                if isinstance(gap_data, dict):
+                    gap_text = str(gap_data.get("gap", "")).strip()
+                    fillable_by = str(gap_data.get("fillable_by", "automated_search")).strip() or "automated_search"
+                    priority = str(gap_data.get("priority", "medium")).strip() or "medium"
+                else:
+                    gap_text = str(gap_data or "").strip()
+                    fillable_by = "automated_search"
+                    priority = "medium"
+                if not gap_text:
+                    continue
                 gap = {
-                    "gap": gap_data.get("gap", ""),
-                    "fillable_by": gap_data.get("fillable_by", "automated_search"),
-                    "priority": gap_data.get("priority", "medium"),
+                    "gap": gap_text,
+                    "fillable_by": fillable_by,
+                    "priority": priority,
                     "iteration_discovered": iteration,
                 }
                 result.intelligence_gaps.append(gap)
 
                 # Flag advisory opportunities (gaps fillable by HUMINT/consulting)
-                if gap_data.get("fillable_by") == "advisory_services":
+                if fillable_by == "advisory_services":
                     result.advisory_opportunities.append({
-                        "gap": gap_data.get("gap", ""),
-                        "priority": gap_data.get("priority", "medium"),
+                        "gap": gap_text,
+                        "priority": priority,
                         "value_proposition": (
-                            f"Automated collection cannot determine: {gap_data.get('gap', '')}. "
+                            f"Automated collection cannot determine: {gap_text}. "
                             f"Xiphos advisory services can fill this gap through network intelligence."
                         ),
                     })

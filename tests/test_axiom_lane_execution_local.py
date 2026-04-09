@@ -27,24 +27,6 @@ def test_run_agent_skips_careers_search_and_long_sleeps_in_mission_command(monke
 
     def fake_call_llm(**kwargs):
         llm_calls["count"] += 1
-        if llm_calls["count"] == 1:
-            return json.dumps(
-                {
-                    "entities": [],
-                    "relationships": [],
-                    "connector_requests": [
-                        {"name": "sam_gov", "vendor_name": "Parsons Corporation", "parameters": {}},
-                        {"name": "fpds_contracts", "vendor_name": "Parsons Corporation", "parameters": {}},
-                        {"name": "usaspending", "vendor_name": "Parsons Corporation", "parameters": {}},
-                        {"name": "sec_edgar", "vendor_name": "Parsons Corporation", "parameters": {}},
-                        {"name": "courtlistener", "vendor_name": "Parsons Corporation", "parameters": {}},
-                    ],
-                    "follow_up_queries": ["ownership pressure"],
-                    "reasoning": "Use connector pressure first.",
-                    "intelligence_gaps": [],
-                    "search_complete": False,
-                }
-            )
         return json.dumps(
             {
                 "entities": [
@@ -111,11 +93,12 @@ def test_run_agent_skips_careers_search_and_long_sleeps_in_mission_command(monke
 
     assert scraper_queries == []
     assert web_queries == []
-    assert connector_calls == ["sam_gov", "fpds_contracts", "usaspending"]
-    assert result.total_connector_calls == 3
+    assert connector_calls == ["fpds_contracts", "usaspending"]
+    assert result.total_connector_calls == 2
     assert result.runtime["lane_id"] == "mission_command"
     assert len(result.iterations) == 2
     assert result.iterations[0].follow_up_queries == []
+    assert llm_calls["count"] == 1
     assert sleep_calls == []
 
 
@@ -170,22 +153,72 @@ def test_run_agent_keeps_broad_scraper_in_edge_collection(monkeypatch):
     assert 2.0 in sleep_calls
 
 
-def test_mission_command_connector_window_expands_for_ownership_pressure():
+def test_mission_command_settings_prioritize_focus_specific_connectors():
     axiom_agent = _reload_module("axiom_agent")
 
-    window = axiom_agent._mission_command_connector_window(
+    settings = axiom_agent._mission_command_settings(
         axiom_agent.SearchTarget(
             prime_contractor="Parsons Corporation",
             context="ownership control and procurement posture",
         )
     )
 
-    assert "sam_gov" in window
-    assert "fpds_contracts" in window
-    assert "usaspending" in window
-    assert "sec_edgar" in window
-    assert "gleif_lei" in window
-    assert "public_search_ownership" in window
+    assert settings["focus"] == "ownership_procurement"
+    assert settings["max_connector_requests_per_iteration"] == 3
+    assert settings["allowed_connectors"][:4] == (
+        "fpds_contracts",
+        "usaspending",
+        "public_search_ownership",
+        "sec_edgar",
+    )
+    assert "sam_gov" in settings["allowed_connectors"]
+
+
+def test_mission_command_prefetch_connector_requests_follow_focus_order():
+    axiom_agent = _reload_module("axiom_agent")
+
+    requests = axiom_agent._build_prefetched_connector_requests(
+        axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control and procurement posture",
+        ),
+        axiom_agent.LaneExecutionProfile(
+            allowed_connectors=("fpds_contracts", "usaspending", "public_search_ownership", "sec_edgar"),
+            max_connector_requests_per_iteration=3,
+        ),
+    )
+
+    assert [request["name"] for request in requests] == [
+        "fpds_contracts",
+        "usaspending",
+        "public_search_ownership",
+    ]
+
+
+def test_mission_command_second_pass_prompt_is_compact_and_terminal():
+    axiom_agent = _reload_module("axiom_agent")
+
+    profile = axiom_agent.LaneExecutionProfile(
+        allowed_connectors=("sam_gov", "sec_edgar"),
+        tactical_focus="ownership_control",
+        tactical_instruction="Prioritize clean control-path honesty.",
+    )
+    prompt = axiom_agent._build_analysis_prompt(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control",
+        ),
+        raw_findings=[{"category": "connector_finding", "title": "SEC filing", "detail": "Parent disclosure held."}],
+        iteration=2,
+        previous_entities=["Parsons Corporation"],
+        lane_profile=profile,
+        vehicle_mode_support=None,
+    )
+
+    assert "FINAL TACTICAL SYNTHESIS PASS" in prompt
+    assert '"connector_requests": []' in prompt
+    assert '"follow_up_queries": []' in prompt
+    assert "Do not request more connectors." in prompt
 
 
 def test_execute_connector_requests_runs_tactical_batch_in_parallel(monkeypatch):
@@ -223,3 +256,49 @@ def test_execute_connector_requests_runs_tactical_batch_in_parallel(monkeypatch)
 
     assert [result["connector_name"] for result in results] == ["sam_gov", "fpds_contracts", "usaspending"]
     assert elapsed < 0.18
+
+
+def test_run_agent_accepts_string_intelligence_gaps(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    monkeypatch.setattr(
+        axiom_agent,
+        "resolve_runtime_ai_credentials",
+        lambda **kwargs: ("anthropic", "claude-sonnet-4-6", "sk-test-anthropic"),
+    )
+    monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
+    monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(
+        axiom_agent,
+        "_call_llm",
+        lambda **kwargs: json.dumps(
+            {
+                "entities": [],
+                "relationships": [],
+                "connector_requests": [],
+                "follow_up_queries": [],
+                "reasoning": "Thin ownership picture.",
+                "intelligence_gaps": [
+                    "Beneficial ownership remains unresolved.",
+                    {"gap": "Vehicle-specific sub visibility is thin.", "fillable_by": "automated_search", "priority": "high"},
+                ],
+                "search_complete": True,
+            }
+        ),
+    )
+
+    result = axiom_agent.run_agent(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control",
+        ),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        lane_id="mission_command",
+    )
+
+    assert result.error == ""
+    assert [gap["gap"] for gap in result.intelligence_gaps] == [
+        "Beneficial ownership remains unresolved.",
+        "Vehicle-specific sub visibility is thin.",
+    ]
