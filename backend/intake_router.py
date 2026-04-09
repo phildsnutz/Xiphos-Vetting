@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from contract_vehicle_search import VEHICLE_ALIASES
-from entity_resolver import _search_knowledge_graph_memory, _search_local_vendor_memory
+from entity_resolver import _is_exact_memory_anchor, _search_knowledge_graph_memory, _search_local_vendor_memory
 
 
 _VEHICLE_CUE_RE = re.compile(
@@ -150,6 +150,8 @@ def _memory_signals(text: str) -> tuple[float, list[str], float, list[str]]:
             seen_local_hits.add(local_key)
             vendor_score = max(vendor_score, 0.86 if str(top.get("source")) == "local_vendor_memory" else 0.72)
             vendor_reasons.append(f"Local vendor memory already has {legal_name or 'a matching entity'} in frame.")
+        if any(_is_exact_memory_anchor(text, hit) for hit in local_hits):
+            return vehicle_score, vehicle_reasons, vendor_score, vendor_reasons
 
     exact_vehicle_names: set[str] = set()
     for hit in graph_hits:

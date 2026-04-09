@@ -503,8 +503,13 @@ def resolve_with_reranking(
     delta = top_score - second_score
     top_candidate = candidates[0]
     top_features = top_candidate.get("match_features") or {}
+    top_source_tags = {
+        chunk.strip().lower()
+        for chunk in str(top_candidate.get("source") or "").split(",")
+        if chunk.strip()
+    }
     exact_local_vendor_memory_hit = (
-        str(top_candidate.get("source") or "").strip().lower() == "local_vendor_memory"
+        "local_vendor_memory" in top_source_tags
         and bool(top_features.get("exact_name_match"))
         and top_score >= 0.75
     )

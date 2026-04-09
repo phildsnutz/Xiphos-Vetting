@@ -7,6 +7,7 @@ provider path that the rest of the application, graph training, and Neo4j sync
 already use.
 """
 
+import logging
 import sqlite3
 from collections import deque
 import json
@@ -18,6 +19,7 @@ from contextlib import contextmanager
 from entity_resolution import ResolvedEntity
 from runtime_paths import get_kg_db_path as resolve_kg_db_path
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Database setup
@@ -50,10 +52,289 @@ def _json_loads(value, fallback):
         return fallback
     if isinstance(value, (dict, list)):
         return value
+    current = value
+    for _ in range(4):
+        if isinstance(current, (dict, list)):
+            return current
+        if not isinstance(current, str):
+            return fallback if isinstance(fallback, (dict, list)) else current
+        try:
+            current = json.loads(current)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return fallback
+    return fallback if isinstance(fallback, (dict, list)) else current
+
+
+_MAX_ALIAS_PAYLOAD_CHARS = int(os.environ.get("XIPHOS_KG_ALIAS_PAYLOAD_MAX_CHARS", "4096"))
+_MAX_ALIAS_COUNT = int(os.environ.get("XIPHOS_KG_ALIAS_MAX_COUNT", "64"))
+_MAX_ALIAS_VALUE_CHARS = int(os.environ.get("XIPHOS_KG_ALIAS_VALUE_MAX_CHARS", "180"))
+_ALIAS_REPAIR_SCAN_LIMIT = int(os.environ.get("XIPHOS_KG_ALIAS_REPAIR_SCAN_LIMIT", "128"))
+_ALIAS_REPAIR_RAN = False
+_MAX_IDENTIFIER_PAYLOAD_CHARS = int(os.environ.get("XIPHOS_KG_IDENTIFIER_PAYLOAD_MAX_CHARS", "32768"))
+_MAX_SOURCE_PAYLOAD_CHARS = int(os.environ.get("XIPHOS_KG_SOURCE_PAYLOAD_MAX_CHARS", "8192"))
+_ENTITY_JSON_REPAIR_SCAN_LIMIT = int(os.environ.get("XIPHOS_KG_ENTITY_JSON_REPAIR_SCAN_LIMIT", "128"))
+_ENTITY_JSON_REPAIR_RAN = False
+
+
+def _normalize_alias_text(value) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return ""
+    text = text.strip("\"'")
+    return text[:_MAX_ALIAS_VALUE_CHARS].strip()
+
+
+def _looks_like_corrupt_alias_char_array(values: list[object]) -> bool:
+    sample = values[: min(len(values), 32)]
+    if len(sample) < 8:
+        return False
+    if not all(isinstance(item, str) and len(item) <= 1 for item in sample):
+        return False
+    punctuation_hits = sum(1 for item in sample if item in {"[", "]", "{", "}", '"', ",", "\\", " "})
+    return punctuation_hits >= max(4, len(sample) // 2)
+
+
+def normalize_entity_aliases(value, canonical_name: str = "") -> tuple[list[str], bool]:
+    repaired = False
+    parsed = value
+
+    if isinstance(parsed, str):
+        stripped = parsed.strip()
+        if not stripped:
+            return [], False
+        if len(stripped) > _MAX_ALIAS_PAYLOAD_CHARS:
+            return [], True
+        parsed = _json_loads(stripped, stripped)
+        if parsed == stripped:
+            parsed = [stripped]
+            repaired = True
+
+    while isinstance(parsed, str):
+        repaired = True
+        stripped = parsed.strip()
+        if not stripped or len(stripped) > _MAX_ALIAS_PAYLOAD_CHARS:
+            return [], True
+        next_parsed = _json_loads(stripped, stripped)
+        if next_parsed == stripped:
+            parsed = [stripped]
+            break
+        parsed = next_parsed
+
+    if isinstance(parsed, (set, tuple)):
+        parsed = list(parsed)
+        repaired = True
+
+    if not isinstance(parsed, list):
+        if parsed in (None, "", {}):
+            return [], repaired or parsed not in (None, "")
+        parsed = [parsed]
+        repaired = True
+
+    if _looks_like_corrupt_alias_char_array(parsed):
+        return [], True
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    canonical_norm = _normalize_alias_text(canonical_name).casefold()
+
+    for item in parsed:
+        text = _normalize_alias_text(item)
+        if not text:
+            if item not in (None, ""):
+                repaired = True
+            continue
+        if len(text) <= 1:
+            repaired = True
+            continue
+        folded = text.casefold()
+        if canonical_norm and folded == canonical_norm:
+            repaired = True
+            continue
+        if folded in seen:
+            repaired = True
+            continue
+        seen.add(folded)
+        normalized.append(text)
+        if len(normalized) >= _MAX_ALIAS_COUNT:
+            repaired = True
+            break
+
+    return normalized, repaired
+
+
+def normalize_entity_identifiers(value) -> tuple[dict, bool]:
+    repaired = False
+    if isinstance(value, str) and len(value) > _MAX_IDENTIFIER_PAYLOAD_CHARS:
+        return {}, True
+
+    parsed = _json_loads(value, {})
+    if value not in (None, "", {}) and parsed == {} and value not in ({}, "{}"):
+        repaired = True
+
+    if isinstance(parsed, (set, tuple)):
+        parsed = dict(parsed)
+        repaired = True
+
+    if not isinstance(parsed, dict):
+        if parsed not in (None, "", {}):
+            repaired = True
+        return {}, repaired
+
+    normalized: dict[str, object] = {}
+    for key, item in parsed.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            repaired = True
+            continue
+        normalized[normalized_key] = item
+
+    return normalized, repaired or normalized != parsed
+
+
+def normalize_entity_sources(value) -> tuple[list[str], bool]:
+    repaired = False
+    if isinstance(value, str) and len(value) > _MAX_SOURCE_PAYLOAD_CHARS:
+        return [], True
+
+    parsed = _json_loads(value, [])
+    if value not in (None, "", []) and parsed == [] and value not in ([], "[]"):
+        repaired = True
+
+    if isinstance(parsed, (set, tuple)):
+        parsed = list(parsed)
+        repaired = True
+
+    if not isinstance(parsed, list):
+        if parsed not in (None, "", []):
+            repaired = True
+        return [], repaired
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        text = str(item or "").strip()
+        if not text:
+            if item not in (None, ""):
+                repaired = True
+            continue
+        if text in seen:
+            repaired = True
+            continue
+        seen.add(text)
+        normalized.append(text)
+
+    return normalized, repaired or normalized != parsed
+
+
+def repair_corrupt_alias_payloads(limit: int = _ALIAS_REPAIR_SCAN_LIMIT) -> int:
+    global _ALIAS_REPAIR_RAN
+    if _ALIAS_REPAIR_RAN:
+        return 0
+    _ALIAS_REPAIR_RAN = True
+
     try:
-        return json.loads(value)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return fallback
+        with get_kg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, canonical_name, aliases
+                FROM kg_entities
+                WHERE aliases IS NOT NULL
+                  AND LENGTH(CAST(aliases AS TEXT)) > ?
+                ORDER BY LENGTH(CAST(aliases AS TEXT)) DESC
+                LIMIT ?
+                """,
+                (_MAX_ALIAS_PAYLOAD_CHARS, max(int(limit or 0), 1)),
+            ).fetchall()
+
+            repaired = 0
+            now = _utc_now()
+            for row in rows:
+                aliases, needs_repair = normalize_entity_aliases(row["aliases"], row["canonical_name"])
+                if not needs_repair:
+                    continue
+                conn.execute(
+                    "UPDATE kg_entities SET aliases = ?, last_updated = ? WHERE id = ?",
+                    (json.dumps(aliases), now, row["id"]),
+                )
+                repaired += 1
+            if repaired:
+                logger.warning("Repaired %s corrupted knowledge-graph alias payload(s).", repaired)
+            return repaired
+    except Exception as exc:
+        logger.warning("Knowledge-graph alias repair skipped: %s", exc)
+        return 0
+
+
+def repair_corrupt_entity_json_payloads(limit: int = _ENTITY_JSON_REPAIR_SCAN_LIMIT) -> int:
+    global _ENTITY_JSON_REPAIR_RAN
+    if _ENTITY_JSON_REPAIR_RAN:
+        return 0
+    _ENTITY_JSON_REPAIR_RAN = True
+
+    try:
+        with get_kg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    id,
+                    CASE
+                        WHEN LENGTH(CAST(identifiers AS TEXT)) > ? THEN NULL
+                        ELSE identifiers
+                    END AS identifiers,
+                    LENGTH(CAST(identifiers AS TEXT)) AS identifiers_length,
+                    CASE
+                        WHEN LENGTH(CAST(sources AS TEXT)) > ? THEN NULL
+                        ELSE sources
+                    END AS sources,
+                    LENGTH(CAST(sources AS TEXT)) AS sources_length
+                FROM kg_entities
+                WHERE identifiers IS NOT NULL
+                  AND (
+                    LENGTH(CAST(identifiers AS TEXT)) > ?
+                    OR SUBSTR(CAST(identifiers AS TEXT), 1, 1) = '"'
+                  )
+                   OR sources IS NOT NULL
+                  AND (
+                    LENGTH(CAST(sources AS TEXT)) > ?
+                    OR SUBSTR(CAST(sources AS TEXT), 1, 1) = '"'
+                  )
+                ORDER BY
+                    MAX(LENGTH(CAST(identifiers AS TEXT)), LENGTH(CAST(sources AS TEXT))) DESC
+                LIMIT ?
+                """,
+                (
+                    _MAX_IDENTIFIER_PAYLOAD_CHARS,
+                    _MAX_SOURCE_PAYLOAD_CHARS,
+                    _MAX_IDENTIFIER_PAYLOAD_CHARS,
+                    _MAX_SOURCE_PAYLOAD_CHARS,
+                    max(int(limit or 0), 1),
+                ),
+            ).fetchall()
+
+            repaired = 0
+            now = _utc_now()
+            for row in rows:
+                identifiers, identifiers_repaired = normalize_entity_identifiers(row["identifiers"])
+                sources, sources_repaired = normalize_entity_sources(row["sources"])
+                needs_repair = (
+                    int(row["identifiers_length"] or 0) > _MAX_IDENTIFIER_PAYLOAD_CHARS
+                    or int(row["sources_length"] or 0) > _MAX_SOURCE_PAYLOAD_CHARS
+                    or identifiers_repaired
+                    or sources_repaired
+                )
+                if not needs_repair:
+                    continue
+                conn.execute(
+                    "UPDATE kg_entities SET identifiers = ?, sources = ?, last_updated = ? WHERE id = ?",
+                    (json.dumps(identifiers), json.dumps(sources), now, row["id"]),
+                )
+                repaired += 1
+            if repaired:
+                logger.warning("Repaired %s corrupted knowledge-graph identifier/source payload(s).", repaired)
+            return repaired
+    except Exception as exc:
+        logger.warning("Knowledge-graph identifier/source repair skipped: %s", exc)
+        return 0
 
 
 def _stable_hash(*parts: str, prefix: str) -> str:
@@ -91,6 +372,8 @@ def init_kg_db():
         import db
 
         db.init_db()
+        repair_corrupt_alias_payloads()
+        repair_corrupt_entity_json_payloads()
         return
 
     with get_kg_conn() as conn:
@@ -292,6 +575,8 @@ def init_kg_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_evidence_unique
                 ON kg_evidence(claim_id, url, artifact_ref, snippet)
         """)
+    repair_corrupt_alias_payloads()
+    repair_corrupt_entity_json_payloads()
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +588,9 @@ def save_entity(entity: ResolvedEntity) -> str:
     Save a resolved entity to the knowledge graph.
     Returns the entity ID.
     """
+    aliases, _ = normalize_entity_aliases(getattr(entity, "aliases", []), entity.canonical_name)
+    identifiers, _ = normalize_entity_identifiers(getattr(entity, "identifiers", {}))
+    sources, _ = normalize_entity_sources(getattr(entity, "sources", []))
     with get_kg_conn() as conn:
         conn.execute("""
             INSERT INTO kg_entities
@@ -322,10 +610,10 @@ def save_entity(entity: ResolvedEntity) -> str:
             entity.id,
             entity.canonical_name,
             entity.entity_type,
-            json.dumps(entity.aliases),
-            json.dumps(entity.identifiers),
+            json.dumps(aliases),
+            json.dumps(identifiers),
             entity.country,
-            json.dumps(entity.sources),
+            json.dumps(sources),
             entity.confidence,
             entity.last_updated or datetime.utcnow().isoformat() + "Z",
         ))
@@ -355,11 +643,11 @@ def get_entity(entity_id: str) -> ResolvedEntity | None:
             id=row["id"],
             canonical_name=row["canonical_name"],
             entity_type=row["entity_type"],
-            aliases=_json_loads(row["aliases"], []),
-            identifiers=_json_loads(row["identifiers"], {}),
+            aliases=normalize_entity_aliases(row["aliases"], row["canonical_name"])[0],
+            identifiers=normalize_entity_identifiers(row["identifiers"])[0],
             country=row["country"],
             relationships=relationships,
-            sources=_json_loads(row["sources"], []),
+            sources=normalize_entity_sources(row["sources"])[0],
             confidence=row["confidence"],
             last_updated=row["last_updated"],
         )
@@ -401,11 +689,11 @@ def find_entities_by_name(
                 id=row["id"],
                 canonical_name=row["canonical_name"],
                 entity_type=row["entity_type"],
-                aliases=_json_loads(row["aliases"], []),
-                identifiers=_json_loads(row["identifiers"], {}),
+                aliases=normalize_entity_aliases(row["aliases"], row["canonical_name"])[0],
+                identifiers=normalize_entity_identifiers(row["identifiers"])[0],
                 country=row["country"],
                 relationships=[dict(r) for r in rel_rows],
-                sources=_json_loads(row["sources"], []),
+                sources=normalize_entity_sources(row["sources"])[0],
                 confidence=row["confidence"],
                 last_updated=row["last_updated"],
             )
@@ -1651,10 +1939,10 @@ def _collect_entity_network(
             "canonical_name": entity_row["canonical_name"],
             "entity_type": entity_row["entity_type"],
             "aliases": _json_loads(entity_row["aliases"], []),
-            "identifiers": _json_loads(entity_row["identifiers"], {}),
+            "identifiers": normalize_entity_identifiers(entity_row["identifiers"])[0],
             "confidence": entity_row["confidence"],
             "country": entity_row["country"],
-            "sources": _json_loads(entity_row["sources"], []),
+            "sources": normalize_entity_sources(entity_row["sources"])[0],
             "created_at": entity_row["created_at"],
         }
 
@@ -1793,11 +2081,11 @@ def get_vendor_entities(vendor_id: str) -> list[ResolvedEntity]:
                 id=entity_row["id"],
                 canonical_name=entity_row["canonical_name"],
                 entity_type=entity_row["entity_type"],
-                aliases=_json_loads(entity_row["aliases"], []),
-                identifiers=_json_loads(entity_row["identifiers"], {}),
+                aliases=normalize_entity_aliases(entity_row["aliases"], entity_row["canonical_name"])[0],
+                identifiers=normalize_entity_identifiers(entity_row["identifiers"])[0],
                 country=entity_row["country"],
                 relationships=relationships_by_source.get(entity_id, []),
-                sources=_json_loads(entity_row["sources"], []),
+                sources=normalize_entity_sources(entity_row["sources"])[0],
                 confidence=entity_row["confidence"],
                 last_updated=entity_row["last_updated"],
             )
@@ -2450,9 +2738,9 @@ def export_graph(limit_entities: int = 10000) -> dict:
                 "canonical_name": row["canonical_name"],
                 "entity_type": row["entity_type"],
                 "aliases": _json_loads(row["aliases"], []),
-                "identifiers": _json_loads(row["identifiers"], {}),
+                "identifiers": normalize_entity_identifiers(row["identifiers"])[0],
                 "country": row["country"],
-                "sources": _json_loads(row["sources"], []),
+                "sources": normalize_entity_sources(row["sources"])[0],
                 "confidence": row["confidence"],
                 "last_updated": row["last_updated"],
                 "created_at": row["created_at"],

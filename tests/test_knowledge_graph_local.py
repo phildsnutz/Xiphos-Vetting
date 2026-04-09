@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import sys
 from contextlib import contextmanager
@@ -17,6 +18,95 @@ def test_json_loads_accepts_native_postgres_jsonb_values():
     assert knowledge_graph._json_loads(["a", "b"], []) == ["a", "b"]
     assert knowledge_graph._json_loads({"lei": "123"}, {}) == {"lei": "123"}
     assert knowledge_graph._json_loads(None, []) == []
+
+
+def test_json_loads_unwraps_nested_container_payloads_and_rejects_scalar_json():
+    nested_identifiers = json.dumps(json.dumps({"lei": "123"}))
+    nested_sources = json.dumps(json.dumps(["sec_edgar", "sam_gov"]))
+
+    assert knowledge_graph._json_loads(nested_identifiers, {}) == {"lei": "123"}
+    assert knowledge_graph._json_loads(nested_sources, []) == ["sec_edgar", "sam_gov"]
+    assert knowledge_graph._json_loads(json.dumps("scalar"), {}) == {}
+    assert knowledge_graph._json_loads(json.dumps("scalar"), []) == []
+
+
+def test_repair_corrupt_entity_json_payloads_normalizes_double_encoded_fields(monkeypatch, tmp_path):
+    kg_path = tmp_path / "kg.sqlite"
+    monkeypatch.setattr(knowledge_graph, "_use_postgres_kg", lambda: False)
+    monkeypatch.setattr(knowledge_graph, "resolve_kg_db_path", lambda: str(kg_path))
+    monkeypatch.setattr(knowledge_graph, "_ALIAS_REPAIR_RAN", False)
+    monkeypatch.setattr(knowledge_graph, "_ENTITY_JSON_REPAIR_RAN", False)
+
+    @contextmanager
+    def fake_get_kg_conn():
+      conn = sqlite3.connect(str(kg_path))
+      conn.row_factory = sqlite3.Row
+      conn.execute("PRAGMA journal_mode=WAL")
+      conn.execute("PRAGMA foreign_keys=ON")
+      conn.create_function("GREATEST", 2, lambda a, b: max(a, b))
+      try:
+          yield conn
+          conn.commit()
+      except Exception:
+          conn.rollback()
+          raise
+      finally:
+          conn.close()
+
+    monkeypatch.setattr(knowledge_graph, "get_kg_conn", fake_get_kg_conn)
+
+    knowledge_graph.init_kg_db()
+
+    with fake_get_kg_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO kg_entities (
+                id, canonical_name, entity_type, aliases, identifiers, country,
+                sources, confidence, last_updated, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "entity:test",
+                "PARSONS CORPORATION",
+                "company",
+                json.dumps([]),
+                json.dumps(json.dumps({"lei": "L-123", "website": "https://example.com"})),
+                "US",
+                json.dumps(json.dumps(["sec_edgar", "sam_gov", "sam_gov"])),
+                0.9,
+                datetime.utcnow().isoformat() + "Z",
+                datetime.utcnow().isoformat() + "Z",
+            ),
+        )
+
+    monkeypatch.setattr(knowledge_graph, "_ENTITY_JSON_REPAIR_RAN", False)
+    repaired = knowledge_graph.repair_corrupt_entity_json_payloads(limit=8)
+    assert repaired == 1
+
+    entity = knowledge_graph.get_entity("entity:test")
+    assert entity is not None
+    assert entity.identifiers == {"lei": "L-123", "website": "https://example.com"}
+    assert entity.sources == ["sec_edgar", "sam_gov"]
+
+
+def test_normalize_entity_aliases_discards_char_array_corruption(monkeypatch):
+    monkeypatch.setattr(knowledge_graph, "_MAX_ALIAS_PAYLOAD_CHARS", 256)
+    corrupt = json.dumps(list(json.dumps(["Parsons Government Services", "BlackHorse Solutions"])))
+
+    aliases, repaired = knowledge_graph.normalize_entity_aliases(corrupt, "PARSONS CORPORATION")
+
+    assert aliases == []
+    assert repaired is True
+
+
+def test_normalize_entity_aliases_preserves_clean_unique_aliases():
+    aliases, repaired = knowledge_graph.normalize_entity_aliases(
+        [" Parsons Government Services ", "BlackHorse Solutions", "PARSONS CORPORATION", "BlackHorse Solutions"],
+        "PARSONS CORPORATION",
+    )
+
+    assert aliases == ["Parsons Government Services", "BlackHorse Solutions"]
+    assert repaired is True
 
 
 def test_save_relationship_uses_portable_confidence_upsert(monkeypatch):

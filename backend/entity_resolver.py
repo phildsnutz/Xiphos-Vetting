@@ -151,6 +151,76 @@ def _is_relevant_candidate(query: str, candidate: str, threshold: float = 0.55) 
     return _name_match_score(query, candidate) >= threshold
 
 
+def _is_exact_memory_anchor(query: str, candidate: dict) -> bool:
+    legal_name = str(candidate.get("legal_name") or "").strip()
+    if not legal_name:
+        return False
+    source_tags = {
+        chunk.strip().lower()
+        for chunk in str(candidate.get("source") or "").split(",")
+        if chunk.strip()
+    }
+    if not source_tags.intersection({"local_vendor_memory", "knowledge_graph"}):
+        return False
+    if _normalize_entity_name(query) != _normalize_entity_name(legal_name):
+        return False
+    if not (candidate.get("local_vendor_id") or candidate.get("graph_entity_id")):
+        return False
+    return float(candidate.get("confidence") or 0.0) >= 0.94
+
+
+def _dedupe_candidates(candidates: list[dict]) -> list[dict]:
+    merged: dict[str, dict] = {}
+    for c in candidates:
+        key = c.get("legal_name", "").upper().strip()
+        if not key or len(key) < 2:
+            continue
+        if _is_noise_entity(c.get("legal_name", "")):
+            continue
+        if key not in merged:
+            merged[key] = dict(c)
+            continue
+
+        existing = merged[key]
+        for field in [
+            "cik", "lei", "ticker", "country", "jurisdiction", "wikidata_id",
+            "description", "company_number", "incorporation_date", "company_type",
+            "status", "url", "entity_type",
+            "uei", "cage", "duns", "naics", "state", "city",
+            "naics_codes", "psc_codes",
+            "entity_structure", "registration_status", "registration_expiry",
+            "registration_purpose", "sba_certifications", "business_types",
+            "highest_owner", "highest_owner_cage", "highest_owner_country",
+            "immediate_owner", "immediate_owner_cage", "immediate_owner_country",
+            "predecessors", "has_proceedings", "graph_entity_id",
+            "graph_relationship_count", "graph_signal_summary",
+        ]:
+            if c.get(field) and not existing.get(field):
+                existing[field] = c[field]
+        if c.get("aliases"):
+            existing_aliases = existing.get("aliases", []) or []
+            combined_aliases = []
+            for alias in [*existing_aliases, *c.get("aliases", [])]:
+                alias_text = str(alias or "").strip()
+                if alias_text and alias_text not in combined_aliases:
+                    combined_aliases.append(alias_text)
+            if combined_aliases:
+                existing["aliases"] = combined_aliases[:8]
+        if c.get("graph_relationship_count"):
+            existing["graph_relationship_count"] = max(
+                int(existing.get("graph_relationship_count") or 0),
+                int(c.get("graph_relationship_count") or 0),
+            )
+        existing["confidence"] = max(existing.get("confidence", 0), c.get("confidence", 0))
+        existing_src = existing.get("source", "")
+        new_src = c.get("source", "")
+        if new_src and new_src not in existing_src:
+            existing["source"] = f"{existing_src},{new_src}"
+            existing["confidence"] = min(1.0, existing["confidence"] + 0.1)
+
+    return sorted(merged.values(), key=lambda x: -x.get("confidence", 0))
+
+
 def _search_local_vendor_memory(name: str) -> list[dict]:
     """Search Helios local vendor memory before falling back to thinner public ambiguity."""
     db_path = get_main_db_path()
@@ -247,7 +317,7 @@ def _search_knowledge_graph_memory(name: str) -> list[dict]:
     normalized_contains_like = f"%{normalized_query}%"
 
     try:
-        from knowledge_graph import get_kg_conn
+        from knowledge_graph import get_kg_conn, normalize_entity_aliases
     except Exception:
         return []
 
@@ -301,8 +371,7 @@ def _search_knowledge_graph_memory(name: str) -> list[dict]:
                 if not legal_name:
                     continue
 
-                aliases = _safe_json_loads(row["aliases"])
-                alias_values = aliases if isinstance(aliases, list) else []
+                alias_values, _ = normalize_entity_aliases(row["aliases"], legal_name)
                 match_names = [legal_name, *[str(alias).strip() for alias in alias_values if str(alias or "").strip()]]
                 best_match = max((_name_match_score(raw_query, candidate_name) for candidate_name in match_names), default=0.0)
                 if best_match < 0.48:
@@ -775,7 +844,12 @@ def resolve_entity(name: str) -> list[dict]:
     Returns deduplicated candidate list sorted by confidence.
     """
     all_candidates = _search_local_vendor_memory(name)
+    local_exact_anchor = any(_is_exact_memory_anchor(name, candidate) for candidate in all_candidates)
+
     all_candidates.extend(_search_knowledge_graph_memory(name))
+
+    if local_exact_anchor or any(_is_exact_memory_anchor(name, candidate) for candidate in all_candidates):
+        return _attach_graph_candidate_relationships(_dedupe_candidates(all_candidates)[:12])
 
     # Build a clean core name by stripping entity suffixes (LLC, INC, etc.)
     core_words = _strip_entity_suffixes(name)
@@ -813,53 +887,5 @@ def resolve_entity(name: str) -> list[dict]:
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
-    # Deduplicate by legal_name (merge identifiers from different sources)
-    merged: dict[str, dict] = {}
-    for c in all_candidates:
-        key = c.get("legal_name", "").upper().strip()
-        if not key or len(key) < 2:
-            continue
-        # Filter noise entities (pension trusts, funding vehicles, etc.)
-        if _is_noise_entity(c.get("legal_name", "")):
-            continue
-        if key not in merged:
-            merged[key] = dict(c)
-        else:
-            # Merge identifiers
-            for field in ["cik", "lei", "ticker", "country", "jurisdiction", "wikidata_id",
-                          "description", "company_number", "incorporation_date", "company_type",
-                          "status", "url", "entity_type",
-                          "uei", "cage", "duns", "naics", "state", "city",
-                          "naics_codes", "psc_codes",
-                          "entity_structure", "registration_status", "registration_expiry",
-                          "registration_purpose", "sba_certifications", "business_types",
-                          "highest_owner", "highest_owner_cage", "highest_owner_country",
-                          "immediate_owner", "immediate_owner_cage", "immediate_owner_country",
-                          "predecessors", "has_proceedings", "graph_entity_id",
-                          "graph_relationship_count", "graph_signal_summary"]:
-                if c.get(field) and not merged[key].get(field):
-                    merged[key][field] = c[field]
-            if c.get("aliases"):
-                existing_aliases = merged[key].get("aliases", []) or []
-                combined_aliases = []
-                for alias in [*existing_aliases, *c.get("aliases", [])]:
-                    alias_text = str(alias or "").strip()
-                    if alias_text and alias_text not in combined_aliases:
-                        combined_aliases.append(alias_text)
-                if combined_aliases:
-                    merged[key]["aliases"] = combined_aliases[:8]
-            if c.get("graph_relationship_count"):
-                merged[key]["graph_relationship_count"] = max(
-                    int(merged[key].get("graph_relationship_count") or 0),
-                    int(c.get("graph_relationship_count") or 0),
-                )
-            merged[key]["confidence"] = max(merged[key].get("confidence", 0), c.get("confidence", 0))
-            existing_src = merged[key].get("source", "")
-            new_src = c.get("source", "")
-            if new_src and new_src not in existing_src:
-                merged[key]["source"] = f"{existing_src},{new_src}"
-                # Multi-source matches get a confidence boost
-                merged[key]["confidence"] = min(1.0, merged[key]["confidence"] + 0.1)
-
-    result = sorted(merged.values(), key=lambda x: -x.get("confidence", 0))
+    result = _dedupe_candidates(all_candidates)
     return _attach_graph_candidate_relationships(result[:12])
