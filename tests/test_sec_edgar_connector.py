@@ -209,3 +209,24 @@ def test_sec_edgar_deep_parse_scans_multiple_financing_documents(monkeypatch):
     assert ("backed_by", "PNC Bank, National Association") in rel_types
     assert ("backed_by", "Deutsche Bank AG") in rel_types
     assert ("routes_payment_through", "Bank of America, N.A.") in rel_types
+
+
+def test_parse_exhibit_21_filters_header_and_jurisdiction_noise():
+    text = """
+    <DOCUMENT><TYPE>EX-21<TEXT>
+    EX-21.1
+    Parsons Government Services Inc.
+    Delaware
+    Parsons Europe GmbH
+    Germany
+    Ontario
+    Iraq, Republic of
+    </TEXT></DOCUMENT>
+    """
+
+    subsidiaries = sec_edgar._parse_exhibit_21(text, "Parsons Corporation")
+
+    assert subsidiaries == [
+        {"name": "Parsons Government Services Inc", "jurisdiction": "Delaware"},
+        {"name": "Parsons Europe GmbH", "jurisdiction": "Germany"},
+    ]

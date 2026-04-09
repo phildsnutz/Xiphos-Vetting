@@ -504,6 +504,8 @@ def _deep_parse_company(cik: str, vendor_name: str, result: EnrichmentResult):
             insider_forms = [(f, d) for f, d in zip(forms, dates) if f in ("3", "4", "5")]
             if insider_forms:
                 recent_insider = [d for _, d in insider_forms if d >= "2024-01-01"]
+                result.structured_fields["insider_filing_count"] = len(insider_forms)
+                result.structured_fields["recent_insider_filing_count"] = len(recent_insider)
                 if len(recent_insider) >= 10:
                     result.risk_signals.append({
                         "signal": "sec_high_insider_activity",
@@ -526,6 +528,8 @@ def _deep_parse_company(cik: str, vendor_name: str, result: EnrichmentResult):
             # Check for Schedule 13D/13G (beneficial ownership > 5%)
             ownership_forms = [(f, d, a) for f, d, a in zip(forms, dates, accessions) if "SC 13" in f]
             if ownership_forms:
+                result.structured_fields["beneficial_ownership_filing_count"] = len(ownership_forms)
+                result.structured_fields["most_recent_beneficial_ownership_filing"] = ownership_forms[0][1]
                 result.findings.append(Finding(
                     source="sec_edgar", category="ownership",
                     title=f"Beneficial ownership disclosures: {len(ownership_forms)} filings",
@@ -679,6 +683,7 @@ def _extract_subsidiaries(cik: str, padded_cik: str, forms: list, accessions: li
     subsidiaries = _parse_exhibit_21(ex21_text, vendor_name)
 
     if subsidiaries:
+        result.structured_fields["subsidiary_count"] = len(subsidiaries)
         sub_lines = [
             f"  {s['name']} ({s.get('jurisdiction', 'Unknown')})"
             for s in subsidiaries[:20]
@@ -710,6 +715,48 @@ def _extract_subsidiaries(cik: str, padded_cik: str, forms: list, accessions: li
             })
 
         logger.info("Exhibit 21: found %d subsidiaries for %s (CIK %s)", len(subsidiaries), vendor_name, cik)
+
+
+def _normalize_geo_label(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _looks_like_exhibit_reference(name: str) -> bool:
+    normalized = str(name or "").strip()
+    return bool(re.match(r"^EX[-.\s]*21(?:\.\d+)?$", normalized, re.IGNORECASE))
+
+
+def _looks_like_jurisdiction_label(name: str, jurisdictions: set[str]) -> bool:
+    normalized = _normalize_geo_label(name)
+    if not normalized:
+        return False
+    if normalized in jurisdictions:
+        return True
+    if any(
+        phrase in normalized
+        for phrase in (
+            "republic of",
+            "province of",
+            "state of",
+            "kingdom of",
+            "territory of",
+        )
+    ):
+        return True
+    return False
+
+
+def _looks_like_exhibit_21_noise(name: str, jurisdictions: set[str]) -> bool:
+    normalized = str(name or "").strip()
+    if not normalized:
+        return True
+    if _looks_like_exhibit_reference(normalized):
+        return True
+    if _looks_like_jurisdiction_label(normalized, jurisdictions):
+        return True
+    if re.match(r"^(?:schedule|exhibit|appendix|table)\b", normalized, re.IGNORECASE):
+        return True
+    return False
 
 
 def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
@@ -769,13 +816,15 @@ def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
         "new jersey", "massachusetts", "north carolina", "washington",
         "colorado", "connecticut", "michigan", "minnesota", "missouri",
         "wisconsin", "arizona", "indiana", "oregon", "tennessee", "utah",
-        "district of columbia",
+        "district of columbia", "ontario",
         "united kingdom", "uk", "england", "canada", "germany", "france",
         "japan", "australia", "india", "ireland", "netherlands", "singapore",
         "switzerland", "cayman islands", "british virgin islands", "bermuda",
         "brazil", "china", "south korea", "israel", "italy", "poland",
         "spain", "sweden", "mexico", "hong kong", "taiwan",
     }
+
+    jurisdiction_labels = {_normalize_geo_label(item) for item in _JURISDICTIONS}
 
     # First pass: collect candidate lines (skip obvious non-data lines)
     candidate_lines = []
@@ -798,6 +847,10 @@ def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
         # Skip filenames and purely numeric lines
         if re.match(r"^[\d.]+$", line) or re.match(r"^.+\.(htm|html|txt|xml)$", line, re.I):
             continue
+        if _looks_like_exhibit_reference(line):
+            continue
+        if re.match(r"^(?:schedule|appendix|table)\b", line, re.IGNORECASE):
+            continue
         candidate_lines.append(line)
 
     # Second pass: pair names with jurisdictions
@@ -807,7 +860,7 @@ def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
         line = candidate_lines[i]
 
         # Check if this line is itself a standalone jurisdiction
-        if line.lower().strip() in _JURISDICTIONS:
+        if _looks_like_jurisdiction_label(line, jurisdiction_labels):
             i += 1
             continue
 
@@ -828,7 +881,7 @@ def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
         # If no jurisdiction found inline, peek at next line
         if not jurisdiction and i + 1 < len(candidate_lines):
             next_line = candidate_lines[i + 1].strip()
-            if next_line.lower() in _JURISDICTIONS:
+            if _looks_like_jurisdiction_label(next_line, jurisdiction_labels):
                 jurisdiction = next_line
                 i += 1  # consume the jurisdiction line
 
@@ -843,6 +896,9 @@ def _parse_exhibit_21(text: str, vendor_name: str) -> list[dict]:
             i += 1
             continue
         if name.lower() in placeholder_names:
+            i += 1
+            continue
+        if _looks_like_exhibit_21_noise(name, jurisdiction_labels):
             i += 1
             continue
 

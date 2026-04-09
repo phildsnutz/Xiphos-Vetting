@@ -76,10 +76,27 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
         if awards:
             total_value = sum(float(a.get("Award Amount", 0) or 0) for a in awards)
             agencies = list(set(a.get("Awarding Agency", "") for a in awards if a.get("Awarding Agency")))
+            agency_totals: dict[str, float] = {}
+            for award in all_awards:
+                agency_name = str(award.get("Awarding Agency", "") or "").strip()
+                if not agency_name:
+                    continue
+                agency_totals[agency_name] = agency_totals.get(agency_name, 0.0) + float(award.get("Award Amount", 0) or 0)
+            top_agencies = [
+                agency_name
+                for agency_name, _amount in sorted(agency_totals.items(), key=lambda item: item[1], reverse=True)
+            ][:5]
 
             result.identifiers["fpds_contract_count"] = result_count
             result.identifiers["fpds_has_more"] = any_has_more
             result.identifiers["fpds_top_10_value"] = round(total_value, 2)
+            result.structured_fields["top_customers"] = top_agencies
+            result.structured_fields["largest_award"] = {
+                "agency": awards[0].get("Awarding Agency", ""),
+                "amount": round(float(awards[0].get("Award Amount", 0) or 0), 2),
+                "award_id": awards[0].get("Award ID", ""),
+                "start_date": awards[0].get("Start Date", ""),
+            }
 
             result.findings.append(Finding(
                 source="fpds_contracts", category="contract_history",
@@ -95,6 +112,7 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
             dod_agencies = [a for a in agencies if any(kw in a.upper() for kw in ["DEFENSE", "ARMY", "NAVY", "AIR FORCE", "DOD", "MISSILE", "SPACE"])]
             if dod_agencies:
                 result.identifiers["has_dod_contracts"] = True
+                result.structured_fields["dod_customers"] = dod_agencies[:5]
                 result.findings.append(Finding(
                     source="fpds_contracts", category="contract_history",
                     title=f"DoD contract history confirmed ({len(dod_agencies)} defense agencies)",
@@ -103,6 +121,22 @@ def enrich(vendor_name: str, country: str = "", **ids) -> EnrichmentResult:
                 ))
             else:
                 result.identifiers["has_dod_contracts"] = False
+
+            for agency_name in top_agencies[:3]:
+                result.relationships.append({
+                    "type": "contracts_with",
+                    "source_entity": vendor_name,
+                    "target_entity": agency_name,
+                    "confidence": 0.84,
+                    "evidence_summary": (
+                        f"USAspending/FPDS returned {vendor_name} contract awards from {agency_name} "
+                        f"since 2019."
+                    ),
+                    "structured_fields": {
+                        "award_amount_total": round(agency_totals.get(agency_name, 0.0), 2),
+                        "award_source": "fpds_contracts",
+                    },
+                })
 
             # Flag if limited contracts and no indication of more pages
             if result_count < 3 and not any_has_more:

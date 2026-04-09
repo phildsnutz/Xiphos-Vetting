@@ -259,6 +259,41 @@ def test_execute_connector_requests_runs_tactical_batch_in_parallel(monkeypatch)
     assert elapsed < 0.18
 
 
+def test_prune_relationships_for_ownership_lane_caps_noise():
+    axiom_agent = _reload_module("axiom_agent")
+
+    relationships = [
+        axiom_agent.DiscoveredRelationship("Parsons Corporation", f"Subsidiary {idx}", "subsidiary_of", 0.9 - idx * 0.01)
+        for idx in range(10)
+    ]
+    relationships.extend(
+        [
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "Department of Defense", "contracts_with", 0.88),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "Department of Energy", "contracts_with", 0.86),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "General Services Administration", "contracts_with", 0.84),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "NASA", "contracts_with", 0.82),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "Homeland Security", "contracts_with", 0.8),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "PARSON CORP", "former_name", 0.9),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "Parsons Government Services Inc.", "former_name", 0.85),
+            axiom_agent.DiscoveredRelationship("Parsons Corporation", "Legacy Parsons", "former_name", 0.8),
+        ]
+    )
+
+    pruned = axiom_agent._prune_relationships_for_lane(
+        relationships,
+        axiom_agent.LaneExecutionProfile(tactical_focus="ownership_procurement"),
+    )
+
+    counts: dict[str, int] = {}
+    for relationship in pruned:
+        counts[relationship.rel_type] = counts.get(relationship.rel_type, 0) + 1
+
+    assert counts["subsidiary_of"] == 8
+    assert counts["contracts_with"] == 4
+    assert counts["former_name"] == 2
+    assert len(pruned) == 14
+
+
 def test_run_agent_accepts_string_intelligence_gaps(monkeypatch):
     axiom_agent = _reload_module("axiom_agent")
 
@@ -326,6 +361,30 @@ def test_build_connector_summary_finding_carries_connector_digest():
     assert finding["connector_source"] == "fpds_contracts"
     assert "12 federal contract awards" in finding["detail"]
     assert "identifiers" in finding["detail"]
+
+
+def test_build_connector_summary_finding_surfaces_top_customer_and_ownership_counts():
+    axiom_agent = _reload_module("axiom_agent")
+
+    finding = axiom_agent._build_connector_summary_finding(
+        {
+            "connector_name": "sec_edgar",
+            "has_data": True,
+            "findings": [],
+            "relationship_count": 2,
+            "identifiers": {"cik": "275880"},
+            "structured_fields": {
+                "top_customers": ["Savannah River Operations Office", "U.S. Army Corps of Engineers"],
+                "beneficial_ownership_filing_count": 5,
+                "insider_filing_count": 276,
+            },
+        }
+    )
+
+    assert finding is not None
+    assert "Savannah River Operations Office" in finding["detail"]
+    assert "beneficial ownership filings: 5" in finding["detail"]
+    assert "insider filings: 276" in finding["detail"]
 
 
 def test_mission_command_suppresses_routine_dependency_entities(monkeypatch):
@@ -538,3 +597,138 @@ def test_mission_command_anchors_target_entity_from_connector_identifiers(monkey
     assert entity.attributes["cik"] == "275880"
     assert entity.attributes["tickers"] == ["PSN"]
     assert entity.attributes["has_dod_contracts"] is True
+
+
+def test_mission_command_preserves_connector_relationship_type_field(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    monkeypatch.setattr(
+        axiom_agent,
+        "resolve_runtime_ai_credentials",
+        lambda **kwargs: ("anthropic", "claude-sonnet-4-6", "sk-test-anthropic"),
+    )
+    monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
+    monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(
+        axiom_agent,
+        "_call_llm",
+        lambda **kwargs: json.dumps(
+            {
+                "entities": [],
+                "relationships": [],
+                "connector_requests": [],
+                "follow_up_queries": [],
+                "reasoning": "Customer concentration is confirmed.",
+                "intelligence_gaps": [],
+                "search_complete": True,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        axiom_agent,
+        "_run_connector",
+        lambda name, vendor_name, **kwargs: {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": True,
+            "identifiers": {},
+            "relationship_count": 1,
+            "relationships": [
+                {
+                    "type": "contracts_with",
+                    "source_entity": "Parsons Corporation",
+                    "target_entity": "Savannah River Operations Office",
+                    "confidence": 0.84,
+                    "evidence_summary": "FPDS returned recent contract awards from Savannah River Operations Office.",
+                }
+            ],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        },
+    )
+
+    result = axiom_agent.run_agent(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="procurement posture",
+        ),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        lane_id="mission_command",
+    )
+
+    assert any(rel.rel_type == "contracts_with" for rel in result.relationships)
+    assert any(rel.target_entity == "Savannah River Operations Office" for rel in result.relationships)
+
+
+def test_mission_command_maps_legacy_subsidiary_connector_shape(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    monkeypatch.setattr(
+        axiom_agent,
+        "resolve_runtime_ai_credentials",
+        lambda **kwargs: ("anthropic", "claude-sonnet-4-6", "sk-test-anthropic"),
+    )
+    monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
+    monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(
+        axiom_agent,
+        "_call_llm",
+        lambda **kwargs: json.dumps(
+            {
+                "entities": [],
+                "relationships": [],
+                "connector_requests": [],
+                "follow_up_queries": [],
+                "reasoning": "Subsidiary map is available from SEC Exhibit 21.",
+                "intelligence_gaps": [],
+                "search_complete": True,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        axiom_agent,
+        "_run_connector",
+        lambda name, vendor_name, **kwargs: {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": True,
+            "identifiers": {},
+            "relationship_count": 1,
+            "relationships": [
+                {
+                    "type": "subsidiary_of",
+                    "entity": "Parsons Government Services, Inc.",
+                    "confidence": 0.9,
+                    "jurisdiction": "Delaware",
+                }
+            ],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        },
+    )
+
+    result = axiom_agent.run_agent(
+        target=axiom_agent.SearchTarget(
+            prime_contractor="Parsons Corporation",
+            context="ownership control",
+        ),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        lane_id="mission_command",
+    )
+
+    assert any(
+        rel.rel_type == "subsidiary_of"
+        and rel.source_entity == "Parsons Government Services, Inc."
+        and rel.target_entity == "Parsons Corporation"
+        for rel in result.relationships
+    )

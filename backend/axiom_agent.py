@@ -965,9 +965,52 @@ def _should_suppress_tactical_relationship(
 ) -> bool:
     if lane_profile.tactical_focus not in {"ownership_control", "ownership_procurement"}:
         return False
-    if relationship.rel_type != "related_entity":
-        return False
-    return _is_routine_dependency_entity_name(relationship.source_entity) or _is_routine_dependency_entity_name(relationship.target_entity)
+    if relationship.rel_type in {"related_entity", "depends_on_service", "depends_on_network"}:
+        return _is_routine_dependency_entity_name(relationship.source_entity) or _is_routine_dependency_entity_name(relationship.target_entity)
+    return False
+
+
+def _prune_relationships_for_lane(
+    relationships: list[DiscoveredRelationship],
+    lane_profile: LaneExecutionProfile,
+) -> list[DiscoveredRelationship]:
+    if lane_profile.tactical_focus not in {"ownership_control", "ownership_procurement", "procurement_posture"}:
+        return relationships
+
+    priority = {
+        "owned_by": 0,
+        "beneficially_owned_by": 0,
+        "backed_by": 1,
+        "parent_of": 1,
+        "subsidiary_of": 2,
+        "contracts_with": 3,
+        "former_name": 4,
+    }
+    per_type_limits = {
+        "subsidiary_of": 8,
+        "contracts_with": 4,
+        "former_name": 2,
+    }
+    kept: list[DiscoveredRelationship] = []
+    counts: dict[str, int] = {}
+    ordered = sorted(
+        relationships,
+        key=lambda rel: (
+            priority.get(rel.rel_type, 9),
+            -float(rel.confidence or 0.0),
+            rel.source_entity,
+            rel.target_entity,
+        ),
+    )
+    for relationship in ordered:
+        rel_type = relationship.rel_type
+        if counts.get(rel_type, 0) >= per_type_limits.get(rel_type, 999):
+            continue
+        kept.append(relationship)
+        counts[rel_type] = counts.get(rel_type, 0) + 1
+        if len(kept) >= 16:
+            break
+    return kept
 
 
 def _build_lane_execution_profile(lane_id: str) -> LaneExecutionProfile:
@@ -1100,6 +1143,30 @@ def _build_connector_summary_finding(conn_result: dict) -> dict | None:
         fragments.append(f"{relationship_count} relationship(s)")
     if identifiers:
         fragments.append(f"identifiers: {', '.join(sorted(identifiers.keys())[:5])}")
+    top_customers = [str(item).strip() for item in (structured_fields.get("top_customers") or []) if str(item).strip()]
+    if top_customers:
+        fragments.append(f"top customers: {', '.join(top_customers[:3])}")
+    dod_customers = [str(item).strip() for item in (structured_fields.get("dod_customers") or []) if str(item).strip()]
+    if dod_customers:
+        fragments.append(f"DoD customers: {', '.join(dod_customers[:3])}")
+    beneficial_owner_count = structured_fields.get("beneficial_ownership_filing_count")
+    if beneficial_owner_count not in (None, "", [], {}):
+        fragments.append(f"beneficial ownership filings: {beneficial_owner_count}")
+    insider_filing_count = structured_fields.get("insider_filing_count")
+    if insider_filing_count not in (None, "", [], {}):
+        fragments.append(f"insider filings: {insider_filing_count}")
+    subsidiary_count = structured_fields.get("subsidiary_count")
+    if subsidiary_count not in (None, "", [], {}):
+        fragments.append(f"subsidiaries: {subsidiary_count}")
+    largest_award = structured_fields.get("largest_award") or {}
+    if isinstance(largest_award, dict):
+        largest_award_agency = str(largest_award.get("agency") or "").strip()
+        largest_award_value = largest_award.get("amount")
+        if largest_award_agency and largest_award_value not in (None, "", [], {}):
+            try:
+                fragments.append(f"largest award: ${float(largest_award_value):,.0f} from {largest_award_agency}")
+            except Exception:
+                fragments.append(f"largest award: {largest_award_value} from {largest_award_agency}")
     if structured_fields:
         fragments.append(f"structured: {', '.join(sorted(structured_fields.keys())[:5])}")
     if finding_titles:
@@ -1131,6 +1198,88 @@ def _merge_entity_attributes(existing: dict, updates: dict) -> dict:
         if current in (None, "", [], {}):
             merged[key] = value
     return merged
+
+
+def _select_target_structured_fields(structured_fields: dict) -> dict:
+    allowed_keys = {
+        "beneficial_ownership_filing_count",
+        "most_recent_beneficial_ownership_filing",
+        "insider_filing_count",
+        "recent_insider_filing_count",
+        "subsidiary_count",
+        "top_customers",
+        "dod_customers",
+        "largest_award",
+    }
+    selected: dict = {}
+    for key in allowed_keys:
+        value = structured_fields.get(key)
+        if value in (None, "", [], {}):
+            continue
+        selected[key] = value
+    return selected
+
+
+def _normalize_connector_relationship(
+    relationship: dict,
+    *,
+    vendor_name: str,
+) -> DiscoveredRelationship | None:
+    if not isinstance(relationship, dict):
+        return None
+    rel_type = str(relationship.get("rel_type") or relationship.get("type") or "related_entity").strip() or "related_entity"
+    source_entity = str(relationship.get("source_entity") or relationship.get("source_name") or "").strip()
+    target_entity = str(
+        relationship.get("target_entity")
+        or relationship.get("target_name")
+        or relationship.get("entity")
+        or relationship.get("former_name")
+        or ""
+    ).strip()
+
+    if rel_type == "former_name_match":
+        rel_type = "former_name"
+
+    if not source_entity:
+        if rel_type == "subsidiary_of" and target_entity:
+            source_entity = target_entity
+            target_entity = vendor_name
+        elif target_entity:
+            source_entity = vendor_name
+
+    if not source_entity or not target_entity:
+        return None
+
+    evidence = [
+        text
+        for text in (
+            str(relationship.get("evidence_summary") or "").strip(),
+            str(relationship.get("evidence") or "").strip(),
+            str(relationship.get("snippet") or "").strip(),
+            str(relationship.get("detail") or "").strip(),
+        )
+        if text
+    ]
+    if not evidence:
+        evidence = [f"Connector returned a {rel_type} relationship."]
+
+    attributes = {}
+    structured_fields = relationship.get("structured_fields")
+    if isinstance(structured_fields, dict) and structured_fields:
+        attributes = _merge_entity_attributes(attributes, structured_fields)
+    for key in ("data_source", "jurisdiction", "sec_role", "filing_date", "form_type", "evidence_title"):
+        value = relationship.get(key)
+        if value not in (None, "", [], {}):
+            attributes[key] = value
+
+    return DiscoveredRelationship(
+        source_entity=source_entity,
+        target_entity=target_entity,
+        rel_type=rel_type,
+        confidence=float(relationship.get("confidence") or 0.72),
+        evidence=evidence,
+        attributes=attributes,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1402,6 +1551,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     all_findings: list[dict] = []
     carry_forward_findings: list[dict] = []
     target_identifier_attrs: dict = {}
+    target_structured_attrs: dict = {}
     target_support_evidence: list[str] = []
     lane_profile = _build_lane_execution_profile(lane_id)
     if lane_id == "mission_command":
@@ -1556,6 +1706,10 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                             target_identifier_attrs,
                             dict(conn_result.get("identifiers") or {}),
                         )
+                        target_structured_attrs = _merge_entity_attributes(
+                            target_structured_attrs,
+                            _select_target_structured_fields(dict(conn_result.get("structured_fields") or {})),
+                        )
                         summary_finding = _build_connector_summary_finding(conn_result)
                         if summary_finding:
                             iter_findings.append(summary_finding)
@@ -1595,39 +1749,21 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                             )
 
                         for relationship in conn_result.get("relationships", []) or []:
-                            if not isinstance(relationship, dict):
+                            discovered_relationship = _normalize_connector_relationship(
+                                relationship,
+                                vendor_name=vendor,
+                            )
+                            if discovered_relationship is None:
                                 continue
-                            source_entity = (
-                                str(relationship.get("source_entity") or relationship.get("source_name") or "").strip()
-                            )
-                            target_entity = (
-                                str(relationship.get("target_entity") or relationship.get("target_name") or "").strip()
-                            )
-                            rel_type = str(relationship.get("rel_type") or "related_entity").strip() or "related_entity"
-                            if not source_entity or not target_entity:
-                                continue
-                            evidence = [
-                                text
-                                for text in (
-                                    str(relationship.get("evidence_summary") or "").strip(),
-                                    str(relationship.get("evidence") or "").strip(),
-                                )
-                                if text
-                            ] or [f"Connector {conn_name} returned a structured relationship."]
-
-                            discovered_relationship = DiscoveredRelationship(
-                                source_entity=source_entity,
-                                target_entity=target_entity,
-                                rel_type=rel_type,
-                                confidence=float(relationship.get("confidence") or 0.72),
-                                evidence=evidence,
-                            )
                             if _should_suppress_tactical_relationship(discovered_relationship, lane_profile):
                                 continue
 
                             all_relationships.append(discovered_relationship)
 
-                            for entity_name in (source_entity, target_entity):
+                            for entity_name in (
+                                discovered_relationship.source_entity,
+                                discovered_relationship.target_entity,
+                            ):
                                 if entity_name in all_entities:
                                     continue
                                 if (
@@ -1771,6 +1907,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
             getattr(target_entity, "attributes", {}),
             target_identifier_attrs,
         )
+        target_attributes = _merge_entity_attributes(target_attributes, target_structured_attrs)
         if target.vehicle_name:
             target_attributes = _merge_entity_attributes(target_attributes, {"vehicle_name": target.vehicle_name})
         target_evidence = list(
@@ -1802,7 +1939,10 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
         existing = deduped_relationships.get(key)
         if existing is None or relationship.confidence > existing.confidence:
             deduped_relationships[key] = relationship
-    result.relationships = list(deduped_relationships.values())
+    result.relationships = _prune_relationships_for_lane(
+        list(deduped_relationships.values()),
+        lane_profile,
+    )
     result.elapsed_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
 
     logger.info(
