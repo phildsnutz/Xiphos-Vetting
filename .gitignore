@@ -19,6 +19,7 @@ var/
 logs/
 tmp/
 .claude/
+.playwright-cli/
 
 /output/
 /examples/
@@ -115,3 +116,4 @@ docs/reports/predemo_readiness_packet/
 ml/training_data.csv
 ml/model/*.safetensors
 outreach/
+/frontend/vite.config.ts.timestamp-*.mjs
