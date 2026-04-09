@@ -52,6 +52,28 @@
     "expected_uei": "CH34JZ4179Q3"
   },
   {
+    "company": "Kavaliro",
+    "country": "US",
+    "bucket": "dossier_quality",
+    "archetype": "mid_market_defense_teammate_network",
+    "why_it_matters": "Mid-market federal services player that should surface teammate recurrence, subcontract posture, and vehicle adjacency instead of collapsing into a thin generic vendor read.",
+    "expected_domain": "kavaliro.com",
+    "expected_cage": "5B1D2",
+    "expected_relationship_proximity": [
+      "The Unconventional",
+      "SMX",
+      "Parsons",
+      "Alion",
+      "CACI"
+    ],
+    "expected_vehicle_mentions": [
+      "CEOIS",
+      "JCETII",
+      "C3PO",
+      "LEIA"
+    ]
+  },
+  {
     "company": "DOMO Tactical Communications US",
     "country": "US",
     "bucket": "control_path",
