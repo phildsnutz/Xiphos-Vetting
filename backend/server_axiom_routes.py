@@ -143,13 +143,28 @@ def register_axiom_routes(*, app, require_auth, db):
             local_fallback=local_fallback,
         )
 
+        def _infer_gap_type(description: str, fillable_by: str = "") -> str:
+            text = str(description or "").lower()
+            fillable = str(fillable_by or "").strip().lower()
+            if "ownership" in text or "control path" in text or "beneficial" in text:
+                return "ownership_control"
+            if "vehicle" in text or "incumbent" in text or "prime" in text or "subcontract" in text:
+                return "vehicle_lineage"
+            if "teammate" in text or "partner" in text or "relationship fabric" in text:
+                return "relationship_fabric"
+            if "graph" in text or "edge" in text or "path" in text:
+                return "graph_gap"
+            if fillable and fillable != "automated_search":
+                return fillable
+            return "gap"
+
         def _normalize_gap_payload(gap: object) -> dict[str, object] | None:
             if isinstance(gap, dict):
                 description = str(gap.get("description") or gap.get("gap") or gap.get("reason") or "").strip()
                 fillable_by = str(gap.get("fillable_by") or "").strip()
                 gap_type = str(gap.get("gap_type") or "").strip()
-                if not gap_type:
-                    gap_type = fillable_by if fillable_by and fillable_by != "automated_search" else "gap"
+                if not gap_type or gap_type == "gap":
+                    gap_type = _infer_gap_type(description, fillable_by)
                 try:
                     confidence = float(gap.get("confidence") or 0.0)
                 except (TypeError, ValueError):
@@ -167,7 +182,7 @@ def register_axiom_routes(*, app, require_auth, db):
             if not description:
                 return None
             return {
-                "gap_type": "gap",
+                "gap_type": _infer_gap_type(description),
                 "description": description,
                 "confidence": 0.0,
             }

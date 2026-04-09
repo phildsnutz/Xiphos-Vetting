@@ -95,11 +95,12 @@ def test_run_agent_skips_careers_search_and_long_sleeps_in_mission_command(monke
     assert web_queries == []
     assert connector_calls == [
         "public_search_ownership",
+        "rss_public",
         "fpds_contracts",
         "sam_subaward_reporting",
         "sam_gov",
     ]
-    assert result.total_connector_calls == 4
+    assert result.total_connector_calls == 5
     assert result.runtime["lane_id"] == "mission_command"
     assert len(result.iterations) == 2
     assert result.iterations[0].follow_up_queries == []
@@ -190,13 +191,70 @@ def test_mission_command_general_pressure_uses_mid_market_connector_mix():
     )
 
     assert settings["focus"] == "general_pressure"
-    assert settings["max_connector_requests_per_iteration"] == 4
-    assert settings["allowed_connectors"][:4] == (
+    assert settings["max_connector_requests_per_iteration"] == 5
+    assert settings["allowed_connectors"][:5] == (
         "public_search_ownership",
+        "rss_public",
         "fpds_contracts",
         "sam_subaward_reporting",
         "sam_gov",
     )
+
+
+def test_execute_connector_requests_seeds_rss_from_discovered_website(monkeypatch):
+    axiom_agent = _reload_module("axiom_agent")
+
+    seen_params: dict[str, dict] = {}
+
+    def fake_run_connector(name, vendor_name, **kwargs):
+        seen_params[name] = kwargs
+        if name == "public_search_ownership":
+            return {
+                "success": True,
+                "connector_name": name,
+                "vendor_name": vendor_name,
+                "findings_count": 1,
+                "findings": [],
+                "has_data": True,
+                "identifiers": {"website": "https://www.kavaliro.com"},
+                "relationship_count": 0,
+                "relationships": [],
+                "structured_fields": {},
+                "error": "",
+                "elapsed_ms": 1,
+            }
+        return {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 1,
+            "findings": [],
+            "has_data": True,
+            "identifiers": {},
+            "relationship_count": 0,
+            "relationships": [],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        }
+
+    monkeypatch.setattr(axiom_agent, "_run_connector", fake_run_connector)
+
+    profile = axiom_agent.LaneExecutionProfile(
+        tactical_focus="general_pressure",
+        max_parallel_connector_requests=3,
+    )
+    results = axiom_agent._execute_connector_requests(
+        [
+            {"name": "public_search_ownership", "vendor_name": "Kavaliro", "parameters": {}},
+            {"name": "rss_public", "vendor_name": "Kavaliro", "parameters": {}},
+            {"name": "fpds_contracts", "vendor_name": "Kavaliro", "parameters": {}},
+        ],
+        profile,
+    )
+
+    assert len(results) == 3
+    assert seen_params["rss_public"]["website"] == "https://www.kavaliro.com"
 
 
 def test_mission_command_prefetch_connector_requests_follow_focus_order():

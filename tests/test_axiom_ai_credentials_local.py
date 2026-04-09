@@ -368,7 +368,7 @@ def test_axiom_search_normalizes_gap_payload_shape(tmp_path, monkeypatch):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["intelligence_gaps"][0]["description"] == "Prime vehicle and teammate visibility stayed weak on the first pass."
-    assert payload["intelligence_gaps"][0]["gap_type"] == "gap"
+    assert payload["intelligence_gaps"][0]["gap_type"] == "vehicle_lineage"
     assert payload["intelligence_gaps"][1]["gap_type"] == "ownership_control"
     assert payload["intelligence_gaps"][1]["confidence"] == 0.82
 

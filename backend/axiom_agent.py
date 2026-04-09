@@ -901,10 +901,10 @@ def _mission_command_settings(target: SearchTarget) -> dict:
         ],
         "general_pressure": [
             "public_search_ownership",
+            "rss_public",
             "fpds_contracts",
             "sam_subaward_reporting",
             "sam_gov",
-            "usaspending",
         ],
     }
     instructions = {
@@ -914,7 +914,7 @@ def _mission_command_settings(target: SearchTarget) -> dict:
         "adverse_pressure": "Prioritize adverse records that materially change risk posture. Ignore generic negative noise.",
         "general_pressure": "Prioritize teammate visibility, vehicle posture, ownership walls, and prime-vs-sub reality for thinner mid-market cases. Keep weak edges explicit instead of defaulting to generic procurement color.",
     }
-    connector_budget = 4 if focus == "general_pressure" else 3 if focus == "ownership_procurement" else 2
+    connector_budget = 5 if focus == "general_pressure" else 3 if focus == "ownership_procurement" else 2
     return {
         "focus": focus,
         "allowed_connectors": _dedupe_connector_names(connectors_by_focus.get(focus, connectors_by_focus["general_pressure"]))[:7],
@@ -932,6 +932,8 @@ def _build_prefetched_connector_requests(
         params: dict = {}
         if connector_name == "sam_gov":
             params["country"] = "US"
+        if connector_name == "rss_public" and target.website:
+            params["website"] = target.website
         requests.append(
             {
                 "name": connector_name,
@@ -1100,6 +1102,43 @@ def _execute_connector_requests(
 ) -> list[dict]:
     if not connector_requests:
         return []
+    if (
+        lane_profile.tactical_focus == "general_pressure"
+        and any(str(item.get("name") or "").strip() == "public_search_ownership" for item in connector_requests)
+        and any(str(item.get("name") or "").strip() == "rss_public" for item in connector_requests)
+    ):
+        seeded_results: list[dict | None] = [None] * len(connector_requests)
+        ownership_index = next(
+            idx
+            for idx, item in enumerate(connector_requests)
+            if str(item.get("name") or "").strip() == "public_search_ownership"
+        )
+        ownership_result = _execute_connector_request(connector_requests[ownership_index])
+        seeded_results[ownership_index] = ownership_result
+        discovered_website = str((ownership_result.get("identifiers") or {}).get("website") or "").strip()
+        if discovered_website:
+            for item in connector_requests:
+                if str(item.get("name") or "").strip() != "rss_public":
+                    continue
+                params = dict(item.get("parameters") or {})
+                params.setdefault("website", discovered_website)
+                item["parameters"] = params
+        remaining_requests = [
+            item
+            for idx, item in enumerate(connector_requests)
+            if idx != ownership_index
+        ]
+        remaining_results = _execute_connector_requests(remaining_requests, LaneExecutionProfile(**{
+            **lane_profile.__dict__,
+            "tactical_focus": "",
+        }))
+        cursor = 0
+        for idx in range(len(connector_requests)):
+            if idx == ownership_index:
+                continue
+            seeded_results[idx] = remaining_results[cursor]
+            cursor += 1
+        return [result or {} for result in seeded_results]
     if lane_profile.max_parallel_connector_requests <= 1 or len(connector_requests) <= 1:
         return [_execute_connector_request(conn_req) for conn_req in connector_requests]
 

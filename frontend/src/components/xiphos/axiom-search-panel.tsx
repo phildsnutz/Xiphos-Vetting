@@ -243,14 +243,33 @@ interface AxiomSearchPanelProps {
   } | null;
 }
 
-function normalizeGapType(rawType: unknown, rawFillableBy: unknown): string {
-  const gapType = String(rawType || "").trim();
-  if (gapType) return gapType;
+function inferGapTypeFromDescription(description: string, rawFillableBy: unknown): string {
+  const text = description.toLowerCase();
+  if (text.includes("ownership") || text.includes("control path") || text.includes("beneficial")) {
+    return "ownership_control";
+  }
+  if (text.includes("vehicle") || text.includes("incumbent") || text.includes("prime") || text.includes("subcontract")) {
+    return "vehicle_lineage";
+  }
+  if (text.includes("teammate") || text.includes("partner") || text.includes("relationship fabric")) {
+    return "relationship_fabric";
+  }
+  if (text.includes("graph") || text.includes("edge") || text.includes("path")) {
+    return "graph_gap";
+  }
   const fillableBy = String(rawFillableBy || "").trim();
   if (fillableBy && fillableBy !== "automated_search") {
     return fillableBy;
   }
   return "gap";
+}
+
+function normalizeGapType(rawType: unknown, rawFillableBy: unknown, description: string): string {
+  const gapType = String(rawType || "").trim();
+  if (gapType && gapType !== "gap") {
+    return gapType;
+  }
+  return inferGapTypeFromDescription(description, rawFillableBy);
 }
 
 function normalizeGapDescription(rawGap: RawAxiomGap): string {
@@ -270,7 +289,7 @@ function normalizeIntelligenceGaps(rawGaps: RawAxiomSearchResult["intelligence_g
     if (!description || description === "No description provided") {
       return [];
     }
-    const gapType = normalizeGapType(gap?.gap_type, gap?.fillable_by);
+    const gapType = normalizeGapType(gap?.gap_type, gap?.fillable_by, description);
     const key = `${gapType}::${description.toLowerCase()}`;
     if (seen.has(key)) {
       return [];
