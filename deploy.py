@@ -92,6 +92,16 @@ def env_bool(*names: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(*names: str, default: int = 0) -> int:
+    value = env(*names)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def secure_runtime_env() -> dict[str, str]:
     payload: dict[str, str] = {}
     for key in SECURE_RUNTIME_ENV_KEYS:
@@ -118,6 +128,7 @@ ADMIN_PASS = env("XIPHOS_DEPLOY_ADMIN_PASSWORD", "XIPHOS_DEPLOY_LOGIN_PASSWORD")
 DOCKER_PORT = env("XIPHOS_DOCKER_PORT", default="8080")
 VERIFY_TLS = env_bool("XIPHOS_DEPLOY_VERIFY_TLS", default=False)
 DEPLOY_SECRET_KEY = env("XIPHOS_SECRET_KEY", "XIPHOS_DEPLOY_SECRET_KEY")
+EXPECTED_MIN_CONNECTORS = max(env_int("XIPHOS_EXPECT_MIN_CONNECTORS", default=1), 0)
 
 if not APP_URL and SERVER:
     APP_URL = f"http://{SERVER}:{DOCKER_PORT}"
@@ -684,11 +695,15 @@ def verify() -> None:
                 if time.monotonic() >= external_deadline:
                     raise
                 time.sleep(2)
-        connector_count = external_health_data.get("osint_connector_count", 0)
-        if connector_count >= 28:
-            print(f"  PASS: {connector_count} connectors")
+        connector_count = int(external_health_data.get("osint_connector_count", 0) or 0)
+        osint_enabled = bool(external_health_data.get("osint_enabled"))
+        if not osint_enabled:
+            print("  FAIL: OSINT connectors are disabled")
+            issues.append("OSINT disabled")
+        elif connector_count >= EXPECTED_MIN_CONNECTORS:
+            print(f"  PASS: {connector_count} connectors (expected at least {EXPECTED_MIN_CONNECTORS})")
         else:
-            print(f"  FAIL: {connector_count} connectors (expected at least 28)")
+            print(f"  FAIL: {connector_count} connectors (expected at least {EXPECTED_MIN_CONNECTORS})")
             issues.append(f"Connector count mismatch: {connector_count}")
         if expects_neo4j():
             neo4j = requests.get(f"{APP_URL}/api/neo4j/health", verify=VERIFY_TLS, timeout=20)

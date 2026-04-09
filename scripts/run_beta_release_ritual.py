@@ -105,7 +105,12 @@ def _token_is_valid(base_url: str, token: str) -> bool:
         )
     except Exception:
         return False
-    return isinstance(payload, dict) and bool(payload.get("user"))
+    return isinstance(payload, dict) and bool(
+        payload.get("sub")
+        or payload.get("email")
+        or payload.get("role")
+        or payload.get("user")
+    )
 
 
 def _login_token(args: argparse.Namespace) -> str:

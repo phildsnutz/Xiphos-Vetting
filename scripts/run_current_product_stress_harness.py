@@ -82,20 +82,30 @@ def run_script(cmd: list[str]) -> tuple[int, str, str]:
 
 def extract_result_payload(output: str) -> dict[str, Any] | None:
     lines = output.splitlines()
+
+    def _parse_json_line(candidate: str) -> dict[str, Any] | None:
+        text = candidate.strip()
+        if not text or not text.startswith("{"):
+            return None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
     for idx, line in enumerate(lines):
         if line.strip() != "### Result":
             continue
         for candidate in lines[idx + 1:]:
-            text = candidate.strip()
-            if not text:
-                continue
-            if not text.startswith("{"):
+            parsed = _parse_json_line(candidate)
+            if parsed is not None:
+                return parsed
+            if candidate.strip():
                 return None
-            try:
-                parsed = json.loads(text)
-            except json.JSONDecodeError:
-                return None
-            return parsed if isinstance(parsed, dict) else None
+    for candidate in reversed(lines):
+        parsed = _parse_json_line(candidate)
+        if parsed is not None:
+            return parsed
     return None
 
 

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import urllib.request
 
@@ -192,6 +193,19 @@ async (page) => {{
                 pass
 
 
+def _is_retryable_playwright_error(exc: RuntimeError) -> bool:
+    text = str(exc).lower()
+    retry_markers = (
+        "eaddrinuse",
+        "socket",
+        "econnrefused",
+        "econnreset",
+        ".playwright-cli",
+        "playwright cli failed",
+    )
+    return any(marker in text for marker in retry_markers)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the Stoa browser regression against a live Helios host.")
     parser.add_argument("--base-url", required=True, help="Base URL to verify, for example https://helios.xiphosllc.com")
@@ -215,18 +229,20 @@ def main() -> int:
         login_required = True
     last_error: Exception | None = None
     output = ""
-    for _ in range(3):
+    for attempt in range(3):
         try:
             output = _run_regression_attempt(wrapper, base_url, login_required)
             last_error = None
             break
         except RuntimeError as exc:
             last_error = exc
-            if "EADDRINUSE" not in str(exc):
+            if not _is_retryable_playwright_error(exc) or attempt == 2:
                 break
+            time.sleep(1.0)
     if last_error is not None:
         raise last_error
     print("PASS: Stoa browser regression")
+    print("### Result")
     print(output)
 
     return 0

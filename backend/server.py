@@ -6808,7 +6808,7 @@ def main():
 
     stats = db.get_stats()
     print(f"\n{'='*50}")
-    print("  HELIOS v5.0 -- Intelligence-Grade Vendor Assurance (FGAMLogit DoD Dual-Vertical)")
+    print(f"  HELIOS v{APP_VERSION} -- Intelligence-Grade Vendor Assurance (FGAMLogit DoD Dual-Vertical)")
     print(f"  Persistence: SQLite ({db.get_db_path()})")
     print(f"  Vendors: {stats['vendors']}  Alerts: {stats['unresolved_alerts']}")
     print(f"  http://{args.host}:{args.port}")
