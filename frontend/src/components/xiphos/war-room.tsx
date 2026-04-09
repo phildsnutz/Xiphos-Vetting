@@ -44,7 +44,9 @@ interface SearchResultSnapshot {
   intelligenceGaps: Array<{
     gap_type: string;
     description: string;
-    confidence: number;
+    confidence?: number | null;
+    priority?: string;
+    fillableBy?: string;
   }>;
   advisory: Array<{
     opportunity_type: string;
@@ -148,6 +150,19 @@ function summarizeLocalFallback(localFallback?: SearchResultSnapshot["localFallb
   const mode = String(localFallback.mode || "deterministic fallback").replace(/_/g, " ").trim();
   const reason = String(localFallback.reason || "provider access is unavailable").trim();
   return `AXIOM fell back to ${mode}. ${reason} This pass did not run live connector-backed tactical collection.`;
+}
+
+function summarizeGapMeta(gap: SearchResultSnapshot["intelligenceGaps"][number]) {
+  if (typeof gap.confidence === "number" && gap.confidence > 0) {
+    return `Confidence ${Math.round(gap.confidence * 100)}%`;
+  }
+  if (gap.priority) {
+    return `Priority ${gap.priority}`;
+  }
+  if (gap.fillableBy) {
+    return gap.fillableBy.replace(/_/g, " ");
+  }
+  return "Open gap";
 }
 
 export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: AegisRoomProps) {
@@ -523,7 +538,7 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
         key: `${gap.gap_type}-${gap.description}`,
         title: gap.gap_type.replace(/_/g, " "),
         detail: gap.description,
-        meta: `Confidence ${Math.round(gap.confidence * 100)}%`,
+        meta: summarizeGapMeta(gap),
         tone: "warning" as const,
       }));
     }

@@ -308,6 +308,71 @@ def test_axiom_search_promotes_readiness_status_to_top_level(tmp_path, monkeypat
     assert payload["evidence_actions_attempted"] == 3
 
 
+def test_axiom_search_normalizes_gap_payload_shape(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-search-gaps.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-route")
+
+    server = _reload_module("server")
+    axiom_agent = _reload_module("axiom_agent")
+
+    server.db.init_db()
+    server.init_auth_db()
+    if server.HAS_AI:
+        server.init_ai_tables()
+
+    def fake_run_agent(*, target, provider="", model="", user_id="", provider_locked=False, model_locked=False, lane_id=""):
+        return axiom_agent.AgentResult(
+            target=target,
+            intelligence_gaps=[
+                {
+                    "gap": "Prime vehicle and teammate visibility stayed weak on the first pass.",
+                    "fillable_by": "automated_search",
+                    "priority": "high",
+                },
+                {
+                    "description": "Control path is still unresolved.",
+                    "gap_type": "ownership_control",
+                    "confidence": 0.82,
+                    "priority": "high",
+                },
+            ],
+            runtime={
+                "lane_id": lane_id,
+                "provider_requested": provider,
+                "model_requested": model,
+                "provider_used": provider,
+                "model_used": model,
+                "provider_backed": True,
+                "fallback_active": False,
+            },
+        )
+
+    monkeypatch.setattr(axiom_agent, "run_agent", fake_run_agent)
+
+    with server.app.test_client() as client:
+        response = client.post(
+            "/api/axiom/search",
+            json={
+                "prime_contractor": "Kavaliro",
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "lane_id": "mission_command",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["intelligence_gaps"][0]["description"] == "Prime vehicle and teammate visibility stayed weak on the first pass."
+    assert payload["intelligence_gaps"][0]["gap_type"] == "gap"
+    assert payload["intelligence_gaps"][1]["gap_type"] == "ownership_control"
+    assert payload["intelligence_gaps"][1]["confidence"] == 0.82
+
+
 def test_save_ai_config_accepts_gpt41(tmp_path, monkeypatch):
     monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))

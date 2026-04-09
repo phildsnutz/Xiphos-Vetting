@@ -93,8 +93,13 @@ def test_run_agent_skips_careers_search_and_long_sleeps_in_mission_command(monke
 
     assert scraper_queries == []
     assert web_queries == []
-    assert connector_calls == ["fpds_contracts", "usaspending"]
-    assert result.total_connector_calls == 2
+    assert connector_calls == [
+        "public_search_ownership",
+        "fpds_contracts",
+        "sam_subaward_reporting",
+        "sam_gov",
+    ]
+    assert result.total_connector_calls == 4
     assert result.runtime["lane_id"] == "mission_command"
     assert len(result.iterations) == 2
     assert result.iterations[0].follow_up_queries == []
@@ -172,6 +177,26 @@ def test_mission_command_settings_prioritize_focus_specific_connectors():
         "sam_gov",
     )
     assert "gleif_lei" in settings["allowed_connectors"]
+
+
+def test_mission_command_general_pressure_uses_mid_market_connector_mix():
+    axiom_agent = _reload_module("axiom_agent")
+
+    settings = axiom_agent._mission_command_settings(
+        axiom_agent.SearchTarget(
+            prime_contractor="Kavaliro",
+            context="",
+        )
+    )
+
+    assert settings["focus"] == "general_pressure"
+    assert settings["max_connector_requests_per_iteration"] == 4
+    assert settings["allowed_connectors"][:4] == (
+        "public_search_ownership",
+        "fpds_contracts",
+        "sam_subaward_reporting",
+        "sam_gov",
+    )
 
 
 def test_mission_command_prefetch_connector_requests_follow_focus_order():

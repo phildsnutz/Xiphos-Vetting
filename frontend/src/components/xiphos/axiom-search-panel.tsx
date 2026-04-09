@@ -94,6 +94,10 @@ interface RawAxiomSearchResult {
     gap_type?: string;
     description?: string;
     confidence?: number;
+    gap?: string;
+    reason?: string;
+    priority?: string;
+    fillable_by?: string;
   }>;
   advisory_opportunities?: Array<{
     opportunity_type?: string;
@@ -148,6 +152,21 @@ interface RawAxiomSearchResult {
   };
 }
 
+type RawAxiomGap = NonNullable<RawAxiomSearchResult["intelligence_gaps"]>[number];
+
+function formatGapMeta(gap: { confidence?: number | null; priority?: string; fillableBy?: string }) {
+  if (typeof gap.confidence === "number" && gap.confidence > 0) {
+    return `Confidence ${Math.round(gap.confidence * 100)}%`;
+  }
+  if (gap.priority) {
+    return `Priority ${gap.priority}`;
+  }
+  if (gap.fillableBy) {
+    return gap.fillableBy.replace(/_/g, " ");
+  }
+  return "";
+}
+
 interface AxiomSearchResult {
   status: string;
   providerBacked: boolean;
@@ -191,7 +210,9 @@ interface AxiomSearchResult {
   intelligenceGaps: Array<{
     gap_type: string;
     description: string;
-    confidence: number;
+    confidence?: number | null;
+    priority?: string;
+    fillableBy?: string;
   }>;
   advisory: Array<{
     opportunity_type: string;
@@ -220,6 +241,51 @@ interface AxiomSearchPanelProps {
     autoIngest?: boolean;
     requestId?: string;
   } | null;
+}
+
+function normalizeGapType(rawType: unknown, rawFillableBy: unknown): string {
+  const gapType = String(rawType || "").trim();
+  if (gapType) return gapType;
+  const fillableBy = String(rawFillableBy || "").trim();
+  if (fillableBy && fillableBy !== "automated_search") {
+    return fillableBy;
+  }
+  return "gap";
+}
+
+function normalizeGapDescription(rawGap: RawAxiomGap): string {
+  const description = String(
+    rawGap?.description
+      || rawGap?.gap
+      || rawGap?.reason
+      || "",
+  ).trim();
+  return description;
+}
+
+function normalizeIntelligenceGaps(rawGaps: RawAxiomSearchResult["intelligence_gaps"] | undefined) {
+  const seen = new Set<string>();
+  return (rawGaps || []).flatMap((gap) => {
+    const description = normalizeGapDescription(gap);
+    if (!description || description === "No description provided") {
+      return [];
+    }
+    const gapType = normalizeGapType(gap?.gap_type, gap?.fillable_by);
+    const key = `${gapType}::${description.toLowerCase()}`;
+    if (seen.has(key)) {
+      return [];
+    }
+    seen.add(key);
+    const rawConfidence = Number(gap?.confidence ?? 0);
+    const confidence = Number.isFinite(rawConfidence) && rawConfidence > 0 ? rawConfidence : null;
+    return [{
+      gap_type: gapType,
+      description,
+      confidence,
+      priority: String(gap?.priority || "").trim() || undefined,
+      fillableBy: String(gap?.fillable_by || "").trim() || undefined,
+    }];
+  });
 }
 
 function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
@@ -283,11 +349,7 @@ function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
       relationship_type: relationship.rel_type || relationship.relationship_type || "related_to",
       confidence: relationship.confidence ?? 0,
     })),
-    intelligenceGaps: (raw.intelligence_gaps || []).map((gap) => ({
-      gap_type: gap.gap_type || "gap",
-      description: gap.description || "No description provided",
-      confidence: gap.confidence ?? 0,
-    })),
+    intelligenceGaps: normalizeIntelligenceGaps(raw.intelligence_gaps),
     advisory: (raw.advisory_opportunities || raw.advisory || []).map((opportunity) => ({
       opportunity_type: opportunity.opportunity_type || "advisory",
       description: opportunity.description || "No description provided",
@@ -1221,11 +1283,16 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
                     style={{ background: `${T.amber}${O["08"]}`, border: `1px solid ${T.amber}${O["20"]}`, padding: PAD.default }}
                   >
                     <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.amber }}>
-                      {gap.gap_type}
+                      {gap.gap_type.replace(/_/g, " ")}
                     </div>
                     <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs / 2 }}>
                       {gap.description}
                     </div>
+                    {formatGapMeta(gap) ? (
+                      <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
+                        {formatGapMeta(gap)}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

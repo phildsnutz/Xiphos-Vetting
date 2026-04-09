@@ -143,7 +143,44 @@ def register_axiom_routes(*, app, require_auth, db):
             local_fallback=local_fallback,
         )
 
+        def _normalize_gap_payload(gap: object) -> dict[str, object] | None:
+            if isinstance(gap, dict):
+                description = str(gap.get("description") or gap.get("gap") or gap.get("reason") or "").strip()
+                fillable_by = str(gap.get("fillable_by") or "").strip()
+                gap_type = str(gap.get("gap_type") or "").strip()
+                if not gap_type:
+                    gap_type = fillable_by if fillable_by and fillable_by != "automated_search" else "gap"
+                try:
+                    confidence = float(gap.get("confidence") or 0.0)
+                except (TypeError, ValueError):
+                    confidence = 0.0
+                if not description:
+                    return None
+                return {
+                    **gap,
+                    "gap_type": gap_type,
+                    "description": description,
+                    "confidence": max(confidence, 0.0),
+                }
+
+            description = str(gap or "").strip()
+            if not description:
+                return None
+            return {
+                "gap_type": "gap",
+                "description": description,
+                "confidence": 0.0,
+            }
+
         payload = dict(response_payload)
+        payload["intelligence_gaps"] = [
+            normalized
+            for normalized in (
+                _normalize_gap_payload(gap)
+                for gap in list(payload.get("intelligence_gaps") or [])
+            )
+            if normalized
+        ]
         kg_ingestion = _kg_ingestion_payload(payload.get("kg_ingestion"))
         if kg_ingestion is not None:
             payload["kg_ingestion"] = kg_ingestion

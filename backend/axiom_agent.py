@@ -900,9 +900,11 @@ def _mission_command_settings(target: SearchTarget) -> dict:
             "sam_gov",
         ],
         "general_pressure": [
+            "public_search_ownership",
             "fpds_contracts",
-            "usaspending",
+            "sam_subaward_reporting",
             "sam_gov",
+            "usaspending",
         ],
     }
     instructions = {
@@ -910,9 +912,9 @@ def _mission_command_settings(target: SearchTarget) -> dict:
         "procurement_posture": "Prioritize prime posture, vehicle relevance, customer concentration, and teammate/sub visibility without overclaiming.",
         "ownership_procurement": "Prioritize control-path clarity first, then procurement posture. Do not trade ownership honesty for extra contract color.",
         "adverse_pressure": "Prioritize adverse records that materially change risk posture. Ignore generic negative noise.",
-        "general_pressure": "Prioritize the single strongest pressure move and close fast when the public picture is already sufficient.",
+        "general_pressure": "Prioritize teammate visibility, vehicle posture, ownership walls, and prime-vs-sub reality for thinner mid-market cases. Keep weak edges explicit instead of defaulting to generic procurement color.",
     }
-    connector_budget = 3 if focus == "ownership_procurement" else 2
+    connector_budget = 4 if focus == "general_pressure" else 3 if focus == "ownership_procurement" else 2
     return {
         "focus": focus,
         "allowed_connectors": _dedupe_connector_names(connectors_by_focus.get(focus, connectors_by_focus["general_pressure"]))[:7],
@@ -1841,16 +1843,26 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
             for gap_data in analysis.get("intelligence_gaps", []):
                 if isinstance(gap_data, dict):
                     gap_text = str(gap_data.get("gap", "")).strip()
+                    gap_type = str(gap_data.get("gap_type", "")).strip() or "gap"
                     fillable_by = str(gap_data.get("fillable_by", "automated_search")).strip() or "automated_search"
                     priority = str(gap_data.get("priority", "medium")).strip() or "medium"
+                    try:
+                        confidence = float(gap_data.get("confidence", 0) or 0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
                 else:
                     gap_text = str(gap_data or "").strip()
+                    gap_type = "gap"
                     fillable_by = "automated_search"
                     priority = "medium"
+                    confidence = 0.0
                 if not gap_text:
                     continue
                 gap = {
                     "gap": gap_text,
+                    "gap_type": gap_type,
+                    "description": gap_text,
+                    "confidence": max(confidence, 0.0),
                     "fillable_by": fillable_by,
                     "priority": priority,
                     "iteration_discovered": iteration,
