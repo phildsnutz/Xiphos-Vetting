@@ -679,8 +679,13 @@ export function CaseDetailProvider({
     };
   }, [c.id]);
 
+  const pendingGraphReloadRef = useRef<GraphDepth | null>(null);
+
   const loadGraphData = useCallback(async (depth: GraphDepth = graphDepth) => {
-    if (graphLoading) return;
+    if (graphLoading) {
+      pendingGraphReloadRef.current = depth;
+      return;
+    }
     setGraphLoading(true);
     try {
       const data = await fetchCaseGraph(c.id, depth);
@@ -691,6 +696,13 @@ export function CaseDetailProvider({
       setGraphLoading(false);
     }
   }, [c.id, graphDepth, graphLoading]);
+
+  useEffect(() => {
+    if (graphLoading || pendingGraphReloadRef.current === null) return;
+    const queuedDepth = pendingGraphReloadRef.current;
+    pendingGraphReloadRef.current = null;
+    void loadGraphData(queuedDepth);
+  }, [graphLoading, loadGraphData]);
 
   const refreshDerivedCaseData = useCallback(async ({
     enrichmentReport,

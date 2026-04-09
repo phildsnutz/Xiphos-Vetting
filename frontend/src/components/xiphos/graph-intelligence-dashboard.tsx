@@ -320,7 +320,7 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
       setBackgroundStatus("Topology is live. Hydrating graph pressure, centrality, and community signals.");
       setLoading(false);
       void hydrateAnalytics(requestId);
-    } catch (err) {
+    } catch {
       clearTimeout(timeoutId);
       const fallbackController = new AbortController();
       const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), LOAD_TIMEOUT_MS);
@@ -416,6 +416,9 @@ export function GraphIntelligenceDashboard({ onExit, exitLabel = "Return", conte
         return t >= cutoffMin && t <= cutoffMax;
       });
     }
+
+    const visibleNodeIds = new Set(nodes.map((n) => n.id));
+    edges = edges.filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target));
 
     // Performance: LOD with community collapsing for large graphs
     if (nodes.length > 1000) {

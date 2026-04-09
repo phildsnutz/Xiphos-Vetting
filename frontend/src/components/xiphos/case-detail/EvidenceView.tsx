@@ -18,8 +18,6 @@ interface EvidenceViewProps {
   cal: Calibration | null;
   graphData: CaseGraphData | null;
   graphLoading: boolean;
-  provenanceEntityId: string | null;
-  provenanceRelId: number | null;
   c: VettingCase;
   evidenceTabs: EvidenceTabItem[];
   graphDepth: number;
@@ -38,8 +36,6 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
   cal,
   graphData,
   graphLoading,
-  provenanceEntityId,
-  provenanceRelId,
   c,
   evidenceTabs,
   graphDepth,
@@ -48,8 +44,6 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({
   switchGraphDepth,
 }) => {
   const {
-    setProvenanceEntityId,
-    setProvenanceRelId,
     refreshDerivedCaseData,
   } = useCaseDetail();
 

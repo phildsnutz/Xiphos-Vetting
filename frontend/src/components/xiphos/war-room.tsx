@@ -17,10 +17,12 @@ interface AegisRoomProps {
   onOpenCase: (caseId: string) => void;
   seed?: {
     targetEntity: string;
+    vendorId?: string;
     vehicleName?: string;
     domainFocus?: string;
     seedLabel?: string;
     autoRun?: boolean;
+    autoIngest?: boolean;
     requestId?: string;
   } | null;
 }
@@ -52,6 +54,26 @@ interface SearchResultSnapshot {
   totalQueries: number;
   totalConnectorCalls: number;
   elapsedMs: number;
+  runtime?: {
+    providerUsed?: string;
+    modelUsed?: string;
+    providerBacked?: boolean;
+    fallbackActive?: boolean;
+  };
+  connectorAccounting?: {
+    connectorCallsAttempted: number;
+    connectorCallsWithData: number;
+  };
+  readinessContract?: {
+    status: string;
+    evidenceActionsAttempted: number;
+    usableSurfaceCount: number;
+    surfaces?: Record<string, { status?: string }>;
+  };
+  localFallback?: {
+    mode?: string;
+    reason?: string;
+  };
 }
 
 interface WatchlistSnapshot {
@@ -121,6 +143,13 @@ function priorityTone(priority: string): "danger" | "warning" | "info" | "neutra
   return "neutral";
 }
 
+function summarizeLocalFallback(localFallback?: SearchResultSnapshot["localFallback"]) {
+  if (!localFallback) return "";
+  const mode = String(localFallback.mode || "deterministic fallback").replace(/_/g, " ").trim();
+  const reason = String(localFallback.reason || "provider access is unavailable").trim();
+  return `AXIOM fell back to ${mode}. ${reason} This pass did not run live connector-backed tactical collection.`;
+}
+
 export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: AegisRoomProps) {
   const [mode, setMode] = useState<RoomMode>("collection");
   const [menu, setMenu] = useState<RoomMenu>(null);
@@ -172,10 +201,12 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     const hasPinnedTarget = Boolean(currentTargetAnchor.trim());
     const nextSeed = {
       targetEntity: hasPinnedTarget ? currentTargetAnchor : prompt,
+      vendorId: collectionSeed?.vendorId || seed?.vendorId || undefined,
       vehicleName: collectionSeed?.vehicleName || seed?.vehicleName || "",
       domainFocus: hasPinnedTarget ? prompt : "",
       seedLabel: collectionSeed?.seedLabel || seed?.seedLabel || (hasPinnedTarget ? currentTargetAnchor : prompt),
       autoRun: true,
+      autoIngest: true,
       requestId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     };
 
@@ -203,8 +234,13 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     if (collectionRuntime.running) {
       return collectionRuntime.status || "AXIOM is reworking the live thread now.";
     }
+    if (searchResults?.localFallback) {
+      return summarizeLocalFallback(searchResults.localFallback);
+    }
     if (searchResults) {
-      return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, and ${searchResults.intelligenceGaps.length} open gaps from the current brief.`;
+      const evidenceActions = searchResults.readinessContract?.evidenceActionsAttempted ?? searchResults.totalQueries;
+      const usableSurfaces = searchResults.readinessContract?.usableSurfaceCount ?? 0;
+      return `AXIOM surfaced ${searchResults.entities.length} entities, ${searchResults.relationships.length} relationships, ${searchResults.intelligenceGaps.length} open gaps, and ${evidenceActions} evidence actions across ${usableSurfaces} usable surfaces.`;
     }
     if (collectionSeed?.targetEntity) {
       return `AXIOM picked up ${collectionSeed.seedLabel || collectionSeed.targetEntity} from ${STOA_NAME} and is working the public picture from there.`;
@@ -226,8 +262,12 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
     if (collectionRuntime.running) {
       return "AXIOM working the thread";
     }
+    if (searchResults?.localFallback) {
+      return "Local fallback active";
+    }
     if (searchResults) {
-      return `${searchResults.totalQueries} queries • ${searchResults.intelligenceGaps.length} open gaps`;
+      const evidenceActions = searchResults.readinessContract?.evidenceActionsAttempted ?? searchResults.totalQueries;
+      return `${evidenceActions} evidence actions • ${searchResults.intelligenceGaps.length} open gaps`;
     }
     if (collectionSeed?.targetEntity) {
       return `${STOA_NAME} brief warming`;
@@ -282,6 +322,15 @@ export function AegisRoom({ cases = [], onNavigate, onOpenCase, seed = null }: A
         title: "AXIOM is pressing the next thread.",
         lead: collectionRuntime.status || "The next pass is already in motion. Stay on the thread and let the collection close.",
         follow: "The lower collection pane is live. Findings will refresh when this pass closes.",
+      };
+    }
+
+    if (searchResults?.localFallback) {
+      return {
+        eyebrow: "AXIOM exchange",
+        title: "This pass is fallback pressure, not live collection.",
+        lead: summarizeLocalFallback(searchResults.localFallback),
+        follow: "Restore provider access before treating this room as a full tactical collection surface.",
       };
     }
 

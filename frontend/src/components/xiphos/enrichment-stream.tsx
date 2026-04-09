@@ -44,10 +44,12 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
   const [totalFindings, setTotalFindings] = useState(0);
   const [phase, setPhase] = useState<"connecting" | "enriching" | "scoring" | "done" | "error">("connecting");
   const [scoring, setScoring] = useState<ScoringResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<number>(0);
   const startTimeRef = useRef<number>(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectFailureTimerRef = useRef<number | null>(null);
 
   // Elapsed timer
   useEffect(() => {
@@ -63,15 +65,44 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
     let cancelled = false;
     let es: EventSource | null = null;
 
-    const failStream = () => {
+    const clearReconnectFailureTimer = () => {
+      if (reconnectFailureTimerRef.current) {
+        window.clearTimeout(reconnectFailureTimerRef.current);
+        reconnectFailureTimerRef.current = null;
+      }
+    };
+
+    const failStream = (message: string = "Live collection disconnected before the returned brief closed.") => {
+      clearReconnectFailureTimer();
+      setErrorMessage(message);
       setPhase("error");
       if (timerRef.current) clearInterval(timerRef.current);
       eventSourceRef.current?.close();
     };
 
+    const markStreamHealthy = () => {
+      clearReconnectFailureTimer();
+      setErrorMessage("");
+    };
+
+    const scheduleReconnectFailure = (message: string) => {
+      clearReconnectFailureTimer();
+      reconnectFailureTimerRef.current = window.setTimeout(() => {
+        if (cancelled) return;
+        if (eventSourceRef.current && eventSourceRef.current.readyState !== EventSource.OPEN) {
+          failStream(message);
+        }
+      }, 4000);
+    };
+
+    const handleOpen = () => {
+      markStreamHealthy();
+    };
+
     const handleStart = (e: Event) => {
       const data = parseStreamEvent<{ total_connectors: number; connector_names: string[] }>(e, "start");
       if (!data) return failStream();
+      markStreamHealthy();
       setTotalConnectors(data.total_connectors);
       setPhase("enriching");
       setConnectors(
@@ -85,6 +116,7 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
     const handleConnectorDone = (e: Event) => {
       const data = parseStreamEvent<{ name: string; has_data: boolean; findings_count: number; elapsed_ms: number; index: number }>(e, "connector_done");
       if (!data) return failStream();
+      markStreamHealthy();
       setConnectors((prev) =>
         prev.map((c) =>
           c.name === data.name
@@ -99,6 +131,7 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
     const handleConnectorError = (e: Event) => {
       const data = parseStreamEvent<{ name: string; error: string; index: number }>(e, "connector_error");
       if (!data) return failStream();
+      markStreamHealthy();
       setConnectors((prev) =>
         prev.map((c) =>
           c.name === data.name
@@ -110,24 +143,35 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
     };
 
     const handleComplete = () => {
+      markStreamHealthy();
       setPhase("scoring");
     };
 
     const handleScored = (e: Event) => {
       const data = parseStreamEvent<ScoringResult>(e, "scored");
       if (!data) return failStream();
+      markStreamHealthy();
       setScoring(data);
     };
 
     const handleDone = () => {
+      markStreamHealthy();
       setPhase("done");
       if (timerRef.current) clearInterval(timerRef.current);
       eventSourceRef.current?.close();
       onComplete?.();
     };
 
-    const handleError = () => {
-      failStream();
+    const handleError = (e: Event) => {
+      const rawData = "data" in e ? String((e as MessageEvent).data || "").trim() : "";
+      if (rawData) {
+        const data = parseStreamEvent<{ error?: string }>(e, "error");
+        if (data?.error) {
+          failStream(data.error);
+          return;
+        }
+      }
+      scheduleReconnectFailure("Live collection disconnected before the returned brief closed.");
     };
 
     (async () => {
@@ -137,6 +181,7 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
         es = new EventSource(`${apiBase}${protectedPath}`);
         const currentEs = es;
         eventSourceRef.current = currentEs;
+        currentEs.addEventListener("open", handleOpen);
         currentEs.addEventListener("start", handleStart);
         currentEs.addEventListener("connector_done", handleConnectorDone);
         currentEs.addEventListener("connector_error", handleConnectorError);
@@ -145,6 +190,7 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
         currentEs.addEventListener("done", handleDone);
         currentEs.addEventListener("error", handleError);
       } catch {
+        setErrorMessage("Could not open the live collection stream.");
         setPhase("error");
         if (timerRef.current) clearInterval(timerRef.current);
       }
@@ -152,6 +198,8 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
 
     return () => {
       cancelled = true;
+      clearReconnectFailureTimer();
+      es?.removeEventListener("open", handleOpen);
       es?.removeEventListener("start", handleStart);
       es?.removeEventListener("connector_done", handleConnectorDone);
       es?.removeEventListener("connector_error", handleConnectorError);
@@ -261,6 +309,20 @@ export function EnrichmentStream({ caseId, apiBase, onComplete }: EnrichmentStre
             </span>
           </div>
         )}
+
+        {phase === "error" && errorMessage ? (
+          <div
+            className="mt-3 rounded"
+            style={{ border: `1px solid ${T.red}33`, background: `${T.red}12`, padding: "10px 12px", color: T.text }}
+          >
+            <div className="font-semibold" style={{ fontSize: FS.sm }}>
+              Live collection failed
+            </div>
+            <div style={{ fontSize: FS.sm, color: T.muted, marginTop: 4, lineHeight: 1.55 }}>
+              {errorMessage}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Connector grid by group */}

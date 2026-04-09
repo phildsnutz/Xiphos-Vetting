@@ -160,10 +160,12 @@ function apiCaseToVetting(ac: { id: string; vendor_name: string; status: string;
 type Tab = "dashboard" | "helios" | "portfolio" | "threads" | "graph" | "axiom" | "admin";
 type AegisSeed = {
   targetEntity: string;
+  vendorId?: string;
   vehicleName?: string;
   domainFocus?: string;
   seedLabel?: string;
   autoRun?: boolean;
+  autoIngest?: boolean;
 } | null;
 
 function shellPriorityRank(disposition: ReturnType<typeof portfolioDisposition>): number {
@@ -341,7 +343,7 @@ export default function App() {
     workflowMode,
   ]);
 
-  function handleLogin(u: AuthUser) {
+  const handleLogin = useCallback((u: AuthUser) => {
     setUser(u);
     setApiAvailable(true);
     setShowLoginDialog(false);
@@ -349,7 +351,7 @@ export default function App() {
     setLoginPassword("");
     homeTabInitializedRef.current = false;
     loadCases();
-  }
+  }, [loadCases]);
 
   function handleLogout() {
     clearSession();

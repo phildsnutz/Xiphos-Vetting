@@ -62,8 +62,6 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean; onOpen
     setGraphDepth,
     graphLoading,
     loadGraphData,
-    provenanceEntityId,
-    provenanceRelId,
     loadingEnrichment,
     showStream,
     handleEnrich,
@@ -420,8 +418,6 @@ const CaseDetailContent: React.FC<{ isReadOnly: boolean; hasApi: boolean; onOpen
             cal={cal}
             graphData={graphData}
             graphLoading={graphLoading}
-            provenanceEntityId={provenanceEntityId}
-            provenanceRelId={provenanceRelId}
             c={c}
             evidenceTabs={evidenceTabs}
             graphDepth={graphDepth}
@@ -476,6 +472,7 @@ export const CaseDetail: React.FC<CaseDetailPropsLegacy> = (props) => {
   const isReadOnly = user?.role === "reviewer" || user?.role === "auditor";
   return (
     <CaseDetailProvider
+      key={props.c.id}
       c={props.c}
       onRescore={props.onRescore}
       onDossier={props.onDossier}
