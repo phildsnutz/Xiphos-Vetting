@@ -135,10 +135,26 @@ class AgentResult:
     advisory_opportunities: list[dict] = field(default_factory=list)
     vehicle_mode_support: dict = field(default_factory=dict)
     elapsed_ms: int = 0
+    runtime: dict = field(default_factory=dict)
     error: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class LaneExecutionProfile:
+    """Execution profile that keeps broad collection and tactical pressure distinct."""
+    use_initial_scraper: bool = True
+    use_follow_up_search: bool = True
+    reuse_connector_findings: bool = False
+    scrape_delay_seconds: float = SCRAPE_DELAY
+    connector_delay_seconds: float = 1.0
+    max_iterations: int = MAX_ITERATIONS
+    max_follow_up_queries: int = MAX_FOLLOW_UPS_PER_ITER
+    max_connector_requests_per_iteration: int = 6
+    allow_follow_up_queries: bool = True
+    allowed_connectors: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -192,17 +208,29 @@ def resolve_runtime_ai_credentials(
     if resolved_api_key:
         return resolved_provider, resolved_model, resolved_api_key
 
+    # Explicit provider overrides must be able to bind directly to env-backed keys
+    # without being silently rewritten by lane defaults or stored org config.
+    if provider_locked:
+        env_key = _env_api_key_for_provider(resolved_provider)
+        if env_key:
+            return resolved_provider, resolved_model, env_key
+
     if user_id:
         try:
             from ai_analysis import get_ai_config
 
             config = get_ai_config(user_id)
             if config and config.get("api_key"):
-                return (
-                    str(config.get("provider") or resolved_provider).strip().lower() or resolved_provider,
-                    str(config.get("model") or resolved_model).strip() or resolved_model,
-                    str(config.get("api_key") or "").strip(),
-                )
+                config_provider = str(config.get("provider") or resolved_provider).strip().lower() or resolved_provider
+                if provider_locked and config_provider != resolved_provider:
+                    config = None
+                else:
+                    config_model = str(config.get("model") or resolved_model).strip() or resolved_model
+                    return (
+                        resolved_provider if provider_locked else config_provider,
+                        resolved_model if model_locked else config_model,
+                        str(config.get("api_key") or "").strip(),
+                    )
         except Exception as e:
             logger.warning("axiom_agent: could not retrieve AI config: %s", e)
 
@@ -211,13 +239,10 @@ def resolve_runtime_ai_credentials(
         if not fallback_provider:
             continue
         fallback_model = str(candidate.get("model") or "").strip() or _default_model_for_provider(fallback_provider)
-        if idx == 0:
-            if provider_locked and fallback_provider != resolved_provider:
-                continue
-            if model_locked and resolved_model:
-                fallback_model = resolved_model
-        elif provider_locked:
+        if provider_locked and fallback_provider != resolved_provider:
             continue
+        if model_locked and fallback_provider == resolved_provider and resolved_model:
+            fallback_model = resolved_model
         fallback_key = _env_api_key_for_provider(fallback_provider)
         if not fallback_key:
             continue
@@ -613,6 +638,7 @@ def _build_vehicle_mode_support(target: SearchTarget) -> dict:
 
 def _build_analysis_prompt(target: SearchTarget, raw_findings: list[dict],
                            iteration: int, previous_entities: list[str],
+                           lane_profile: LaneExecutionProfile,
                            vehicle_mode_support: dict | None = None) -> str:
     """Build the LLM prompt for analyzing scraper results and requesting connectors."""
     vehicle_support_block = ""
@@ -639,6 +665,19 @@ Rules:
 - predictions stay forward-looking unless independently confirmed
 - if support_evidence conflicts with graph_facts, say so explicitly and lower confidence
 """
+    lane_mode_block = ""
+    if lane_profile.allowed_connectors:
+        connector_lines = "\n".join(f"- {name}" for name in lane_profile.allowed_connectors)
+        lane_mode_block = f"""
+
+TACTICAL LANE CONSTRAINTS:
+- Broad careers-style search is not available in this lane.
+- Only the connectors below can run:
+{connector_lines}
+- Request at most {lane_profile.max_connector_requests_per_iteration} connectors this iteration.
+- {"Do not generate follow-up web-search queries in this lane." if not lane_profile.allow_follow_up_queries else f"Generate at most {lane_profile.max_follow_up_queries} follow-up queries."}
+- Close the search as soon as connector evidence is good enough to state what holds and what stays thin.
+"""
 
     return f"""Analyze the following job board scraping results and connector findings for intelligence value.
 
@@ -649,8 +688,9 @@ TARGET:
 - Known Subcontractors: {', '.join(target.known_subs) if target.known_subs else 'None'}
 - Context: {target.context or 'General contract vehicle intelligence'}
 {vehicle_support_block}
+{lane_mode_block}
 
-ITERATION: {iteration} of {MAX_ITERATIONS}
+ITERATION: {iteration} of {lane_profile.max_iterations}
 PREVIOUSLY DISCOVERED ENTITIES: {', '.join(previous_entities) if previous_entities else 'None yet'}
 
 RAW FINDINGS ({len(raw_findings)} items):
@@ -686,7 +726,7 @@ Respond with valid JSON:
   "follow_up_queries": [
     "search query string that would yield high intelligence value"
   ],
-  "reasoning": "Brief explanation of what you found and why you recommend these follow-ups",
+  "reasoning": "Brief explanation of what you found and why you recommend the next pressure move",
   "intelligence_gaps": [
     {{
       "gap": "What information is missing",
@@ -710,9 +750,97 @@ Request connectors (via connector_requests array) when:
 - You need to find ownership, parent companies, or subsidiaries (sec_edgar, gleif_lei, opencorporates)
 - You need litigation or regulatory history (courtlistener, epa_echo, osha_safety)
 
-Generate 0-{MAX_FOLLOW_UPS_PER_ITER} follow-up queries. Each should be specific and different from previous queries.
+Generate 0-{lane_profile.max_follow_up_queries} follow-up queries. Each should be specific and different from previous queries.
 Focus follow-ups on: confirming suspected subs, finding additional subs, attributing positions to specific vehicles, identifying teaming partners.
 Use connectors strategically to confirm key suspected entities before exhausting career site scraping."""
+
+
+def _dedupe_connector_names(names: list[str]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in names:
+        normalized = str(item or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        ordered.append(normalized)
+        seen.add(normalized)
+    return tuple(ordered)
+
+
+def _mission_command_connector_window(target: SearchTarget) -> tuple[str, ...]:
+    context = " ".join(
+        filter(
+            None,
+            [
+                str(target.context or ""),
+                str(target.contract_name or ""),
+                str(target.vehicle_name or ""),
+            ],
+        )
+    ).lower()
+
+    connectors = ["sam_gov", "fpds_contracts", "usaspending"]
+    if any(keyword in context for keyword in ("ownership", "owner", "control", "parent", "beneficial", "foci")):
+        connectors.extend(["sec_edgar", "gleif_lei", "public_search_ownership", "public_html_ownership"])
+    if any(keyword in context for keyword in ("vehicle", "prime", "procurement", "customer", "subcontract", "teammate")):
+        connectors.append("sam_subaward_reporting")
+    if any(keyword in context for keyword in ("adverse", "litigation", "protest", "suit", "court")):
+        connectors.append("courtlistener")
+    return _dedupe_connector_names(connectors)[:8]
+
+
+def _build_lane_execution_profile(lane_id: str) -> LaneExecutionProfile:
+    normalized = str(lane_id or "").strip().lower()
+    if normalized == "mission_command":
+        return LaneExecutionProfile(
+            use_initial_scraper=False,
+            use_follow_up_search=False,
+            reuse_connector_findings=True,
+            scrape_delay_seconds=0.0,
+            connector_delay_seconds=0.05,
+            max_iterations=2,
+            max_follow_up_queries=0,
+            max_connector_requests_per_iteration=3,
+            allow_follow_up_queries=False,
+        )
+    return LaneExecutionProfile()
+
+
+def _build_tactical_seed_findings(target: SearchTarget, lane_id: str) -> list[dict]:
+    return [
+        {
+            "category": "tactical_seed",
+            "title": f"{target.prime_contractor} tactical pressure seed",
+            "detail": (
+                f"{lane_id} is running in tactical mode. Broad careers-style search is intentionally skipped. "
+                "Work from connector evidence, graph context, and the named pressure thread."
+            ),
+            "severity": "info",
+            "confidence": 0.58,
+            "source": f"lane:{lane_id}",
+        }
+    ]
+
+
+def _filter_connector_requests(
+    connector_requests: list[dict],
+    lane_profile: LaneExecutionProfile,
+) -> list[dict]:
+    allowed = set(lane_profile.allowed_connectors or ())
+    filtered: list[dict] = []
+    for conn_req in connector_requests:
+        if not isinstance(conn_req, dict):
+            continue
+        name = str(conn_req.get("name") or "").strip()
+        if not name:
+            continue
+        if allowed and name not in allowed:
+            logger.info("axiom_agent: skipping connector '%s' outside tactical window", name)
+            continue
+        filtered.append(conn_req)
+        if len(filtered) >= lane_profile.max_connector_requests_per_iteration:
+            break
+    return filtered
 
 
 # ---------------------------------------------------------------------------
@@ -745,7 +873,11 @@ def _run_connector(connector_name: str, vendor_name: str, **kwargs) -> dict:
         "vendor_name": vendor_name,
         "findings_count": 0,
         "findings": [],
+        "has_data": False,
         "identifiers": {},
+        "relationship_count": 0,
+        "relationships": [],
+        "structured_fields": {},
         "error": "",
         "elapsed_ms": 0,
     }
@@ -787,6 +919,19 @@ def _run_connector(connector_name: str, vendor_name: str, **kwargs) -> dict:
         result["findings_count"] = len(findings)
         result["findings"] = findings
         result["identifiers"] = enrichment.identifiers or {}
+        result["relationship_count"] = len(getattr(enrichment, "relationships", []) or [])
+        result["relationships"] = [
+            dict(rel)
+            for rel in (getattr(enrichment, "relationships", []) or [])
+            if isinstance(rel, dict)
+        ]
+        result["structured_fields"] = dict(getattr(enrichment, "structured_fields", {}) or {})
+        result["has_data"] = bool(
+            findings
+            or result["relationship_count"]
+            or result["identifiers"]
+            or result["structured_fields"]
+        )
         result["elapsed_ms"] = int(
             (datetime.now(timezone.utc) - start).total_seconds() * 1000
         )
@@ -935,6 +1080,8 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     """
     result = AgentResult(target=target)
     start = datetime.now(timezone.utc)
+    requested_provider = str(provider or "").strip().lower() or None
+    requested_model = str(model or "").strip() or None
 
     provider, model, api_key = resolve_runtime_ai_credentials(
         user_id=user_id,
@@ -945,6 +1092,15 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
         model_locked=model_locked,
         lane_id=lane_id,
     )
+    result.runtime = {
+        "lane_id": lane_id,
+        "provider_requested": requested_provider,
+        "model_requested": requested_model,
+        "provider_used": provider,
+        "model_used": model,
+        "provider_backed": bool(api_key),
+        "fallback_active": False,
+    }
 
     if not api_key:
         result.error = "No API key available. Configure AI provider in settings or pass api_key."
@@ -954,13 +1110,24 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
     all_entities: dict[str, DiscoveredEntity] = {}
     all_relationships: list[DiscoveredRelationship] = []
     all_findings: list[dict] = []
+    carry_forward_findings: list[dict] = []
+    lane_profile = _build_lane_execution_profile(lane_id)
+    if lane_id == "mission_command":
+        lane_profile = LaneExecutionProfile(
+            **{
+                **lane_profile.__dict__,
+                "allowed_connectors": _mission_command_connector_window(target),
+            }
+        )
     vehicle_mode_support = _build_vehicle_mode_support(target)
     result.vehicle_mode_support = vehicle_mode_support
 
     try:
-        for iteration in range(1, MAX_ITERATIONS + 1):
+        for iteration in range(1, lane_profile.max_iterations + 1):
             iter_start = datetime.now(timezone.utc)
             iter_record = SearchIteration(iteration=iteration)
+            current_carry_findings = list(carry_forward_findings)
+            carry_forward_findings = []
 
             # Determine queries for this iteration
             if iteration == 1:
@@ -974,28 +1141,34 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 # Use LLM-generated follow-up queries from previous iteration
                 prev_iter = result.iterations[-1] if result.iterations else None
                 queries = prev_iter.follow_up_queries if prev_iter else []
-                if not queries:
+                if not queries and not (lane_profile.reuse_connector_findings and current_carry_findings):
                     logger.info("axiom_agent: no follow-up queries, terminating at iteration %d", iteration)
                     break
 
             # Execute queries
-            iter_findings = []
-            for query in queries[:MAX_FOLLOW_UPS_PER_ITER + 1]:
-                logger.info("axiom_agent: iteration %d, query: '%s'", iteration, query)
-                iter_record.queries_executed.append(query)
+            iter_findings: list[dict] = []
+            if iteration == 1 and not lane_profile.use_initial_scraper:
+                iter_findings.extend(_build_tactical_seed_findings(target, lane_id))
+            elif iteration > 1 and not lane_profile.use_follow_up_search:
+                iter_findings.extend(current_carry_findings)
+            else:
+                for query in queries[:MAX_FOLLOW_UPS_PER_ITER + 1]:
+                    logger.info("axiom_agent: iteration %d, query: '%s'", iteration, query)
+                    iter_record.queries_executed.append(query)
 
-                if iteration == 1:
-                    findings = _run_scraper(query, target)
-                else:
-                    findings = _run_web_search(query)
+                    if iteration == 1:
+                        findings = _run_scraper(query, target)
+                    else:
+                        findings = _run_web_search(query)
 
-                iter_findings.extend(findings)
-                time.sleep(SCRAPE_DELAY)
+                    iter_findings.extend(findings)
+                    if lane_profile.scrape_delay_seconds > 0:
+                        time.sleep(lane_profile.scrape_delay_seconds)
 
             iter_record.raw_findings_count = len(iter_findings)
             all_findings.extend(iter_findings)
             result.total_findings += len(iter_findings)
-            result.total_queries += len(queries)
+            result.total_queries += len(iter_record.queries_executed)
 
             if not iter_findings and iteration > 1:
                 logger.info("axiom_agent: no findings in iteration %d, terminating", iteration)
@@ -1006,7 +1179,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
             # LLM analysis
             previous_entity_names = list(all_entities.keys())
             analysis_prompt = _build_analysis_prompt(
-                target, iter_findings, iteration, previous_entity_names, vehicle_mode_support
+                target, iter_findings, iteration, previous_entity_names, lane_profile, vehicle_mode_support
             )
 
             llm_response = _call_llm(
@@ -1040,7 +1213,11 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                 continue
 
             # Execute connector requests if present
-            connector_requests = analysis.get("connector_requests", [])
+            connector_requests = _filter_connector_requests(
+                analysis.get("connector_requests", []),
+                lane_profile,
+            )
+            connector_follow_on_findings: list[dict] = []
             for conn_req in connector_requests:
                 try:
                     conn_name = conn_req.get("name", "")
@@ -1066,7 +1243,7 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                     # Add connector findings to iteration findings
                     if conn_result["success"]:
                         for finding in conn_result["findings"]:
-                            iter_findings.append({
+                            finding_payload = {
                                 "category": finding.get("category", "connector_finding"),
                                 "title": finding.get("title", ""),
                                 "detail": finding.get("detail", ""),
@@ -1075,8 +1252,70 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                                 "confidence": finding.get("confidence", 0.5),
                                 "url": finding.get("url", ""),
                                 "connector_source": conn_name,
-                            })
-                        time.sleep(1.0)  # Brief delay between connector calls
+                            }
+                            iter_findings.append(finding_payload)
+                            connector_follow_on_findings.append(finding_payload)
+                        result.total_findings += len(conn_result.get("findings", []) or [])
+
+                        if conn_result.get("relationship_count", 0) > 0:
+                            connector_follow_on_findings.append(
+                                {
+                                    "category": "connector_relationships",
+                                    "title": f"{conn_name} returned structured relationships",
+                                    "detail": (
+                                        f"{conn_result.get('relationship_count', 0)} structured relationships "
+                                        f"returned for {vendor}."
+                                    ),
+                                    "source": f"connector:{conn_name}",
+                                    "severity": "info",
+                                    "confidence": 0.7,
+                                    "connector_source": conn_name,
+                                }
+                            )
+
+                        for relationship in conn_result.get("relationships", []) or []:
+                            if not isinstance(relationship, dict):
+                                continue
+                            source_entity = (
+                                str(relationship.get("source_entity") or relationship.get("source_name") or "").strip()
+                            )
+                            target_entity = (
+                                str(relationship.get("target_entity") or relationship.get("target_name") or "").strip()
+                            )
+                            rel_type = str(relationship.get("rel_type") or "related_entity").strip() or "related_entity"
+                            if not source_entity or not target_entity:
+                                continue
+                            evidence = [
+                                text
+                                for text in (
+                                    str(relationship.get("evidence_summary") or "").strip(),
+                                    str(relationship.get("evidence") or "").strip(),
+                                )
+                                if text
+                            ] or [f"Connector {conn_name} returned a structured relationship."]
+
+                            all_relationships.append(
+                                DiscoveredRelationship(
+                                    source_entity=source_entity,
+                                    target_entity=target_entity,
+                                    rel_type=rel_type,
+                                    confidence=float(relationship.get("confidence") or 0.72),
+                                    evidence=evidence,
+                                )
+                            )
+
+                            for entity_name in (source_entity, target_entity):
+                                if entity_name in all_entities:
+                                    continue
+                            all_entities[entity_name] = DiscoveredEntity(
+                                    name=entity_name,
+                                    entity_type="company",
+                                    confidence=float(relationship.get("confidence") or 0.68),
+                                    source_queries=list(queries),
+                                    evidence=[f"Connector {conn_name} returned a structured relationship touching this entity."],
+                                )
+                        if lane_profile.connector_delay_seconds > 0:
+                            time.sleep(lane_profile.connector_delay_seconds)
                     else:
                         logger.warning(
                             "axiom_agent: connector '%s' failed: %s",
@@ -1151,11 +1390,18 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
                     })
 
             # Store follow-up queries and reasoning
-            iter_record.follow_up_queries = analysis.get("follow_up_queries", [])
+            follow_up_queries = analysis.get("follow_up_queries", []) if lane_profile.allow_follow_up_queries else []
+            iter_record.follow_up_queries = [
+                str(item).strip()
+                for item in follow_up_queries[: lane_profile.max_follow_up_queries]
+                if str(item).strip()
+            ]
             iter_record.llm_reasoning = analysis.get("reasoning", "")
             iter_record.elapsed_ms = int(
                 (datetime.now(timezone.utc) - iter_start).total_seconds() * 1000
             )
+            if lane_profile.reuse_connector_findings:
+                carry_forward_findings = connector_follow_on_findings[:20]
             result.iterations.append(iter_record)
 
             # Check termination
@@ -1175,7 +1421,17 @@ def run_agent(target: SearchTarget, api_key: str = "", provider: str = DEFAULT_P
 
     # Finalize result
     result.entities = list(all_entities.values())
-    result.relationships = all_relationships
+    deduped_relationships: dict[tuple[str, str, str], DiscoveredRelationship] = {}
+    for relationship in all_relationships:
+        key = (
+            relationship.source_entity.strip().lower(),
+            relationship.target_entity.strip().lower(),
+            relationship.rel_type.strip().lower(),
+        )
+        existing = deduped_relationships.get(key)
+        if existing is None or relationship.confidence > existing.confidence:
+            deduped_relationships[key] = relationship
+    result.relationships = list(deduped_relationships.values())
     result.elapsed_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
 
     logger.info(
@@ -1219,6 +1475,51 @@ def ingest_agent_result(agent_result: AgentResult, vendor_id: str = "") -> dict:
 
         with get_kg_conn() as conn:
             now = _utc_now()
+            entity_ids_by_name: dict[str, str] = {}
+
+            def _upsert_entity_record(
+                *,
+                entity_id: str,
+                canonical_name: str,
+                entity_type: str,
+                identifiers: dict | None = None,
+                sources: list[str] | None = None,
+                confidence: float = 0.5,
+            ) -> None:
+                conn.execute("""
+                    INSERT INTO kg_entities (id, canonical_name, entity_type,
+                        aliases, identifiers, sources, confidence, risk_level, last_updated, created_at)
+                    VALUES (?, ?, ?, '[]', ?, ?, ?, 'unknown', ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        confidence = max(kg_entities.confidence, excluded.confidence),
+                        sources = excluded.sources,
+                        last_updated = excluded.last_updated
+                """, (
+                    entity_id,
+                    canonical_name,
+                    entity_type,
+                    json.dumps(identifiers or {}),
+                    json.dumps(sources or ["axiom_agent"]),
+                    confidence,
+                    now,
+                    now,
+                ))
+
+            def _ensure_entity_id(name: str, fallback_type: str = "company") -> str:
+                normalized = str(name or "").strip()
+                existing_id = entity_ids_by_name.get(normalized.lower())
+                if existing_id:
+                    return existing_id
+                entity_id = _stable_hash(normalized, fallback_type, prefix="axiom")
+                _upsert_entity_record(
+                    entity_id=entity_id,
+                    canonical_name=normalized,
+                    entity_type=fallback_type,
+                    confidence=0.5,
+                )
+                entity_ids_by_name[normalized.lower()] = entity_id
+                summary["entities_created"] += 1
+                return entity_id
 
             for entity in agent_result.entities:
                 entity_id = _stable_hash(
@@ -1229,27 +1530,21 @@ def ingest_agent_result(agent_result: AgentResult, vendor_id: str = "") -> dict:
                 # Upsert entity
                 if hasattr(conn, 'execute'):
                     try:
-                        conn.execute("""
-                            INSERT INTO kg_entities (id, canonical_name, entity_type,
-                                aliases, identifiers, sources, confidence, risk_level, last_updated, created_at)
-                            VALUES (?, ?, ?, '[]', ?, ?, ?, 'unknown', ?, ?)
-                            ON CONFLICT(id) DO UPDATE SET
-                                confidence = GREATEST(kg_entities.confidence, excluded.confidence),
-                                sources = excluded.sources,
-                                last_updated = excluded.last_updated
-                        """, (
-                            entity_id, entity.name, entity.entity_type,
-                            json.dumps(entity.attributes),
-                            json.dumps(["axiom_agent"]),
-                            entity.confidence, now, now,
-                        ))
+                        _upsert_entity_record(
+                            entity_id=entity_id,
+                            canonical_name=entity.name,
+                            entity_type=entity.entity_type,
+                            identifiers=entity.attributes,
+                            confidence=entity.confidence,
+                        )
+                        entity_ids_by_name[entity.name.strip().lower()] = entity_id
                         summary["entities_created"] += 1
                     except Exception as e:
                         logger.warning("axiom_agent: entity upsert failed for '%s': %s", entity.name, e)
 
             for rel in agent_result.relationships:
-                source_id = _stable_hash(rel.source_entity, "company", prefix="axiom")
-                target_id = _stable_hash(rel.target_entity, "company", prefix="axiom")
+                source_id = _ensure_entity_id(rel.source_entity, "company")
+                target_id = _ensure_entity_id(rel.target_entity, "company")
 
                 try:
                     conn.execute("""

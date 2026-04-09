@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, ArrowRight, Building2, ChevronDown, ExternalLink, GitBranch, Loader2, Lock, MessageSquareText, Eye, EyeOff } from "lucide-react";
+import { ArrowUpRight, ArrowRight, Building2, ChevronDown, ExternalLink, GitBranch, Loader2, Lock, Eye, EyeOff } from "lucide-react";
 import { login as authLogin } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
 import {
@@ -70,6 +70,7 @@ interface FrontPorchLandingProps {
   onOpenCase: (caseId: string) => void;
   onOpenAegisIntent?: (intent: {
     targetEntity: string;
+    vendorId?: string;
     vehicleName?: string;
     domainFocus?: string;
     seedLabel?: string;
@@ -119,6 +120,12 @@ interface VendorBriefReadiness {
   passport: SupplierPassport | null;
   graph: CaseGraphData | null;
   networkRisk: NetworkRiskResult | null;
+  diagnostics: {
+    enrichmentError: string | null;
+    passportError: string | null;
+    graphError: string | null;
+    networkRiskError: string | null;
+  };
   axiomGapClosure: {
     status: "completed" | "skipped" | "failed";
     passes: number;
@@ -136,13 +143,6 @@ type ResumeIntent =
   | { kind: "vendor"; session: IntakeSession }
   | { kind: "vehicle"; session: IntakeSession };
 type RoutedIntake = Awaited<ReturnType<typeof routeIntake>>;
-
-const FRONT_PORCH_EXAMPLES = [
-  "ILS 2 follow-on. We think Amentum is the incumbent.",
-  "Need a quick read on SMX as a potential teammate.",
-  "Who matters under LEIA and where is it vulnerable?",
-  "Thin-data vendor with a suspicious ownership trail.",
-];
 
 const PROGRESS_LINES = [
   "Pulling the first public picture.",
@@ -283,6 +283,14 @@ function cleanEntityFragment(value: string) {
     .replace(/^[,:;\-\s]+/, "")
     .replace(/[?.,]+$/, "")
     .trim();
+}
+
+function cleanPrimeFragment(value: string) {
+  const withoutVehicleContext = compactText(value).replace(
+    /^.*\b(?:pre[- ]solicitation|pre solicitation|follow[- ]on|follow on|current vehicle|expired vehicle|contract vehicle|vehicle)\b\s*/i,
+    "",
+  );
+  return cleanEntityFragment(withoutVehicleContext || value);
 }
 
 function normalizeCandidateName(value: string) {
@@ -563,11 +571,15 @@ function extractPrimeName(value: string): string | null {
   }
   const explicit = source.match(/\b(?:prime(?:\s+is|\s+position)?|incumbent(?:\s+is)?)\b[:\s-]*([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})/i);
   if (explicit?.[1]) {
-    return cleanEntityFragment(explicit[1]);
+    return cleanPrimeFragment(explicit[1]);
+  }
+  const reversePrime = source.match(/([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})\s+is\s+(?:the\s+)?prime\b/i);
+  if (reversePrime?.[1]) {
+    return cleanPrimeFragment(reversePrime[1]);
   }
   const reverse = source.match(/([A-Za-z0-9][A-Za-z0-9 .&'/-]{1,80})\s+is\s+the\s+incumbent\b/i);
   if (reverse?.[1]) {
-    return cleanEntityFragment(reverse[1]);
+    return cleanPrimeFragment(reverse[1]);
   }
   if (!/[?.!,]/.test(source)) {
     const cleaned = cleanEntityFragment(source);
@@ -894,7 +906,21 @@ function missionBriefNotesFromReadiness(readiness: VendorBriefReadiness): string
     notes.push("AXIOM did not need a pressure pass before the returned brief froze.");
   }
 
+  const loadFailures = readinessLoadFailures(readiness);
+  if (loadFailures.length > 0) {
+    notes.push(`Support-surface failures stayed explicit: ${loadFailures.join(" ")}`);
+  }
+
   return notes;
+}
+
+function readinessLoadFailures(readiness: VendorBriefReadiness): string[] {
+  return [
+    readiness.diagnostics.enrichmentError,
+    readiness.diagnostics.passportError,
+    readiness.diagnostics.graphError,
+    readiness.diagnostics.networkRiskError,
+  ].filter((value): value is string => Boolean(value));
 }
 
 function buildMissionBriefPayload(
@@ -1102,8 +1128,10 @@ function assessVendorThinness(readiness: VendorBriefReadiness) {
   const dominantEdgeFamily = String(graphIntelligence?.dominant_edge_family || "").replace(/_/g, " ").trim();
   const networkRiskLevel = String(readiness.networkRisk?.network_risk_level || "").toLowerCase();
   const topControlPath = readiness.passport?.graph.control_paths[0];
+  const loadFailures = readinessLoadFailures(readiness);
   const reasons: string[] = [];
 
+  reasons.push(...loadFailures);
   if (findingsTotal < 2) reasons.push("The visible public record is still thin.");
   if (connectorsWithData < 2) reasons.push("Too few connectors returned usable data.");
   if (relationshipCount < 2) reasons.push("Relationship depth is still shallow.");
@@ -1122,6 +1150,7 @@ function assessVendorThinness(readiness: VendorBriefReadiness) {
   }
 
   const severe =
+    loadFailures.length > 0 ||
     findingsTotal === 0 ||
     connectorsWithData === 0 ||
     thinGraph ||
@@ -1137,6 +1166,7 @@ function assessVendorThinness(readiness: VendorBriefReadiness) {
     thinSignals: reasons.length,
     severe,
     reasons,
+    loadFailures,
     missingRequiredEdgeFamilies,
     dominantEdgeFamily,
     networkRiskLevel,
@@ -1146,6 +1176,9 @@ function assessVendorThinness(readiness: VendorBriefReadiness) {
 
 function shouldPressureVendorReadiness(readiness: VendorBriefReadiness) {
   const assessment = assessVendorThinness(readiness);
+  if (assessment.loadFailures.length > 0) {
+    return false;
+  }
   return assessment.severe || assessment.thinSignals >= 2;
 }
 
@@ -1157,6 +1190,9 @@ function shouldEscalateVendorGapClosure(
     return false;
   }
   const assessment = assessVendorThinness(readiness);
+  if (assessment.loadFailures.length > 0) {
+    return false;
+  }
   return (
     assessment.severe ||
     assessment.thinSignals >= 2 ||
@@ -1270,6 +1306,7 @@ function buildReturnedVendorArtifact(
   const missingEdgeFamilies = (graphIntelligence?.missing_required_edge_families ?? []).filter(Boolean);
   const gapClosure = readiness.axiomGapClosure;
   const pressurePasses = gapClosure?.passes ?? 0;
+  const loadFailures = readinessLoadFailures(readiness);
 
   const whatHolds = connectorsWithData > 0 || findingsTotal > 0
     ? `The first judgment is resting on ${connectorsWithData} live source${connectorsWithData === 1 ? "" : "s"} with data, and ${findingsTotal} finding${findingsTotal === 1 ? "" : "s"} survived the first cut. That is enough to brief from without pretending the surface story is complete.`
@@ -1302,6 +1339,9 @@ function buildReturnedVendorArtifact(
   }
   if (gapClosure?.unresolvedReasons?.length) {
     thinDetails.push(gapClosure.unresolvedReasons.join(" "));
+  }
+  if (loadFailures.length > 0) {
+    thinDetails.push(loadFailures.join(" "));
   }
   const thinDetail = thinDetails.length > 0
     ? thinDetails.join(" ")
@@ -1536,8 +1576,6 @@ export function FrontPorchLanding({
   const recentCases = useMemo(() => sortRecentCases(cases).slice(0, 6), [cases]);
   const hasThreadDepth = messages.length > INITIAL_MESSAGES.length || candidateChoices.length > 0 || Boolean(vehicleArtifact || vendorArtifact || errorText);
   const hasArtifactStage = Boolean(vehicleArtifact || vendorArtifact);
-  const isDisambiguatingEntity = candidateChoices.length > 0;
-  const isClarifyingIntake = !isDisambiguatingEntity && Boolean(session.pendingFollowUp);
   const pressureThreadOptions = useMemo(() => pressureOptionsForSession(session), [session]);
   const activeBriefView = useMemo<FrontPorchBriefViewModel | null>(() => {
     if (activeBriefKind === "vendor" && vendorArtifact) {
@@ -1548,20 +1586,6 @@ export function FrontPorchLanding({
     }
     return null;
   }, [activeBriefKind, session, vendorArtifact, vehicleArtifact]);
-  const roomStatusText = isDisambiguatingEntity
-    ? "AXIOM is narrowing the entity in frame."
-    : isClarifyingIntake
-      ? "AXIOM is tightening the brief before it starts."
-    : isWorking
-      ? PROGRESS_LINES[progressIndex]
-      : "AXIOM will ask only what it needs to start.";
-  const composerSupportText = isDisambiguatingEntity
-    ? "Pick the right entity or ask one separating question. AXIOM will stay on the same thread."
-    : isClarifyingIntake
-      ? "Answer the question in plain language. AXIOM will treat the next turn as part of the same brief."
-    : isWorking
-      ? "AXIOM is working this pass. When it returns, you can redirect or press deeper."
-      : "You can be messy. AXIOM will narrow it from there and ask only what changes the work.";
   const clarifyingLabel = clarifyingFollowUpLabel(session.pendingFollowUp);
 
   const appendMessage = useCallback((role: MessageRole, content: string) => {
@@ -1674,6 +1698,7 @@ export function FrontPorchLanding({
       if (!targetEntity) return null;
       return {
         targetEntity,
+        vendorId: workingCaseId || missionBrief?.case_id || undefined,
         vehicleName: session.vehicleName || undefined,
         domainFocus,
         seedLabel: session.vehicleName || targetEntity,
@@ -1685,13 +1710,14 @@ export function FrontPorchLanding({
       if (!targetEntity) return null;
       return {
         targetEntity,
+        vendorId: workingCaseId || missionBrief?.case_id || undefined,
         domainFocus: humanizePriorityFocus(session.priorityFocus) || undefined,
         seedLabel: targetEntity,
         autoRun: Boolean(isWorking || vendorArtifact || workingCaseId),
       };
     }
     return null;
-  }, [isWorking, session, vendorArtifact, workingCaseId]);
+  }, [isWorking, missionBrief, session, vendorArtifact, workingCaseId]);
 
   const persistMissionBrief = useCallback(async (
     nextSession: IntakeSession,
@@ -1766,6 +1792,12 @@ export function FrontPorchLanding({
       passport: passportResult.status === "fulfilled" ? passportResult.value : null,
       graph: graphResult.status === "fulfilled" ? graphResult.value : null,
       networkRisk: networkRiskResult.status === "fulfilled" ? networkRiskResult.value : null,
+      diagnostics: {
+        enrichmentError: enrichmentResult.status === "rejected" ? humanizeApiError(enrichmentResult.reason, "The enrichment report did not load cleanly.") : null,
+        passportError: passportResult.status === "rejected" ? humanizeApiError(passportResult.reason, "The supplier passport did not load cleanly.") : null,
+        graphError: graphResult.status === "rejected" ? humanizeApiError(graphResult.reason, "Graph Intel did not load cleanly.") : null,
+        networkRiskError: networkRiskResult.status === "rejected" ? humanizeApiError(networkRiskResult.reason, "The network-risk read did not load cleanly.") : null,
+      },
       axiomGapClosure: null,
     };
   }, []);
@@ -1786,16 +1818,28 @@ export function FrontPorchLanding({
         vehicle_name: nextSession.vehicleName || undefined,
         context: buildGapClosureContext(nextSession, subject, readiness, options),
         vendor_id: caseId,
+        lane_id: "edge_collection",
       });
+      const gapSurface = response.readiness_contract?.surfaces?.axiom_gap_closure as {
+        status?: string;
+        passes?: number;
+        entities_found?: number;
+        relationships_found?: number;
+        gap_count?: number;
+        unresolved_reasons?: string[];
+      } | undefined;
       return {
-        status: "completed" as const,
-        passes: options.passIndex ?? 1,
-        entitiesFound: response.entities?.length ?? 0,
-        relationshipsFound: response.relationships?.length ?? 0,
-        gapCount: response.intelligence_gaps?.length ?? 0,
-        note: options.escalated
+        status: gapSurface?.status === "failed" ? "failed" as const : "completed" as const,
+        passes: gapSurface?.passes ?? options.passIndex ?? 1,
+        entitiesFound: gapSurface?.entities_found ?? response.entities?.length ?? 0,
+        relationshipsFound: gapSurface?.relationships_found ?? response.relationships?.length ?? 0,
+        gapCount: gapSurface?.gap_count ?? response.intelligence_gaps?.length ?? 0,
+        note: response.fallback_active
+          ? "AXIOM stayed in explicit degraded mode. The pressure room used carried context, but live provider-backed tactical collection did not run."
+          : options.escalated
           ? "AXIOM escalated the weak edge after the first pressure pass stayed thin."
           : "AXIOM pressured the thinnest thread before the brief froze.",
+        unresolvedReasons: gapSurface?.unresolved_reasons?.slice(0, 4),
         gapHighlights: (response.intelligence_gaps ?? [])
           .map((gap) => gap.description || gap.gap_type || "")
           .filter(Boolean)
@@ -1819,7 +1863,7 @@ export function FrontPorchLanding({
     nextSession: IntakeSession,
     subjectOverride?: string,
   ) => {
-  const subject = subjectOverride || nextSession.vendorName || "Entity brief";
+    const subject = subjectOverride || nextSession.vendorName || "Entity brief";
     let readiness = await loadVendorReadiness(caseId);
     let gapClosureMessageSent = false;
     let gapClosure: VendorBriefReadiness["axiomGapClosure"] = null;
@@ -1850,6 +1894,7 @@ export function FrontPorchLanding({
       }
     }
 
+    const loadFailures = readinessLoadFailures(readiness);
     setIsWorking(false);
     setVendorArtifact(buildReturnedVendorArtifact(nextSession, caseId, subject, readiness));
     void persistMissionBrief(nextSession, {
@@ -1859,7 +1904,9 @@ export function FrontPorchLanding({
     });
     appendMessage(
       "axiom",
-      gapClosureMessageSent && readiness.axiomGapClosure?.status === "completed"
+      loadFailures.length > 0
+        ? `The returned brief is ready, but ${loadFailures.length === 1 ? "one support surface is" : "multiple support surfaces are"} degraded. I froze the brief with those failures explicit instead of mislabeling them as intelligence gaps.`
+        : gapClosureMessageSent && readiness.axiomGapClosure?.status === "completed"
         ? `The returned brief is ready. I used the graph and ${readiness.axiomGapClosure.passes > 1 ? `${readiness.axiomGapClosure.passes} AXIOM pressure passes` : "an AXIOM pressure pass"} to tighten the weak edge before freezing it.`
         : `The returned brief is ready. Open it here, or step into ${DEEP_ROOM_NAME} if you want to challenge the weak edge.`,
     );
@@ -2304,12 +2351,6 @@ export function FrontPorchLanding({
     setDraft("");
     await handleUserTurn(text);
   }, [draft, handleUserTurn]);
-
-  const handleExample = useCallback(async (example: string) => {
-    setMenu(null);
-    setDraft("");
-    void handleUserTurn(example);
-  }, [handleUserTurn]);
 
   const shellBackground = `radial-gradient(circle at 18% 20%, ${T.accent}${O["12"]}, transparent 28%), radial-gradient(circle at 82% 18%, ${T.statusQualified}${O["12"]}, transparent 22%), linear-gradient(180deg, ${T.bg} 0%, #06080c 100%)`;
 

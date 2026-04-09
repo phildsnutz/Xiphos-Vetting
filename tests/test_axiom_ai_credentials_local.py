@@ -36,8 +36,8 @@ def test_resolve_runtime_ai_credentials_falls_back_to_env_provider(monkeypatch):
 
 
 def test_resolve_runtime_ai_credentials_uses_lane_primary_when_defaults_are_unset(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-lane")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-lane")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     axiom_agent = _reload_module("axiom_agent")
 
@@ -51,9 +51,30 @@ def test_resolve_runtime_ai_credentials_uses_lane_primary_when_defaults_are_unse
         lane_id="mission_command",
     )
 
-    assert provider == "openai"
-    assert model == "gpt-4o"
-    assert api_key == "sk-test-openai-lane"
+    assert provider == "anthropic"
+    assert model == "claude-sonnet-4-6"
+    assert api_key == "sk-test-anthropic-lane"
+
+
+def test_resolve_runtime_ai_credentials_honors_locked_provider_env_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-explicit")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-explicit")
+
+    axiom_agent = _reload_module("axiom_agent")
+
+    provider, model, api_key = axiom_agent.resolve_runtime_ai_credentials(
+        user_id="",
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        api_key="",
+        provider_locked=True,
+        model_locked=True,
+        lane_id="mission_command",
+    )
+
+    assert provider == "anthropic"
+    assert model == "claude-sonnet-4-6"
+    assert api_key == "sk-test-anthropic-explicit"
 
 
 def test_axiom_extract_route_uses_env_fallback_when_ai_config_missing(tmp_path, monkeypatch):
@@ -63,8 +84,8 @@ def test_axiom_extract_route_uses_env_fallback_when_ai_config_missing(tmp_path, 
     monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
     monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
     monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-route")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-route")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     server = _reload_module("server")
     axiom_extractor = _reload_module("axiom_extractor")
@@ -101,9 +122,9 @@ def test_axiom_extract_route_uses_env_fallback_when_ai_config_missing(tmp_path, 
 
     assert response.status_code == 200
     assert captured["content"] == "SMX appears alongside two possible contractor names."
-    assert captured["provider"] == "openai"
-    assert captured["model"] == "gpt-4o"
-    assert captured["api_key"] == "sk-test-openai-route"
+    assert captured["provider"] == "anthropic"
+    assert captured["model"] == "claude-sonnet-4-6"
+    assert captured["api_key"] == "sk-test-anthropic-route"
 
 
 def test_axiom_search_ingest_uses_dev_fallback_without_provider_key(tmp_path, monkeypatch):
@@ -138,10 +159,77 @@ def test_axiom_search_ingest_uses_dev_fallback_without_provider_key(tmp_path, mo
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["status"] == "completed"
+    assert payload["provider_backed"] is False
+    assert payload["fallback_active"] is True
     assert payload["local_fallback"]["mode"] == "deterministic_dev_pressure"
     assert payload["entities"][0]["name"] == "SMX"
     assert payload["intelligence_gaps"]
     assert payload["kg_ingestion"]["entities_created"] == 0
+    assert payload["kg_ingestion"]["status"] == "degraded"
+    assert payload["runtime"]["fallback_active"] is True
+    assert payload["readiness_contract"]["status"] == "degraded"
+    assert payload["connector_accounting"]["connector_calls_attempted"] == 0
+
+
+def test_axiom_search_ingest_honors_explicit_lane_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-test.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-route")
+
+    server = _reload_module("server")
+    axiom_agent = _reload_module("axiom_agent")
+
+    server.db.init_db()
+    server.init_auth_db()
+    if server.HAS_AI:
+        server.init_ai_tables()
+
+    captured: dict[str, str] = {}
+
+    def fake_run_agent(*, target, provider="", model="", user_id="", provider_locked=False, model_locked=False, lane_id=""):
+        captured["lane_id"] = lane_id
+        return axiom_agent.AgentResult(
+            target=target,
+            runtime={
+                "lane_id": lane_id,
+                "provider_requested": provider,
+                "model_requested": model,
+                "provider_used": provider,
+                "model_used": model,
+                "provider_backed": True,
+                "fallback_active": False,
+            },
+        )
+
+    monkeypatch.setattr(axiom_agent, "run_agent", fake_run_agent)
+    monkeypatch.setattr(
+        axiom_agent,
+        "ingest_agent_result",
+        lambda result, vendor_id="": {
+            "entities_created": 0,
+            "relationships_created": 0,
+            "claims_created": 0,
+            "evidence_created": 0,
+        },
+    )
+
+    with server.app.test_client() as client:
+        response = client.post(
+            "/api/axiom/search/ingest",
+            json={
+                "prime_contractor": "Parsons Corporation",
+                "lane_id": "edge_collection",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert captured["lane_id"] == "edge_collection"
+    assert payload["runtime"]["lane_id"] == "edge_collection"
 
 
 def test_save_ai_config_accepts_gpt41(tmp_path, monkeypatch):

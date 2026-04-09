@@ -10,19 +10,19 @@ _LANE_POLICIES: dict[str, dict[str, Any]] = {
     "mission_command": {
         "label": "Mission Command",
         "intent": "Fast quarterback reads, preflight calls, and operator-facing field awareness.",
-        "primary": {"config_id": "__openai_backup__", "provider": "openai", "model": "gpt-4o"},
+        "primary": {"config_id": "__org_default__", "provider": "anthropic", "model": "claude-sonnet-4-6"},
         "backups": [
-            {"config_id": "__org_default__", "provider": "anthropic", "model": "claude-sonnet-4-6"},
             {"config_id": "__anthropic_backup__", "provider": "anthropic", "model": "claude-sonnet-4-6"},
+            {"config_id": "__openai_backup__", "provider": "openai", "model": "gpt-4o"},
         ],
     },
     "edge_collection": {
         "label": "Edge Collection",
         "intent": "Cheap, fast collection pivots, extraction support, and iterative discovery loops.",
-        "primary": {"config_id": "__openai_backup__", "provider": "openai", "model": "gpt-4o"},
+        "primary": {"config_id": "__org_default__", "provider": "anthropic", "model": "claude-sonnet-4-6"},
         "backups": [
-            {"config_id": "__org_default__", "provider": "anthropic", "model": "claude-sonnet-4-6"},
             {"config_id": "__anthropic_backup__", "provider": "anthropic", "model": "claude-sonnet-4-6"},
+            {"config_id": "__openai_backup__", "provider": "openai", "model": "gpt-4o"},
         ],
     },
     "adverse_case_adjudication": {

@@ -1288,6 +1288,38 @@ export interface DossierResult {
 
 export interface AxiomSearchResult {
   status?: string;
+  provider_backed?: boolean;
+  fallback_active?: boolean;
+  runtime?: {
+    lane_id?: string;
+    provider_requested?: string | null;
+    model_requested?: string | null;
+    provider_used?: string;
+    model_used?: string;
+    provider_backed?: boolean;
+    fallback_active?: boolean;
+  };
+  connector_accounting?: {
+    connector_calls_attempted?: number;
+    connector_calls_with_data?: number;
+    connector_calls_failed?: number;
+    connector_findings_returned?: number;
+    connector_relationships_returned?: number;
+    errors?: string[];
+  };
+  readiness_contract?: {
+    status?: string;
+    blocking_failures?: string[];
+    evidence_actions_attempted?: number;
+    usable_surface_count?: number;
+    surfaces?: {
+      enrichment?: Record<string, unknown>;
+      ownership?: Record<string, unknown>;
+      procurement?: Record<string, unknown>;
+      graph?: Record<string, unknown>;
+      axiom_gap_closure?: Record<string, unknown>;
+    };
+  };
   iteration?: number;
   entities?: Array<{
     name: string;
@@ -1323,6 +1355,7 @@ export interface AxiomSearchResult {
   total_connector_calls?: number;
   elapsed_ms?: number;
   kg_ingestion?: {
+    status?: string;
     entities_created?: number;
     relationships_created?: number;
     claims_created?: number;
@@ -1349,6 +1382,7 @@ export async function runAxiomSearchIngest(payload: {
   installation?: string;
   context?: string;
   vendor_id?: string;
+  lane_id?: string;
   provider?: "anthropic" | "openai";
   model?: string;
 }): Promise<AxiomSearchResult> {

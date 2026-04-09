@@ -8,8 +8,70 @@ import { EmptyPanel, InlineMessage, LoadingPanel, PanelHeader, ShortcutBadge, St
 
 type AxiomProvider = "anthropic" | "openai";
 
+interface AxiomReadinessSurface {
+  status?: string;
+  connectorsRun?: number;
+  connectorsWithData?: number;
+  officialConnectorsWithData?: number;
+  relationshipCount?: number;
+  controlPathCount?: number;
+  connectorCallsAttempted?: number;
+  connectorCallsWithData?: number;
+  passes?: number;
+  entitiesFound?: number;
+  relationshipsFound?: number;
+  gapCount?: number;
+  errors?: string[];
+  gapLines?: string[];
+  missingRequiredEdgeFamilies?: string[];
+  unresolvedReasons?: string[];
+}
+
 interface RawAxiomSearchResult {
   status?: string;
+  provider_backed?: boolean;
+  fallback_active?: boolean;
+  runtime?: {
+    lane_id?: string;
+    provider_requested?: string | null;
+    model_requested?: string | null;
+    provider_used?: string;
+    model_used?: string;
+    provider_backed?: boolean;
+    fallback_active?: boolean;
+  };
+  connector_accounting?: {
+    connector_calls_attempted?: number;
+    connector_calls_with_data?: number;
+    connector_calls_failed?: number;
+    connector_findings_returned?: number;
+    connector_relationships_returned?: number;
+    errors?: string[];
+  };
+  readiness_contract?: {
+    status?: string;
+    blocking_failures?: string[];
+    evidence_actions_attempted?: number;
+    usable_surface_count?: number;
+    surfaces?: Record<string, {
+      status?: string;
+      connectors_run?: number;
+      connectors_with_data?: number;
+      official_connectors_with_data?: number;
+      relationship_count?: number;
+      control_path_count?: number;
+      connector_calls_attempted?: number;
+      connector_calls_with_data?: number;
+      passes?: number;
+      entities_found?: number;
+      relationships_found?: number;
+      gap_count?: number;
+      errors?: string[];
+      gap_lines?: string[];
+      missing_required_edge_families?: string[];
+      unresolved_reasons?: string[];
+    }>;
+  };
   error?: string;
   iteration?: number;
   iterations?: unknown[];
@@ -47,6 +109,7 @@ interface RawAxiomSearchResult {
   total_connector_calls?: number;
   elapsed_ms?: number;
   kg_ingestion?: {
+    status?: string;
     entities_created?: number;
     relationships_created?: number;
     claims_created?: number;
@@ -58,6 +121,10 @@ interface RawAxiomSearchResult {
     status_url?: string | null;
     reused_existing_job?: boolean;
     error?: string;
+  };
+  local_fallback?: {
+    mode?: string;
+    reason?: string;
   };
   vehicle_mode_support?: {
     vehicle_name?: string;
@@ -83,6 +150,32 @@ interface RawAxiomSearchResult {
 
 interface AxiomSearchResult {
   status: string;
+  providerBacked: boolean;
+  fallbackActive: boolean;
+  runtime?: {
+    laneId?: string;
+    providerRequested?: string | null;
+    modelRequested?: string | null;
+    providerUsed?: string;
+    modelUsed?: string;
+    providerBacked?: boolean;
+    fallbackActive?: boolean;
+  };
+  connectorAccounting?: {
+    connectorCallsAttempted: number;
+    connectorCallsWithData: number;
+    connectorCallsFailed: number;
+    connectorFindingsReturned: number;
+    connectorRelationshipsReturned: number;
+    errors: string[];
+  };
+  readinessContract?: {
+    status: string;
+    blockingFailures: string[];
+    evidenceActionsAttempted: number;
+    usableSurfaceCount: number;
+    surfaces: Record<string, AxiomReadinessSurface>;
+  };
   iteration: number;
   entities: Array<{
     name: string;
@@ -110,6 +203,7 @@ interface AxiomSearchResult {
   elapsedMs: number;
   kgIngestion?: RawAxiomSearchResult["kg_ingestion"];
   neo4jSync?: RawAxiomSearchResult["neo4j_sync"];
+  localFallback?: RawAxiomSearchResult["local_fallback"];
   vehicleModeSupport?: RawAxiomSearchResult["vehicle_mode_support"];
 }
 
@@ -118,17 +212,65 @@ interface AxiomSearchPanelProps {
   onRunStateChange?: (state: { running: boolean; status: string; requestId?: string | null }) => void;
   seed?: {
     targetEntity: string;
+    vendorId?: string;
     vehicleName?: string;
     domainFocus?: string;
     seedLabel?: string;
     autoRun?: boolean;
+    autoIngest?: boolean;
     requestId?: string;
   } | null;
 }
 
 function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
+  const readinessSurfaces = Object.fromEntries(
+    Object.entries(raw.readiness_contract?.surfaces || {}).map(([key, surface]) => [key, {
+      status: surface?.status,
+      connectorsRun: surface?.connectors_run,
+      connectorsWithData: surface?.connectors_with_data,
+      officialConnectorsWithData: surface?.official_connectors_with_data,
+      relationshipCount: surface?.relationship_count,
+      controlPathCount: surface?.control_path_count,
+      connectorCallsAttempted: surface?.connector_calls_attempted,
+      connectorCallsWithData: surface?.connector_calls_with_data,
+      passes: surface?.passes,
+      entitiesFound: surface?.entities_found,
+      relationshipsFound: surface?.relationships_found,
+      gapCount: surface?.gap_count,
+      errors: surface?.errors || [],
+      gapLines: surface?.gap_lines || [],
+      missingRequiredEdgeFamilies: surface?.missing_required_edge_families || [],
+      unresolvedReasons: surface?.unresolved_reasons || [],
+    }]),
+  );
   return {
     status: raw.status || "completed",
+    providerBacked: Boolean(raw.provider_backed ?? raw.runtime?.provider_backed),
+    fallbackActive: Boolean(raw.fallback_active ?? raw.runtime?.fallback_active),
+    runtime: raw.runtime ? {
+      laneId: raw.runtime.lane_id,
+      providerRequested: raw.runtime.provider_requested ?? null,
+      modelRequested: raw.runtime.model_requested ?? null,
+      providerUsed: raw.runtime.provider_used,
+      modelUsed: raw.runtime.model_used,
+      providerBacked: raw.runtime.provider_backed,
+      fallbackActive: raw.runtime.fallback_active,
+    } : undefined,
+    connectorAccounting: raw.connector_accounting ? {
+      connectorCallsAttempted: raw.connector_accounting.connector_calls_attempted ?? 0,
+      connectorCallsWithData: raw.connector_accounting.connector_calls_with_data ?? 0,
+      connectorCallsFailed: raw.connector_accounting.connector_calls_failed ?? 0,
+      connectorFindingsReturned: raw.connector_accounting.connector_findings_returned ?? 0,
+      connectorRelationshipsReturned: raw.connector_accounting.connector_relationships_returned ?? 0,
+      errors: raw.connector_accounting.errors || [],
+    } : undefined,
+    readinessContract: raw.readiness_contract ? {
+      status: raw.readiness_contract.status || "degraded",
+      blockingFailures: raw.readiness_contract.blocking_failures || [],
+      evidenceActionsAttempted: raw.readiness_contract.evidence_actions_attempted ?? 0,
+      usableSurfaceCount: raw.readiness_contract.usable_surface_count ?? 0,
+      surfaces: readinessSurfaces,
+    } : undefined,
     iteration: raw.iteration ?? raw.iterations?.length ?? 0,
     entities: (raw.entities || []).map((entity) => ({
       name: entity.name,
@@ -156,8 +298,16 @@ function normalizeSearchResult(raw: RawAxiomSearchResult): AxiomSearchResult {
     elapsedMs: raw.elapsed_ms ?? 0,
     kgIngestion: raw.kg_ingestion,
     neo4jSync: raw.neo4j_sync,
+    localFallback: raw.local_fallback,
     vehicleModeSupport: raw.vehicle_mode_support,
   };
+}
+
+function summarizeLocalFallback(localFallback?: RawAxiomSearchResult["local_fallback"]) {
+  if (!localFallback) return "";
+  const mode = String(localFallback.mode || "deterministic fallback").replace(/_/g, " ").trim();
+  const reason = String(localFallback.reason || "provider access is unavailable").trim();
+  return `AXIOM fell back to ${mode}. ${reason} This pass did not run live connector-backed collection.`;
 }
 
 function formatMillis(elapsedMs: number): string {
@@ -166,17 +316,49 @@ function formatMillis(elapsedMs: number): string {
   return `${(elapsedMs / 1000).toFixed(1)} s`;
 }
 
+function readinessTone(status?: string): "success" | "warning" | "danger" | "info" {
+  if (status === "ready") return "success";
+  if (status === "failed") return "danger";
+  if (status === "degraded" || status === "stale") return "warning";
+  return "info";
+}
+
+function surfaceMetricSummary(
+  key: string,
+  surface?: AxiomReadinessSurface,
+): string {
+  if (!surface) return "No signal";
+  if (key === "ownership") {
+    return `${surface.connectorsWithData ?? 0}/${surface.connectorsRun ?? 0} connectors with data • ${surface.relationshipCount ?? 0} relationships`;
+  }
+  if (key === "procurement") {
+    return `${surface.connectorsWithData ?? 0}/${surface.connectorsRun ?? 0} connectors with data • ${surface.relationshipCount ?? 0} relationships`;
+  }
+  if (key === "graph") {
+    return `${surface.relationshipCount ?? 0} relationships • ${surface.controlPathCount ?? 0} control paths`;
+  }
+  if (key === "axiom_gap_closure") {
+    return `${surface.connectorCallsWithData ?? 0}/${surface.connectorCallsAttempted ?? 0} tactical connector calls with data • ${surface.relationshipsFound ?? 0} relationships`;
+  }
+  return `${surface.connectorsWithData ?? 0}/${surface.connectorsRun ?? 0} connectors with data`;
+}
+
+const AXIOM_SEARCH_TIMEOUT_MS = 60000;
+
 export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = null }: AxiomSearchPanelProps) {
   const targetInputRef = useRef<HTMLInputElement | null>(null);
   const resultsScrollRef = useRef<HTMLDivElement | null>(null);
   const autoRunSeedKeyRef = useRef<string>("");
+  const searchRequestSequenceRef = useRef(0);
+  const activeSearchAbortRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 1024);
   const [targetEntity, setTargetEntity] = useState("");
   const [vehicleName, setVehicleName] = useState("");
   const [installation, setInstallation] = useState("");
   const [domainFocus, setDomainFocus] = useState("");
-  const [provider, setProvider] = useState<AxiomProvider>("openai");
-  const [model, setModel] = useState("gpt-4o");
+  const [provider, setProvider] = useState<AxiomProvider>("anthropic");
+  const [model, setModel] = useState("claude-sonnet-4-6");
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [iteration, setIteration] = useState(0);
@@ -209,6 +391,15 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      activeSearchAbortRef.current?.abort();
+      activeSearchAbortRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     const el = resultsScrollRef.current;
     if (!el) return;
     el.scrollTop = 0;
@@ -232,6 +423,7 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
     ingest: boolean,
     overrides?: Partial<{
       targetEntity: string;
+      vendorId: string;
       vehicleName: string;
       installation: string;
       domainFocus: string;
@@ -240,6 +432,7 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
     }>,
   ) => {
     const nextTargetEntity = overrides?.targetEntity ?? targetEntity;
+    const nextVendorId = overrides?.vendorId ?? seed?.vendorId ?? "";
     const nextVehicleName = overrides?.vehicleName ?? vehicleName;
     const nextInstallation = overrides?.installation ?? installation;
     const nextDomainFocus = overrides?.domainFocus ?? domainFocus;
@@ -251,54 +444,91 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
       return null;
     }
 
+    const requestId = searchRequestSequenceRef.current + 1;
+    searchRequestSequenceRef.current = requestId;
+    activeSearchAbortRef.current?.abort();
+    const controller = new AbortController();
+    activeSearchAbortRef.current = controller;
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, AXIOM_SEARCH_TIMEOUT_MS);
+
     const endpoint = ingest ? "/api/axiom/search/ingest" : "/api/axiom/search";
     const token = getToken();
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-      body: JSON.stringify({
-        prime_contractor: nextTargetEntity,
-        vehicle_name: nextVehicleName || undefined,
-        installation: nextInstallation || undefined,
-        context: nextDomainFocus || undefined,
-        provider: nextProvider,
-        model: nextModel,
-      }),
-    });
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
+          prime_contractor: nextTargetEntity,
+          vendor_id: nextVendorId || undefined,
+          vehicle_name: nextVehicleName || undefined,
+          installation: nextInstallation || undefined,
+          context: nextDomainFocus || undefined,
+          lane_id: "mission_command",
+          provider: nextProvider,
+          model: nextModel,
+        }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Search failed: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Search failed: ${response.status}`);
+      }
+
+      const raw = (await response.json()) as RawAxiomSearchResult;
+      if (raw.error) {
+        throw new Error(raw.error);
+      }
+
+      if (requestId !== searchRequestSequenceRef.current || !isMountedRef.current) {
+        return null;
+      }
+
+      const data = normalizeSearchResult(raw);
+      setResults(data);
+      setIteration(data.iteration);
+      onResultsChange?.(data);
+      return data;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        if (timedOut && requestId === searchRequestSequenceRef.current && isMountedRef.current) {
+          throw new Error("AXIOM timed out before the pass returned. Retry the thread or narrow the target.");
+        }
+        return null;
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (activeSearchAbortRef.current === controller) {
+        activeSearchAbortRef.current = null;
+      }
     }
-
-    const raw = (await response.json()) as RawAxiomSearchResult;
-    if (raw.error) {
-      throw new Error(raw.error);
-    }
-
-    const data = normalizeSearchResult(raw);
-    setResults(data);
-    setIteration(data.iteration);
-    onResultsChange?.(data);
-    return data;
-  }, [domainFocus, installation, model, onResultsChange, provider, targetEntity, vehicleName]);
+  }, [domainFocus, installation, model, onResultsChange, provider, seed?.vendorId, targetEntity, vehicleName]);
 
   useEffect(() => {
     if (!seed?.targetEntity) return;
     const nextDomainFocus = seed.domainFocus === "full entity picture" ? "" : seed.domainFocus || "";
+    const nextAutoIngest = seed.autoIngest ?? true;
     setTargetEntity(seed.targetEntity);
     setVehicleName(seed.vehicleName || "");
     setDomainFocus(nextDomainFocus);
+    setAutoIngest(nextAutoIngest);
     setInstallation("");
     if (!seed.autoRun) return;
 
     const seedKey = JSON.stringify({
       targetEntity: seed.targetEntity,
+      vendorId: seed.vendorId || "",
       vehicleName: seed.vehicleName || "",
       domainFocus: nextDomainFocus,
+      autoIngest: nextAutoIngest,
       requestId: seed.requestId || "",
     });
     if (autoRunSeedKeyRef.current === seedKey) return;
@@ -312,13 +542,14 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
       setResults(null);
 
       try {
-        const data = await runSearch(false, {
+        const data = await runSearch(nextAutoIngest, {
           targetEntity: seed.targetEntity,
+          vendorId: seed.vendorId || "",
           vehicleName: seed.vehicleName || "",
           domainFocus: nextDomainFocus,
         });
         if (data) {
-          setStatus(data.status || "AXIOM finished the first pass.");
+          setStatus(summarizeLocalFallback(data.localFallback) || data.status || "AXIOM finished the first pass.");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -343,9 +574,9 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
       const data = await runSearch(autoIngest);
       if (data) {
         setStatus(
-          autoIngest
+          summarizeLocalFallback(data.localFallback) || (autoIngest
             ? "AXIOM finished the first pass and promoted the accepted picture into the graph."
-            : data.status || "AXIOM finished the first pass.",
+            : data.status || "AXIOM finished the first pass."),
         );
       }
     } catch (err) {
@@ -364,7 +595,9 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
     try {
       const data = await runSearch(true);
       if (data) {
-        setStatus("AXIOM reran the thread and promoted the accepted picture into the graph.");
+        setStatus(
+          summarizeLocalFallback(data.localFallback) || "AXIOM reran the thread and promoted the accepted picture into the graph.",
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -396,6 +629,19 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
     installation.trim() ? `Installation ${installation.trim()}` : null,
     domainFocus.trim() ? `Context ${domainFocus.trim()}` : null,
   ].filter(Boolean);
+  const readinessSurfaceEntries = results?.readinessContract
+    ? [
+      ["enrichment", "Enrichment"],
+      ["ownership", "Ownership"],
+      ["procurement", "Procurement"],
+      ["graph", "Graph"],
+      ["axiom_gap_closure", "AXIOM gap closure"],
+    ].map(([key, label]) => ({
+      key,
+      label,
+      surface: results.readinessContract?.surfaces[key],
+    }))
+    : [];
 
   return (
     <form
@@ -634,7 +880,7 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
                     onChange={(e) => {
                       const nextProvider = e.target.value as AxiomProvider;
                       setProvider(nextProvider);
-                      setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4.1");
+                      setModel(nextProvider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o");
                     }}
                     disabled={isRunning}
                     aria-label="AXIOM provider"
@@ -809,6 +1055,36 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
             />
           ) : null}
 
+          {results?.localFallback ? (
+            <InlineMessage
+              tone="warning"
+              title="Local fallback active"
+              message={summarizeLocalFallback(results.localFallback)}
+              icon={AlertCircle}
+            />
+          ) : null}
+
+          {results?.readinessContract ? (
+            <InlineMessage
+              tone={readinessTone(results.readinessContract.status)}
+              title={`Readiness ${results.readinessContract.status.toUpperCase()}`}
+              message={
+                <>
+                  {results.readinessContract.evidenceActionsAttempted} evidence actions attempted across{" "}
+                  {results.readinessContract.usableSurfaceCount} usable surfaces.
+                  {results.runtime?.providerUsed ? (
+                    <span style={{ display: "block", marginTop: SP.xs, color: T.textSecondary }}>
+                      Runtime: <span style={{ color: T.text }}>{results.runtime.providerUsed}</span>
+                      {results.runtime.modelUsed ? ` / ${results.runtime.modelUsed}` : ""}
+                      {results.providerBacked ? "" : " • provider-backed collection did not hold"}
+                    </span>
+                  ) : null}
+                </>
+              }
+              icon={Search}
+            />
+          ) : null}
+
           {!isRunning && !results && !error ? (
             <EmptyPanel
               title="Nothing active yet"
@@ -826,7 +1102,7 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
             {[
               { label: "Entities", value: results.entities.length },
               { label: "Leads", value: results.relationships.length },
-              { label: "Queries", value: results.totalQueries },
+              { label: "Evidence actions", value: results.readinessContract?.evidenceActionsAttempted ?? results.totalQueries },
               { label: "Elapsed", value: formatMillis(results.elapsedMs) },
             ].map((item) => (
               <div key={item.label}>
@@ -837,6 +1113,50 @@ export function AxiomSearchPanel({ onResultsChange, onRunStateChange, seed = nul
               </div>
             ))}
           </div>
+
+          {readinessSurfaceEntries.length > 0 ? (
+            <div>
+              <h4 style={{ fontSize: FS.sm, fontWeight: 600, color: T.text, marginBottom: SP.sm }}>
+                Surface contract
+              </h4>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {readinessSurfaceEntries.map(({ key, label, surface }) => (
+                  <div
+                    key={key}
+                    className="rounded-lg"
+                    style={{
+                      background: T.bg,
+                      border: `1px solid ${T.border}`,
+                      padding: PAD.default,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: SP.sm, alignItems: "center" }}>
+                      <div style={{ fontSize: FS.sm, fontWeight: 600, color: T.text }}>{label}</div>
+                      <StatusPill tone={readinessTone(surface?.status)}>{surface?.status || "skipped"}</StatusPill>
+                    </div>
+                    <div style={{ fontSize: FS.sm, color: T.dim, marginTop: SP.xs }}>
+                      {surfaceMetricSummary(key, surface)}
+                    </div>
+                    {surface?.missingRequiredEdgeFamilies?.length ? (
+                      <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
+                        Missing edge families: {surface.missingRequiredEdgeFamilies.join(", ")}
+                      </div>
+                    ) : null}
+                    {surface?.gapLines?.length ? (
+                      <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
+                        {surface.gapLines[0]}
+                      </div>
+                    ) : null}
+                    {surface?.unresolvedReasons?.length ? (
+                      <div style={{ fontSize: FS.xs, color: T.textTertiary, marginTop: SP.xs }}>
+                        {surface.unresolvedReasons[0]}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {results.vehicleModeSupport ? (
             <div

@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from flask import g, jsonify, request
 
 from ai_lane_routing import get_lane_policy
+from readiness_contract import build_readiness_contract
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +27,147 @@ logger = logging.getLogger(__name__)
 def register_axiom_routes(*, app, require_auth, db):
     """Register all AXIOM API routes on the Flask app."""
 
+    def _runtime_payload(
+        *,
+        runtime: dict[str, object] | None = None,
+        fallback_active: bool = False,
+    ) -> dict[str, object]:
+        payload = dict(runtime or {})
+        payload["provider_backed"] = bool(payload.get("provider_backed")) and not fallback_active
+        payload["fallback_active"] = fallback_active
+        return payload
+
+    def _kg_ingestion_payload(summary: dict[str, object] | None) -> dict[str, object] | None:
+        if not isinstance(summary, dict):
+            return None
+        counts = {
+            "entities_created": int(summary.get("entities_created") or 0),
+            "relationships_created": int(summary.get("relationships_created") or 0),
+            "claims_created": int(summary.get("claims_created") or 0),
+            "evidence_created": int(summary.get("evidence_created") or 0),
+        }
+        status = "ready" if any(counts.values()) else "degraded"
+        return {
+            **counts,
+            "status": status,
+        }
+
+    def _load_vendor_support_surfaces(vendor_id: str) -> dict[str, object]:
+        if not vendor_id:
+            return {
+                "enrichment": None,
+                "ownership": None,
+                "procurement": None,
+                "graph": None,
+            }
+
+        vendor = db.get_vendor(vendor_id)
+        if not vendor:
+            missing = {"error": f"Vendor {vendor_id} was not found for AXIOM support loading."}
+            return {
+                "enrichment": missing,
+                "ownership": missing,
+                "procurement": missing,
+                "graph": missing,
+            }
+
+        enrichment = None
+        ownership = None
+        procurement = None
+        graph = None
+
+        try:
+            enrichment = db.get_latest_enrichment(vendor_id)
+        except Exception as exc:
+            enrichment = {"error": str(exc)}
+
+        try:
+            from vendor_ownership_support import build_vendor_ownership_support
+
+            ownership = build_vendor_ownership_support(
+                vendor_id=vendor_id,
+                vendor=vendor,
+                enrichment=enrichment if isinstance(enrichment, dict) and not enrichment.get("error") else None,
+                sync_graph=False,
+            )
+        except Exception as exc:
+            ownership = {"error": str(exc)}
+
+        try:
+            from vendor_procurement_support import build_vendor_procurement_support
+
+            procurement = build_vendor_procurement_support(
+                vendor_id=vendor_id,
+                vendor=vendor,
+                sync_graph=False,
+            )
+        except Exception as exc:
+            procurement = {"error": str(exc)}
+
+        try:
+            from graph_ingest import get_vendor_graph_summary
+
+            graph = get_vendor_graph_summary(
+                vendor_id,
+                depth=2,
+                include_provenance=True,
+                max_claim_records=2,
+                max_evidence_records=2,
+            )
+        except Exception as exc:
+            graph = {"error": str(exc)}
+
+        return {
+            "enrichment": enrichment,
+            "ownership": ownership,
+            "procurement": procurement,
+            "graph": graph,
+        }
+
+    def _shape_axiom_response(
+        *,
+        response_payload: dict[str, object],
+        runtime: dict[str, object] | None,
+        vendor_id: str = "",
+        agent_result=None,
+        local_fallback: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        runtime_payload = _runtime_payload(runtime=runtime, fallback_active=bool(local_fallback))
+        surfaces = _load_vendor_support_surfaces(vendor_id)
+        readiness_contract, connector_accounting = build_readiness_contract(
+            enrichment=surfaces.get("enrichment"),
+            ownership=surfaces.get("ownership"),
+            procurement=surfaces.get("procurement"),
+            graph=surfaces.get("graph"),
+            agent_result=agent_result or response_payload,
+            local_fallback=local_fallback,
+        )
+
+        payload = dict(response_payload)
+        kg_ingestion = _kg_ingestion_payload(payload.get("kg_ingestion"))
+        if kg_ingestion is not None:
+            payload["kg_ingestion"] = kg_ingestion
+        payload["runtime"] = runtime_payload
+        payload["provider_backed"] = bool(runtime_payload.get("provider_backed"))
+        payload["fallback_active"] = bool(runtime_payload.get("fallback_active"))
+        payload["connector_accounting"] = connector_accounting
+        payload["readiness_contract"] = readiness_contract
+        return payload
+
     def _dev_axiom_fallback_allowed(error: str) -> bool:
         if os.environ.get("XIPHOS_DEV_MODE", "false").lower() != "true":
             return False
         lowered = str(error or "").lower()
         return "no api key available" in lowered or "configure ai provider" in lowered
 
-    def _build_local_axiom_fallback(*, target, vendor_id: str = "", error: str = "", include_ingestion: bool = False):
+    def _build_local_axiom_fallback(
+        *,
+        target,
+        vendor_id: str = "",
+        error: str = "",
+        include_ingestion: bool = False,
+        runtime: dict[str, object] | None = None,
+    ):
         graph_context = {}
         graph_toolkit = {}
         vehicle_mode_support = {}
@@ -241,7 +376,12 @@ def register_axiom_routes(*, app, require_auth, db):
                 "claims_created": 0,
                 "evidence_created": 0,
             }
-        return response
+        return _shape_axiom_response(
+            response_payload=response,
+            runtime=runtime,
+            vendor_id=vendor_id,
+            local_fallback=response.get("local_fallback"),
+        )
 
     def _watchlist_priority(value: str) -> str:
         normalized = str(value or "").strip().lower()
@@ -610,8 +750,8 @@ def register_axiom_routes(*, app, require_auth, db):
             "website": "https://smxtech.com",          // optional
             "known_subs": ["The Unconventional"],      // optional
             "context": "INDOPACOM IT services",        // optional
-            "provider": "openai",                      // optional, default openai
-            "model": "gpt-4o"                          // optional
+            "provider": "anthropic",                  // optional, default mission-command primary
+            "model": "claude-sonnet-4-6"              // optional
         }
 
         Returns:
@@ -643,10 +783,11 @@ def register_axiom_routes(*, app, require_auth, db):
                 known_subs=body.get("known_subs") or body.get("knownSubs") or [],
                 context=str(body.get("context") or body.get("domain_focus") or ""),
             )
+            lane_id = str(body.get("lane_id") or "mission_command").strip() or "mission_command"
 
             # Get user ID from Flask g context (set by require_auth)
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
-            runtime_defaults = dict(get_lane_policy("mission_command").get("primary") or {})
+            runtime_defaults = dict(get_lane_policy(lane_id).get("primary") or {})
 
             result = run_agent(
                 target=target,
@@ -655,18 +796,32 @@ def register_axiom_routes(*, app, require_auth, db):
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
-                lane_id="mission_command",
+                lane_id=lane_id,
             )
 
             if result.error:
                 if _dev_axiom_fallback_allowed(result.error):
-                    return jsonify(_build_local_axiom_fallback(target=target, error=result.error)), 200
+                    return jsonify(
+                        _build_local_axiom_fallback(
+                            target=target,
+                            vendor_id=str(body.get("vendor_id") or ""),
+                            error=result.error,
+                            runtime=result.runtime,
+                        )
+                    ), 200
                 return jsonify({"error": result.error, "partial_result": result.to_dict()}), 500
 
             response = result.to_dict()
             response["status"] = "completed"
             response["iteration"] = len(result.iterations)
-            return jsonify(response), 200
+            return jsonify(
+                _shape_axiom_response(
+                    response_payload=response,
+                    runtime=response.get("runtime"),
+                    vendor_id=str(body.get("vendor_id") or ""),
+                    agent_result=result,
+                )
+            ), 200
 
         except ImportError as e:
             logger.error("axiom_routes: axiom_agent not available: %s", e)
@@ -709,10 +864,11 @@ def register_axiom_routes(*, app, require_auth, db):
                 known_subs=body.get("known_subs") or body.get("knownSubs") or [],
                 context=str(body.get("context") or body.get("domain_focus") or ""),
             )
+            lane_id = str(body.get("lane_id") or "mission_command").strip() or "mission_command"
 
             user_id = g.user.get("sub", "") if getattr(g, "user", None) else ""
             user_email = g.user.get("email", "") if getattr(g, "user", None) else ""
-            runtime_defaults = dict(get_lane_policy("mission_command").get("primary") or {})
+            runtime_defaults = dict(get_lane_policy(lane_id).get("primary") or {})
 
             result = run_agent(
                 target=target,
@@ -721,7 +877,7 @@ def register_axiom_routes(*, app, require_auth, db):
                 user_id=user_id,
                 provider_locked="provider" in body,
                 model_locked="model" in body,
-                lane_id="mission_command",
+                lane_id=lane_id,
             )
 
             if result.error:
@@ -732,6 +888,7 @@ def register_axiom_routes(*, app, require_auth, db):
                             vendor_id=str(body.get("vendor_id") or ""),
                             error=result.error,
                             include_ingestion=True,
+                            runtime=result.runtime,
                         )
                     ), 200
                 return jsonify({"error": result.error, "partial_result": result.to_dict()}), 500
@@ -750,7 +907,14 @@ def register_axiom_routes(*, app, require_auth, db):
                     requested_by=user_id,
                     requested_by_email=user_email,
                 )
-            return jsonify(response), 200
+            return jsonify(
+                _shape_axiom_response(
+                    response_payload=response,
+                    runtime=response.get("runtime"),
+                    vendor_id=str(body.get("vendor_id") or ""),
+                    agent_result=result,
+                )
+            ), 200
 
         except ImportError as e:
             return jsonify({"error": "AXIOM agent module not available"}), 503
@@ -773,8 +937,8 @@ def register_axiom_routes(*, app, require_auth, db):
             "content": "raw text to analyze",         // required
             "context": "mission context",              // optional
             "focus_entities": ["entity1", "entity2"],  // optional
-            "provider": "openai",                      // optional
-            "model": "gpt-4o"                          // optional
+            "provider": "anthropic",                  // optional
+            "model": "claude-sonnet-4-6"              // optional
         }
         """
         try:
@@ -840,8 +1004,8 @@ def register_axiom_routes(*, app, require_auth, db):
         {
             "postings": [{"title": "...", "company": "...", ...}],  // required
             "context": "mission context",                            // optional
-            "provider": "openai",                                    // optional
-            "model": "gpt-4o"                                       // optional
+            "provider": "anthropic",                                 // optional
+            "model": "claude-sonnet-4-6"                             // optional
         }
         """
         try:
