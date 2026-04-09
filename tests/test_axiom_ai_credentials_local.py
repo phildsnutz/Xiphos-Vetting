@@ -168,6 +168,9 @@ def test_axiom_search_ingest_uses_dev_fallback_without_provider_key(tmp_path, mo
     assert payload["kg_ingestion"]["status"] == "degraded"
     assert payload["runtime"]["fallback_active"] is True
     assert payload["readiness_contract"]["status"] == "degraded"
+    assert payload["readiness_status"] == "degraded"
+    assert payload["blocking_failures"] == []
+    assert payload["usable_surface_count"] >= 1
     assert payload["connector_accounting"]["connector_calls_attempted"] == 0
 
 
@@ -230,6 +233,79 @@ def test_axiom_search_ingest_honors_explicit_lane_id(tmp_path, monkeypatch):
     payload = response.get_json()
     assert captured["lane_id"] == "edge_collection"
     assert payload["runtime"]["lane_id"] == "edge_collection"
+
+
+def test_axiom_search_promotes_readiness_status_to_top_level(tmp_path, monkeypatch):
+    monkeypatch.setenv("XIPHOS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("XIPHOS_DB_PATH", str(tmp_path / "xiphos-search-readiness.db"))
+    monkeypatch.setenv("XIPHOS_KG_DB_PATH", str(tmp_path / "knowledge-graph.db"))
+    monkeypatch.setenv("XIPHOS_SECURE_ARTIFACTS_DIR", str(tmp_path / "secure-artifacts"))
+    monkeypatch.setenv("XIPHOS_AUTH_ENABLED", "false")
+    monkeypatch.setenv("XIPHOS_DEV_MODE", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-route")
+
+    server = _reload_module("server")
+    axiom_agent = _reload_module("axiom_agent")
+
+    server.db.init_db()
+    server.init_auth_db()
+    if server.HAS_AI:
+        server.init_ai_tables()
+
+    def fake_run_agent(*, target, provider="", model="", user_id="", provider_locked=False, model_locked=False, lane_id=""):
+        return axiom_agent.AgentResult(
+            target=target,
+            entities=[
+                axiom_agent.DiscoveredEntity(name="Parsons Corporation", entity_type="company", confidence=0.9),
+                axiom_agent.DiscoveredEntity(name="Department of Defense", entity_type="government_agency", confidence=0.82),
+            ],
+            relationships=[
+                axiom_agent.DiscoveredRelationship("Parsons Corporation", "Department of Defense", "contracts_with", 0.88),
+                axiom_agent.DiscoveredRelationship("Parsons Corporation", "PARSON CORP", "former_name", 0.92),
+            ],
+            iterations=[
+                axiom_agent.SearchIteration(
+                    iteration=1,
+                    connector_calls=[
+                        {"success": True, "findings_count": 1, "has_data": True},
+                        {"success": True, "relationship_count": 1, "has_data": True},
+                        {"success": True, "identifiers": {"uei": "uei-1"}, "has_data": True},
+                    ],
+                )
+            ],
+            runtime={
+                "lane_id": lane_id,
+                "provider_requested": provider,
+                "model_requested": model,
+                "provider_used": provider,
+                "model_used": model,
+                "provider_backed": True,
+                "fallback_active": False,
+            },
+        )
+
+    monkeypatch.setattr(axiom_agent, "run_agent", fake_run_agent)
+
+    with server.app.test_client() as client:
+        response = client.post(
+            "/api/axiom/search",
+            json={
+                "prime_contractor": "Parsons Corporation",
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "lane_id": "mission_command",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["provider_backed"] is True
+    assert payload["fallback_active"] is False
+    assert payload["readiness_contract"]["status"] == "ready"
+    assert payload["readiness_status"] == "ready"
+    assert payload["blocking_failures"] == []
+    assert payload["usable_surface_count"] >= 1
+    assert payload["evidence_actions_attempted"] == 3
 
 
 def test_save_ai_config_accepts_gpt41(tmp_path, monkeypatch):

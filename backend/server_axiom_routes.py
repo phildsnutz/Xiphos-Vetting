@@ -152,6 +152,10 @@ def register_axiom_routes(*, app, require_auth, db):
         payload["fallback_active"] = bool(runtime_payload.get("fallback_active"))
         payload["connector_accounting"] = connector_accounting
         payload["readiness_contract"] = readiness_contract
+        payload["readiness_status"] = str(readiness_contract.get("status") or "")
+        payload["blocking_failures"] = list(readiness_contract.get("blocking_failures") or [])
+        payload["usable_surface_count"] = int(readiness_contract.get("usable_surface_count") or 0)
+        payload["evidence_actions_attempted"] = int(readiness_contract.get("evidence_actions_attempted") or 0)
         return payload
 
     def _dev_axiom_fallback_allowed(error: str) -> bool:
