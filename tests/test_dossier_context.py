@@ -134,6 +134,9 @@ def test_build_dossier_context_caches_heavy_graph_and_passport_work(monkeypatch)
     assert first["vendor_ownership"]["oci_summary"]["controlling_parent"] == "Cache Holdings"
     assert first["vendor_procurement"]["vendor_name"] == "Cache Vendor"
     assert first["vehicle_intelligence"]["vehicle_name"] == "ITEAMS"
+    assert first["readiness_contract"]["status"] == "degraded"
+    assert first["readiness_contract"]["surfaces"]["ownership"]["status"] == "degraded"
+    assert first["readiness_contract"]["surfaces"]["procurement"]["status"] == "degraded"
 
 
 def test_generate_ai_narrative_renders_pending_section_when_analysis_missing():

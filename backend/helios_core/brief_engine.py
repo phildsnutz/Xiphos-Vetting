@@ -1795,6 +1795,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
 
     <section class="grid">
       <article class="card">
+        <div class="support-line">Axiom Assessment</div>
         <h2>Decision Thesis</h2>
         <div class="axiom-summary">{escape(principal_judgment.get('headline') or payload['summary_line'])}</div>
         <div class="subtle">{escape(principal_judgment.get('narrative') or payload['axiom']['summary'])}</div>
@@ -1916,6 +1917,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
           <ul>{passport_lines or '<li class="empty-line">Insufficient verification data for summary.</li>'}</ul>
         </div>
         <div>
+          <div class="support-line">Recommended Actions</div>
           <h2 style="font-size:16px;">Closure Roadmap</h2>
           <table style="margin-top: 0;">
             <thead>
@@ -1991,6 +1993,7 @@ def _render_html_brief(payload: dict[str, Any]) -> str:
     </section>
 
     <section class="section-card">
+      <div class="support-line">Graph Read</div>
       <h2>Network and Dependency Read</h2>
       <div class="support-line">Relationships affecting dependency, control, teaming, or exposure. Corroboration counts indicate multi-source verification.</div>
       <div class="metrics">
@@ -2119,6 +2122,7 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         story.append(Paragraph("Identity anchors: " + " | ".join(payload["identity_lines"]), body))
 
     story.append(Spacer(1, 0.14 * inch))
+    story.append(Paragraph("Axiom Assessment", muted))
     story.append(Paragraph("Decision Thesis", heading))
     story.append(Paragraph(principal_judgment.get("headline") or payload["summary_line"], body))
     story.append(Paragraph(principal_judgment.get("narrative") or payload["axiom"]["summary"], body))
@@ -2201,6 +2205,7 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         story.append(passport_table)
     for line in payload["passport_snapshot"]["lines"]:
         story.append(Paragraph(line, bullet, bulletText="•"))
+    story.append(Paragraph("Recommended Actions", muted))
 
     # Posture Assessment section in PDF
     story.append(Paragraph("Posture Assessment", heading))
@@ -2227,6 +2232,7 @@ def generate_pdf_brief(vendor_id: str, user_id: str = "", hydrate_ai: bool = Fal
         for item in payload["gaps"]:
             story.append(Paragraph(item, bullet, bulletText="•"))
 
+    story.append(Paragraph("Graph Read", muted))
     story.append(Paragraph("Network and Dependency Read", heading))
     graph_metrics = Table(
         [[

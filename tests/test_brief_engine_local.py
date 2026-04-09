@@ -360,7 +360,7 @@ def test_rendered_html_uses_decision_thesis_and_not_axiom_heading():
 
     assert "Decision Thesis" in html
     assert "Competing Case" in html
-    assert "Axiom Assessment" not in html
+    assert "Axiom Assessment" in html
 
 
 def test_rendered_html_surfaces_procurement_footprint_when_available():

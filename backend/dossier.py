@@ -23,6 +23,7 @@ from typing import Optional
 import db
 from event_extraction import compute_report_hash
 from ai_lane_routing import lane_for_surface
+from readiness_contract import build_readiness_contract
 
 try:
     from storyline import build_case_storyline
@@ -1647,6 +1648,7 @@ def build_dossier_context(
         if HAS_EXPORT_EVIDENCE else None
     )
     vendor_ownership = None
+    ownership_contract_input = None
     effective_enrichment = enrichment
     if HAS_VENDOR_OWNERSHIP_SUPPORT:
         try:
@@ -1657,13 +1659,16 @@ def build_dossier_context(
                 sync_graph=True,
             )
             effective_enrichment = merge_enrichment_with_ownership_support(enrichment, vendor_ownership)
+            ownership_contract_input = vendor_ownership
         except Exception as err:
             print(f"[dossier] Vendor ownership support build failed: {err}")
             vendor_ownership = None
             effective_enrichment = enrichment
+            ownership_contract_input = {"error": str(err)}
 
     storyline = _build_dossier_storyline(vendor_id, vendor, score, effective_enrichment, case_events, intel_summary)
     vendor_procurement = None
+    procurement_contract_input = None
     if HAS_VENDOR_PROCUREMENT_SUPPORT:
         try:
             vendor_procurement = build_vendor_procurement_support(
@@ -1671,11 +1676,14 @@ def build_dossier_context(
                 vendor=vendor,
                 sync_graph=False,
             )
+            procurement_contract_input = vendor_procurement
         except Exception as err:
             print(f"[dossier] Vendor procurement support build failed: {err}")
             vendor_procurement = None
+            procurement_contract_input = {"error": str(err)}
 
     graph_summary = None
+    graph_contract_input = None
     if HAS_GRAPH_SUMMARY:
         try:
             # The dossier and supplier passport both depend on vendor-scoped claim provenance
@@ -1687,9 +1695,11 @@ def build_dossier_context(
                 max_claim_records=2,
                 max_evidence_records=2,
             )
+            graph_contract_input = graph_summary
         except Exception as err:
             print(f"[dossier] Graph provenance lookup failed: {err}")
             graph_summary = None
+            graph_contract_input = {"error": str(err)}
     supplier_passport = None
     if HAS_SUPPLIER_PASSPORT:
         try:
@@ -1756,6 +1766,12 @@ def build_dossier_context(
         "vehicle_intelligence": vehicle_intelligence,
         "analysis_data": analysis_data,
         "analysis_state": analysis_state,
+        "readiness_contract": build_readiness_contract(
+            enrichment=effective_enrichment if isinstance(effective_enrichment, dict) else None,
+            ownership=ownership_contract_input,
+            procurement=procurement_contract_input,
+            graph=graph_contract_input,
+        )[0],
     }
     _store_cached_dossier_context(cache_key, context)
     return context
