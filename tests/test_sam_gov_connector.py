@@ -135,6 +135,35 @@ def test_sam_gov_accepts_legacy_env_alias(monkeypatch):
     assert sam_gov._get_api_key() == "legacy-key"
 
 
+def test_sam_gov_autoloads_runtime_env_from_repo_deploy_env(tmp_path, monkeypatch):
+    import secure_runtime_env
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    deploy_env_path = repo_dir / "deploy.env"
+    deploy_env_path.write_text("XIPHOS_SAM_API_KEY=auto-loaded-key\n", encoding="utf-8")
+
+    monkeypatch.delenv("XIPHOS_RUNTIME_ENV_FILE", raising=False)
+    monkeypatch.delenv("XIPHOS_SAM_API_KEY", raising=False)
+    monkeypatch.delenv("SAM_GOV_API_KEY", raising=False)
+    monkeypatch.delenv("XIPHOS_SAM_GOV_API_KEY", raising=False)
+    monkeypatch.setattr(secure_runtime_env, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(secure_runtime_env, "DEFAULT_DEPLOY_ENV_PATH", config_dir / "deploy.env")
+    monkeypatch.setattr(secure_runtime_env, "DEFAULT_HELIOS_ENV_PATH", config_dir / "helios.env")
+    monkeypatch.setattr(secure_runtime_env, "REPO_DEPLOY_ENV_PATH", deploy_env_path)
+
+    if "osint.sam_gov" in sys.modules:
+        sam_gov = importlib.reload(sys.modules["osint.sam_gov"])
+    else:
+        from osint import sam_gov  # type: ignore
+
+    monkeypatch.setattr(sam_gov, "API_KEY", "")
+
+    assert sam_gov._get_api_key() == "auto-loaded-key"
+
+
 def test_sam_gov_entity_search_url_omits_include_sections_by_default():
     from osint import sam_gov
 

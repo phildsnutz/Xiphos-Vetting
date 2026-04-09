@@ -16,6 +16,7 @@ import urllib.parse
 from datetime import datetime, timezone
 
 from http_transport import curl_json_get
+from secure_runtime_env import ensure_runtime_env_loaded
 
 from . import EnrichmentResult, Finding
 
@@ -30,6 +31,7 @@ RESULT_PAGE_SIZE = int(os.environ.get("XIPHOS_DOD_SAM_EXCLUSIONS_PAGE_SIZE", "5"
 
 
 def _get_api_key() -> str:
+    ensure_runtime_env_loaded(("XIPHOS_SAM_API_KEY", "SAM_GOV_API_KEY", "XIPHOS_SAM_GOV_API_KEY"))
     return (
         API_KEY
         or os.environ.get("XIPHOS_SAM_API_KEY", "")

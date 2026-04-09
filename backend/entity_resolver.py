@@ -18,6 +18,7 @@ import difflib
 import requests
 import concurrent.futures
 from runtime_paths import get_cache_dir, get_main_db_path
+from secure_runtime_env import ensure_runtime_env_loaded
 
 TIMEOUT = 10
 # Front Porch should move with partial truth, not wait on every slow registry.
@@ -685,7 +686,13 @@ def _search_wikidata(name: str) -> list[dict]:
     return candidates
 
 
-_SAM_API_KEY = os.environ.get("XIPHOS_SAM_API_KEY", os.environ.get("SAM_GOV_API_KEY", ""))
+def _sam_api_key() -> str:
+    ensure_runtime_env_loaded(("XIPHOS_SAM_API_KEY", "SAM_GOV_API_KEY", "XIPHOS_SAM_GOV_API_KEY"))
+    return (
+        os.environ.get("XIPHOS_SAM_API_KEY", "")
+        or os.environ.get("SAM_GOV_API_KEY", "")
+        or os.environ.get("XIPHOS_SAM_GOV_API_KEY", "")
+    )
 
 
 def _search_sam_gov(name: str) -> list[dict]:
@@ -695,12 +702,13 @@ def _search_sam_gov(name: str) -> list[dict]:
     Sections pulled: entityRegistration, coreData, assertions, integrityInformation.
     Get a key at https://open.gsa.gov/api/entity-api/ """
     candidates = []
-    if not _SAM_API_KEY:
+    api_key = _sam_api_key()
+    if not api_key:
         return candidates
 
     try:
         params = {
-            "api_key": _SAM_API_KEY,
+            "api_key": api_key,
             "registrationStatus": "A",
             "legalBusinessName": name,
             # Pull all high-value sections in one call
@@ -872,7 +880,7 @@ def resolve_entity(name: str) -> list[dict]:
             futures[executor.submit(_search_opencorporates, sn)] = f"oc({sn})"
             futures[executor.submit(_search_wikidata, sn)] = f"wiki({sn})"
             # SAM.gov for UEI/CAGE (only if API key configured)
-            if _SAM_API_KEY and sn == name:
+            if _sam_api_key() and sn == name:
                 futures[executor.submit(_search_sam_gov, name)] = "sam"
 
         done, not_done = concurrent.futures.wait(tuple(futures), timeout=RESOLUTION_TIMEOUT)

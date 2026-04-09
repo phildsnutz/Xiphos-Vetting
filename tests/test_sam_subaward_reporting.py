@@ -9,9 +9,11 @@ if BACKEND_DIR not in sys.path:
 from osint import sam_subaward_reporting  # noqa: E402
 
 
-def test_enrich_returns_configuration_finding_without_api_key(monkeypatch):
+def test_enrich_returns_configuration_finding_without_api_key(tmp_path, monkeypatch):
     monkeypatch.delenv("XIPHOS_SAM_API_KEY", raising=False)
     monkeypatch.delenv("SAM_GOV_API_KEY", raising=False)
+    monkeypatch.delenv("XIPHOS_SAM_GOV_API_KEY", raising=False)
+    monkeypatch.setenv("XIPHOS_RUNTIME_ENV_FILE", str(tmp_path / "missing.env"))
 
     result = sam_subaward_reporting.enrich("Prime Vendor", country="US")
 

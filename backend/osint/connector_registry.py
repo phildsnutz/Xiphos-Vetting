@@ -36,6 +36,15 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
         access_model="local_json_fixture",
         runtime_active=True,
     ),
+    "axiom_known_proximity": ConnectorRegistryEntry(
+        label="AXIOM Known Proximity Fixture",
+        category="Collector",
+        description="Replayable analyst-curated teammate and vehicle proximity for grey-zone mission threads",
+        source_class="analyst_fixture",
+        authority_level="analyst_curated_fixture",
+        access_model="local_json_fixture",
+        runtime_active=True,
+    ),
     "contract_opportunities_archive_fixture": ConnectorRegistryEntry(
         label="Contract Opportunities Archive Fixture",
         category="Collector",
@@ -635,6 +644,7 @@ CONNECTOR_REGISTRY: dict[str, ConnectorRegistryEntry] = {
 
 ACTIVE_CONNECTOR_ORDER: list[str] = [
     "international_exhibitors_fixture",
+    "axiom_known_proximity",
     "dod_sam_exclusions",
     "trade_csl",
     "un_sanctions",

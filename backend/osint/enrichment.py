@@ -122,6 +122,7 @@ FRANCE_ONLY_CONNECTORS = {
 
 # These always run regardless of country
 GLOBAL_CONNECTORS = {
+    "axiom_known_proximity",  # replayable local teammate and vehicle proximity
     "trade_csl",           # US CSL but screens ALL entities (not just US)
     "un_sanctions",        # UN (global)
     "opensanctions_pep",   # OpenSanctions (global)

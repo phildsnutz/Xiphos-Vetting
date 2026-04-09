@@ -900,11 +900,12 @@ def _mission_command_settings(target: SearchTarget) -> dict:
             "sam_gov",
         ],
         "general_pressure": [
+            "axiom_known_proximity",
             "public_search_ownership",
             "rss_public",
-            "fpds_contracts",
-            "sam_subaward_reporting",
             "sam_gov",
+            "sam_subaward_reporting",
+            "fpds_contracts",
         ],
     }
     instructions = {

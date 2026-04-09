@@ -21,6 +21,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+from secure_runtime_env import ensure_runtime_env_loaded
+
 from . import EnrichmentResult, Finding
 from . import usaspending
 
@@ -34,6 +36,7 @@ LOOKBACK_START = "2020-01-01"
 
 
 def _get_api_key() -> str:
+    ensure_runtime_env_loaded(("XIPHOS_SAM_API_KEY", "SAM_GOV_API_KEY", "XIPHOS_SAM_GOV_API_KEY"))
     return os.environ.get("XIPHOS_SAM_API_KEY", os.environ.get("SAM_GOV_API_KEY", ""))
 
 

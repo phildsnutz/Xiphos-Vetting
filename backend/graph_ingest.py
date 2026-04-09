@@ -1762,6 +1762,10 @@ def _ingest_relationship(kg, er, primary_entity_id: str, vendor_name: str, rel: 
         REL_OPERATES_FACILITY,
         REL_SHIPS_VIA,
         REL_DEPENDS_ON_SERVICE,
+        REL_TEAMED_WITH,
+        REL_COMPETED_ON,
+        REL_INCUMBENT_ON,
+        REL_PERFORMED_AT,
     }:
         source_name = (rel.get("source_entity") or vendor_name or "").strip()
         target_name = (rel.get("target_entity") or rel.get("entity") or "").strip()

@@ -1,0 +1,33 @@
+{
+  "dataset_id": "axiom-known-proximity-v1",
+  "version": "2026-04-09",
+  "records": [
+    {
+      "record_id": "kavaliro-grey-zone-proximity",
+      "vendor_name": "Kavaliro",
+      "aliases": [
+        "Kavaliro",
+        "Kavaliro Search Group"
+      ],
+      "website": "https://www.kavaliro.com",
+      "cage": "5B1D2",
+      "confidence": 0.74,
+      "source_note": "Analyst-provided local mission memory and grey-zone validation. Use for teammate and vehicle proximity, not as an official award registry.",
+      "prime_paths": [
+        "SMX",
+        "Parsons",
+        "Alion",
+        "CACI"
+      ],
+      "teammate_paths": [
+        "The Unconventional"
+      ],
+      "vehicle_mentions": [
+        "CEOIS",
+        "JCETII",
+        "C3PO",
+        "LEIA"
+      ]
+    }
+  ]
+}

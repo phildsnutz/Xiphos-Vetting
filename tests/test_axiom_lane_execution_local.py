@@ -93,13 +93,16 @@ def test_run_agent_skips_careers_search_and_long_sleeps_in_mission_command(monke
 
     assert scraper_queries == []
     assert web_queries == []
-    assert connector_calls == [
-        "public_search_ownership",
-        "rss_public",
-        "fpds_contracts",
-        "sam_subaward_reporting",
-        "sam_gov",
-    ]
+    assert connector_calls[0] == "public_search_ownership"
+    assert sorted(connector_calls) == sorted(
+        [
+            "axiom_known_proximity",
+            "public_search_ownership",
+            "rss_public",
+            "sam_gov",
+            "sam_subaward_reporting",
+        ]
+    )
     assert result.total_connector_calls == 5
     assert result.runtime["lane_id"] == "mission_command"
     assert len(result.iterations) == 2
@@ -193,11 +196,11 @@ def test_mission_command_general_pressure_uses_mid_market_connector_mix():
     assert settings["focus"] == "general_pressure"
     assert settings["max_connector_requests_per_iteration"] == 5
     assert settings["allowed_connectors"][:5] == (
+        "axiom_known_proximity",
         "public_search_ownership",
         "rss_public",
-        "fpds_contracts",
-        "sam_subaward_reporting",
         "sam_gov",
+        "sam_subaward_reporting",
     )
 
 
@@ -387,6 +390,24 @@ def test_run_agent_accepts_string_intelligence_gaps(monkeypatch):
     )
     monkeypatch.setattr(axiom_agent, "_build_vehicle_mode_support", lambda target: {})
     monkeypatch.setattr(axiom_agent, "_run_scraper", lambda query, target: [])
+    monkeypatch.setattr(
+        axiom_agent,
+        "_run_connector",
+        lambda name, vendor_name, **kwargs: {
+            "success": True,
+            "connector_name": name,
+            "vendor_name": vendor_name,
+            "findings_count": 0,
+            "findings": [],
+            "has_data": False,
+            "identifiers": {},
+            "relationship_count": 0,
+            "relationships": [],
+            "structured_fields": {},
+            "error": "",
+            "elapsed_ms": 1,
+        },
+    )
     monkeypatch.setattr(
         axiom_agent,
         "_call_llm",
