@@ -1,0 +1,82 @@
+{
+  "capture_gap": {
+    "gap_id": "cg-kavaliro-teaming-001",
+    "gap_type": "teaming_and_vehicle_proximity_unverified",
+    "subject_entity": "Kavaliro",
+    "thread_scope": "general_pressure",
+    "current_claim": "Kavaliro appears near SMX, Parsons, Alion, CACI, The Unconventional, and vehicles CEOIS, JCETII, C3PO, and LEIA.",
+    "missing_fact": "Exact vehicle role, prime relationship, workshare, timing, and current-vs-historical status remain unverified.",
+    "why_it_matters": "This uncertainty weakens teammate mapping and incumbent pressure.",
+    "business_impact": "Affects bid posture, teammate targeting, and where capture should apply effort first.",
+    "official_support_state": "thin",
+    "confidence": 0.74,
+    "priority": "high",
+    "best_source_class_to_close": [
+      "prime_capture_or_bd",
+      "vehicle_adjacent_teammate",
+      "first_party_artifact",
+      "official_procurement_artifact_if_available"
+    ],
+    "best_collection_channel": [
+      "targeted_outreach",
+      "vehicle_teaming_conversation",
+      "first_party_page_or_archive_hunt"
+    ],
+    "questions_to_ask": [
+      "Was Kavaliro on LEIA, C3PO, or both?",
+      "Under which prime did Kavaliro perform?",
+      "What capability lane or labor category did Kavaliro hold?",
+      "Was the relationship current, predecessor-bound, or one-off?",
+      "Did The Unconventional and Kavaliro sit on the same team or on adjacent teams?"
+    ],
+    "acceptable_proof": {
+      "minimum_standard": "one first-party artifact or two independent corroborations",
+      "upgrade_rule": "do not promote proximity to confirmed teammate status without corroboration",
+      "disqualifying_state": "single-source hearsay with no supporting artifact"
+    },
+    "recommended_next_action": "Pressure the SMX to LEIA/C3PO lineage first, then confirm whether The Unconventional and Kavaliro co-appear on the same pursuit or only adjacent ones.",
+    "closure_value": "high",
+    "status": "open"
+  },
+  "field_closure_pack": {
+    "pack_id": "fcp-kavaliro-001",
+    "target": "Kavaliro",
+    "mission": "Resolve grey-zone teammate and vehicle posture around The Unconventional and SMX-linked vehicle work.",
+    "working_picture": "Kavaliro sits in a proximity map near SMX, Parsons, Alion, CACI, The Unconventional, CEOIS, JCETII, C3PO, and LEIA. Official corroboration remains thin.",
+    "priority_gaps": [
+      "cg-kavaliro-teaming-001"
+    ],
+    "questions": [
+      "Was Kavaliro on LEIA, C3PO, or both?",
+      "Under which prime did Kavaliro perform?",
+      "What workshare or capability lane did Kavaliro hold?"
+    ],
+    "proof_targets": [
+      "first-party page or archived teaming reference",
+      "prime-side confirmation",
+      "independent teammate-side corroboration"
+    ],
+    "red_flags": [
+      "human recollection without corroboration",
+      "vehicle name confusion across predecessor and successor programs",
+      "claim upgrade from proximity to confirmed role without proof"
+    ],
+    "recommended_next_actions": [
+      "Start with SMX lineage and predecessor/successor clarification.",
+      "Validate whether The Unconventional and Kavaliro appear on the same team or only the same mission space."
+    ]
+  },
+  "closure_evidence": {
+    "closure_evidence_id": "ce-kavaliro-001",
+    "gap_id": "cg-kavaliro-teaming-001",
+    "collector": "Tye Gonzalez",
+    "collection_method": "conversation",
+    "source_type": "industry_contact",
+    "source_reliability": "medium",
+    "evidence_text": "Contact stated Kavaliro supported predecessor C3PO under SMX in analytics staffing, but could not confirm LEIA carryover.",
+    "artifact_ref": "",
+    "confidence": 0.62,
+    "disposition": "partially_corroborates",
+    "follow_on_action": "Need one independent corroboration or artifact before promoting to confirmed C3PO support."
+  }
+}
